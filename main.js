@@ -1,5 +1,10 @@
+"use strict";
+
 const COMPUTE_DEBOUNCE_TIME = 200;
 
+/*
+스크롤이나 줄맞추는 기능들은 아직은 "대충 이렇게 하면 되겠지"의 구현일 뿐 손볼 게 많음.
+*/
 const DiffSeek = (function () {
 	let _diffs = [];
 	let _anchors = [];
@@ -200,32 +205,38 @@ const DiffSeek = (function () {
 		}
 	}
 
-	rightEditor.editor.addEventListener("contextmenu", (e) => {
-		e.preventDefault();
-		if (_alignedMode) {
-			disableAlignedMode(true);
-		} else {
-			enableAlignedMode();
-		}
-	});
-
-	rightEditor.mirror.addEventListener("contextmenu", (e) => {
-		e.preventDefault();
-
-		disableAlignedMode(true);
-	});
+	// 아 귀찮아
+	for (const editor of [leftEditor, rightEditor]) {
+		editor.editor.addEventListener("contextmenu", (e) => {
+			e.preventDefault();
+			if (_alignedMode) {
+				disableAlignedMode(true);
+			} else {
+				enableAlignedMode();
+			}
+		});
 	
-	rightEditor.mirror.addEventListener("click", (e) => {
-		if (e.ctrlKey) {
+		editor.mirror.addEventListener("contextmenu", (e) => {
+			e.preventDefault();
+	
 			disableAlignedMode(true);
-		}
-	});
+		});
+		
+		editor.mirror.addEventListener("click", (e) => {
+			if (e.ctrlKey) {
+				disableAlignedMode(true);
+			}
+		});
+	
+		editor.mirror.addEventListener("dblclick", (e) => {
+			if (e.ctrlKey) {
+				disableAlignedMode(true);
+			}
+		});
 
-	rightEditor.mirror.addEventListener("dblclick", (e) => {
-		if (e.ctrlKey) {
-			disableAlignedMode(true);
-		}
-	});
+	}
+
+	
 
 	function selectText(range, editor, startLineNumber, startOffset, endLineNumber, endOffset) {
 		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -280,6 +291,7 @@ const DiffSeek = (function () {
 	function getSelectionRange() {
 		const selection = window.getSelection();
 		const range = selection.rangeCount ? selection.getRangeAt(0) : null;
+		let editor;
 		if (range) {
 			if (leftEditor.mirror.contains(range.commonAncestorContainer)) {
 				editor = leftEditor.editor;
@@ -302,7 +314,7 @@ const DiffSeek = (function () {
 
 			let currentNode;
 			let startOffset = 0;
-			walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null, false);
+			let walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null, false);
 			while ((currentNode = walker.nextNode())) {
 				if (currentNode === range.startContainer) {
 					startOffset += range.startOffset;
@@ -559,9 +571,26 @@ const DiffSeek = (function () {
 
 	disableAlignedMode();
 
+	function syncScrollByAnchor(sourceEditor, targetEditor, anchorIndex) {
+		const prevLastScrolledEditor = _lastScrolledEditor;
+		const sourceWrapper = sourceEditor.wrapper;
+		const targetWrapper = targetEditor.wrapper;
+		const sourceAnchor = sourceEditor.anchorElements[anchorIndex];
+		const targetAnchor = targetEditor.anchorElements[anchorIndex];
+		targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
+		_lastScrolledEditor = prevLastScrolledEditor;		
+
+	}
+
 	function syncScrollPosition(sourceEditor, targetEditor, backward = false) {
 		const sourceAnchors = sourceEditor.getVisibleAnchors();
 		if (sourceAnchors.length === 0) {
+			return;
+		}
+
+		const nearestToCaret = sourceEditor.getNearestAnchorToCaret();
+		if (nearestToCaret) {
+			syncScrollByAnchor(sourceEditor, targetEditor,Number(nearestToCaret.dataset.anchor));
 			return;
 		}
 

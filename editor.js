@@ -1,3 +1,5 @@
+"use strict";
+
 const ANCHOR = "ANCHOR";
 const CHARS = "CHARS";
 const DIFF = "DIFF";
@@ -29,12 +31,29 @@ function createEditor(container, name, callbacks) {
 	editor.contentEditable = "plaintext-only";
 	editor.spellcheck = false;
 
+	editor.appendChild(document.createTextNode(""));
+
 	wrapper.appendChild(mirror);
 	wrapper.appendChild(editor);
 	container.appendChild(wrapper);
 
 	function updateText() {
 		_text = editor.textContent;
+		let p = _text.length - 1;
+		let endsWithNewline = false;
+		while (p >= 0) {
+			if (!/\s/.test(_text[p])) {
+				break;
+			}
+			if (_text[p] === "\n") {
+				endsWithNewline = true;
+				break;
+			}
+			p--;
+		}
+		if (!endsWithNewline) {
+			_text += "\n";
+		}
 		onTextChanged(_text);
 	}
 
@@ -82,6 +101,46 @@ function createEditor(container, name, callbacks) {
 		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
 	}
 
+	let mouseX;
+	let mouseY;
+	document.addEventListener("mousemove", (event) => {
+		mouseX = event.clientX;
+		mouseY = event.clientY;
+	});
+
+	const EDITOR_PADDING = 9; // FIXME constant에서 설정하고 그 값으로 css를 만들기
+	function getNearestAnchorToCaret() {
+		const selection = window.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return null;
+		}
+		let range = selection.getRangeAt(0);
+		if (!editor.contains(range.startContainer)) {
+			return null;
+		}
+		let rect = range.getBoundingClientRect();
+		let y;
+		if (rect.left === 0 && rect.top === 0) {
+			y = EDITOR_PADDING + wrapper.scrollTop;
+		} else {
+			y = rect.top + wrapper.scrollTop;
+		}
+
+		let nearestAnchor = null;
+		let minDistance = Number.MAX_SAFE_INTEGER;
+		for (const anchor of _visibleAnchors) {
+			const distance = Math.abs(Number(anchor.dataset.pos) - y);
+			if (distance < minDistance) {
+				minDistance = distance;
+				nearestAnchor = anchor;
+				if (distance < LINE_HEIGHT / 2) {
+					break;
+				}
+			}
+		}
+		return nearestAnchor;
+	}
+
 	function getFirstVisibleLineElementInEditor() {
 		const lineEls = _lineElements;
 		// 이진 검색으로 현재 화면에 보이는 줄 엘러먼트 중 첫번째 찾기
@@ -96,7 +155,7 @@ function createEditor(container, name, callbacks) {
 			const top = lineEls[mid].getBoundingClientRect().top;
 			if (top >= 0) {
 				lineEl = lineEls[mid];
-				if (top <= 10) {
+				if (top < 10) {
 					// 이정도면 안전하게 "찾았다"라고 말할 수 있지 않을까?
 					// 변태같이 화면 스케일을 1/2로 줄이지 않는 이상...
 					break;
@@ -193,14 +252,16 @@ function createEditor(container, name, callbacks) {
 		if (!diffs) {
 			return;
 		}
+		console.debug("update");
 
 		_lineElements.length = 0;
 		_diffElements.length = 0;
 		_anchorElements.length = 0;
 		untrackVisibleAnchors();
 
-		editor.style.removeProperty("min-height");
-		mirror.style.removeProperty("min-height");
+		// editor.style.removeProperty("min-height");
+		// mirror.style.removeProperty("min-height");
+		// wrapper.style.removeProperty("min-height");
 
 		const text = _text;
 		const view = mirror;
@@ -224,7 +285,7 @@ function createEditor(container, name, callbacks) {
 			}
 			inlineNode.id = `${name}Anchor${anchorIndex}-${anchor.type}`;
 			inlineNode.dataset.anchor = anchorIndex;
-			inlineNode.dataset.type = anchor.type; 
+			inlineNode.dataset.type = anchor.type;
 			inlineNode.dataset.pos = pos;
 			if (diffIndex !== null) {
 				inlineNode.dataset.diff = diffIndex;
@@ -250,7 +311,7 @@ function createEditor(container, name, callbacks) {
 				}
 				inlineNode.dataset.diff = currentDiffIndex;
 				inlineNode.className = "diff-color" + ((currentDiffIndex % NUM_DIFF_COLORS) + 1);
-				inlineNode.classList.toggle("block", diff.align && diff[name].empty);
+				//inlineNode.classList.toggle("block", diff.align && diff[name].empty);
 				_diffElements[currentDiffIndex] = _diffElements[currentDiffIndex] || [];
 				_diffElements[currentDiffIndex].push(inlineNode);
 				unwrittenDiff = false;
@@ -291,6 +352,9 @@ function createEditor(container, name, callbacks) {
 
 			while (!(textRunResult = textruns.next()).done) {
 				const { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar } = textRunResult.value;
+				// if (name === "right") {
+				// 	console.log(lineNum, { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar });
+				// }
 				_pos = pos;
 				if (type === DIFF) {
 					currentDiffIndex = diffIndex;
@@ -340,10 +404,12 @@ function createEditor(container, name, callbacks) {
 		}
 
 		requestAnimationFrame(() => {
-			const height = view.scrollHeight;
-			editor.style.minHeight = height + "px";
-			mirror.style.minHeight = height + "px";
+			// const height = view.scrollHeight;
+			// editor.style.minHeight = height + "px";
+			// mirror.style.minHeight = height + "px";
+			// wrapper.style.minHeight = height + "px";
 		});
+		console.debug("update done");
 		trackVisibleAnchors();
 		onMirrorUpdated();
 	}
@@ -352,7 +418,7 @@ function createEditor(container, name, callbacks) {
 		if (!_observingAnchors) {
 			for (const anchor of _anchorElements) {
 				//if (!anchor.id.endsWith("-after")) {
-					anchorIntersectionObserver.observe(anchor);
+				anchorIntersectionObserver.observe(anchor);
 				//}
 			}
 			_observingAnchors = true;
@@ -383,6 +449,12 @@ function createEditor(container, name, callbacks) {
 		return firstAnchor;
 	}
 
+	function setEditMode(editMode) {
+		// editmode인 경우 mirror와 editor를 둘 다 보여주고 높이도 동기화 해야한다.
+		// 둘의 높이는 무조건 같다. 왜냐면 editor에 따라 wrapper 크기가 결정되고 wrapper에 따라 mirror크기 결정되니까.
+		// 자바스크립트 쓸 필요가 없어야 한다.
+	}
+
 	updateText();
 
 	return {
@@ -402,6 +474,7 @@ function createEditor(container, name, callbacks) {
 		getFirstVisibleAnchor,
 		scrollToLine,
 		getFirstVisibleLineElementInEditor,
+		getNearestAnchorToCaret,
 		get text() {
 			return _text;
 		},
@@ -416,10 +489,14 @@ function createEditor(container, name, callbacks) {
 		},
 		get anchorElements() {
 			return _anchorElements;
-		}
+		},
 	};
 }
 
+// 최적화의 여지가 많음
+// textrun 배열을 만들면 나중에 변경된 부분만 업데이트 하거나 특정 줄만 업데이트 하기 수월함.
+// mirror를 안쓰고 editor 자체를 dom으로 만들 경우 현재 커서가 있는 줄을 수정하는 게 상당히 거슬리는데(특히 한글 입력 중이면)
+// 특정 줄만 업데이트를 미뤄둘 수 있으면 그런 상황에서 특정 줄만 업데이트 미뤄두고 상황 봐서 나중에 그 줄만 업데이트 할 수 있음.
 function* textrunGenerator(textKey, text, diffs, anchors) {
 	const _textLen = text.length;
 	let _pos = 0;
@@ -432,6 +509,8 @@ function* textrunGenerator(textKey, text, diffs, anchors) {
 	let _diffEnd;
 	let _hasNonSpaceChar = false;
 	let _lineNum = 1;
+
+	let nextEventPos = Number.MAX_SAFE_INTEGER;
 
 	const current = {
 		pos: 0,
@@ -450,7 +529,7 @@ function* textrunGenerator(textKey, text, diffs, anchors) {
 			const data = anchors[_anchorIndex];
 			_anchorPos = data[textKey];
 			if (_anchorPos < _pos) {
-				//console.warn("Anchor skipped", { anchor: data, anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
+				console.warn("Anchor skipped", { anchor: data, anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
 				nextAnchor();
 			}
 		} else {
@@ -495,25 +574,31 @@ function* textrunGenerator(textKey, text, diffs, anchors) {
 	// 반대의 순서는 없음.
 
 	while (true) {
+		if (_pos === _anchorPos) {
+			let anchor = anchors[_anchorIndex];
+			if (anchor.type === "before") {
+				current.type = ANCHOR;
+				current.pos = _pos;
+				current.len = 0;
+				current.diffIndex = _diffIndex;
+				current.anchorIndex = _anchorIndex;
+				yield current;
+				nextAnchor();
+			}
+			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
+				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
+				_pos++;
+			}
+			if (_textPos < _pos) {
+				yield chars();
+			}
+		}
+
 		if (_pos === _diffPos) {
 			// 현재 위치 이전까지의 문자열들.
 			if (_textPos < _pos) {
 				yield chars();
 			}
-			
-			if (_pos === _anchorPos) {
-				let anchor = anchors[_anchorIndex];
-				if (anchor.diffIndex === _diffIndex && anchor.type === "before") {
-					current.type = ANCHOR;
-					current.pos = _pos;
-					current.len = 0;
-					current.diffIndex = _diffIndex;
-					current.anchorIndex = _anchorIndex;
-					yield current;
-					nextAnchor();
-				}
-			}
-
 			_inDiff = true;
 			_diffPos = Number.MAX_SAFE_INTEGER;
 			current.type = DIFF;
@@ -523,63 +608,51 @@ function* textrunGenerator(textKey, text, diffs, anchors) {
 			yield current;
 		}
 
+		while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
+			_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
+			_pos++;
+		}
+		if (_textPos < _pos) {
+			yield chars();
+		}
+
 		if (_pos === _diffEnd) {
-			if (_textPos < _pos) {
-				yield chars();
-			}
 			current.type = DIFF_END;
 			current.pos = _pos;
 			current.len = 0;
 			current.diffIndex = _diffIndex;
 			yield current;
 			_inDiff = false;
-			// 현재 diff::after 앵커가 존재하면 그것 먼저 반환한 후에 nextDiff() 해야함!
-			if (_pos === _anchorPos) {
-				let anchor = anchors[_anchorIndex];
-				if (anchor.diffIndex === _diffIndex && anchor.type === "after") {
-					current.type = ANCHOR;
-					current.pos = _pos;
-					current.len = 0;
-					current.diffIndex = _diffIndex;
-					current.anchorIndex = _anchorIndex;
-					yield current;
-					nextAnchor();
-				} else {
-					//console.warn("Anchor skipped", { anchor, pos: _pos, anchorPos: _anchorPos, diffIndex: _diffIndex });
-					nextAnchor();
-				}
-			}
 			nextDiff();
+			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
+				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
+				_pos++;
+			}
+			if (_textPos < _pos) {
+				yield chars();
+			}
 		}
 
 		if (_pos === _anchorPos) {
-			let anchor = anchors[_anchorIndex];
-			if (anchor.diffIndex === null && anchor.type === "before") {
+			const anchor = anchors[_anchorIndex];
+			if (anchor.type === "after") {
 				current.type = ANCHOR;
 				current.pos = _pos;
 				current.len = 0;
-				current.diffIndex = null;
+				current.diffIndex = _diffIndex;
 				current.anchorIndex = _anchorIndex;
 				yield current;
 				nextAnchor();
-			} else {
-				//console.warn("Anchor skipped", { anchor, pos: _pos, anchorPos: _anchorPos });
-				nextAnchor();
 			}
-		}
-		
-		while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-			_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-			_pos++;
-		}
+			// type이 after가 아니더라도 이미 이 시점에서는 before 타입 앵커를 리턴할 수 없다.
 
-		if (_pos === _diffPos || _pos === _diffEnd || _pos === _anchorPos) {
-			// 다음 루프에서 처리
-			continue;
-		}
-
-		if (_textPos < _pos) {
-			yield chars();
+			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
+				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
+				_pos++;
+			}
+			if (_textPos < _pos) {
+				yield chars();
+			}
 		}
 
 		if (text[_pos] === "\n") {
@@ -590,16 +663,28 @@ function* textrunGenerator(textKey, text, diffs, anchors) {
 			yield current;
 			_lineNum++;
 			_textPos = ++_pos;
+
+			while (_anchorPos < _pos) {
+				console.warn("Anchor skipped", { anchor: anchors[_anchorIndex], anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
+				nextAnchor();
+			}
+
 			continue;
 		}
 
-		break;
+		if (_pos >= _textLen) {
+			current.type = END_OF_STRING;
+			current.pos = _textLen;
+			current.len = 0;
+			current.diffIndex = null;
+			return current;
+		}
 	}
 
-	current.type = END_OF_STRING;
-	current.pos = _textLen;
-	current.len = 0;
-	current.diffIndex = null;
-	yield current;
+	// current.type = END_OF_STRING;
+	// current.pos = _textLen;
+	// current.len = 0;
+	// current.diffIndex = null;
+	// yield current;
 	//yield [END_OF_STRING, _textLen, 0, null];
 }

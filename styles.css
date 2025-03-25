@@ -5,6 +5,7 @@
 	--editor-padding: 8px;
 	--line-height: 20px;
 	--scroll-margin: 1rem;
+	font-size: 16px;
 }
 
 * {
@@ -83,10 +84,6 @@ html {
 
 .mirror,
 .editor {
-	white-space-collapse: preserve;
-	text-wrap-mode: wrap;
-	text-wrap: stable;
-	max-height: 100%;
 	z-index: -1;
 	border: 0;
 	min-height: 100%;
@@ -98,15 +95,10 @@ html {
 	font-size: 1rem;
 	margin: 0;
 	overflow-y: visible;
-	height: 100%;
+	/* height: 100%; */
 	white-space: pre-wrap;
-	/* 
-	contenteditable과 아닌 것에서 일관적으로 줄바꿈이 되지 않음!
-	*/
 	word-break: break-all;
 	overflow-wrap: anywhere;
-	border: 1px solid #ccc;
-	border-radius: 4px;
 	z-index: 0;
 	max-width: 100%;
 	width: 100%;
@@ -121,6 +113,8 @@ html {
 
 .editor {
 	z-index: 2;
+	border: 1px solid #ccc;
+	border-radius: 4px;
 }
 
 .mirror {
@@ -130,6 +124,7 @@ html {
 	left: 0;
 	pointer-events: none;
 	color: rgba(0, 0, 0, 0.1);
+	border: 1px solid transparent;
 	/* color: rgba(0, 0, 0, 0.1);
 	background-color: #f8f8f8; */
 }
@@ -275,7 +270,8 @@ hr {
 }
 
 .aligned hr {
-	background: black repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
+	background: black
+		repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
 }
 
 .aligned hr[data-diff][data-type="after"] {
@@ -321,9 +317,6 @@ scrolling
 
 .aligned .editor-wrapper:last-child {
 	margin-left: 8px;
-}
-
-.aligned .editor-wrapper::-webkit-scrollbar {
 }
 
 @keyframes highlightAnimation {

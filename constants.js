@@ -6,6 +6,8 @@ const LINE_TAG = "DIV";
 const ANCHOR_TAG = "HR";
 const DIFF_ELEMENT_NAME = "MARK";
 const LINE_HEIGHT = 20;
+const TOPBAR_HEIGHT = 20;
+const COMPUTE_DEBOUNCE_TIME = 200;
 
 const PROCESSING_MESSAGES = [
 	"한땀한땀 비교 중...",
@@ -22,3 +24,4 @@ const PROCESSING_MESSAGES = [
     "3... 2... 1...",
     "SYSTEM MALFUNCTION...",
 ];
+

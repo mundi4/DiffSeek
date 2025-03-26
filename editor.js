@@ -1,12 +1,5 @@
 "use strict";
 
-const ANCHOR = "ANCHOR";
-const CHARS = "CHARS";
-const DIFF = "DIFF";
-const DIFF_END = "DIFF_END";
-const LINEBREAK = "LINEBREAK";
-const END_OF_STRING = "END_OF_STRING";
-
 function createEditor(container, name, callbacks) {
 	const { onTextChanged, onMirrorUpdated } = callbacks;
 	const _lineElements = [];
@@ -259,6 +252,9 @@ function createEditor(container, name, callbacks) {
 		_anchorElements.length = 0;
 		untrackVisibleAnchors();
 
+		const textrunz = getTextRuns(name, _text, diffs, anchors);
+		console.log(name, "textrunz", textrunz);
+
 		// editor.style.removeProperty("min-height");
 		// mirror.style.removeProperty("min-height");
 		// wrapper.style.removeProperty("min-height");
@@ -269,7 +265,7 @@ function createEditor(container, name, callbacks) {
 		let lineEl = null;
 		let inlineNode = null;
 		let currentDiffIndex = null;
-		let lineNum = 1;
+		let lineNum = 0;
 		let unwrittenDiff = false;
 		let lineHasNonSpaceChar = false;
 		let lineHasNonSpaceNonDiffChar = false;
@@ -283,7 +279,7 @@ function createEditor(container, name, callbacks) {
 				lineEl.insertBefore(el, inlineNode);
 				inlineNode = el;
 			}
-			inlineNode.id = `${name}Anchor${anchorIndex}-${anchor.type}`;
+			inlineNode.id = `${name}Anchor${anchorIndex}`;
 			inlineNode.dataset.anchor = anchorIndex;
 			inlineNode.dataset.type = anchor.type;
 			inlineNode.dataset.pos = pos;
@@ -296,7 +292,7 @@ function createEditor(container, name, callbacks) {
 			inlineNode = inlineNode.nextSibling;
 		}
 
-		function appendChars(chars, hasNonSpaceChar) {
+		function appendChars(chars) {
 			if (currentDiffIndex !== null) {
 				const diff = diffs[currentDiffIndex];
 				if (inlineNode === null || inlineNode.nodeName !== DIFF_ELEMENT_NAME) {
@@ -331,77 +327,139 @@ function createEditor(container, name, callbacks) {
 			inlineNode = inlineNode.nextSibling;
 		}
 
-		let textRunResult;
 
 		lineEl = view.firstElementChild;
+		if (lineEl === null) {
+			lineEl = document.createElement(LINE_TAG);
+			view.appendChild(lineEl);
+			lineEl.dataset.lineNum = lineNum;
+			lineEl.dataset.pos = _pos;
+			lineNum++;
+			_lineElements.push(lineEl);
+		}
+		inlineNode = lineEl.firstChild;
 
-		do {
-			lineHasNonSpaceChar = false;
-			lineHasNonSpaceNonDiffChar = false;
-			if (currentDiffIndex !== null) {
+		for (const textrun of textrunz) {
+			if (textrun.type === "CHARS") {
+				const { pos, len } = textrun;
+				appendChars(text.substring(pos, pos + len));
+			} else if (textrun.type === "ANCHOR") {
+				const { pos, anchorIndex } = textrun;
+				appendAnchor(pos, anchorIndex, currentDiffIndex);
+				unwrittenDiff = false;
+			} else if (textrun.type === "DIFF") {
+				currentDiffIndex = textrun.diffIndex;
 				unwrittenDiff = true;
-			}
-			if (lineEl === null) {
-				lineEl = document.createElement(LINE_TAG);
-				view.appendChild(lineEl);
-				lineEl.dataset.lineNum = lineNum;
-				lineEl.dataset.pos = _pos;
-			}
-			_lineElements[lineNum - 1] = lineEl;
-			inlineNode = lineEl.firstChild;
+			} else if (textrun.type === "DIFF_END") {
+				if (unwrittenDiff) {
+					appendChars("");
+				}
+				currentDiffIndex = null;
+			} else if (textrun.type === "LINEBREAK" || textrun.type === "END_OF_STRING") {
+				if (unwrittenDiff) {
+					appendChars("");
+				}
 
-			while (!(textRunResult = textruns.next()).done) {
-				const { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar } = textRunResult.value;
-				// if (name === "right") {
-				// 	console.log(lineNum, { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar });
-				// }
-				_pos = pos;
-				if (type === DIFF) {
-					currentDiffIndex = diffIndex;
-					unwrittenDiff = true;
-				} else if (type === DIFF_END) {
-					if (unwrittenDiff) {
-						appendChars("", hasNonSpaceChar);
+				while (inlineNode) {
+					const nextInlineNode = inlineNode.nextSibling;
+					inlineNode.remove();
+					inlineNode = nextInlineNode;
+				}
+				if (textrun.type === "LINEBREAK") {
+					lineNum++;
+					lineEl = lineEl.nextElementSibling;
+					if (lineEl === null) {
+						lineEl = document.createElement(LINE_TAG);
+						view.appendChild(lineEl);
 					}
-					currentDiffIndex = null;
-				} else if (type === CHARS) {
-					lineHasNonSpaceChar = lineHasNonSpaceChar || hasNonSpaceChar;
-					if (currentDiffIndex === null) {
-						lineHasNonSpaceNonDiffChar = lineHasNonSpaceNonDiffChar || hasNonSpaceChar;
+					lineEl.dataset.lineNum = lineNum;
+					_lineElements.push(lineEl);
+					inlineNode = lineEl.firstChild;
+
+					_pos = textrun.pos + 1;
+					if (currentDiffIndex !== null) {
+						unwrittenDiff = true;
 					}
-					appendChars(text.substring(pos, pos + len), hasNonSpaceChar);
-				} else if (type === LINEBREAK || type === END_OF_STRING) {
-					//console.log("linebreak", { type, pos, len });
+
+				} else {
+					_lineElements.length = lineNum;
+					while (lineEl) {
+						const nextLineEl = lineEl.nextElementSibling;
+						lineEl.remove();
+						lineEl = nextLineEl;
+					}
 					break;
-				} else if (type === ANCHOR) {
-					appendAnchor(pos, anchorIndex, diffIndex);
 				}
 			}
-
-			if (unwrittenDiff) {
-				appendChars("", false);
-			}
-
-			while (inlineNode) {
-				const nextInlineNode = inlineNode.nextSibling;
-				inlineNode.remove();
-				inlineNode = nextInlineNode;
-			}
-
-			lineEl = lineEl.nextElementSibling;
-			if (textRunResult.value.type === END_OF_STRING) {
-				break;
-			}
-			lineNum++;
-		} while (!textRunResult.done);
-
-		_lineElements.length = lineNum;
-
-		while (lineEl) {
-			const nextLineEl = lineEl.nextElementSibling;
-			lineEl.remove();
-			lineEl = nextLineEl;
 		}
+		// let textRunResult;
+		// do {
+		// 	lineHasNonSpaceChar = false;
+		// 	lineHasNonSpaceNonDiffChar = false;
+		// 	if (currentDiffIndex !== null) {
+		// 		unwrittenDiff = true;
+		// 	}
+		// 	if (lineEl === null) {
+		// 		lineEl = document.createElement(LINE_TAG);
+		// 		view.appendChild(lineEl);
+		// 		lineEl.dataset.lineNum = lineNum;
+		// 		lineEl.dataset.pos = _pos;
+		// 	}
+		// 	_lineElements[lineNum - 1] = lineEl;
+		// 	inlineNode = lineEl.firstChild;
+
+		// 	while (!(textRunResult = textruns.next()).done) {
+		// 		const { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar } = textRunResult.value;
+		// 		// if (name === "right") {
+		// 		// 	console.log(lineNum, { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar });
+		// 		// }
+		// 		_pos = pos;
+		// 		if (type === DIFF) {
+		// 			currentDiffIndex = diffIndex;
+		// 			unwrittenDiff = true;
+		// 		} else if (type === DIFF_END) {
+		// 			if (unwrittenDiff) {
+		// 				appendChars("", hasNonSpaceChar);
+		// 			}
+		// 			currentDiffIndex = null;
+		// 		} else if (type === CHARS) {
+		// 			lineHasNonSpaceChar = lineHasNonSpaceChar || hasNonSpaceChar;
+		// 			if (currentDiffIndex === null) {
+		// 				lineHasNonSpaceNonDiffChar = lineHasNonSpaceNonDiffChar || hasNonSpaceChar;
+		// 			}
+		// 			appendChars(text.substring(pos, pos + len), hasNonSpaceChar);
+		// 		} else if (type === LINEBREAK || type === END_OF_STRING) {
+		// 			//console.log("linebreak", { type, pos, len });
+		// 			break;
+		// 		} else if (type === ANCHOR) {
+		// 			appendAnchor(pos, anchorIndex, diffIndex);
+		// 		}
+		// 	}
+
+		// 	if (unwrittenDiff) {
+		// 		appendChars("", false);
+		// 	}
+
+		// 	while (inlineNode) {
+		// 		const nextInlineNode = inlineNode.nextSibling;
+		// 		inlineNode.remove();
+		// 		inlineNode = nextInlineNode;
+		// 	}
+
+		// 	lineEl = lineEl.nextElementSibling;
+		// 	if (textRunResult.value.type === END_OF_STRING) {
+		// 		break;
+		// 	}
+		// 	lineNum++;
+		// } while (!textRunResult.done);
+
+		// _lineElements.length = lineNum;
+
+		// while (lineEl) {
+		// 	const nextLineEl = lineEl.nextElementSibling;
+		// 	lineEl.remove();
+		// 	lineEl = nextLineEl;
+		// }
 
 		requestAnimationFrame(() => {
 			// const height = view.scrollHeight;
@@ -491,200 +549,4 @@ function createEditor(container, name, callbacks) {
 			return _anchorElements;
 		},
 	};
-}
-
-// 최적화의 여지가 많음
-// textrun 배열을 만들면 나중에 변경된 부분만 업데이트 하거나 특정 줄만 업데이트 하기 수월함.
-// mirror를 안쓰고 editor 자체를 dom으로 만들 경우 현재 커서가 있는 줄을 수정하는 게 상당히 거슬리는데(특히 한글 입력 중이면)
-// 특정 줄만 업데이트를 미뤄둘 수 있으면 그런 상황에서 특정 줄만 업데이트 미뤄두고 상황 봐서 나중에 그 줄만 업데이트 할 수 있음.
-function* textrunGenerator(textKey, text, diffs, anchors) {
-	const _textLen = text.length;
-	let _pos = 0;
-	let _textPos = 0;
-	let _diffIndex = -1;
-	let _anchorIndex = -1;
-	let _anchorPos;
-	let _diffPos;
-	let _inDiff = false;
-	let _diffEnd;
-	let _hasNonSpaceChar = false;
-	let _lineNum = 1;
-
-	let nextEventPos = Number.MAX_SAFE_INTEGER;
-
-	const current = {
-		pos: 0,
-		len: 0,
-		diffIndex: null,
-		anchorIndex: null,
-		hasNonSpaceChar: false,
-	};
-
-	// anchor위치는 diff의 시작위치
-	// diff 범위 밖일때는 어디에서든 올 수 있다
-
-	function nextAnchor() {
-		_anchorIndex++;
-		if (_anchorIndex < anchors.length) {
-			const data = anchors[_anchorIndex];
-			_anchorPos = data[textKey];
-			if (_anchorPos < _pos) {
-				console.warn("Anchor skipped", { anchor: data, anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
-				nextAnchor();
-			}
-		} else {
-			_anchorIndex = anchors.length;
-			_anchorPos = Number.MAX_SAFE_INTEGER;
-		}
-	}
-
-	function nextDiff() {
-		_diffIndex++;
-		if (_diffIndex < diffs.length) {
-			const data = diffs[_diffIndex][textKey];
-			_diffPos = data.pos;
-			_diffEnd = data.pos + data.len;
-		} else {
-			_diffIndex = diffs.length;
-			_diffPos = Number.MAX_SAFE_INTEGER;
-			_diffEnd = Number.MAX_SAFE_INTEGER;
-		}
-	}
-
-	// 일단 줄번호++
-	// 해당 줄번호에 해당하는 ling mapping를 찾아서 그 index를 _lineMapIndex로 저장.
-	// 못찾으면 그 이후 maping index에 ~를 씌운 값
-	//
-	nextDiff();
-	nextAnchor();
-
-	function chars() {
-		current.type = CHARS;
-		current.pos = _textPos;
-		current.len = _pos - _textPos;
-		current.diffIndex = _inDiff ? _diffIndex : null;
-		current.hasNonSpaceChar = _hasNonSpaceChar;
-		_hasNonSpaceChar = false;
-		_textPos = _pos;
-		return current;
-	}
-
-	// 주의:
-	// 같은 pos를 가진 anchor가 두개가 있을 수 있다. 길이가 0인 diff에 대한 anchor와 그 위치에 시작되는 common anchor
-	// 반대의 순서는 없음.
-
-	while (true) {
-		if (_pos === _anchorPos) {
-			let anchor = anchors[_anchorIndex];
-			if (anchor.type === "before") {
-				current.type = ANCHOR;
-				current.pos = _pos;
-				current.len = 0;
-				current.diffIndex = _diffIndex;
-				current.anchorIndex = _anchorIndex;
-				yield current;
-				nextAnchor();
-			}
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (_pos === _diffPos) {
-			// 현재 위치 이전까지의 문자열들.
-			if (_textPos < _pos) {
-				yield chars();
-			}
-			_inDiff = true;
-			_diffPos = Number.MAX_SAFE_INTEGER;
-			current.type = DIFF;
-			current.pos = _pos;
-			current.len = 0;
-			current.diffIndex = _diffIndex;
-			yield current;
-		}
-
-		while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-			_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-			_pos++;
-		}
-		if (_textPos < _pos) {
-			yield chars();
-		}
-
-		if (_pos === _diffEnd) {
-			current.type = DIFF_END;
-			current.pos = _pos;
-			current.len = 0;
-			current.diffIndex = _diffIndex;
-			yield current;
-			_inDiff = false;
-			nextDiff();
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (_pos === _anchorPos) {
-			const anchor = anchors[_anchorIndex];
-			if (anchor.type === "after") {
-				current.type = ANCHOR;
-				current.pos = _pos;
-				current.len = 0;
-				current.diffIndex = _diffIndex;
-				current.anchorIndex = _anchorIndex;
-				yield current;
-				nextAnchor();
-			}
-			// type이 after가 아니더라도 이미 이 시점에서는 before 타입 앵커를 리턴할 수 없다.
-
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (text[_pos] === "\n") {
-			current.type = LINEBREAK;
-			current.pos = _pos;
-			current.len = 1;
-			current.diffIndex = _inDiff ? _diffIndex : null;
-			yield current;
-			_lineNum++;
-			_textPos = ++_pos;
-
-			while (_anchorPos < _pos) {
-				console.warn("Anchor skipped", { anchor: anchors[_anchorIndex], anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
-				nextAnchor();
-			}
-
-			continue;
-		}
-
-		if (_pos >= _textLen) {
-			current.type = END_OF_STRING;
-			current.pos = _textLen;
-			current.len = 0;
-			current.diffIndex = null;
-			return current;
-		}
-	}
-
-	// current.type = END_OF_STRING;
-	// current.pos = _textLen;
-	// current.len = 0;
-	// current.diffIndex = null;
-	// yield current;
-	//yield [END_OF_STRING, _textLen, 0, null];
 }

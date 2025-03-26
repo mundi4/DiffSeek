@@ -789,14 +789,14 @@ async function computeDiff({
 	const rightTokensLength = rightTokens.length;
 	// LCS에 비해 나머지 부분은 성능에 큰 영향을 미치지 않음.
 
-
 	function addAnchor(type, leftPos, rightPos, diffIndex = null) {
+		if (leftPos === undefined || rightPos === undefined) {
+			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
+		}
 		if (anchors.length > 0) {
 			let lastAnchor = anchors[anchors.length - 1];
-			while (lastAnchor.left > leftPos || lastAnchor.right > rightPos){
-				console.warn("popping",Array.from(anchors), type, leftPos, rightPos)
-				anchors.pop();
-				lastAnchor = anchors[anchors.length - 1];
+			if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
+				return;
 			}
 			if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
 				if (type === lastAnchor.type || type === "before") {
@@ -918,7 +918,6 @@ async function computeDiff({
 				rightEmpty = false;
 				anchorBefore = !!(leftTokens[leftIndex].flags & rightTokens[rightIndex].flags & FIRST_OF_LINE);
 				anchorAfter = !!(leftTokens[leftIndex + leftCount - 1].flags & rightTokens[rightIndex + rightCount - 1].flags & LAST_OF_LINE);
-
 
 				if (method > DIFF_BY_CHAR) {
 					// console.log("try fallback", {
@@ -1171,47 +1170,53 @@ async function computeDiff({
 				}
 
 				if (longSideIsFirstWord) {
-					longSideAnchorPos = longSidePos;
-					while (longSideAnchorPos > 0 && longSideText[longSideAnchorPos - 1] !== "\n") {
-						longSideAnchorPos--;
-					}
+			
 					if (shortSideAnchorPos !== undefined) {
 						shortSideAnchorPos = shortSidePos;
 						while (shortSideAnchorPos > 0 && shortSideText[shortSideAnchorPos - 1] !== "\n") {
 							shortSideAnchorPos--;
 						}
-					}
-					if (leftCount > 0) {
-						[leftAnchorPos, rightAnchorPos] = [longSideAnchorPos, shortSideAnchorPos];
-					} else {
-						[leftAnchorPos, rightAnchorPos] = [shortSideAnchorPos, longSideAnchorPos];
-					}
-					addAnchor("before", leftAnchorPos, rightAnchorPos);
 
-					if (longSideIsLastWord && shortSideIsOnLineEdge) {
-						longSideAnchorPos = longSidePos + longSideLen;
-						while (longSideAnchorPos < longSideEndPos && longSideText[longSideAnchorPos] !== "\n") {
-							longSideAnchorPos++;
+						longSideAnchorPos = longSidePos;
+						while (longSideAnchorPos > 0 && longSideText[longSideAnchorPos - 1] !== "\n") {
+							longSideAnchorPos--;
 						}
-						shortSideAnchorPos = shortSidePos + shortSideLen;
-						// 이후 이어지는 공백 문자 중 마지막 공백 문자 자리에서 AFTER 앵커
 
-						while (shortSideAnchorPos < shortSideEnd) {
-							if (shortSideText[shortSideAnchorPos] === "\n") {
-								break;
-							}
-							if (!SPACE_CHARS[shortSideText[shortSideAnchorPos]]) {
-								break;
-							}
-							shortSideAnchorPos++;
-						}
 						if (leftCount > 0) {
 							[leftAnchorPos, rightAnchorPos] = [longSideAnchorPos, shortSideAnchorPos];
 						} else {
 							[leftAnchorPos, rightAnchorPos] = [shortSideAnchorPos, longSideAnchorPos];
 						}
-						addAnchor("after", leftAnchorPos, rightAnchorPos);
+						addAnchor("before", leftAnchorPos, rightAnchorPos);
+
+						if (longSideIsLastWord && shortSideIsOnLineEdge) {
+							longSideAnchorPos = longSidePos + longSideLen;
+							while (longSideAnchorPos < longSideEndPos && longSideText[longSideAnchorPos] !== "\n") {
+								longSideAnchorPos++;
+							}
+							shortSideAnchorPos = shortSidePos + shortSideLen;
+							// 이후 이어지는 공백 문자 중 마지막 공백 문자 자리에서 AFTER 앵커
+	
+							while (shortSideAnchorPos < shortSideEnd) {
+								if (shortSideText[shortSideAnchorPos] === "\n") {
+									break;
+								}
+								if (!SPACE_CHARS[shortSideText[shortSideAnchorPos]]) {
+									break;
+								}
+								shortSideAnchorPos++;
+							}
+							if (leftCount > 0) {
+								[leftAnchorPos, rightAnchorPos] = [longSideAnchorPos, shortSideAnchorPos];
+							} else {
+								[leftAnchorPos, rightAnchorPos] = [shortSideAnchorPos, longSideAnchorPos];
+							}
+							addAnchor("after", leftAnchorPos, rightAnchorPos);
+						}
 					}
+					
+
+					
 				}
 				if (leftCount > 0) {
 					leftPos = longSidePos;

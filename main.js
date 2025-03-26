@@ -1,10 +1,27 @@
 "use strict";
 
-const COMPUTE_DEBOUNCE_TIME = 200;
+
 
 /*
-스크롤이나 줄맞추는 기능들은 아직은 "대충 이렇게 하면 되겠지"의 구현일 뿐 손볼 게 많음.
+코드 증말 더럽다... 
+주말에 좀 정리하고:
+	1. 성능에 너무 얽매이지 말고
+	2. 필요할지 말지 애매하면 그냥 다 제거
+그리고 이제 신경 끄자. 시간 아깝다. 언제 짤려서 쓸일 없어질지 모르는데 ㅋ
 */
+
+let isAltPressed = false;
+document.addEventListener("keydown", (event) => {
+	if (event.key === "Alt") {
+		isAltPressed = true;
+	}
+});
+document.addEventListener("keyup", (event) => {
+	if (event.key === "Alt") {
+		isAltPressed = false;
+	}
+});
+
 const DiffSeek = (function () {
 	let _diffs = [];
 	let _anchors = [];
@@ -18,11 +35,15 @@ const DiffSeek = (function () {
 	let _syncingScrollTimeoutId = null;
 	let _mousedOverEditor = null;
 	let _currentDiffIndex = -1;
+	let _alignTimeoutId = null;
+	let _syncEditor = false;
 
 	const container = document.getElementById("main");
 	const leftEditor = createEditor(container, "left", getEditorCallbacks("left"));
 	const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
 	const diffList = document.getElementById("diffList");
+
+	const recalculateAlignmentPaddingAndPositionsDebounced = debounce(recalculateAlignmentPaddingAndPositions, 200);
 
 	function getEditorCallbacks(key) {
 		return {
@@ -43,7 +64,10 @@ const DiffSeek = (function () {
 				_activeEditor = null;
 			},
 			onScroll: function () {
-				_lastScrolledEditor = key === "left" ? leftEditor : rightEditor;
+				// _lastScrolledEditor = key === "left" ? leftEditor : rightEditor;
+				// if (!_syncingScroll && !_alignedMode) {
+				// 	syncScrollPosition(_lastScrolledEditor);
+				// }
 			},
 			onTextChanged: function () {
 				if (_updateTimeoutId) {
@@ -64,36 +88,6 @@ const DiffSeek = (function () {
 					recalculateAlignmentPaddingAndPositions();
 				}
 			},
-			onFirstVisibleAnchorChanged: function (anchor) {
-				if (_syncingScroll) {
-					// console.log("syncing scroll, ignoring first visible anchor change", anchor);
-					return;
-				}
-				if (_alignedMode || !anchor || _syncingScroll) {
-					return;
-				}
-				_syncingScroll = true;
-				// console.log("first visible anchor changed", anchor, anchor.scrollTop, anchor.offsetTop);
-				const anchorIndex = Number(anchor.dataset.anchor);
-				const thisMirror = key === "left" ? leftEditor.wrapper : rightEditor.wrapper;
-
-				const theOtherAnchorId = key === "left" ? `rightAnchor${anchorIndex}` : `leftAnchor${anchorIndex}`;
-				const theOtherAnchor = document.getElementById(theOtherAnchorId);
-				if (theOtherAnchor) {
-					const theOtherMirror = key === "left" ? rightEditor.wrapper : leftEditor.wrapper;
-					const theOtherOffsetTop = theOtherAnchor.offsetTop;
-					theOtherMirror.scrollTop = thisMirror.scrollTop - anchor.offsetTop + theOtherOffsetTop;
-				}
-				if (_syncingScrollTimeoutId) {
-					clearTimeout(_syncingScrollTimeoutId);
-				}
-				_syncingScrollTimeoutId = setTimeout(() => {
-					_syncingScroll = false;
-				}, 50);
-				// requestAnimationFrame(() => {
-				// 	_syncingScroll = false;
-				// });
-			},
 		};
 	}
 
@@ -106,7 +100,7 @@ const DiffSeek = (function () {
 		const blob = new Blob([workerCode], { type: "application/javascript" });
 		workerURL = URL.createObjectURL(blob);
 	}
-	const worker = new Worker("worker.js");
+	const worker = new Worker(workerURL);
 	const encoder = new TextEncoder();
 	let reqId = 0;
 	function computeDiff() {
@@ -150,7 +144,7 @@ const DiffSeek = (function () {
 
 	function enableAlignedMode() {
 		if (!_alignedMode) {
-			const currentEditor = _mousedOverEditor || _activeEditor || _lastScrolledEditor;
+			const currentEditor = _mousedOverEditor || _activeEditor || _lastFocusedEditor || _lastScrolledEditor;
 			let firstVisibleLine, firstVisibleLineTop;
 			let caretPos;
 
@@ -159,21 +153,25 @@ const DiffSeek = (function () {
 			}
 
 			if (currentEditor) {
+				// syncScrollPosition(currentEditor);
 				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElementInEditor();
+			} else {
+				console.log("no active editor");
 			}
 
 			_alignedMode = true;
+			updateButtons();
 			const body = document.querySelector("body");
 			body.classList.remove("edit");
 			body.classList.add("aligned");
 			recalculateAlignmentPaddingAndPositions();
 
-			if (caretPos) {
-				currentEditor.scrollToTextPosition(caretPos);
-			}
+			// if (caretPos) {
+			// 	currentEditor.scrollToTextPosition(caretPos);
+			// }
 
 			if (firstVisibleLine) {
-				const top = firstVisibleLine.offsetTop;
+				const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
 				requestAnimationFrame(() => {
 					container.scrollTop = top;
 				});
@@ -205,6 +203,13 @@ const DiffSeek = (function () {
 		}
 	}
 
+	window.addEventListener("resize", () => {
+		_alignedDirty = true;
+		if (_alignedMode) {
+			recalculateAlignmentPaddingAndPositionsDebounced();
+		}
+	});
+
 	// 아 귀찮아
 	for (const editor of [leftEditor, rightEditor]) {
 		editor.editor.addEventListener("contextmenu", (e) => {
@@ -215,28 +220,35 @@ const DiffSeek = (function () {
 				enableAlignedMode();
 			}
 		});
-	
+
 		editor.mirror.addEventListener("contextmenu", (e) => {
 			e.preventDefault();
-	
+
 			disableAlignedMode(true);
 		});
-		
+
 		editor.mirror.addEventListener("click", (e) => {
 			if (e.ctrlKey) {
 				disableAlignedMode(true);
 			}
 		});
-	
+
 		editor.mirror.addEventListener("dblclick", (e) => {
 			if (e.ctrlKey) {
 				disableAlignedMode(true);
 			}
 		});
 
+		editor.wrapper.addEventListener("scroll", (e) => {
+			if (_syncingScroll) {
+				return;
+			}
+			_lastScrolledEditor = editor;
+			if (_syncEditor !== isAltPressed && !_syncingScroll && !_alignedMode) {
+				syncScrollPosition(editor);
+			}
+		});
 	}
-
-	
 
 	function selectText(range, editor, startLineNumber, startOffset, endLineNumber, endOffset) {
 		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
@@ -300,6 +312,7 @@ const DiffSeek = (function () {
 			} else {
 				return;
 			}
+
 			let startLineEl = range.startContainer;
 			while (startLineEl && startLineEl.tagName !== "DIV") {
 				startLineEl = startLineEl.parentElement;
@@ -335,6 +348,13 @@ const DiffSeek = (function () {
 				}
 			}
 
+			console.log("selection", {
+				editor,
+				startLineNumber,
+				startOffset,
+				endLineNumber,
+				endOffset,
+			});
 			return {
 				editor,
 				startLineNumber,
@@ -356,9 +376,12 @@ const DiffSeek = (function () {
 		}
 
 		_alignedMode = false;
+		updateButtons();
 		const body = document.querySelector("body");
 		body.classList.remove("aligned");
 		body.classList.add("edit");
+
+		_syncingScroll = true;
 
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
@@ -367,6 +390,7 @@ const DiffSeek = (function () {
 			if (rightFirstLine) {
 				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance);
 			}
+			_syncingScroll = false;
 		});
 
 		if (_lastFocusedEditor) {
@@ -399,7 +423,42 @@ const DiffSeek = (function () {
 		}
 	}
 
-	function alignAnchor(anchorIndex, leftAnchor, rightAnchor, type) {
+	function recalculateAlignmentPaddingAndPositions() {
+		if (!_alignedDirty) {
+			return;
+		}
+		const anchors = _anchors;
+		if (!anchors) {
+			return;
+		}
+
+		for (let i = 0; i < leftEditor.anchorElements.length; i++) {
+			const anchor = leftEditor.anchorElements[i];
+			anchor.style.height = 0;
+			anchor.className = "";
+		}
+		for (let i = 0; i < rightEditor.anchorElements.length; i++) {
+			const anchor = rightEditor.anchorElements[i];
+			anchor.style.height = 0;
+			anchor.className = "";
+		}
+
+		for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
+			const anchor = anchors[anchorIndex];
+			const leftAnchor = leftEditor.anchorElements[anchorIndex];
+			const rightAnchor = rightEditor.anchorElements[anchorIndex];
+			if (!leftAnchor || !rightAnchor) {
+				console.warn("anchor not found", anchorIndex, leftAnchor, rightAnchor);
+			}
+
+			if (leftAnchor && rightAnchor) {
+				alignAnchor(leftAnchor, rightAnchor, anchor.type);
+			}
+		}
+		_alignedDirty = false;
+	}
+
+	function alignAnchor(leftAnchor, rightAnchor, type) {
 		if (type === "before") {
 			const leftTop = leftAnchor.offsetTop;
 			const rightTop = rightAnchor.offsetTop;
@@ -435,37 +494,6 @@ const DiffSeek = (function () {
 			if (shortSide) {
 				shortSide.style.height = `${bottomDiff}px`;
 				shortSide.className = "expanded";
-			}
-		}
-	}
-
-	function recalculateAlignmentPaddingAndPositions() {
-		const anchors = _anchors;
-		if (!anchors) {
-			return;
-		}
-
-		for (let i = 0; i < leftEditor.anchorElements.length; i++) {
-			const anchor = leftEditor.anchorElements[i];
-			anchor.style.height = 0;
-			anchor.className = "";
-		}
-		for (let i = 0; i < rightEditor.anchorElements.length; i++) {
-			const anchor = rightEditor.anchorElements[i];
-			anchor.style.height = 0;
-			anchor.className = "";
-		}
-
-		for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
-			const anchor = anchors[anchorIndex];
-			const leftAnchor = document.getElementById(`leftAnchor${anchorIndex}-${anchor.type}`);
-			const rightAnchor = document.getElementById(`rightAnchor${anchorIndex}-${anchor.type}`);
-			if (!leftAnchor || !rightAnchor) {
-				console.warn("anchor not found", anchorIndex, leftAnchor, rightAnchor);
-			}
-
-			if (leftAnchor && rightAnchor) {
-				alignAnchor(anchorIndex, leftAnchor, rightAnchor, anchor.type);
 			}
 		}
 	}
@@ -507,6 +535,17 @@ const DiffSeek = (function () {
 	}
 
 	window.addEventListener("keydown", (e) => {
+		if (e.key === "F1") {
+			e.preventDefault();
+			// toggle!
+			if (_alignedMode) {
+				disableAlignedMode();
+			} else {
+				enableAlignedMode();
+			}
+			return;
+		}
+
 		if (e.key === "F2") {
 			e.preventDefault();
 			// toggle!
@@ -535,15 +574,14 @@ const DiffSeek = (function () {
 			// }
 
 			if (source) {
-				const target = source === leftEditor ? rightEditor : leftEditor;
-				syncScrollPosition(source, target, e.shiftKey);
+				syncScrollPosition(source);
 			}
 			return;
 		}
 
 		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 			e.preventDefault();
-			if (!_diffs) {
+			if (!_diffs || _diffs.length === 0) {
 				return;
 			}
 
@@ -554,9 +592,13 @@ const DiffSeek = (function () {
 			if (_currentDiffIndex >= _diffs.length) {
 				_currentDiffIndex = 0;
 			}
+			_syncingScroll = true;
 			leftEditor.scrollToDiff(_currentDiffIndex);
 			rightEditor.scrollToDiff(_currentDiffIndex);
-			highlightDiff(_currentDiffIndex);
+			requestAnimationFrame(() => {
+				_syncingScroll = false;
+				highlightDiff(_currentDiffIndex);
+			});
 			return;
 		}
 	});
@@ -571,87 +613,33 @@ const DiffSeek = (function () {
 
 	disableAlignedMode();
 
-	function syncScrollByAnchor(sourceEditor, targetEditor, anchorIndex) {
-		const prevLastScrolledEditor = _lastScrolledEditor;
-		const sourceWrapper = sourceEditor.wrapper;
-		const targetWrapper = targetEditor.wrapper;
-		const sourceAnchor = sourceEditor.anchorElements[anchorIndex];
-		const targetAnchor = targetEditor.anchorElements[anchorIndex];
-		targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
-		_lastScrolledEditor = prevLastScrolledEditor;		
-
-	}
-
-	function syncScrollPosition(sourceEditor, targetEditor, backward = false) {
-		const sourceAnchors = sourceEditor.getVisibleAnchors();
-		if (sourceAnchors.length === 0) {
+	function syncScrollPosition(sourceEditor) {
+		if (_syncingScroll) {
 			return;
 		}
+		_syncingScroll = true;
 
-		const nearestToCaret = sourceEditor.getNearestAnchorToCaret();
-		if (nearestToCaret) {
-			syncScrollByAnchor(sourceEditor, targetEditor,Number(nearestToCaret.dataset.anchor));
-			return;
-		}
-
+		const targetEditor = sourceEditor === leftEditor ? rightEditor : leftEditor;
 		let sourceAnchor = null;
 		let targetAnchor = null;
 
-		const start = backward ? sourceAnchors.length - 1 : 0;
-		const end = backward ? -1 : sourceAnchors.length;
-		const step = backward ? -1 : 1;
-
-		for (let i = start; i !== end; i += step) {
-			const anchor = sourceAnchors[i];
-			if (anchor.dataset.diff !== undefined) {
-				const theOtherAnchorId =
-					sourceEditor.name === "left"
-						? `rightAnchor${anchor.dataset.anchor}-${anchor.dataset.type}`
-						: `leftAnchor${anchor.dataset.anchor}-${anchor.dataset.type}`;
-				targetAnchor = document.getElementById(theOtherAnchorId);
-				if (targetAnchor) {
-					sourceAnchor = anchor;
-					break;
-				} else {
-					console.warn("target anchor not found", theOtherAnchorId);
-				}
-			}
+		sourceAnchor = sourceEditor.getNearestAnchorToCaret() || sourceEditor.getFirstVisibleAnchor();
+		if (sourceAnchor) {
+			const anchorIndex = Number(sourceAnchor.dataset.anchor);
+			targetAnchor = targetEditor.anchorElements[anchorIndex];
 		}
 
-		if (!sourceAnchor) {
-			for (let i = start; i !== end; i += step) {
-				const anchor = sourceAnchors[i];
-				if (anchor.dataset.diff === undefined) {
-					const theOtherAnchorId =
-						sourceEditor.name === "left"
-							? `rightAnchor${anchor.dataset.anchor}-${anchor.dataset.type}`
-							: `leftAnchor${anchor.dataset.anchor}-${anchor.dataset.type}`;
-					targetAnchor = document.getElementById(theOtherAnchorId);
-					if (targetAnchor) {
-						sourceAnchor = anchor;
-						break;
-					} else {
-						console.warn("target anchor not found2", theOtherAnchorId);
-					}
-				}
-			}
+		if (sourceAnchor && targetAnchor) {
+			const prevLastScrolledEditor = _lastScrolledEditor;
+			const sourceWrapper = sourceEditor.wrapper;
+			const targetWrapper = targetEditor.wrapper;
+			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop + TOPBAR_HEIGHT;
+			_lastScrolledEditor = prevLastScrolledEditor;
 		}
 
-		if (!sourceAnchor) {
-			return;
-		}
-
-		// const theOtherAnchorId = sourceEditor.name === "left" ? `rightAnchor${anchor.dataset.anchor}` : `leftAnchor${anchor.dataset.anchor}`;
-		// const theOtherAnchor = document.getElementById(theOtherAnchorId);
-		// if (!theOtherAnchor) {
-		// 	return;
-		// }
-
-		const prevLastScrolledEditor = _lastScrolledEditor;
-		const sourceWrapper = sourceEditor.wrapper;
-		const targetWrapper = targetEditor.wrapper;
-		targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
-		_lastScrolledEditor = prevLastScrolledEditor;
+		requestAnimationFrame(() => {
+			_syncingScroll = false;
+		});
 	}
 
 	function highlightDiff(diff) {
@@ -673,6 +661,24 @@ animation: highlightAnimation 0.3s linear 3;
 			highlightStyle.textContent = "";
 		}
 	});
+
+	syncScrollToggle.addEventListener("click", () => {
+		_syncEditor = !_syncEditor;
+		updateButtons();
+	});
+
+	alignedModeToggle.addEventListener("click", () => {
+		if (_alignedMode) {
+			disableAlignedMode();
+		} else {
+			enableAlignedMode();
+		}
+	});
+
+	function updateButtons() {
+		syncScrollToggle.setAttribute("aria-pressed", _syncEditor);
+		alignedModeToggle.setAttribute("aria-pressed", _alignedMode);
+	}
 
 	return {
 		get alignedMode() {
@@ -696,3 +702,15 @@ animation: highlightAnimation 0.3s linear 3;
 		},
 	};
 })();
+
+function debounce(func, delay) {
+	let timeoutId;
+
+	return function (...args) {
+		const context = this;
+		clearTimeout(timeoutId);
+		timeoutId = setTimeout(function () {
+			func.apply(context, args);
+		}, delay);
+	};
+}

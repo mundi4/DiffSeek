@@ -1,7 +1,5 @@
 "use strict";
 
-
-
 /*
 코드 증말 더럽다... 
 주말에 좀 정리하고:
@@ -9,18 +7,6 @@
 	2. 필요할지 말지 애매하면 그냥 다 제거
 그리고 이제 신경 끄자. 시간 아깝다. 언제 짤려서 쓸일 없어질지 모르는데 ㅋ
 */
-
-let isAltPressed = false;
-document.addEventListener("keydown", (event) => {
-	if (event.key === "Alt") {
-		isAltPressed = true;
-	}
-});
-document.addEventListener("keyup", (event) => {
-	if (event.key === "Alt") {
-		isAltPressed = false;
-	}
-});
 
 const DiffSeek = (function () {
 	let _diffs = [];
@@ -47,6 +33,14 @@ const DiffSeek = (function () {
 
 	function getEditorCallbacks(key) {
 		return {
+			onDiffVisibilityChanged: (diffIndex, visible) => {
+				const listItem = diffList.children[diffIndex];
+				if (listItem) {
+					const button = listItem.firstElementChild;
+					button.classList.toggle(key + "-visible", visible);
+				}
+				// updateVisibleDiffs();
+			},
 			onEnter: () => {
 				_mousedOverEditor = key === "left" ? leftEditor : rightEditor;
 			},
@@ -132,7 +126,7 @@ const DiffSeek = (function () {
 	};
 
 	function onDiffComputed({ diffs, anchors }) {
-		console.debug("diffs computed", diffs, anchors);
+		// console.debug("diffs computed", diffs, anchors);
 		_diffs = diffs;
 		_anchors = anchors;
 		_alignedDirty = true;
@@ -144,19 +138,15 @@ const DiffSeek = (function () {
 
 	function enableAlignedMode() {
 		if (!_alignedMode) {
-			const currentEditor = _mousedOverEditor || _activeEditor || _lastFocusedEditor || _lastScrolledEditor;
+			const currentEditor = _activeEditor || _mousedOverEditor || _lastFocusedEditor || rightEditor;
 			let firstVisibleLine, firstVisibleLineTop;
-			let caretPos;
 
 			if (_activeEditor) {
 				_activeEditor.saveCaret();
 			}
 
 			if (currentEditor) {
-				// syncScrollPosition(currentEditor);
 				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElementInEditor();
-			} else {
-				console.log("no active editor");
 			}
 
 			_alignedMode = true;
@@ -166,15 +156,17 @@ const DiffSeek = (function () {
 			body.classList.add("aligned");
 			recalculateAlignmentPaddingAndPositions();
 
-			// if (caretPos) {
-			// 	currentEditor.scrollToTextPosition(caretPos);
-			// }
-
+			if (_activeEditor) {
+				_activeEditor.restoreCaret();
+			}
 			if (firstVisibleLine) {
-				const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
-				requestAnimationFrame(() => {
-					container.scrollTop = top;
-				});
+				const theOtherEditor = currentEditor === leftEditor ? rightEditor : leftEditor;
+				theOtherEditor.wrapper.scrollTop = currentEditor.wrapper.scrollTop;
+
+				// const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
+				// requestAnimationFrame(() => {
+				// 	container.scrollTop = top;
+				// });
 			}
 		}
 	}
@@ -212,28 +204,13 @@ const DiffSeek = (function () {
 
 	// 아 귀찮아
 	for (const editor of [leftEditor, rightEditor]) {
-		editor.editor.addEventListener("contextmenu", (e) => {
-			e.preventDefault();
-			if (_alignedMode) {
-				disableAlignedMode(true);
-			} else {
-				enableAlignedMode();
+		editor.editor.addEventListener("keydown", (e) => {
+			if (e.key === " " && e.ctrlKey) {
+				syncScrollPosition(editor);
 			}
-		});
-
-		editor.mirror.addEventListener("contextmenu", (e) => {
-			e.preventDefault();
-
-			disableAlignedMode(true);
 		});
 
 		editor.mirror.addEventListener("click", (e) => {
-			if (e.ctrlKey) {
-				disableAlignedMode(true);
-			}
-		});
-
-		editor.mirror.addEventListener("dblclick", (e) => {
 			if (e.ctrlKey) {
 				disableAlignedMode(true);
 			}
@@ -244,8 +221,20 @@ const DiffSeek = (function () {
 				return;
 			}
 			_lastScrolledEditor = editor;
-			if (_syncEditor !== isAltPressed && !_syncingScroll && !_alignedMode) {
-				syncScrollPosition(editor);
+
+			if (_alignedMode) {
+				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 한쪽(공통부모)에만 보이는게 생각보다 어색하고 불편하다.
+				// 그래서 그냥 강제로 스크롤 동기화 시킴.
+				if (editor === leftEditor) {
+					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				} else {
+					leftEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				}
+			} else {
+				if (_syncEditor && !_syncingScroll) {
+					syncScrollPosition(editor);
+				}
 			}
 		});
 	}
@@ -322,6 +311,8 @@ const DiffSeek = (function () {
 				endLineEl = endLineEl.parentElement;
 			}
 
+			// console.log("startLineEl", startLineEl, "endLineEl", endLineEl);
+
 			const startLineNumber = Number(startLineEl.dataset.lineNum);
 			const endLineNumber = Number(endLineEl.dataset.lineNum);
 
@@ -348,13 +339,13 @@ const DiffSeek = (function () {
 				}
 			}
 
-			console.log("selection", {
-				editor,
-				startLineNumber,
-				startOffset,
-				endLineNumber,
-				endOffset,
-			});
+			// console.log("selection", {
+			// 	editor,
+			// 	startLineNumber,
+			// 	startOffset,
+			// 	endLineNumber,
+			// 	endOffset,
+			// });
 			return {
 				editor,
 				startLineNumber,
@@ -382,7 +373,6 @@ const DiffSeek = (function () {
 		body.classList.add("edit");
 
 		_syncingScroll = true;
-
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
 				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance);
@@ -393,10 +383,7 @@ const DiffSeek = (function () {
 			_syncingScroll = false;
 		});
 
-		if (_lastFocusedEditor) {
-			_lastFocusedEditor.editor.focus();
-			_lastFocusedEditor.restoreCaret();
-		}
+
 
 		// if (_lastFocusedEditor) {
 		// 	console.log("restoring caret", _lastFocusedEditor.name);
@@ -405,6 +392,7 @@ const DiffSeek = (function () {
 		// }
 
 		if (selectionRange && retainSelection) {
+			selectionRange.editor.focus();
 			const range = document.createRange();
 			if (
 				selectText(
@@ -419,6 +407,11 @@ const DiffSeek = (function () {
 				const selection = window.getSelection();
 				selection.removeAllRanges();
 				selection.addRange(range);
+			}
+		} else {
+			if (_lastFocusedEditor) {
+				_lastFocusedEditor.editor.focus();
+				_lastFocusedEditor.restoreCaret();
 			}
 		}
 	}
@@ -517,13 +510,13 @@ const DiffSeek = (function () {
 
 			const leftText = leftWholeText.substring(diff.left.pos, diff.left.pos + diff.left.len);
 			const leftSpan = document.createElement("SPAN");
-			leftSpan.textContent = leftText;
+			leftSpan.textContent = leftText.length > 0 ? leftText : "💭";
 			leftSpan.classList.add("left");
 			button.appendChild(leftSpan);
 
 			const rightText = rightWholeText.substring(diff.right.pos, diff.right.pos + diff.right.len);
 			const rightSpan = document.createElement("SPAN");
-			rightSpan.textContent = rightText;
+			rightSpan.textContent = rightText.length > 0 ? rightText : "💭";
 			rightSpan.classList.add("right");
 			button.appendChild(rightSpan);
 
@@ -534,47 +527,27 @@ const DiffSeek = (function () {
 		diffList.appendChild(fragment);
 	}
 
-	window.addEventListener("keydown", (e) => {
-		if (e.key === "F1") {
-			e.preventDefault();
-			// toggle!
-			if (_alignedMode) {
-				disableAlignedMode();
-			} else {
-				enableAlignedMode();
-			}
-			return;
-		}
+	document.addEventListener("keydown", (e) => {
+		// 편하게 쓸 수 있지만 커서가 위치가 어디인지 모르는 상황에서 쓰면 난처한 일이 있을 수 있다.
+		// 텍스트가 1글자 이상 선택되고 그 선택 range가 화면 상에 보일 때에만???
+		// aligned mode에서는 커서가 안보이니까 더 위험.
+		// if (_alignedMode && (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")) {
+		// 	console.log(document.activeElement);
+		// 	disableAlignedMode();
+		// 	return;
+		// }
 
 		if (e.key === "F2") {
+			if (e.shiftKey) {
+				toggleSyncScroll();
+				return;
+			}
+
 			e.preventDefault();
-			// toggle!
 			if (_alignedMode) {
 				disableAlignedMode();
 			} else {
 				enableAlignedMode();
-			}
-			return;
-		}
-
-		if (e.ctrlKey && (e.key === "q" || e.key === "Q")) {
-			e.preventDefault();
-			let source = _mousedOverEditor || _activeEditor;
-
-			// if (!source) {
-			// 	let elementAtCursor = document.elementFromPoint(cursorX, cursorY);
-			// 	if (elementAtCursor) {
-			// 		if (leftEditor.wrapper.contains(elementAtCursor)) {
-			// 			source = leftEditor;
-			// 		} else if (rightEditor.wrapper.contains(elementAtCursor)) {
-			// 			source = rightEditor;
-			// 		}
-			// 	}
-			// 	console.log("elementAtCursor", source);
-			// }
-
-			if (source) {
-				syncScrollPosition(source);
 			}
 			return;
 		}
@@ -633,7 +606,7 @@ const DiffSeek = (function () {
 			const prevLastScrolledEditor = _lastScrolledEditor;
 			const sourceWrapper = sourceEditor.wrapper;
 			const targetWrapper = targetEditor.wrapper;
-			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop + TOPBAR_HEIGHT;
+			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
 			_lastScrolledEditor = prevLastScrolledEditor;
 		}
 
@@ -663,8 +636,7 @@ animation: highlightAnimation 0.3s linear 3;
 	});
 
 	syncScrollToggle.addEventListener("click", () => {
-		_syncEditor = !_syncEditor;
-		updateButtons();
+		toggleSyncScroll();
 	});
 
 	alignedModeToggle.addEventListener("click", () => {
@@ -674,6 +646,11 @@ animation: highlightAnimation 0.3s linear 3;
 			enableAlignedMode();
 		}
 	});
+
+	function toggleSyncScroll(primaryEditor) {
+		_syncEditor = !_syncEditor;
+		updateButtons();
+	}
 
 	function updateButtons() {
 		syncScrollToggle.setAttribute("aria-pressed", _syncEditor);

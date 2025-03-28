@@ -6,9 +6,12 @@ function createEditor(container, name, callbacks) {
 	const _diffElements = [];
 	const _anchorElements = [];
 	const _visibleAnchors = new Set();
+	const _visibleDiffIndices = new Set();
 	let _text = "";
 	let _savedCaret = null;
 	let _observingAnchors = false;
+
+	const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged;
 
 	const wrapper = document.createElement("div");
 	wrapper.id = name + "EditorWrapper";
@@ -57,13 +60,25 @@ function createEditor(container, name, callbacks) {
 	wrapper.addEventListener("mouseenter", callbacks.onEnter);
 	wrapper.addEventListener("mouseleave", callbacks.onLeave);
 
-	const anchorIntersectionObserver = new IntersectionObserver(
+	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
 			for (const entry of entries) {
 				if (entry.isIntersecting) {
-					_visibleAnchors.add(entry.target);
+					if (entry.target.nodeName === ANCHOR_TAG) {
+						_visibleAnchors.add(entry.target);
+					} else if (entry.target.nodeName === DIFF_ELEMENT_NAME) {
+						const diffIndex = Number(entry.target.dataset.diff);
+						_visibleDiffIndices.add(diffIndex);
+						onDiffVisibilityChanged(diffIndex, true);
+					}
 				} else {
-					_visibleAnchors.delete(entry.target);
+					if (entry.target.nodeName === ANCHOR_TAG) {
+						_visibleAnchors.delete(entry.target);
+					} else if (entry.target.nodeName === DIFF_ELEMENT_NAME) {
+						const diffIndex = Number(entry.target.dataset.diff);
+						_visibleDiffIndices.delete(diffIndex);
+						onDiffVisibilityChanged(diffIndex, false);
+					}
 				}
 			}
 		},
@@ -101,34 +116,33 @@ function createEditor(container, name, callbacks) {
 		mouseY = event.clientY;
 	});
 
-	const EDITOR_PADDING = 9; // FIXME constant에서 설정하고 그 값으로 css를 만들기
 	function getNearestAnchorToCaret() {
 		const selection = window.getSelection();
 		if (!selection || selection.rangeCount === 0) {
 			return null;
 		}
+
 		let range = selection.getRangeAt(0);
 		if (!editor.contains(range.startContainer)) {
 			return null;
 		}
+
 		let rect = range.getBoundingClientRect();
 		let y;
 		if (rect.left === 0 && rect.top === 0) {
-			y = EDITOR_PADDING + wrapper.scrollTop;
+			y = EDITOR_PADDING + TOPBAR_HEIGHT;
 		} else {
-			y = rect.top + wrapper.scrollTop;
+			y = rect.top;
 		}
 
 		let nearestAnchor = null;
 		let minDistance = Number.MAX_SAFE_INTEGER;
 		for (const anchor of _visibleAnchors) {
-			const distance = Math.abs(Number(anchor.dataset.pos) - y);
+			const rect = anchor.getBoundingClientRect();
+			const distance = Math.abs(rect.top - y);
 			if (distance < minDistance) {
 				minDistance = distance;
 				nearestAnchor = anchor;
-				if (distance < LINE_HEIGHT / 2) {
-					break;
-				}
 			}
 		}
 		return nearestAnchor;
@@ -203,7 +217,6 @@ function createEditor(container, name, callbacks) {
 	function scrollToLine(lineNum, offset = 0) {
 		const lineEl = _lineElements[lineNum - 1];
 		if (lineEl) {
-			// 아! 1px이 왜 어긋나는지 몰겠는데... 나 바쁜 사람이야
 			wrapper.scrollTop = lineEl.offsetTop;
 		}
 	}
@@ -245,15 +258,14 @@ function createEditor(container, name, callbacks) {
 		if (!diffs) {
 			return;
 		}
-		console.debug("update");
+		// console.debug("update");
 
 		_lineElements.length = 0;
 		_diffElements.length = 0;
 		_anchorElements.length = 0;
-		untrackVisibleAnchors();
+		untrackIntersections();
 
-		const textrunz = getTextRuns(name, _text, diffs, anchors);
-		console.log(name, "textrunz", textrunz);
+		const textruns = getTextRuns(name, _text, diffs, anchors);
 
 		// editor.style.removeProperty("min-height");
 		// mirror.style.removeProperty("min-height");
@@ -261,11 +273,10 @@ function createEditor(container, name, callbacks) {
 
 		const text = _text;
 		const view = mirror;
-		const textruns = textrunGenerator(name, text, diffs, anchors);
 		let lineEl = null;
 		let inlineNode = null;
 		let currentDiffIndex = null;
-		let lineNum = 0;
+		let lineNum = 1;
 		let unwrittenDiff = false;
 		let lineHasNonSpaceChar = false;
 		let lineHasNonSpaceNonDiffChar = false;
@@ -327,7 +338,6 @@ function createEditor(container, name, callbacks) {
 			inlineNode = inlineNode.nextSibling;
 		}
 
-
 		lineEl = view.firstElementChild;
 		if (lineEl === null) {
 			lineEl = document.createElement(LINE_TAG);
@@ -339,7 +349,10 @@ function createEditor(container, name, callbacks) {
 		}
 		inlineNode = lineEl.firstChild;
 
-		for (const textrun of textrunz) {
+		for (const textrun of textruns) {
+			// if (name === "right") {
+			// 	console.log(lineNum, textrun);
+			// }
 			if (textrun.type === "CHARS") {
 				const { pos, len } = textrun;
 				appendChars(text.substring(pos, pos + len));
@@ -365,22 +378,22 @@ function createEditor(container, name, callbacks) {
 					inlineNode.remove();
 					inlineNode = nextInlineNode;
 				}
+				lineEl = lineEl.nextElementSibling;
 				if (textrun.type === "LINEBREAK") {
 					lineNum++;
-					lineEl = lineEl.nextElementSibling;
+					_pos = textrun.pos + textrun.len;
 					if (lineEl === null) {
 						lineEl = document.createElement(LINE_TAG);
 						view.appendChild(lineEl);
 					}
 					lineEl.dataset.lineNum = lineNum;
+					lineEl.dataset.pos = _pos;
 					_lineElements.push(lineEl);
 					inlineNode = lineEl.firstChild;
 
-					_pos = textrun.pos + 1;
 					if (currentDiffIndex !== null) {
 						unwrittenDiff = true;
 					}
-
 				} else {
 					_lineElements.length = lineNum;
 					while (lineEl) {
@@ -467,26 +480,28 @@ function createEditor(container, name, callbacks) {
 			// mirror.style.minHeight = height + "px";
 			// wrapper.style.minHeight = height + "px";
 		});
-		console.debug("update done");
-		trackVisibleAnchors();
+		// console.debug("update done");
+		trackIntersections();
 		onMirrorUpdated();
 	}
 
-	function trackVisibleAnchors() {
+	function trackIntersections() {
 		if (!_observingAnchors) {
 			for (const anchor of _anchorElements) {
-				//if (!anchor.id.endsWith("-after")) {
-				anchorIntersectionObserver.observe(anchor);
-				//}
+				intersectionObserver.observe(anchor);
+			}
+			for (const diff of _diffElements.flat()) {
+				intersectionObserver.observe(diff);
 			}
 			_observingAnchors = true;
 		}
 	}
 
-	function untrackVisibleAnchors() {
+	function untrackIntersections() {
 		_observingAnchors = false;
 		_visibleAnchors.clear();
-		anchorIntersectionObserver.disconnect();
+		_visibleDiffIndices.clear();
+		intersectionObserver.disconnect();
 	}
 
 	function getFirstVisibleAnchor() {
@@ -527,8 +542,8 @@ function createEditor(container, name, callbacks) {
 		saveCaret,
 		restoreCaret,
 		getVisibleAnchors,
-		trackVisibleAnchors,
-		untrackVisibleAnchors,
+		trackVisibleAnchors: trackIntersections,
+		untrackVisibleAnchors: untrackIntersections,
 		getFirstVisibleAnchor,
 		scrollToLine,
 		getFirstVisibleLineElementInEditor,
@@ -547,6 +562,9 @@ function createEditor(container, name, callbacks) {
 		},
 		get anchorElements() {
 			return _anchorElements;
+		},
+		get visibleDiffIndices() {
+			return _visibleDiffIndices;
 		},
 	};
 }

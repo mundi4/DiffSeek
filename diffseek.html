@@ -9,11 +9,7 @@
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
-	--editor-padding: 8px;
-	--line-height: 20px;
-	--scroll-margin: 1rem;
 	font-size: 16px;
-	--topbar-height: 32px;
 }
 
 * {
@@ -39,7 +35,7 @@ html {
 	background: #444;
 	color: white;
 	align-items: center;
-	justify-content: space-between; /* 왼쪽: .title / 오른쪽: .buttons */
+	justify-content: space-between;
 }
 
 .buttons {
@@ -121,11 +117,13 @@ button.toggle[aria-pressed="true"] {
 	height: 100%;
 	overflow-x: hidden;
 	position: relative;
+	outline: 1px solid #ccc;
+	outline-offset: -2px;
+	border-radius: 4px;
 }
 
 .mirror,
 .editor {
-	z-index: -1;
 	border: 0;
 	min-height: 100%;
 	max-width: 100%;
@@ -140,7 +138,6 @@ button.toggle[aria-pressed="true"] {
 	white-space: pre-wrap;
 	word-break: break-all;
 	overflow-wrap: anywhere;
-	z-index: 0;
 	max-width: 100%;
 	width: 100%;
 	outline: none;
@@ -154,30 +151,37 @@ button.toggle[aria-pressed="true"] {
 
 .editor {
 	z-index: 2;
-	border: 1px solid #ccc;
-	border-radius: 4px;
 }
 
+
 .mirror {
+	background-color:hsl(0  0% 80% / 0.3);
 	z-index: -1;
 	position: absolute;
 	top: 0;
 	left: 0;
 	pointer-events: none;
 	color: rgba(0, 0, 0, 0.1);
-	border: 1px solid transparent;
 	/* color: rgba(0, 0, 0, 0.1);
 	background-color: #f8f8f8; */
 }
 
+.editor-wrapper:focus-within .mirror {
+	background: transparent;
+}
+
+
 .aligned .editor {
 	display: none;
 }
+
 .aligned .mirror {
 	pointer-events: auto;
 	position: static;
 	color: inherit;
 	background-color: transparent;
+	cursor: text;
+	caret-color: white; /* 커서 유지 */
 	/* cursor: default; */
 }
 
@@ -237,7 +241,7 @@ mark:empty::after {
 	top: 0px;
 	right: 0px;
 	height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
+	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
 	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
 	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
 	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
@@ -325,13 +329,22 @@ hr {
 	background-color: #000;
 }
 
-.aligned .mirror > div:has(mark),
-.aligned hr[data-type="diffEnd"] {
-	background-color: hsl(0 75% 25%);
+.aligned .mirror > div:has(mark) {
+	background-color: hsl(0 75% 25% / 0.75);
 }
 
-.edit .mirror > div:has(mark),
-.edit hr[data-type="diffEnd"] {
+/*
+줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
+diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
+당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
+고민해 볼 필요가 왕왕 있다.
+*/
+.aligned hr[data-type="after"] + span {
+	display: block;
+	background: black;
+}
+
+.edit .mirror > div:has(mark) {
 	background-color: hsl(0 100% 90%);
 }
 
@@ -348,16 +361,16 @@ scrolling
 }
 
 .aligned #main {
-	overflow-y: scroll;
+	/* overflow-y: scroll; */
 }
 
 .aligned .editor-wrapper {
-	overflow: visible;
-	padding-right: 7px;
+	/* overflow: visible;
+	padding-right: 7px; */
 }
 
 .aligned .editor-wrapper:last-child {
-	margin-left: 8px;
+	/* margin-left: 8px; */
 }
 
 @keyframes highlightAnimation {
@@ -424,8 +437,15 @@ scrolling
 	font-family: "Consolas", "Courier New", monospace;
 	content: "L";
 	margin-right: 4px;
+	opacity: 0.2;
 	/* content: "◀️"; */
 }
+
+#diffList .left-visible .left::before,
+#diffList .right-visible .right::before {
+	opacity: 1;
+}
+
 
 #diffList .right::before {
 	content: "R" !important;
@@ -446,31 +466,33 @@ scrolling
 	display: inline;
 }
 </style>
-<script id='constants.js'>// 인접한 색과 60이상 차이나게
+<script id='constants.js'>// DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
+// 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
+// 인접한 색상과 너무 가깝지 않도록 아주 CAREFULLY하게 고른 순서
 const DIFF_COLOR_HUES = [30, 180, 300, 120, 240, 60, 270]; //[60, 240, 120, 300, 180];//[60, 120, 180, 240, 300];
 const NUM_DIFF_COLORS = DIFF_COLOR_HUES.length;
 
 const LINE_TAG = "DIV";
 const ANCHOR_TAG = "HR";
 const DIFF_ELEMENT_NAME = "MARK";
+const EDITOR_PADDING = 9;
 const LINE_HEIGHT = 20;
-const TOPBAR_HEIGHT = 20;
+const TOPBAR_HEIGHT = 32;
+const SCROLL_MARGIN = 15;
 const COMPUTE_DEBOUNCE_TIME = 200;
 
 const PROCESSING_MESSAGES = [
 	"한땀한땀 비교 중...",
 	"인내심 테스트 중...",
 	"생각 중...",
-	"COME ON, TARS!",
 	"재부팅 준비 중...",
 	"무한 루프 중...",
 	"머리 긁는 중...",
 	"흰머리 뽑는 중...",
     "DIFFSEEKING...",
-    "시스템 침투 중...",
-    "ANALYZING...",
+	"COME ON, TARS!",
     "3... 2... 1...",
-    "SYSTEM MALFUNCTION...",
+	"99... 98... 97...",
 ];
 
 </script>
@@ -482,9 +504,12 @@ function createEditor(container, name, callbacks) {
 	const _diffElements = [];
 	const _anchorElements = [];
 	const _visibleAnchors = new Set();
+	const _visibleDiffIndices = new Set();
 	let _text = "";
 	let _savedCaret = null;
 	let _observingAnchors = false;
+
+	const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged;
 
 	const wrapper = document.createElement("div");
 	wrapper.id = name + "EditorWrapper";
@@ -533,13 +558,25 @@ function createEditor(container, name, callbacks) {
 	wrapper.addEventListener("mouseenter", callbacks.onEnter);
 	wrapper.addEventListener("mouseleave", callbacks.onLeave);
 
-	const anchorIntersectionObserver = new IntersectionObserver(
+	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
 			for (const entry of entries) {
 				if (entry.isIntersecting) {
-					_visibleAnchors.add(entry.target);
+					if (entry.target.nodeName === ANCHOR_TAG) {
+						_visibleAnchors.add(entry.target);
+					} else if (entry.target.nodeName === DIFF_ELEMENT_NAME) {
+						const diffIndex = Number(entry.target.dataset.diff);
+						_visibleDiffIndices.add(diffIndex);
+						onDiffVisibilityChanged(diffIndex, true);
+					}
 				} else {
-					_visibleAnchors.delete(entry.target);
+					if (entry.target.nodeName === ANCHOR_TAG) {
+						_visibleAnchors.delete(entry.target);
+					} else if (entry.target.nodeName === DIFF_ELEMENT_NAME) {
+						const diffIndex = Number(entry.target.dataset.diff);
+						_visibleDiffIndices.delete(diffIndex);
+						onDiffVisibilityChanged(diffIndex, false);
+					}
 				}
 			}
 		},
@@ -577,34 +614,33 @@ function createEditor(container, name, callbacks) {
 		mouseY = event.clientY;
 	});
 
-	const EDITOR_PADDING = 9; // FIXME constant에서 설정하고 그 값으로 css를 만들기
 	function getNearestAnchorToCaret() {
 		const selection = window.getSelection();
 		if (!selection || selection.rangeCount === 0) {
 			return null;
 		}
+
 		let range = selection.getRangeAt(0);
 		if (!editor.contains(range.startContainer)) {
 			return null;
 		}
+
 		let rect = range.getBoundingClientRect();
 		let y;
 		if (rect.left === 0 && rect.top === 0) {
-			y = EDITOR_PADDING + wrapper.scrollTop;
+			y = EDITOR_PADDING + TOPBAR_HEIGHT;
 		} else {
-			y = rect.top + wrapper.scrollTop;
+			y = rect.top;
 		}
 
 		let nearestAnchor = null;
 		let minDistance = Number.MAX_SAFE_INTEGER;
 		for (const anchor of _visibleAnchors) {
-			const distance = Math.abs(Number(anchor.dataset.pos) - y);
+			const rect = anchor.getBoundingClientRect();
+			const distance = Math.abs(rect.top - y);
 			if (distance < minDistance) {
 				minDistance = distance;
 				nearestAnchor = anchor;
-				if (distance < LINE_HEIGHT / 2) {
-					break;
-				}
 			}
 		}
 		return nearestAnchor;
@@ -679,7 +715,6 @@ function createEditor(container, name, callbacks) {
 	function scrollToLine(lineNum, offset = 0) {
 		const lineEl = _lineElements[lineNum - 1];
 		if (lineEl) {
-			// 아! 1px이 왜 어긋나는지 몰겠는데... 나 바쁜 사람이야
 			wrapper.scrollTop = lineEl.offsetTop;
 		}
 	}
@@ -721,15 +756,14 @@ function createEditor(container, name, callbacks) {
 		if (!diffs) {
 			return;
 		}
-		console.debug("update");
+		// console.debug("update");
 
 		_lineElements.length = 0;
 		_diffElements.length = 0;
 		_anchorElements.length = 0;
-		untrackVisibleAnchors();
+		untrackIntersections();
 
-		const textrunz = getTextRuns(name, _text, diffs, anchors);
-		console.log(name, "textrunz", textrunz);
+		const textruns = getTextRuns(name, _text, diffs, anchors);
 
 		// editor.style.removeProperty("min-height");
 		// mirror.style.removeProperty("min-height");
@@ -737,11 +771,10 @@ function createEditor(container, name, callbacks) {
 
 		const text = _text;
 		const view = mirror;
-		const textruns = textrunGenerator(name, text, diffs, anchors);
 		let lineEl = null;
 		let inlineNode = null;
 		let currentDiffIndex = null;
-		let lineNum = 0;
+		let lineNum = 1;
 		let unwrittenDiff = false;
 		let lineHasNonSpaceChar = false;
 		let lineHasNonSpaceNonDiffChar = false;
@@ -803,7 +836,6 @@ function createEditor(container, name, callbacks) {
 			inlineNode = inlineNode.nextSibling;
 		}
 
-
 		lineEl = view.firstElementChild;
 		if (lineEl === null) {
 			lineEl = document.createElement(LINE_TAG);
@@ -815,7 +847,10 @@ function createEditor(container, name, callbacks) {
 		}
 		inlineNode = lineEl.firstChild;
 
-		for (const textrun of textrunz) {
+		for (const textrun of textruns) {
+			// if (name === "right") {
+			// 	console.log(lineNum, textrun);
+			// }
 			if (textrun.type === "CHARS") {
 				const { pos, len } = textrun;
 				appendChars(text.substring(pos, pos + len));
@@ -841,22 +876,22 @@ function createEditor(container, name, callbacks) {
 					inlineNode.remove();
 					inlineNode = nextInlineNode;
 				}
+				lineEl = lineEl.nextElementSibling;
 				if (textrun.type === "LINEBREAK") {
 					lineNum++;
-					lineEl = lineEl.nextElementSibling;
+					_pos = textrun.pos + textrun.len;
 					if (lineEl === null) {
 						lineEl = document.createElement(LINE_TAG);
 						view.appendChild(lineEl);
 					}
 					lineEl.dataset.lineNum = lineNum;
+					lineEl.dataset.pos = _pos;
 					_lineElements.push(lineEl);
 					inlineNode = lineEl.firstChild;
 
-					_pos = textrun.pos + 1;
 					if (currentDiffIndex !== null) {
 						unwrittenDiff = true;
 					}
-
 				} else {
 					_lineElements.length = lineNum;
 					while (lineEl) {
@@ -943,26 +978,28 @@ function createEditor(container, name, callbacks) {
 			// mirror.style.minHeight = height + "px";
 			// wrapper.style.minHeight = height + "px";
 		});
-		console.debug("update done");
-		trackVisibleAnchors();
+		// console.debug("update done");
+		trackIntersections();
 		onMirrorUpdated();
 	}
 
-	function trackVisibleAnchors() {
+	function trackIntersections() {
 		if (!_observingAnchors) {
 			for (const anchor of _anchorElements) {
-				//if (!anchor.id.endsWith("-after")) {
-				anchorIntersectionObserver.observe(anchor);
-				//}
+				intersectionObserver.observe(anchor);
+			}
+			for (const diff of _diffElements.flat()) {
+				intersectionObserver.observe(diff);
 			}
 			_observingAnchors = true;
 		}
 	}
 
-	function untrackVisibleAnchors() {
+	function untrackIntersections() {
 		_observingAnchors = false;
 		_visibleAnchors.clear();
-		anchorIntersectionObserver.disconnect();
+		_visibleDiffIndices.clear();
+		intersectionObserver.disconnect();
 	}
 
 	function getFirstVisibleAnchor() {
@@ -1003,8 +1040,8 @@ function createEditor(container, name, callbacks) {
 		saveCaret,
 		restoreCaret,
 		getVisibleAnchors,
-		trackVisibleAnchors,
-		untrackVisibleAnchors,
+		trackVisibleAnchors: trackIntersections,
+		untrackVisibleAnchors: untrackIntersections,
 		getFirstVisibleAnchor,
 		scrollToLine,
 		getFirstVisibleLineElementInEditor,
@@ -1023,6 +1060,9 @@ function createEditor(container, name, callbacks) {
 		},
 		get anchorElements() {
 			return _anchorElements;
+		},
+		get visibleDiffIndices() {
+			return _visibleDiffIndices;
 		},
 	};
 }
@@ -1247,7 +1287,8 @@ function getTextRuns(textKey, text, diffs, anchors) {
 	const textruns = [];
 
 	// let counter = 0;
-	while (pos < textLen) {
+	// pos < textLen 조건을 쓰면 text의 끝에 위치한 이벤트가 무시될 수 있음.
+	while (true) {
 		// if (counter++ > 100000) {
 		// 	console.error("Infinite loop detected", {
 		// 		textruns,
@@ -1377,8 +1418,6 @@ function getTextRuns(textKey, text, diffs, anchors) {
 
 		if (nextEventPos === nextNewLinePos) {
 			if (nextNewLineIsEndOfString) {
-                console.warn("!!!!!!!!!!!!!!!!!!")
-
 				break;
 			} else {
 				textruns.push({
@@ -1513,11 +1552,11 @@ async function runDiff(work) {
 				anchors: results.anchors,
 			});
 		} else {
-			console.debug("Diff canceled");
+			// console.debug("Diff canceled");
 		}
 	} catch (e) {
 		if (e.message === "cancelled") {
-			console.debug("Diff canceled");
+			// console.debug("Diff canceled");
 		} else {
 			console.error(e);
 		}
@@ -2177,12 +2216,12 @@ async function computeDiff({
 		rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
 	}
 	let elapsed = performance.now() - now;
-	console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
+	// console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
 
 	now = performance.now();
 	const lcs = await computeLCS(leftTokens, rightTokens, ctx);
 	elapsed = performance.now() - now;
-	console.debug("LCS elapsed time:", elapsed);
+	// console.debug("LCS elapsed time:", elapsed);
 
 	if (ctx && ctx.cancel) {
 		throw new Error("cancelled");
@@ -2671,7 +2710,7 @@ async function computeDiff({
 		}
 	}
 
-	console.debug("computeDiff done", { diffs, anchors });
+	// console.debug("computeDiff done", { diffs, anchors });
 	return { diffs, anchors };
 }
 </script>
@@ -2686,7 +2725,7 @@ async function computeDiff({
 
             </div>
             <div class="buttons">
-                <button id="alignedModeToggle" class="toggle" >📖</button>
+                <button id="alignedModeToggle" class="toggle">📖</button>
                 <button id="syncScrollToggle" class="toggle" data-target="strike">🔗</button>
             </div>
         </div>
@@ -2701,31 +2740,17 @@ async function computeDiff({
     </div>
     <div id="progress"></div>
 
-    <!-- <div class="drawer" id="drawer">
-        <div class="drawer-header">
-            <h2></h2>
-
-            <button class="close-btn" onclick="closeDrawer()">Close</button>
-        </div>
-        <div class="drawer-content">
-            <h4>Diff Mode</h4>
-            <radio-group>
-                <ul class="drawer-menu">
-                    <li><label><input type="radio" name="tokenizeMethod" value="char" checked /> Char</label></li>
-                    <li><label><input type="radio" name="tokenizeMethod" value="word" /> Word</label></li>
-                    <li><label><input type="radio" name="tokenizeMethod" value="word" /> Line</label></li>
-                </ul>
-            </radio-group>
-        </div>
-    </div> -->
-
     <script>
         const style = document.createElement("style");
         let cssText = ":root {\n";
+        cssText += ` --line-height: ${LINE_HEIGHT}px;\n`;
+        cssText += ` --topbar-height: ${TOPBAR_HEIGHT}px;\n`;
+        cssText += ` --scroll-margin: ${SCROLL_MARGIN}px;\n`;
+        cssText += ` --editor-padding: ${EDITOR_PADDING}px;\n`;
         DIFF_COLOR_HUES.forEach((color, idx) => {
             cssText += ` --diff-hue${idx + 1}: ${color};\n`;
         });
-        cssText += "}\n";
+        cssText += "}\n\n";
         DIFF_COLOR_HUES.forEach((color, idx) => {
             cssText += `.diff-color${idx + 1} { --diff-hue: var(--diff-hue${idx + 1}); }\n`;
         });
@@ -2734,8 +2759,6 @@ async function computeDiff({
     </script>
 <script id='main.js'>"use strict";
 
-
-
 /*
 코드 증말 더럽다... 
 주말에 좀 정리하고:
@@ -2743,18 +2766,6 @@ async function computeDiff({
 	2. 필요할지 말지 애매하면 그냥 다 제거
 그리고 이제 신경 끄자. 시간 아깝다. 언제 짤려서 쓸일 없어질지 모르는데 ㅋ
 */
-
-let isAltPressed = false;
-document.addEventListener("keydown", (event) => {
-	if (event.key === "Alt") {
-		isAltPressed = true;
-	}
-});
-document.addEventListener("keyup", (event) => {
-	if (event.key === "Alt") {
-		isAltPressed = false;
-	}
-});
 
 const DiffSeek = (function () {
 	let _diffs = [];
@@ -2781,6 +2792,14 @@ const DiffSeek = (function () {
 
 	function getEditorCallbacks(key) {
 		return {
+			onDiffVisibilityChanged: (diffIndex, visible) => {
+				const listItem = diffList.children[diffIndex];
+				if (listItem) {
+					const button = listItem.firstElementChild;
+					button.classList.toggle(key + "-visible", visible);
+				}
+				// updateVisibleDiffs();
+			},
 			onEnter: () => {
 				_mousedOverEditor = key === "left" ? leftEditor : rightEditor;
 			},
@@ -2866,7 +2885,7 @@ const DiffSeek = (function () {
 	};
 
 	function onDiffComputed({ diffs, anchors }) {
-		console.debug("diffs computed", diffs, anchors);
+		// console.debug("diffs computed", diffs, anchors);
 		_diffs = diffs;
 		_anchors = anchors;
 		_alignedDirty = true;
@@ -2878,19 +2897,15 @@ const DiffSeek = (function () {
 
 	function enableAlignedMode() {
 		if (!_alignedMode) {
-			const currentEditor = _mousedOverEditor || _activeEditor || _lastFocusedEditor || _lastScrolledEditor;
+			const currentEditor = _activeEditor || _mousedOverEditor || _lastFocusedEditor || rightEditor;
 			let firstVisibleLine, firstVisibleLineTop;
-			let caretPos;
 
 			if (_activeEditor) {
 				_activeEditor.saveCaret();
 			}
 
 			if (currentEditor) {
-				// syncScrollPosition(currentEditor);
 				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElementInEditor();
-			} else {
-				console.log("no active editor");
 			}
 
 			_alignedMode = true;
@@ -2900,15 +2915,17 @@ const DiffSeek = (function () {
 			body.classList.add("aligned");
 			recalculateAlignmentPaddingAndPositions();
 
-			// if (caretPos) {
-			// 	currentEditor.scrollToTextPosition(caretPos);
-			// }
-
+			if (_activeEditor) {
+				_activeEditor.restoreCaret();
+			}
 			if (firstVisibleLine) {
-				const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
-				requestAnimationFrame(() => {
-					container.scrollTop = top;
-				});
+				const theOtherEditor = currentEditor === leftEditor ? rightEditor : leftEditor;
+				theOtherEditor.wrapper.scrollTop = currentEditor.wrapper.scrollTop;
+
+				// const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
+				// requestAnimationFrame(() => {
+				// 	container.scrollTop = top;
+				// });
 			}
 		}
 	}
@@ -2946,28 +2963,13 @@ const DiffSeek = (function () {
 
 	// 아 귀찮아
 	for (const editor of [leftEditor, rightEditor]) {
-		editor.editor.addEventListener("contextmenu", (e) => {
-			e.preventDefault();
-			if (_alignedMode) {
-				disableAlignedMode(true);
-			} else {
-				enableAlignedMode();
+		editor.editor.addEventListener("keydown", (e) => {
+			if (e.key === " " && e.ctrlKey) {
+				syncScrollPosition(editor);
 			}
-		});
-
-		editor.mirror.addEventListener("contextmenu", (e) => {
-			e.preventDefault();
-
-			disableAlignedMode(true);
 		});
 
 		editor.mirror.addEventListener("click", (e) => {
-			if (e.ctrlKey) {
-				disableAlignedMode(true);
-			}
-		});
-
-		editor.mirror.addEventListener("dblclick", (e) => {
 			if (e.ctrlKey) {
 				disableAlignedMode(true);
 			}
@@ -2978,8 +2980,20 @@ const DiffSeek = (function () {
 				return;
 			}
 			_lastScrolledEditor = editor;
-			if (_syncEditor !== isAltPressed && !_syncingScroll && !_alignedMode) {
-				syncScrollPosition(editor);
+
+			if (_alignedMode) {
+				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 한쪽(공통부모)에만 보이는게 생각보다 어색하고 불편하다.
+				// 그래서 그냥 강제로 스크롤 동기화 시킴.
+				if (editor === leftEditor) {
+					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				} else {
+					leftEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				}
+			} else {
+				if (_syncEditor && !_syncingScroll) {
+					syncScrollPosition(editor);
+				}
 			}
 		});
 	}
@@ -3056,6 +3070,8 @@ const DiffSeek = (function () {
 				endLineEl = endLineEl.parentElement;
 			}
 
+			// console.log("startLineEl", startLineEl, "endLineEl", endLineEl);
+
 			const startLineNumber = Number(startLineEl.dataset.lineNum);
 			const endLineNumber = Number(endLineEl.dataset.lineNum);
 
@@ -3082,13 +3098,13 @@ const DiffSeek = (function () {
 				}
 			}
 
-			console.log("selection", {
-				editor,
-				startLineNumber,
-				startOffset,
-				endLineNumber,
-				endOffset,
-			});
+			// console.log("selection", {
+			// 	editor,
+			// 	startLineNumber,
+			// 	startOffset,
+			// 	endLineNumber,
+			// 	endOffset,
+			// });
 			return {
 				editor,
 				startLineNumber,
@@ -3116,7 +3132,6 @@ const DiffSeek = (function () {
 		body.classList.add("edit");
 
 		_syncingScroll = true;
-
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
 				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance);
@@ -3127,10 +3142,7 @@ const DiffSeek = (function () {
 			_syncingScroll = false;
 		});
 
-		if (_lastFocusedEditor) {
-			_lastFocusedEditor.editor.focus();
-			_lastFocusedEditor.restoreCaret();
-		}
+
 
 		// if (_lastFocusedEditor) {
 		// 	console.log("restoring caret", _lastFocusedEditor.name);
@@ -3139,6 +3151,7 @@ const DiffSeek = (function () {
 		// }
 
 		if (selectionRange && retainSelection) {
+			selectionRange.editor.focus();
 			const range = document.createRange();
 			if (
 				selectText(
@@ -3153,6 +3166,11 @@ const DiffSeek = (function () {
 				const selection = window.getSelection();
 				selection.removeAllRanges();
 				selection.addRange(range);
+			}
+		} else {
+			if (_lastFocusedEditor) {
+				_lastFocusedEditor.editor.focus();
+				_lastFocusedEditor.restoreCaret();
 			}
 		}
 	}
@@ -3251,13 +3269,13 @@ const DiffSeek = (function () {
 
 			const leftText = leftWholeText.substring(diff.left.pos, diff.left.pos + diff.left.len);
 			const leftSpan = document.createElement("SPAN");
-			leftSpan.textContent = leftText;
+			leftSpan.textContent = leftText.length > 0 ? leftText : "💭";
 			leftSpan.classList.add("left");
 			button.appendChild(leftSpan);
 
 			const rightText = rightWholeText.substring(diff.right.pos, diff.right.pos + diff.right.len);
 			const rightSpan = document.createElement("SPAN");
-			rightSpan.textContent = rightText;
+			rightSpan.textContent = rightText.length > 0 ? rightText : "💭";
 			rightSpan.classList.add("right");
 			button.appendChild(rightSpan);
 
@@ -3268,47 +3286,27 @@ const DiffSeek = (function () {
 		diffList.appendChild(fragment);
 	}
 
-	window.addEventListener("keydown", (e) => {
-		if (e.key === "F1") {
-			e.preventDefault();
-			// toggle!
-			if (_alignedMode) {
-				disableAlignedMode();
-			} else {
-				enableAlignedMode();
-			}
-			return;
-		}
+	document.addEventListener("keydown", (e) => {
+		// 편하게 쓸 수 있지만 커서가 위치가 어디인지 모르는 상황에서 쓰면 난처한 일이 있을 수 있다.
+		// 텍스트가 1글자 이상 선택되고 그 선택 range가 화면 상에 보일 때에만???
+		// aligned mode에서는 커서가 안보이니까 더 위험.
+		// if (_alignedMode && (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")) {
+		// 	console.log(document.activeElement);
+		// 	disableAlignedMode();
+		// 	return;
+		// }
 
 		if (e.key === "F2") {
+			if (e.shiftKey) {
+				toggleSyncScroll();
+				return;
+			}
+
 			e.preventDefault();
-			// toggle!
 			if (_alignedMode) {
 				disableAlignedMode();
 			} else {
 				enableAlignedMode();
-			}
-			return;
-		}
-
-		if (e.ctrlKey && (e.key === "q" || e.key === "Q")) {
-			e.preventDefault();
-			let source = _mousedOverEditor || _activeEditor;
-
-			// if (!source) {
-			// 	let elementAtCursor = document.elementFromPoint(cursorX, cursorY);
-			// 	if (elementAtCursor) {
-			// 		if (leftEditor.wrapper.contains(elementAtCursor)) {
-			// 			source = leftEditor;
-			// 		} else if (rightEditor.wrapper.contains(elementAtCursor)) {
-			// 			source = rightEditor;
-			// 		}
-			// 	}
-			// 	console.log("elementAtCursor", source);
-			// }
-
-			if (source) {
-				syncScrollPosition(source);
 			}
 			return;
 		}
@@ -3367,7 +3365,7 @@ const DiffSeek = (function () {
 			const prevLastScrolledEditor = _lastScrolledEditor;
 			const sourceWrapper = sourceEditor.wrapper;
 			const targetWrapper = targetEditor.wrapper;
-			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop + TOPBAR_HEIGHT;
+			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
 			_lastScrolledEditor = prevLastScrolledEditor;
 		}
 
@@ -3397,8 +3395,7 @@ animation: highlightAnimation 0.3s linear 3;
 	});
 
 	syncScrollToggle.addEventListener("click", () => {
-		_syncEditor = !_syncEditor;
-		updateButtons();
+		toggleSyncScroll();
 	});
 
 	alignedModeToggle.addEventListener("click", () => {
@@ -3408,6 +3405,11 @@ animation: highlightAnimation 0.3s linear 3;
 			enableAlignedMode();
 		}
 	});
+
+	function toggleSyncScroll(primaryEditor) {
+		_syncEditor = !_syncEditor;
+		updateButtons();
+	}
 
 	function updateButtons() {
 		syncScrollToggle.setAttribute("aria-pressed", _syncEditor);

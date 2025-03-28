@@ -21,7 +21,7 @@
 
             </div>
             <div class="buttons">
-                <button id="alignedModeToggle" class="toggle" >📖</button>
+                <button id="alignedModeToggle" class="toggle">📖</button>
                 <button id="syncScrollToggle" class="toggle" data-target="strike">🔗</button>
             </div>
         </div>
@@ -36,31 +36,17 @@
     </div>
     <div id="progress"></div>
 
-    <!-- <div class="drawer" id="drawer">
-        <div class="drawer-header">
-            <h2></h2>
-
-            <button class="close-btn" onclick="closeDrawer()">Close</button>
-        </div>
-        <div class="drawer-content">
-            <h4>Diff Mode</h4>
-            <radio-group>
-                <ul class="drawer-menu">
-                    <li><label><input type="radio" name="tokenizeMethod" value="char" checked /> Char</label></li>
-                    <li><label><input type="radio" name="tokenizeMethod" value="word" /> Word</label></li>
-                    <li><label><input type="radio" name="tokenizeMethod" value="word" /> Line</label></li>
-                </ul>
-            </radio-group>
-        </div>
-    </div> -->
-
     <script>
         const style = document.createElement("style");
         let cssText = ":root {\n";
+        cssText += ` --line-height: ${LINE_HEIGHT}px;\n`;
+        cssText += ` --topbar-height: ${TOPBAR_HEIGHT}px;\n`;
+        cssText += ` --scroll-margin: ${SCROLL_MARGIN}px;\n`;
+        cssText += ` --editor-padding: ${EDITOR_PADDING}px;\n`;
         DIFF_COLOR_HUES.forEach((color, idx) => {
             cssText += ` --diff-hue${idx + 1}: ${color};\n`;
         });
-        cssText += "}\n";
+        cssText += "}\n\n";
         DIFF_COLOR_HUES.forEach((color, idx) => {
             cssText += `.diff-color${idx + 1} { --diff-hue: var(--diff-hue${idx + 1}); }\n`;
         });

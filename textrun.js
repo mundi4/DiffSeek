@@ -218,7 +218,8 @@ function getTextRuns(textKey, text, diffs, anchors) {
 	const textruns = [];
 
 	// let counter = 0;
-	while (pos < textLen) {
+	// pos < textLen 조건을 쓰면 text의 끝에 위치한 이벤트가 무시될 수 있음.
+	while (true) {
 		// if (counter++ > 100000) {
 		// 	console.error("Infinite loop detected", {
 		// 		textruns,
@@ -348,8 +349,6 @@ function getTextRuns(textKey, text, diffs, anchors) {
 
 		if (nextEventPos === nextNewLinePos) {
 			if (nextNewLineIsEndOfString) {
-                console.warn("!!!!!!!!!!!!!!!!!!")
-
 				break;
 			} else {
 				textruns.push({

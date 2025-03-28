@@ -2,11 +2,7 @@
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
-	--editor-padding: 8px;
-	--line-height: 20px;
-	--scroll-margin: 1rem;
 	font-size: 16px;
-	--topbar-height: 32px;
 }
 
 * {
@@ -32,7 +28,7 @@ html {
 	background: #444;
 	color: white;
 	align-items: center;
-	justify-content: space-between; /* 왼쪽: .title / 오른쪽: .buttons */
+	justify-content: space-between;
 }
 
 .buttons {
@@ -114,11 +110,13 @@ button.toggle[aria-pressed="true"] {
 	height: 100%;
 	overflow-x: hidden;
 	position: relative;
+	outline: 1px solid #ccc;
+	outline-offset: -2px;
+	border-radius: 4px;
 }
 
 .mirror,
 .editor {
-	z-index: -1;
 	border: 0;
 	min-height: 100%;
 	max-width: 100%;
@@ -133,7 +131,6 @@ button.toggle[aria-pressed="true"] {
 	white-space: pre-wrap;
 	word-break: break-all;
 	overflow-wrap: anywhere;
-	z-index: 0;
 	max-width: 100%;
 	width: 100%;
 	outline: none;
@@ -147,30 +144,37 @@ button.toggle[aria-pressed="true"] {
 
 .editor {
 	z-index: 2;
-	border: 1px solid #ccc;
-	border-radius: 4px;
 }
 
+
 .mirror {
+	background-color:hsl(0  0% 80% / 0.3);
 	z-index: -1;
 	position: absolute;
 	top: 0;
 	left: 0;
 	pointer-events: none;
 	color: rgba(0, 0, 0, 0.1);
-	border: 1px solid transparent;
 	/* color: rgba(0, 0, 0, 0.1);
 	background-color: #f8f8f8; */
 }
 
+.editor-wrapper:focus-within .mirror {
+	background: transparent;
+}
+
+
 .aligned .editor {
 	display: none;
 }
+
 .aligned .mirror {
 	pointer-events: auto;
 	position: static;
 	color: inherit;
 	background-color: transparent;
+	cursor: text;
+	caret-color: white; /* 커서 유지 */
 	/* cursor: default; */
 }
 
@@ -230,7 +234,7 @@ mark:empty::after {
 	top: 0px;
 	right: 0px;
 	height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
+	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
 	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
 	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
 	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
@@ -318,13 +322,22 @@ hr {
 	background-color: #000;
 }
 
-.aligned .mirror > div:has(mark),
-.aligned hr[data-type="diffEnd"] {
-	background-color: hsl(0 75% 25%);
+.aligned .mirror > div:has(mark) {
+	background-color: hsl(0 75% 25% / 0.75);
 }
 
-.edit .mirror > div:has(mark),
-.edit hr[data-type="diffEnd"] {
+/*
+줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
+diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
+당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
+고민해 볼 필요가 왕왕 있다.
+*/
+.aligned hr[data-type="after"] + span {
+	display: block;
+	background: black;
+}
+
+.edit .mirror > div:has(mark) {
 	background-color: hsl(0 100% 90%);
 }
 
@@ -341,16 +354,16 @@ scrolling
 }
 
 .aligned #main {
-	overflow-y: scroll;
+	/* overflow-y: scroll; */
 }
 
 .aligned .editor-wrapper {
-	overflow: visible;
-	padding-right: 7px;
+	/* overflow: visible;
+	padding-right: 7px; */
 }
 
 .aligned .editor-wrapper:last-child {
-	margin-left: 8px;
+	/* margin-left: 8px; */
 }
 
 @keyframes highlightAnimation {
@@ -417,8 +430,15 @@ scrolling
 	font-family: "Consolas", "Courier New", monospace;
 	content: "L";
 	margin-right: 4px;
+	opacity: 0.2;
 	/* content: "◀️"; */
 }
+
+#diffList .left-visible .left::before,
+#diffList .right-visible .right::before {
+	opacity: 1;
+}
+
 
 #diffList .right::before {
 	content: "R" !important;

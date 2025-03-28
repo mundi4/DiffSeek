@@ -110,11 +110,11 @@ async function runDiff(work) {
 				anchors: results.anchors,
 			});
 		} else {
-			console.debug("Diff canceled");
+			// console.debug("Diff canceled");
 		}
 	} catch (e) {
 		if (e.message === "cancelled") {
-			console.debug("Diff canceled");
+			// console.debug("Diff canceled");
 		} else {
 			console.error(e);
 		}
@@ -774,12 +774,12 @@ async function computeDiff({
 		rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
 	}
 	let elapsed = performance.now() - now;
-	console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
+	// console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
 
 	now = performance.now();
 	const lcs = await computeLCS(leftTokens, rightTokens, ctx);
 	elapsed = performance.now() - now;
-	console.debug("LCS elapsed time:", elapsed);
+	// console.debug("LCS elapsed time:", elapsed);
 
 	if (ctx && ctx.cancel) {
 		throw new Error("cancelled");
@@ -1268,6 +1268,6 @@ async function computeDiff({
 		}
 	}
 
-	console.debug("computeDiff done", { diffs, anchors });
+	// console.debug("computeDiff done", { diffs, anchors });
 	return { diffs, anchors };
 }

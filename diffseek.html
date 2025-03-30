@@ -62,12 +62,23 @@ button.toggle[aria-pressed="true"] {
 
 .container {
 	display: grid;
-	grid-template-rows: var(--topbar-height) 1fr; /* 상단 바 (40px) + 나머지 공간 */
-	grid-template-columns: 1fr 300px;
+	/* grid-template-rows: var(--topbar-height) 1fr; */
+	grid-template-columns: 1fr 250px;
 	height: 100vh;
 	overflow: hidden;
 	gap: 0 8px;
 	position: relative;
+}
+
+#scrollSyncIndicator {
+	position: absolute;
+	left: calc(50% - 10px);
+	z-index: 1000;
+	top: calc(50% - 10px);
+	width: 20px;
+	height: 20px;
+	pointer-events: none;
+	display: none;
 }
 
 #progress {
@@ -103,23 +114,13 @@ button.toggle[aria-pressed="true"] {
 	padding: 8px;
 }
 
-/* .line-break {
-	display: block;
-}
-.line-break::before {
-	content: " ";
-	display: block;
-	height: 1rem;
-} */
-
 .editor-wrapper {
 	width: 100%;
 	height: 100%;
 	overflow-x: hidden;
 	position: relative;
 	outline: 1px solid #ccc;
-	outline-offset: -2px;
-	border-radius: 4px;
+	outline-offset: 0px;
 }
 
 .mirror,
@@ -130,11 +131,10 @@ button.toggle[aria-pressed="true"] {
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	font-family: monospace;
-	font-size: 1rem;
+	font-family: "돋움체", monospace;
+	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
-	/* height: 100%; */
 	white-space: pre-wrap;
 	word-break: break-all;
 	overflow-wrap: anywhere;
@@ -142,6 +142,7 @@ button.toggle[aria-pressed="true"] {
 	width: 100%;
 	outline: none;
 	padding: var(--editor-padding);
+	/* scroll-margin: var(--scroll-margin); */
 }
 
 .mirror div,
@@ -151,11 +152,15 @@ button.toggle[aria-pressed="true"] {
 
 .editor {
 	z-index: 2;
+	color: #333;
 }
 
+.editor-wrapper:focus-within .editor {
+	color: #000;
+}
 
 .mirror {
-	background-color:hsl(0  0% 80% / 0.3);
+	background-color: hsl(0 0% 80% / 0.3);
 	z-index: -1;
 	position: absolute;
 	top: 0;
@@ -166,10 +171,9 @@ button.toggle[aria-pressed="true"] {
 	background-color: #f8f8f8; */
 }
 
-.editor-wrapper:focus-within .mirror {
+.edit .editor-wrapper:focus-within .mirror {
 	background: transparent;
 }
-
 
 .aligned .editor {
 	display: none;
@@ -185,43 +189,21 @@ button.toggle[aria-pressed="true"] {
 	/* cursor: default; */
 }
 
+.edit .mirror {
+	height: unset !important;
+}
+
 .mirror div {
 	line-height: var(--line-height);
 	min-height: var(--line-height);
 }
 
-.aligned [data-pad-top]::before {
-	content: "";
-	display: block;
-	height: var(--pad-top);
-	background: #efefef
-		repeating-linear-gradient(
-			135deg,
-			rgba(200, 200, 200, 0.15) 0px,
-			rgba(200, 200, 200, 0.15) 3px,
-			rgba(255, 255, 255, 0.05) 3px,
-			rgba(255, 255, 255, 0.05) 6px
-		);
-}
-
-.aligned [data-pad-diff]::after {
-	content: "";
-	display: block;
-	height: var(--pad-diff);
-	background-color: #f7d4d4;
-}
-
 mark {
 	line-height: var(--line-height);
 	background-color: hsl(var(--diff-hue) 100% 80%);
-
-	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), -1px 1px hsl(var(--diff-hue) 100% 40%); */
-	/* outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	outline-offset: 0px 3px; */
 	color: inherit;
 }
 mark:not(:empty) {
-	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
 	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
 	outline-offset: 0px;
 }
@@ -397,6 +379,15 @@ scrolling
 	margin-bottom: 6px;
 }
 
+.identical #diffList:empty::after {
+	content: "👬";
+	font-size: 128px;
+	font-weight: bold;
+	font-family: 'Consolas', Courier, monospace;
+	text-align: center;
+	display: block;
+}
+
 #diffList mark {
 	position: relative;
 	display: block;
@@ -420,6 +411,10 @@ scrolling
 	text-decoration: none;
 	padding-inline: 4px;
 	font-weight: bold;
+}
+
+#diffList span:empty::after {
+	content: "💭";
 }
 
 #diffList .left::before,
@@ -446,7 +441,6 @@ scrolling
 	opacity: 1;
 }
 
-
 #diffList .right::before {
 	content: "R" !important;
 	/* content: "▶️" !important; */
@@ -468,18 +462,66 @@ scrolling
 </style>
 <script id='constants.js'>// DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
-// 인접한 색상과 너무 가깝지 않도록 아주 CAREFULLY하게 고른 순서
-const DIFF_COLOR_HUES = [30, 180, 300, 120, 240, 60, 270]; //[60, 240, 120, 300, 180];//[60, 120, 180, 240, 300];
+// 인접한 색상과 너무 가깝지 않도록 아주 CAREFUL하게 고른 순서. 과학이다.
+const DIFF_COLOR_HUES = [
+	30, // 주황?
+	180, // cyan
+	300, // 핑크?
+	120, // 초록
+	240, // 파랑
+	60, // 노랑
+	270, // 보라?
+];
 const NUM_DIFF_COLORS = DIFF_COLOR_HUES.length;
 
 const LINE_TAG = "DIV";
 const ANCHOR_TAG = "HR";
 const DIFF_ELEMENT_NAME = "MARK";
-const EDITOR_PADDING = 9;
+const EDITOR_PADDING = 8;
 const LINE_HEIGHT = 20;
-const TOPBAR_HEIGHT = 32;
-const SCROLL_MARGIN = 15;
-const COMPUTE_DEBOUNCE_TIME = 200;
+const TOPBAR_HEIGHT = 0;
+const SCROLL_MARGIN = LINE_HEIGHT * 4;
+
+// 어차피 백그라운드에서 처리되고 기존 작업이 취소시킨 후에 시작되니 너무 크게 잡을 필요는 없을 듯
+const COMPUTE_DEBOUNCE_TIME = 100; // ms
+
+// 문장부호나 특수문자를 정규화 하기 위해서...
+// 따옴표, 중간점 등등등 문자코드는 다르지만 같다고 처리해야 될 문자들이 많음.
+// length===1인 문자는 그냥 문자
+// 숫자는 charCode
+// &로 시작하면 html 엔티티
+// TODO: 각종 화살표 특수문자들...
+const NORMALIZE_CHARS = [
+	['"', "“", "”"],
+	["'", "‘", "’"],
+	["-", "–", "—"],
+	[".", "․"],
+	["⋅", "·", "•"], // &middot;과 &bullet;(&bull;)은 다른 걸로 여겨야하지 않을까? middot대신 bullet을 쓰면 점이 너무 왕점이라 보기 흉한데...
+	["…", "⋯"],
+	["(", "（"], // 이런 걸 굳이 특수문자로 사용하는 사람이 있다고?? 믿기 힘들지만 있더라...
+	[")", "）"],
+	["[", "［"],
+	["]", "］"],
+	["{", "｛"],
+	["}", "｝"],
+	["<", "＜"],
+	[">", "＞"],
+	["-", "－"], // 왜 굳이... 이런 문자를...? 수식편집기 같은 것에서 이런 문자를 뱉어내는 건가...?
+	["=", "＝"],
+	["+", "＋"],
+	["*", "＊", "✱", "x"], // x와 *을 같은 문자로 취급하는 건 조금 위험하지만 같은 위치에 이 문자가 각각 사용된다면 곱셈 기호로 사용하려는 의도는 뻔하지 않은가?
+	["/", "／", "÷"], // 마찬가지
+	["\\", "＼", "₩"], // 역시 마찬가지. 고정폭이 아닌 대부분의 한글 폰트에서는 원화 마크로 표시되고 아마 문서에서도 그 의도로 사용됐을 것임!
+	["&", "＆"],
+	["#", "＃"],
+	["@", "＠"],
+	["$", "＄"],
+	["%", "％"],
+	["^", "＾"],
+	["~", "～"],
+	["`", "｀"],
+	["|", "｜"],
+];
 
 const PROCESSING_MESSAGES = [
 	"한땀한땀 비교 중...",
@@ -488,18 +530,17 @@ const PROCESSING_MESSAGES = [
 	"재부팅 준비 중...",
 	"무한 루프 중...",
 	"머리 긁는 중...",
-	"흰머리 뽑는 중...",
-    "DIFFSEEKING...",
+	"DIFFSEEKING...",
 	"COME ON, TARS!",
-    "3... 2... 1...",
+	"3... 2... 1...",
 	"99... 98... 97...",
+	"퇴근 준비 중...",
 ];
-
 </script>
 <script id='editor.js'>"use strict";
 
 function createEditor(container, name, callbacks) {
-	const { onTextChanged, onMirrorUpdated } = callbacks;
+	const { onDiffVisibilityChanged, onTextChanged, onMirrorUpdated } = callbacks;
 	const _lineElements = [];
 	const _diffElements = [];
 	const _anchorElements = [];
@@ -508,8 +549,7 @@ function createEditor(container, name, callbacks) {
 	let _text = "";
 	let _savedCaret = null;
 	let _observingAnchors = false;
-
-	const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged;
+	let _editMode = false;
 
 	const wrapper = document.createElement("div");
 	wrapper.id = name + "EditorWrapper";
@@ -518,13 +558,15 @@ function createEditor(container, name, callbacks) {
 	const mirror = document.createElement("div");
 	mirror.id = name + "Mirror";
 	mirror.classList.add("mirror");
+	mirror.spellcheck = false;
+
 
 	const editor = document.createElement("div");
-	editor.id = name + "Editor";
+ 	editor.id = name + "Editor";
 	editor.classList.add("editor");
 	editor.contentEditable = "plaintext-only";
 	editor.spellcheck = false;
-
+ 
 	editor.appendChild(document.createTextNode(""));
 
 	wrapper.appendChild(mirror);
@@ -533,30 +575,25 @@ function createEditor(container, name, callbacks) {
 
 	function updateText() {
 		_text = editor.textContent;
-		let p = _text.length - 1;
-		let endsWithNewline = false;
-		while (p >= 0) {
-			if (!/\s/.test(_text[p])) {
-				break;
-			}
-			if (_text[p] === "\n") {
-				endsWithNewline = true;
-				break;
-			}
-			p--;
-		}
-		if (!endsWithNewline) {
-			_text += "\n";
-		}
+		// let p = _text.length - 1;
+		// let endsWithNewline = false;
+		// while (p >= 0) {
+		// 	if (!/\s/.test(_text[p])) {
+		// 		break;
+		// 	}
+		// 	if (_text[p] === "\n") {
+		// 		endsWithNewline = true;
+		// 		break;
+		// 	}
+		// 	p--;
+		// }
+		// if (!endsWithNewline) {
+		// }
+		_text += "\n";
 		onTextChanged(_text);
 	}
 
 	editor.addEventListener("input", updateText);
-	editor.addEventListener("focus", callbacks.onFocus);
-	editor.addEventListener("blur", callbacks.onBlur);
-	wrapper.addEventListener("scroll", callbacks.onScroll);
-	wrapper.addEventListener("mouseenter", callbacks.onEnter);
-	wrapper.addEventListener("mouseleave", callbacks.onLeave);
 
 	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
@@ -581,7 +618,7 @@ function createEditor(container, name, callbacks) {
 			}
 		},
 
-		{ threshold: 1, root: document.getElementById("main") }
+		{ threshold: 1, root: wrapper }
 	);
 
 	function saveCaret() {
@@ -648,110 +685,41 @@ function createEditor(container, name, callbacks) {
 
 	function getFirstVisibleLineElement() {
 		const lineEls = _lineElements;
-		// 이진 검색으로 현재 화면에 보이는 줄 엘러먼트 중 첫번째 찾기
-		// 모든 픽셀이 화면에 다 보이는 경우만! 윗부분 1px만 짤려도 가차 없다.
 		let low = 0;
 		let high = lineEls.length - 1;
 		let mid;
 		let lineEl = null;
-		let lineTop = null;
+		let distance = null;
 		while (low <= high) {
 			mid = (low + high) >>> 1;
-			const top = lineEls[mid].getBoundingClientRect().top;
-			if (top >= 0) {
+			const thisDistance = lineEls[mid].getBoundingClientRect().top - TOPBAR_HEIGHT;
+			if (thisDistance >= -LINE_HEIGHT) {
 				lineEl = lineEls[mid];
-				if (top < 10) {
-					// 이정도면 안전하게 "찾았다"라고 말할 수 있지 않을까?
-					// 변태같이 화면 스케일을 1/2로 줄이지 않는 이상...
-					break;
-				}
-				lineTop = top;
+				distance = thisDistance;
 				high = mid - 1;
 			} else {
 				low = mid + 1;
 			}
 		}
-		return [lineEl, lineTop];
-	}
-
-	// 현재 화면에 보이는 editor의 문자 인덱스를 찾음.
-	function getFirstVisiblePosInEditor() {
-		const rect = editor.getBoundingClientRect();
-		let x = rect.left + 10;
-		let y = rect.top + 10;
-		let parentEl = editor.parentElement;
-		while (parentEl) {
-			x += parentEl.scrollLeft;
-			y += parentEl.scrollTop;
-			parentEl = parentEl.parentElement;
-		}
-
-		const caretPos = document.caretPositionFromPoint(x, y);
-		if (caretPos !== null) {
-			const offsetNode = caretPos.offsetNode;
-			let offset = caretPos.offset;
-			if (offsetNode.nodeType === 3 && editor.contains(offsetNode)) {
-				// 찾았다. 그대로 리턴... 하면 인생 참 편하지?
-				// editor 안에 여러개의 text node가 있을 수 있기 때문에 offsetNode보다 앞에 위치한 text node들의 text length를 모두 더해야함.
-				// previous sibling으로 찾으면 훨씬 간단하고 빠를테지만 나중에 editor를 구조를 바꿀지도 모르니 일단 안정빵으로
-				const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
-				let node;
-				while ((node = walker.nextNode())) {
-					if (node === offsetNode) {
-						return offset;
-					}
-					offset += node.nodeValue.length;
-				}
-			}
-		}
-
-		return null;
+		return [lineEl, distance];
 	}
 
 	function scrollToDiff(diffIndex) {
-		_diffElements[diffIndex][0].scrollIntoView({});
+		const offsetTop = _diffElements[diffIndex][0].offsetTop - wrapper.clientTop;
+		wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
 	}
 
-	function scrollToLine(lineNum, offset = 0) {
+	// 내가 머리가 나쁘다는 걸 확실하게 알게 해주는 함수
+	function scrollToLine(lineNum, distance = 0) {
 		const lineEl = _lineElements[lineNum - 1];
 		if (lineEl) {
-			wrapper.scrollTop = lineEl.offsetTop;
+			const scrollTop = lineEl.offsetTop - distance;
+			wrapper.scrollTop = scrollTop;
 		}
 	}
 
-	function scrollToTextPosition(pos) {
-		if (window.getComputedStyle(editor).display === "none") {
-			for (let i = 0; i < _lineElements.length; i++) {
-				const linePos = Number(_lineElements[i].dataset.pos);
-				if (linePos > pos) {
-					if (i > 0) {
-						_lineElements[i - 1].scrollIntoView();
-					} else {
-						mirror.scrollHeight = 0;
-					}
-					break;
-				}
-			}
-		} else {
-			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
-			let node;
-			while ((node = walker.nextNode())) {
-				const nodeLen = node.nodeValue.length;
-				if (pos < nodeLen) {
-					// TODO
-					// const range = document.createRange();
-					// const sel = window.getSelection();
-					// range.setStart(node, pos);
-					// range.setEnd(node, pos);
-					// sel.removeAllRanges();
-					// sel.addRange(range);
-					break;
-				}
-				pos -= nodeLen;
-			}
-		}
-	}
-
+	// generator 함수로 만들고 requestIdleCallback으로 점증적으로 업데이트...?
+	// 그게 절실할 만큼 큰 업무매뉴얼은 별로 없다 ㅋ
 	function update({ diffs, anchors }) {
 		if (!diffs) {
 			return;
@@ -776,15 +744,13 @@ function createEditor(container, name, callbacks) {
 		let currentDiffIndex = null;
 		let lineNum = 1;
 		let unwrittenDiff = false;
-		let lineHasNonSpaceChar = false;
-		let lineHasNonSpaceNonDiffChar = false;
-		let diffAnchorIndex = null;
 		let _pos = 0;
 
 		function appendAnchor(pos, anchorIndex, diffIndex = null) {
 			const anchor = anchors[anchorIndex];
 			if (inlineNode === null || inlineNode.nodeName !== ANCHOR_TAG) {
 				const el = document.createElement(ANCHOR_TAG);
+				el.contentEditable = false;
 				lineEl.insertBefore(el, inlineNode);
 				inlineNode = el;
 			}
@@ -843,8 +809,8 @@ function createEditor(container, name, callbacks) {
 			lineEl.dataset.lineNum = lineNum;
 			lineEl.dataset.pos = _pos;
 			lineNum++;
-			_lineElements.push(lineEl);
 		}
+		_lineElements.push(lineEl);
 		inlineNode = lineEl.firstChild;
 
 		for (const textrun of textruns) {
@@ -869,6 +835,9 @@ function createEditor(container, name, callbacks) {
 			} else if (textrun.type === "LINEBREAK" || textrun.type === "END_OF_STRING") {
 				if (unwrittenDiff) {
 					appendChars("");
+				}
+				if (inlineNode === null || inlineNode.nodeType !== 3 || inlineNode.nodeValue !== "\n") {
+					lineEl.insertBefore(document.createTextNode("\n"), inlineNode);
 				}
 
 				while (inlineNode) {
@@ -903,74 +872,6 @@ function createEditor(container, name, callbacks) {
 				}
 			}
 		}
-		// let textRunResult;
-		// do {
-		// 	lineHasNonSpaceChar = false;
-		// 	lineHasNonSpaceNonDiffChar = false;
-		// 	if (currentDiffIndex !== null) {
-		// 		unwrittenDiff = true;
-		// 	}
-		// 	if (lineEl === null) {
-		// 		lineEl = document.createElement(LINE_TAG);
-		// 		view.appendChild(lineEl);
-		// 		lineEl.dataset.lineNum = lineNum;
-		// 		lineEl.dataset.pos = _pos;
-		// 	}
-		// 	_lineElements[lineNum - 1] = lineEl;
-		// 	inlineNode = lineEl.firstChild;
-
-		// 	while (!(textRunResult = textruns.next()).done) {
-		// 		const { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar } = textRunResult.value;
-		// 		// if (name === "right") {
-		// 		// 	console.log(lineNum, { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar });
-		// 		// }
-		// 		_pos = pos;
-		// 		if (type === DIFF) {
-		// 			currentDiffIndex = diffIndex;
-		// 			unwrittenDiff = true;
-		// 		} else if (type === DIFF_END) {
-		// 			if (unwrittenDiff) {
-		// 				appendChars("", hasNonSpaceChar);
-		// 			}
-		// 			currentDiffIndex = null;
-		// 		} else if (type === CHARS) {
-		// 			lineHasNonSpaceChar = lineHasNonSpaceChar || hasNonSpaceChar;
-		// 			if (currentDiffIndex === null) {
-		// 				lineHasNonSpaceNonDiffChar = lineHasNonSpaceNonDiffChar || hasNonSpaceChar;
-		// 			}
-		// 			appendChars(text.substring(pos, pos + len), hasNonSpaceChar);
-		// 		} else if (type === LINEBREAK || type === END_OF_STRING) {
-		// 			//console.log("linebreak", { type, pos, len });
-		// 			break;
-		// 		} else if (type === ANCHOR) {
-		// 			appendAnchor(pos, anchorIndex, diffIndex);
-		// 		}
-		// 	}
-
-		// 	if (unwrittenDiff) {
-		// 		appendChars("", false);
-		// 	}
-
-		// 	while (inlineNode) {
-		// 		const nextInlineNode = inlineNode.nextSibling;
-		// 		inlineNode.remove();
-		// 		inlineNode = nextInlineNode;
-		// 	}
-
-		// 	lineEl = lineEl.nextElementSibling;
-		// 	if (textRunResult.value.type === END_OF_STRING) {
-		// 		break;
-		// 	}
-		// 	lineNum++;
-		// } while (!textRunResult.done);
-
-		// _lineElements.length = lineNum;
-
-		// while (lineEl) {
-		// 	const nextLineEl = lineEl.nextElementSibling;
-		// 	lineEl.remove();
-		// 	lineEl = nextLineEl;
-		// }
 
 		requestAnimationFrame(() => {
 			// const height = view.scrollHeight;
@@ -1021,22 +922,198 @@ function createEditor(container, name, callbacks) {
 	}
 
 	function setEditMode(editMode) {
-		// editmode인 경우 mirror와 editor를 둘 다 보여주고 높이도 동기화 해야한다.
-		// 둘의 높이는 무조건 같다. 왜냐면 editor에 따라 wrapper 크기가 결정되고 wrapper에 따라 mirror크기 결정되니까.
-		// 자바스크립트 쓸 필요가 없어야 한다.
+		_editMode = !!editMode;
 	}
 
-	updateText();
+	function getTextOffsetFromRoot(root, textNode, textNodeOffset) {
+		let offset = 0;
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		while (walker.nextNode()) {
+			if (walker.currentNode === textNode) {
+				return offset + textNodeOffset;
+			}
+			offset += walker.currentNode.nodeValue.length;
+		}
+		return null;
+	}
+
+	function findLineIndexByPos(pos, low = 0, high = _lineElements.length - 1) {
+		let mid;
+		while (low <= high) {
+			mid = (low + high) >>> 1;
+			const lineEl = _lineElements[mid];
+			const linePos = Number(lineEl.dataset.pos);
+			if (linePos === pos) {
+				return mid;
+			}
+			if (linePos > pos) {
+				high = mid - 1;
+			} else {
+				low = mid + 1;
+			}
+		}
+		return high;
+	}
+
+	window.findLineIndexByPos = findLineIndexByPos;
+
+	function selectTextRange(startOffset, endOffset) {
+		const range = document.createRange();
+		let startSet = false;
+		let endSet = false;
+		if (_editMode) {
+			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+			let currentNode;
+			let pos = 0;
+			while (!endSet && (currentNode = walker.nextNode())) {
+				if (!startSet && pos + currentNode.nodeValue.length >= startOffset) {
+					range.setStart(currentNode, startOffset - pos);
+					startSet = true;
+				}
+				if (!endSet && pos + currentNode.nodeValue.length >= endOffset) {
+					range.setEnd(currentNode, endOffset - pos);
+					endSet = true;
+				}
+				pos += currentNode.nodeValue.length;
+			}
+		} else {
+			// binary search in _lineElements for startOffset
+			let startLineIndex = findLineIndexByPos(startOffset);
+			let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
+
+			let currentNode;
+			let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null, false);
+			let pos = Number(_lineElements[startLineIndex].dataset.pos);
+			while ((currentNode = walker.nextNode())) {
+				const nodeLen = currentNode.nodeValue.length;
+				if (pos + nodeLen >= startOffset) {
+					range.setStart(currentNode, startOffset - pos);
+					startSet = true;
+					break;
+				}
+				pos += nodeLen;
+			}
+
+			walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null, false);
+			pos = Number(_lineElements[endLineIndex].dataset.pos);
+			while ((currentNode = walker.nextNode())) {
+				const nodeLen = currentNode.nodeValue.length;
+				if (pos + nodeLen >= endOffset) {
+					range.setEnd(currentNode, endOffset - pos);
+					endSet = true;
+					break;
+				}
+				pos += nodeLen;
+			}
+		}
+
+		if (startSet && endSet) {
+			const sel = window.getSelection();
+			sel.removeAllRanges();
+			sel.addRange(range);
+		}
+	}
+
+	function getTextSelectionRange() {
+		const selection = window.getSelection();
+		if (!selection.rangeCount) {
+			return null;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!wrapper.contains(range.commonAncestorContainer)) {
+			return null;
+		}
+
+		let startOffset = Number.NaN;
+		let endOffset = Number.NaN;
+		if (_editMode) {
+			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+			let currentNode;
+			let pos = 0;
+			while ((currentNode = walker.nextNode())) {
+				if (currentNode === range.startContainer) {
+					startOffset = pos + range.startOffset;
+				}
+				if (currentNode === range.endContainer) {
+					endOffset = pos + range.endOffset;
+					break;
+				}
+				pos += currentNode.textContent.length;
+			}
+		} else {
+			// 이 경우 조금 최적화가 가능. 실제로 이게 얼마나 효율적인지는 테스트해 볼 필요가 있겠지만...
+			// 몇천 라인의 텍스트고 diff, anchor가 많은 경우 당연히 시작줄, 끝줄을 먼저 찾고 그 줄에 대해서만
+			// offset을 계산하는 것이 더 빠르겠지!
+
+			// 주의: startContainer, endContainer가 text노드가 아닐 수도 있음.
+			let startLineEl = range.startContainer;
+			if (startLineEl.nodeType === 3) {
+				startLineEl = startLineEl.parentElement.closest("div[data-pos]");
+			} else {
+				startOffset = Number(startLineEl.dataset.pos);
+			}
+			let endLineEl = range.endContainer;
+			if (endLineEl.nodeType === 3) {
+				endLineEl = endLineEl.parentElement.closest("div[data-pos]");
+			} else {
+				endOffset = Number(endLineEl.dataset.pos) + endLineEl.textContent.length;
+			}
+
+			if (isNaN(startOffset) || isNaN(endOffset)) {
+				if (startLineEl && endLineEl) {
+					if (isNaN(startOffset)) {
+						startOffset = getTextOffsetFromRoot(startLineEl, range.startContainer, range.startOffset) + Number(startLineEl.dataset.pos);
+					}
+					if (isNaN(endOffset)) {
+						endOffset = getTextOffsetFromRoot(endLineEl, range.endContainer, range.endOffset) + Number(endLineEl.dataset.pos);
+					}
+				} else {
+					const walker = document.createTreeWalker(mirror, NodeFilter.SHOW_TEXT, null, false);
+					let currentNode;
+					let pos = 0;
+					while (isNaN(startOffset) && isNaN(endOffset) && (currentNode = walker.nextNode())) {
+						if (currentNode === range.startContainer && isNaN(startOffset)) {
+							startOffset = pos + range.startOffset;
+						}
+						if (currentNode === range.endContainer && isNaN(endOffset)) {
+							endOffset = pos + range.endOffset;
+							break;
+						}
+						pos += currentNode.textContent.length;
+					}
+				}
+			}
+		}
+
+		if (isNaN(startOffset) || isNaN(endOffset)) {
+			return null;
+		}
+
+		// 원본텍스트의 끝에 하나의 "\n"이 더 붙어있으니 원본텍스트 크기보다 offset이 더 커질 수 있음!!
+		if (startOffset >= _text.length) {
+			startOffset = _text.length - 1;
+		}
+		if (endOffset >= _text.length) {
+			endOffset = _text.length - 1;
+		}
+
+		return {
+			startOffset,
+			endOffset,
+		};
+	}
+
+	//updateText();
 
 	return {
 		name: name,
 		wrapper,
 		editor,
 		mirror,
+		updateText,
 		update,
-		getFirstVisiblePosInEditor,
 		scrollToDiff,
-		scrollToTextPosition,
 		saveCaret,
 		restoreCaret,
 		getVisibleAnchors,
@@ -1046,6 +1123,9 @@ function createEditor(container, name, callbacks) {
 		scrollToLine,
 		getFirstVisibleLineElement,
 		getNearestAnchorToCaret,
+		setEditMode,
+		getTextSelectionRange,
+		selectTextRange,
 		get text() {
 			return _text;
 		},
@@ -1069,209 +1149,6 @@ function createEditor(container, name, callbacks) {
 </script>
 <script id='textrun.js'>"use strict";
 
-const ANCHOR = "ANCHOR";
-const CHARS = "CHARS";
-const DIFF = "DIFF";
-const DIFF_END = "DIFF_END";
-const LINEBREAK = "LINEBREAK";
-const END_OF_STRING = "END_OF_STRING";
-
-// 최적화의 여지가 많음
-// textrun 배열을 만들면 나중에 변경된 부분만 업데이트 하거나 특정 줄만 업데이트 하기 수월함.
-// mirror를 안쓰고 editor 자체를 dom으로 만들 경우 현재 커서가 있는 줄을 수정하는 게 상당히 거슬리는데(특히 한글 입력 중이면)
-// 특정 줄만 업데이트를 미뤄둘 수 있으면 그런 상황에서 특정 줄만 업데이트 미뤄두고 상황 봐서 나중에 그 줄만 업데이트 할 수 있음.
-function* textrunGenerator(textKey, text, diffs, anchors) {
-	const _textLen = text.length;
-	let _pos = 0;
-	let _textPos = 0;
-	let _diffIndex = -1;
-	let _anchorIndex = -1;
-	let _anchorPos;
-	let _diffPos;
-	let _inDiff = false;
-	let _diffEnd;
-	let _hasNonSpaceChar = false;
-	let _lineNum = 1;
-
-	const current = {
-		pos: 0,
-		len: 0,
-		diffIndex: null,
-		anchorIndex: null,
-		hasNonSpaceChar: false,
-	};
-
-	// anchor위치는 diff의 시작위치
-	// diff 범위 밖일때는 어디에서든 올 수 있다
-
-	function nextAnchor() {
-		_anchorIndex++;
-		if (_anchorIndex < anchors.length) {
-			const data = anchors[_anchorIndex];
-			_anchorPos = data[textKey];
-			if (_anchorPos < _pos) {
-				console.warn("Anchor skipped", { anchor: data, anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
-				nextAnchor();
-			}
-		} else {
-			_anchorIndex = anchors.length;
-			_anchorPos = Number.MAX_SAFE_INTEGER;
-		}
-	}
-
-	function nextDiff() {
-		_diffIndex++;
-		if (_diffIndex < diffs.length) {
-			const data = diffs[_diffIndex][textKey];
-			_diffPos = data.pos;
-			_diffEnd = data.pos + data.len;
-		} else {
-			_diffIndex = diffs.length;
-			_diffPos = Number.MAX_SAFE_INTEGER;
-			_diffEnd = Number.MAX_SAFE_INTEGER;
-		}
-	}
-
-	// 일단 줄번호++
-	// 해당 줄번호에 해당하는 ling mapping를 찾아서 그 index를 _lineMapIndex로 저장.
-	// 못찾으면 그 이후 maping index에 ~를 씌운 값
-	//
-	nextDiff();
-	nextAnchor();
-
-	function chars() {
-		current.type = CHARS;
-		current.pos = _textPos;
-		current.len = _pos - _textPos;
-		current.diffIndex = _inDiff ? _diffIndex : null;
-		current.hasNonSpaceChar = _hasNonSpaceChar;
-		_hasNonSpaceChar = false;
-		_textPos = _pos;
-		return current;
-	}
-
-	// 주의:
-	// 같은 pos를 가진 anchor가 두개가 있을 수 있다. 길이가 0인 diff에 대한 anchor와 그 위치에 시작되는 common anchor
-	// 반대의 순서는 없음.
-
-	while (true) {
-		if (_pos === _anchorPos) {
-			let anchor = anchors[_anchorIndex];
-			if (anchor.type === "before") {
-				current.type = ANCHOR;
-				current.pos = _pos;
-				current.len = 0;
-				current.diffIndex = _diffIndex;
-				current.anchorIndex = _anchorIndex;
-				yield current;
-				nextAnchor();
-			}
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (_pos === _diffPos) {
-			// 현재 위치 이전까지의 문자열들.
-			if (_textPos < _pos) {
-				yield chars();
-			}
-			_inDiff = true;
-			_diffPos = Number.MAX_SAFE_INTEGER;
-			current.type = DIFF;
-			current.pos = _pos;
-			current.len = 0;
-			current.diffIndex = _diffIndex;
-			yield current;
-		}
-
-		while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-			_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-			_pos++;
-		}
-		if (_textPos < _pos) {
-			yield chars();
-		}
-
-		if (_pos === _diffEnd) {
-			current.type = DIFF_END;
-			current.pos = _pos;
-			current.len = 0;
-			current.diffIndex = _diffIndex;
-			yield current;
-			_inDiff = false;
-			nextDiff();
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (_pos === _anchorPos) {
-			const anchor = anchors[_anchorIndex];
-			if (anchor.type === "after") {
-				current.type = ANCHOR;
-				current.pos = _pos;
-				current.len = 0;
-				current.diffIndex = _diffIndex;
-				current.anchorIndex = _anchorIndex;
-				yield current;
-				nextAnchor();
-			}
-			// type이 after가 아니더라도 이미 이 시점에서는 before 타입 앵커를 리턴할 수 없다.
-
-			while (_pos < _textLen && _pos !== _diffPos && _pos !== _diffEnd && _pos !== _anchorPos && text[_pos] !== "\n") {
-				_hasNonSpaceChar = _hasNonSpaceChar || (text[_pos] !== " " && text[_pos] !== "\t");
-				_pos++;
-			}
-			if (_textPos < _pos) {
-				yield chars();
-			}
-		}
-
-		if (text[_pos] === "\n") {
-			current.type = LINEBREAK;
-			current.pos = _pos;
-			current.len = 1;
-			current.diffIndex = _inDiff ? _diffIndex : null;
-			yield current;
-			_lineNum++;
-			_textPos = ++_pos;
-
-			while (_anchorPos < _pos) {
-				console.warn("Anchor skipped", { anchor: anchors[_anchorIndex], anchorIndex: _anchorIndex, pos: _pos, anchorPos: _anchorPos });
-				nextAnchor();
-			}
-
-			continue;
-		}
-
-		if (_pos >= _textLen) {
-			current.type = END_OF_STRING;
-			current.pos = _textLen;
-			current.len = 0;
-			current.diffIndex = null;
-			return current;
-		}
-	}
-
-	// current.type = END_OF_STRING;
-	// current.pos = _textLen;
-	// current.len = 0;
-	// current.diffIndex = null;
-	// yield current;
-	//yield [END_OF_STRING, _textLen, 0, null];
-}
-
-// generator함수보다 이 방법을 쓰면 
-// 뒷부분의 textrun만 변경되었을 경우를 감지해서 그 부분만 업데이트 할 수 있다
 function getTextRuns(textKey, text, diffs, anchors) {
 	let pos = 0;
 	let textLen = text.length;
@@ -1371,6 +1248,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
 			pos = nextEventPos;
 		}
 
+		// 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
 		if (nextEventPos === nextAnchorPos && nextAnchor.type === "before") {
 			textruns.push({
 				type: "ANCHOR",
@@ -1391,6 +1269,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
 				diffIndex: diffIndex,
 			});
 			nextDiffPos = Number.MAX_SAFE_INTEGER;
+			continue;
 		}
 
 		if (nextEventPos === nextDiffEndPos) {
@@ -1402,6 +1281,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
 				diffIndex: diffIndex,
 			});
 			nextDiffPos = nextDiffEndPos = nextDiff = null;
+			continue;
 		}
 
 		if (nextEventPos === nextAnchorPos && nextAnchor.type === "after") {
@@ -1427,6 +1307,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
 				});
 				pos = nextEventPos + 1;
 				nextNewLinePos = null;
+				continue;
 			}
 		}
 	}
@@ -1445,16 +1326,36 @@ function getTextRuns(textKey, text, diffs, anchors) {
 const DIFF_BY_CHAR = 1;
 const DIFF_BY_WORD = 2;
 const DIFF_BY_LINE = 3;
-const DIFF_BY_PARAGRAPH = 4;
+const TOKEN_CACHE_SIZE = 2;
 
-const TOKEN_CACHE_SIZE = 4;
-const MIN_PARAGRAPH_GAP = 1;
-
-const FIRST_OF_LINE = 1; // PRECEDED_BY_NEWLINE ?
-const LAST_OF_LINE = 2; // FOLLOWED_BY_NEWLINE ?
+// token flags
+const FIRST_OF_LINE = 1;
+const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
+const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
 
-const decoder = new TextDecoder();
+const SPACE_CHARS = {
+	" ": true,
+	"\t": true,
+	"\n": true,
+	"\r": true, // 글쎄...
+	"\f": true, // 이것들은...
+	"\v": true, // 볼일이 없을것...
+};
+
+const normalizeChars = {};
+
+//let greedyMatch = false;
+
+function insertNormalizeChar(chars) {
+	const norm = chars[0];
+	normalizeChars[norm] = norm;
+	for (let i = 1; i < chars.length; i++) {
+		normalizeChars[chars[i]] = norm;
+	}
+}
+
+// const decoder = new TextDecoder();
 let _nextWork = null;
 let _currentWork = null;
 
@@ -1462,10 +1363,8 @@ const tokenCache = {
 	[DIFF_BY_CHAR]: [],
 	[DIFF_BY_WORD]: [],
 	[DIFF_BY_LINE]: [],
-	[DIFF_BY_PARAGRAPH]: [],
 };
 
-// #region trie
 function createTrieNode() {
 	const children = {};
 	function next(char) {
@@ -1495,17 +1394,13 @@ function createTrie() {
 
 	return { insert, root };
 }
-// #endregion
 
-const SPACE_CHARS = {
-	" ": true, // 공백
-	"\t": true, // 탭
-	"\n": true, // 줄 바꿈
-	"\r": true, // 캐리지 리턴
-	"\f": true, // 폼 피드
-	"\v": true, // 수평 탭
-};
-
+// wildcards.
+// 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
+// 와일드카드diff인 경우 다른 diff와 병합되지 않으면 좋지만 와일드카드가 얼마나 greedy하게 반대쪽 텍스트를 잡아먹어야 할지
+// 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
+// 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
+// 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
 const Trie = createTrie();
 Trie.insert("(추가)", WILD_CARD);
 Trie.insert("(삭제)", WILD_CARD);
@@ -1520,9 +1415,9 @@ self.onmessage = (e) => {
 	if (e.data.type === "diff") {
 		const work = {
 			reqId: e.data.reqId,
-			left: e.data.left,
-			right: e.data.right,
-			method: e.data.method,
+			leftText: e.data.left,
+			rightText: e.data.right,
+			...e.data.options,
 			cancel: false,
 		};
 		if (_currentWork) {
@@ -1531,16 +1426,32 @@ self.onmessage = (e) => {
 			return;
 		}
 		runDiff(work);
+	} else if (e.data.type === "normalizeChars") {
+		insertNormalizeChar(e.data.chars);
+		// } else if (e.data.type === "option") {
+		// 	if (e.data.key === "greedyMatch") {
+		// 		greedyMatch = e.data.value;
+		// 	}
 	}
 };
 
 async function runDiff(work) {
 	_currentWork = work;
-	const leftText = decoder.decode(work.left);
-	const rightText = decoder.decode(work.right);
+	// const leftText = decoder.decode(work.left);
+	// const rightText = decoder.decode(work.right);
+	// const leftText = work.left;
+	// const rightText = work.right;
 	try {
 		work.lastYield = work.start = performance.now();
-		const results = await computeDiff({ leftText, rightText, method: work.method || DIFF_BY_WORD, ctx: work });
+		self.postMessage({
+			reqId: work.reqId,
+			type: "start",
+			start: work.start,
+		});
+		const results = await computeDiff({
+			...work,
+			ctx: work,
+		});
 		work.finish = performance.now();
 		//console.log("Elapsed time:", work.finish - work.start);
 		_currentWork = null;
@@ -1565,10 +1476,6 @@ async function runDiff(work) {
 	if (work) {
 		return await runDiff(work);
 	}
-}
-
-function normalizeText(input) {
-	return input.replace(/\s{2,}/g, " ").trim();
 }
 
 function checkIfFirstOfLine(input, pos) {
@@ -1660,6 +1567,15 @@ function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseL
 	return tokens;
 }
 
+function normalize(text) {
+	let result = "";
+	for (let i = 0; i < text.length; i++) {
+		const char = text[i];
+		result += normalizeChars[char] || char;
+	}
+	return result;
+}
+
 function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
 	const tokens = [];
 	let currentStart = -1;
@@ -1676,16 +1592,14 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 	}
 
 	for (let i = inputPos; i < inputEnd; i++) {
-		const char = input[i];
-		//if (/[\w\u3131-\uD79D]+/.test(char)) {
+		let char = input[i];
 		// 문장부호를 별개로 단어로 분리하는 방법도 생각해볼 필요가 있음.
-		// but!! "(현행과 같음)"의 여는 괄호가 별개로 매치되는 건 원하지 않음.
-
+		// 문제는 (hello)와 (world)에서 '('만 매치되면 눈이 피곤해진다. 괄호안의 문자들이 여러줄이면 더더욱..
 		if (SPACE_CHARS[char]) {
 			if (currentStart !== -1) {
 				flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 				tokens.push({
-					text: input.substring(currentStart, i),
+					text: flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i),
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: baseLineNum + lineCount,
@@ -1702,6 +1616,10 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 				}
 			}
 		} else {
+			if (normalizeChars[char]) {
+				flags |= NORMALIZE;
+				char = normalizeChars[char];
+			}
 			if (char === "(") {
 				let p = i + 1;
 				let found = null;
@@ -1748,7 +1666,7 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 	if (currentStart !== -1) {
 		flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 		tokens.push({
-			text: input.substring(currentStart),
+			text: flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart),
 			pos: currentStart,
 			len: inputEnd - currentStart,
 			lineNum: baseLineNum + lineCount,
@@ -1800,7 +1718,7 @@ function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseL
 		} else {
 			if (currentStart !== -1) {
 				tokens.push({
-					text: input.substring(currentStart, currentEnd),
+					text: input.substring(currentStart, currentEnd).trim(),
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: baseLineNum + lineCount,
@@ -1814,7 +1732,7 @@ function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseL
 
 	if (currentStart !== -1) {
 		tokens.push({
-			text: input.substring(currentStart, currentEnd),
+			text: input.substring(currentStart, currentEnd).trim(),
 			pos: currentStart,
 			len: currentEnd - currentStart,
 			lineNum: baseLineNum + lineCount,
@@ -1867,160 +1785,23 @@ function tokenize(input, method, inputPos = undefined, inputEnd = undefined, bas
 	return tokens;
 }
 
-// function computeLCS(leftTokens, rightTokens) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-// 	const dp = new Array(m + 1);
-// 	const blockLength = new Array(m + 1);
-// 	const lcsIndices = [];
-
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 		blockLength[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		for (let j = 1; j <= n; j++) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				let weight = 1;
-// 				// 연속된 매치 토큰에 가중치 부여
-// 				if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 					weight += dp[i - 1][j - 1];
-// 				}
-// 				// dp 테이블 갱신
-// 				dp[i][j] = dp[i - 1][j - 1] + weight;
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 			}
-// 		}
-// 	}
-
-// 	// for (let i = 1; i <= m; i++) {
-// 	// 	for (let j = 1; j <= n; j++) {
-// 	// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 	// 			let weight = 1;
-// 	// 			if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 	// 				weight += blockLength[i - 1][j - 1];
-// 	// 			}
-// 	// 			dp[i][j] = dp[i - 1][j - 1] + weight;
-// 	// 			blockLength[i][j] = blockLength[i - 1][j - 1] + 1;
-// 	// 		} else {
-// 	// 			dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 	// 			blockLength[i][j] = 0;
-// 	// 		}
-// 	// 	}
-// 	// }
-
-// 	let i = m;
-// 	let j = n;
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			}
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-// function backtrackLCS(dp, leftTokens, rightTokens) {
-// 	let i = leftTokens.length;
-// 	let j = rightTokens.length;
-// 	const lcsIndices = [];
-
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			if (dp[i][j] === dp[i - 1][j - 1] + 1) {
-// 				lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 				i--;
-// 				j--;
-// 			} else {
-// 				if (dp[i - 1][j] > dp[i][j - 1]) {
-// 					i--;
-// 				} else if (dp[i - 1][j] < dp[i][j - 1]) {
-// 					j--;
-// 				} else {
-// 					i--;
-// 				}
-// 			}
-// 		} else {
-// 			if (dp[i - 1][j] > dp[i][j - 1]) {
-// 				i--;
-// 			} else {
-// 				j--;
-// 			}
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-//
-// WEIGHTED LCS! meticulous하게 테스트 해볼 필요 있음.
-//
-// function computeLCS(leftTokens, rightTokens) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-// 	const dp = new Array(m + 1);
-// 	const lcsIndices = [];
-
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		for (let j = 1; j <= n; j++) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				let weight = 1;
-// 				if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 					weight += dp[i - 1][j - 1];
-// 				}
-// 				dp[i][j] = dp[i - 1][j - 1] + weight;
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 			}
-// 		}
-// 	}
-
-// 	let i = m;
-// 	let j = n;
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
 async function computeLCS(leftTokens, rightTokens, ctx) {
 	const m = leftTokens.length;
 	const n = rightTokens.length;
 
 	const dp = new Array(m + 1);
-	//const consecutive = new Array(m + 1);
 	for (let i = 0; i <= m; i++) {
 		dp[i] = new Array(n + 1).fill(0);
-		//consecutive[i] = new Array(n + 1).fill(0);
 	}
+
+	// 텍스트가 길어지는 경우(토큰이 많은 경우) 끔찍하게 많은 반복을 수행하게된다.
 	for (let i = 1; i <= m; i++) {
 		const leftText = leftTokens[i - 1].text;
 		for (let j = 1; j <= n; j++) {
+			// 주기적으로 yield 해서 취소요청을 받아야함.
+			// performance.now()는 미친게 아닌가 싶을 정도로 무거운 함수이기 때문에 되도록 자제.
+			// await new Promise(...) 역시 자주 사용하면 안됨
+			// (i+j) % 0x4000 === 0 일 때만 사용하기로. 브라우저 js엔진의 비트연산 속도를 믿어본다 ㅋ
 			if (ctx && ((i + j) & 16383) === 0) {
 				const now = performance.now();
 				if (now - ctx.lastYield > 100) {
@@ -2032,13 +1813,10 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 				}
 			}
 
-			const rightText = rightTokens[j - 1].text;
-			if (leftText === rightText) {
-				//consecutive[i][j] = consecutive[i - 1][j - 1] + 1;
+			if (leftText === rightTokens[j - 1].text) {
 				dp[i][j] = dp[i - 1][j - 1] + 1; // + consecutive[i][j];
 			} else {
 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-				//consecutive[i][j] = 0;
 			}
 		}
 	}
@@ -2047,21 +1825,10 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 	let j = n;
 	const lcsIndices = [];
 	while (i > 0 && j > 0) {
-		// if (ctx && ((i + j) & 511) === 0) {
-		// 	const now = performance.now();
-		// 	if (now - ctx.lastYield > 100) {
-		// 		ctx.lastYield = now;
-		// 		await new Promise((resolve) => setTimeout(resolve, 0));
-		// 		if (ctx.cancel) {
-		// 			throw new Error("cancelled");
-		// 		}
-		// 	}
-		// }
 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
 			lcsIndices.push({
 				leftIndex: i - 1,
 				rightIndex: j - 1,
-				//text: leftTokens[i - 1].text, // 필요하면 leftTokens[leftIndex]로 얻을 수 있음!
 			});
 			i--;
 			j--;
@@ -2075,109 +1842,6 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 	return lcsIndices;
 }
 
-// async function computeLCS(leftTokens, rightTokens, ctx) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-
-// 	const dp = new Array(m + 1);
-// 	const consecutive = new Array(m + 1);
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 		consecutive[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		const leftText = leftTokens[i - 1].text;
-// 		for (let j = 1; j <= n; j++) {
-// 			if (j % 1023 === 0) {
-// 				if (ctx && performance.now() - ctx.lastYield > 100) {
-// 					ctx.lastYield = performance.now();
-// 					await new Promise((resolve) => setTimeout(resolve, 0));
-// 					if (ctx.cancel) {
-// 						return null;
-// 					}
-// 				}
-// 			}
-
-// 			const rightText = rightTokens[j - 1].text;
-
-// 			if (leftText === rightText) {
-// 				consecutive[i][j] = consecutive[i - 1][j - 1] + 1; // 연속 매치 횟수 증가
-// 				dp[i][j] = dp[i - 1][j - 1] + 1 + consecutive[i][j]; // 연속 매치에 가중치 부여
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 				consecutive[i][j] = 0;
-// 			}
-// 		}
-// 	}
-
-// 	let i = m;
-// 	let j = n;
-// 	const lcsIndices = [];
-// 	while (i > 0 && j > 0) {
-// 		if ((i + j) % 1023 === 0 && ctx && performance.now() - ctx.lastYield > 100) {
-// 			ctx.lastYield = performance.now();
-// 			await new Promise((resolve) => setTimeout(resolve, 0));
-// 			if (ctx.cancel) {
-// 				return null;
-// 			}
-// 		}
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-// function findLineEndPos(text, pos, maxPos, numLines = 1){
-// 	while (pos < maxPos && numLines > 0) {
-// 		if (text[pos] === "\n") {
-// 			numLines--;
-// 			if (numLines === 0) {
-// 				break;
-// 			}
-// 		}
-// 		pos++;
-// 	}
-// 	return pos;
-// }
-
-function skipCommonChars(leftTokens, leftTokenIndex, leftTokenCount, rightTokens, rightTokenIndex, rightTokenCount) {
-	let i = leftTokenIndex;
-	let j = rightTokenIndex;
-	// 각 토큰의 text의 한글자 한글자를 비교
-
-	let leftToken = leftTokens[i];
-	let rightToken = rightTokens[j];
-	let leftCharIndex = 0;
-	let rightCharIndex = 0;
-	let leftSkipped = 0;
-	let rightSkipped = 0;
-	while (leftToken && rightToken) {
-		const leftText = leftToken.text[leftCharIndex];
-		const rightText = rightToken.text[rightCharIndex];
-		while (leftCharIndex < leftToken.text.length && rightCharIndex < rightToken.text.length) {
-			if (leftText[leftCharIndex] !== rightText[rightCharIndex]) {
-				break;
-			}
-			if (++leftCharIndex >= leftToken.text.length) {
-				leftToken = leftTokens[++i];
-				leftCharIndex = 0;
-			}
-		}
-	}
-
-	return { leftIndex: i, rightIndex: j };
-}
-
 async function computeDiff({
 	leftText,
 	rightText,
@@ -2185,16 +1849,16 @@ async function computeDiff({
 	leftInputEnd = undefined,
 	rightInputPos = undefined,
 	rightInputEnd = undefined,
-	leftTokens = undefined,
-	rightTokens = undefined,
+	// leftTokens = undefined,
+	// rightTokens = undefined,
 	method = DIFF_BY_WORD,
+	greedyMatch = false,
+	useFallback = false,
 	ctx,
-	skipFallback = false,
 }) {
+	//console.log("computeDiff", { leftText, rightText, leftInputPos, leftInputEnd, rightInputPos, rightInputEnd, method, greedyMatch, useFallback });
 	const diffs = [],
 		anchors = [];
-
-	let now = performance.now();
 
 	if (leftInputPos === undefined) {
 		leftInputPos = 0;
@@ -2209,27 +1873,29 @@ async function computeDiff({
 		rightInputEnd = rightText.length;
 	}
 
-	if (!leftTokens) {
-		leftTokens = tokenize(leftText, method, leftInputPos, leftInputEnd);
-	}
-	if (!rightTokens) {
-		rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
-	}
-	let elapsed = performance.now() - now;
-	// console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
+	const leftTokens = tokenize(leftText, method, leftInputPos, leftInputEnd);
+	const rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
 
-	now = performance.now();
+	if (leftText === rightText) {
+		for (let i = 0; i < leftTokens.length; i++) {
+			const token = leftTokens[i];
+			if (token.flags & FIRST_OF_LINE) {
+				let anchorPos = token.pos;
+				while (anchorPos > 0 && leftText[anchorPos - 1] !== "\n") {
+					anchorPos--;
+				}
+				addAnchor("before", anchorPos, anchorPos);
+			}
+		}
+		return { diffs, anchors };
+	}
+
+	// console.log("tokens:", { leftTokens, rightTokens });
+
 	const lcs = await computeLCS(leftTokens, rightTokens, ctx);
-	elapsed = performance.now() - now;
-	// console.debug("LCS elapsed time:", elapsed);
-
-	if (ctx && ctx.cancel) {
-		throw new Error("cancelled");
-	}
 	const lcsLength = lcs.length;
 	const leftTokensLength = leftTokens.length;
 	const rightTokensLength = rightTokens.length;
-	// LCS에 비해 나머지 부분은 성능에 큰 영향을 미치지 않음.
 
 	function addAnchor(type, leftPos, rightPos, diffIndex = null) {
 		if (leftPos === undefined || rightPos === undefined) {
@@ -2250,23 +1916,19 @@ async function computeDiff({
 	}
 
 	if (leftTokensLength === 0 && rightTokensLength === 0) {
-		//
+		// 딱히 할 수 있는게 없다.
+		// 앵커도 없다.
 	} else if (leftTokensLength === 0) {
 		diffs.push({
 			left: {
-				pos: 0,
+				pos: leftInputPos,
 				len: 0,
-				line: 1,
-				lineEnd: 1,
-				entireLines: true,
 				empty: true,
 			},
 			right: {
 				pos: rightTokens[0].pos,
 				len: rightTokens[rightTokensLength - 1].pos + rightTokens[rightTokensLength - 1].len - rightTokens[0].pos,
 				line: rightTokens[0].lineNum,
-				lineEnd: rightTokens[rightTokensLength - 1].lineNum,
-				entireLines: true,
 			},
 		});
 	} else if (rightTokensLength === 0) {
@@ -2274,16 +1936,10 @@ async function computeDiff({
 			left: {
 				pos: leftTokens[0].pos,
 				len: leftTokens[leftTokensLength - 1].pos + leftTokens[leftTokensLength - 1].len - leftTokens[0].pos,
-				line: leftTokens[0].lineNum,
-				lineEnd: leftTokens[leftTokensLength - 1].lineNum,
-				entireLines: true,
 			},
 			right: {
-				pos: 0,
+				pos: rightInputPos,
 				len: 0,
-				line: 1,
-				lineEnd: 1,
-				entireLines: true,
 				empty: true,
 			},
 		});
@@ -2291,7 +1947,6 @@ async function computeDiff({
 		let i = 0;
 		let j = 0;
 		let lcsIndex = 0;
-		let lastYield = 0;
 		let iteration = 0;
 
 		while (lcsIndex < lcsLength || i < leftTokensLength || j < rightTokensLength) {
@@ -2305,8 +1960,13 @@ async function computeDiff({
 					}
 				}
 			}
-			if (lcsIndex < lcsLength && i === lcs[lcsIndex].leftIndex && j === lcs[lcsIndex].rightIndex) {
-				// if (lcsIndex < lcsLength && leftTokens[i].text === leftTokens[lcs[lcsIndex].leftIndex].text && rightTokens[j].text === rightTokens[lcs[lcsIndex].rightIndex].text) {
+			if (
+				lcsIndex < lcsLength &&
+				((greedyMatch &&
+					leftTokens[i].text === leftTokens[lcs[lcsIndex].leftIndex].text &&
+					rightTokens[j].text === rightTokens[lcs[lcsIndex].rightIndex].text) ||
+					(i === lcs[lcsIndex].leftIndex && j === lcs[lcsIndex].rightIndex))
+			) {
 				const leftToken = leftTokens[i];
 				const rightToken = rightTokens[j];
 				if ((leftToken.flags & rightToken.flags & FIRST_OF_LINE) === FIRST_OF_LINE) {
@@ -2323,33 +1983,103 @@ async function computeDiff({
 				i++;
 				j++;
 				lcsIndex++;
-				continue; // 다음 순회로 건너뜀
+				continue;
 			}
 
+			const lcsEntry = lcs[lcsIndex];
 			let leftIndex = i;
 			let leftCount = 0;
 			let rightIndex = j;
 			let rightCount = 0;
 
-			while (i < leftTokensLength && (lcsIndex >= lcsLength || i < lcs[lcsIndex].leftIndex)) {
-				// while (i < leftTokensLength && (lcsIndex >= lcsLength || leftTokens[i].text !== leftTokens[lcs[lcsIndex].leftIndex].text)) {
+			// greedyMatch인 경우 최대한 공통부분을 일찍/많이 잡아먹어야하므로
+			// diff는 최대한 적게 잡아먹어야함. 맞...지..?
+
+			while (
+				i < leftTokensLength && // 유효한 토큰 index
+				(!lcsEntry || // 공통 sequence가 없는 경우
+					(!greedyMatch && i < lcsEntry.leftIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
+					leftTokens[i].text !== leftTokens[lcsEntry.leftIndex].text) // or 텍스트가 같으면 바로 중단
+			) {
 				leftCount++;
 				i++;
 			}
 
-			while (j < rightTokensLength && (lcsIndex >= lcsLength || j < lcs[lcsIndex].rightIndex)) {
-				// while (j < rightTokensLength && (lcsIndex >= lcsLength || rightTokens[j].text !== rightTokens[lcs[lcsIndex].rightIndex].text)) {
+			while (
+				j < rightTokensLength && // 유효한 토큰 index
+				(!lcsEntry || // 공통 sequence가 없는 경우
+					(!greedyMatch && j < lcsEntry.rightIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
+					rightTokens[j].text !== rightTokens[lcsEntry.rightIndex].text) // or 텍스트가 같으면 바로 중단
+			) {
 				rightCount++;
 				j++;
 			}
 
-			let anchorBefore = false,
-				anchorAfter = false;
+			if (leftCount > 0 && rightCount > 0) {
+				if (useFallback && method > DIFF_BY_WORD) {
+					const result = await computeDiff({
+						leftText,
+						rightText,
+						leftInputPos: leftTokens[leftIndex].pos,
+						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
+						rightInputPos: rightTokens[rightIndex].pos,
+						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
+						method: DIFF_BY_WORD,
+						greedyMatch,
+						useFallback: useFallback,
+						ctx,
+					});
+					for (const anchor of result.anchors) {
+						if (anchor.diffIndex !== null) {
+							anchor.diffIndex += diffs.length;
+						}
+						addAnchor(anchor.type, anchor.left, anchor.right, diffs.length);
+					}
+					for (const diff of result.diffs) {
+						diffs.push(diff);
+					}
+					continue;
+				} else if (method > DIFF_BY_CHAR) {
+					// 단어 사이에서 예기치 않은 공백이 나오는 경우가 왕왕 있다.
+					// 게다가 우리말은 띄어쓰기를 해도 맞고 안해도 맞는 것 같은 느낌적인 느낌의 느낌이 느껴지는 경우가 많은 느낌이다!!!
+					// FALLBACK으로 글자단위 비교를 하고 그 결과를 최종결과에 넣어버리는 방법을 써도 되지만
+					// 글자단위 DIFF는 오히려 사람의 눈에는 더 불편함.
+
+					// 문제: [diff0] abc [diff1] vs [diff0] a bc [diff1] 같은 경우 "abc" vs "a bc"도 diff로 처리됨.
+					// > diff0에서부터 diff1 범위까지를 몽땅 diff 범위로 묶어버렸기 때문에 abc vs a bc를 별개로 비교하지 못함.
+					// > 그렇다고 토큰 하나씩 따로따로 처리를 하면 시작부분부터 "ab cd" vs "abcd" 같은걸 처리하지 못함(ab vs abcd 비교를 하게되기 때문에)
+					// 그래도 diff를 diff가 아닌 걸로 표시하는 게 아니라라 diff가 아닌 걸 diff로 표시하는 거니까 큰 문제가 되지는 않을 것...
+					const result = await computeDiff({
+						leftText,
+						rightText,
+						leftInputPos: leftTokens[leftIndex].pos,
+						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
+						rightInputPos: rightTokens[rightIndex].pos,
+						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
+						method: DIFF_BY_CHAR,
+						useFallback: false,
+						ctx,
+					});
+
+					if (result.diffs.length === 0) {
+						continue;
+					}
+
+					// 글자단위로 표시하면 오히려 눈깔 빠진다.
+					// 공백무시 글자단위로 비교에서도 두 문자열이 같지 않다는 것은 알았으니 기존 토큰을 기준으로 diff를 만든다.
+				}
+			}
+
+			// 조금씩 수정하다가 난장판이 된 부분인데 섣불리 손대고 싶지 않다... ㅋ
+
 			let leftPos, leftLen, rightPos, rightLen;
 			let leftEmpty;
 			let rightEmpty;
 			let leftAnchorPos = null;
 			let rightAnchorPos = null;
+
+			let anchorBefore = false,
+				anchorAfter = false;
 
 			if (leftCount > 0 && rightCount > 0) {
 				leftPos = leftTokens[leftIndex].pos;
@@ -2360,65 +2090,6 @@ async function computeDiff({
 				rightEmpty = false;
 				anchorBefore = !!(leftTokens[leftIndex].flags & rightTokens[rightIndex].flags & FIRST_OF_LINE);
 				anchorAfter = !!(leftTokens[leftIndex + leftCount - 1].flags & rightTokens[rightIndex + rightCount - 1].flags & LAST_OF_LINE);
-
-				if (method > DIFF_BY_CHAR) {
-					// console.log("try fallback", {
-					// 	leftPos,
-					// 	leftEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
-					// 	rightPos,
-					// 	rightEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-					// });
-					const result = await computeDiff({
-						leftText,
-						rightText,
-						leftInputPos: leftPos,
-						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
-						rightInputPos: rightPos,
-						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-						method: method - 1,
-						ctx,
-						skipFallback: true,
-					});
-
-					// console.log("fallback result ", { result });
-
-					// diff 결과가 1개 이하일 때에만 결과를 사용하고 그렇지 않은 경우는 무시하고 현재 method로 diff 생성.
-
-					if (result.diffs.length <= 1) {
-						const leftEnd = leftPos + leftLen;
-						const rightEnd = rightPos + rightLen;
-						for (const anchor of result.anchors) {
-							if (anchor.left < leftEnd && anchor.right < rightEnd) {
-								if (anchor.diffIndex !== null) {
-									anchor.diffIndex += diffs.length;
-								}
-								addAnchor(anchor.type, anchor.left, anchor.right, anchor.diffIndex);
-							}
-						}
-						for (const diff of result.diffs) {
-							diffs.push(diff);
-						}
-						continue;
-					}
-
-					// for (const diff of result.diffs) {
-					// 	diffs.push(diff);
-					// }
-
-					// console.log("fallback done");
-					// continue;
-				}
-				// if (method !== DIFF_BY_CHAR) {
-				// 	if (leftLen <= 40 && rightLen <= 40) {
-				// 		let leftFragment = leftText.substring(leftPos, leftPos + leftLen).replace(/\s/g, "");
-				// 		let rightFragment = rightText.substring(rightPos, rightPos + rightLen).replace(/\s/g, "");
-				// 		if (leftFragment === rightFragment) {
-				// 			leftIndex = rightIndex = 0;
-				// 			leftCount = rightCount = 0;
-				// 			continue;
-				// 		}
-				// 	}
-				// }
 
 				if (anchorBefore) {
 					leftAnchorPos = leftPos;
@@ -2469,6 +2140,8 @@ async function computeDiff({
 					}
 				}
 			} else if (leftCount > 0 || rightCount > 0) {
+				// 이렇게까지 장황하게 만들어야되나 싶은데 더이상은 손대기 싫은 부분...
+
 				let longSideText, shortSideText;
 				let longSideIndex, longSideCount, longSideTokens;
 				let shortSideIndex, shortSideCount, shortSideTokens;
@@ -2578,41 +2251,12 @@ async function computeDiff({
 										}
 									}
 								}
-								// while (p >= 0) {
-								// 	if (shortSideText[p] === "\n") {
-								// 		console.log(7);
-								// 		shortSidePos = p + 1;
-								// 		shortSideAnchorPos = shortSidePos;
-								// 		success = true;
-								// 		p--;
-								// 		continue;
-								// 		// keep going.
-								// 	}
-								// 	if (!SPACE_CHARS[shortSideText[p--]]) {
-								// 		break;
-								// 	}
-								// }
-								// if (!success) {
-								// 	p = shortSidePos;
-								// 	while (p < shortSideEnd) {
-								// 		if (shortSideText[p] === "\n") {
-								// 			console.log(8);
-								// 			shortSidePos = p + 1;
-								// 			shortSideAnchorPos = shortSidePos;
-								// 			break;
-								// 		}
-								// 		if (!SPACE_CHARS[shortSideText[p++]]) {
-								// 			break;
-								// 		}
-								// 	}
-								// }
 							}
 						}
 					}
 				}
 
 				if (longSideIsFirstWord) {
-			
 					if (shortSideAnchorPos !== undefined) {
 						shortSideAnchorPos = shortSidePos;
 						while (shortSideAnchorPos > 0 && shortSideText[shortSideAnchorPos - 1] !== "\n") {
@@ -2638,7 +2282,7 @@ async function computeDiff({
 							}
 							shortSideAnchorPos = shortSidePos + shortSideLen;
 							// 이후 이어지는 공백 문자 중 마지막 공백 문자 자리에서 AFTER 앵커
-	
+
 							while (shortSideAnchorPos < shortSideEnd) {
 								if (shortSideText[shortSideAnchorPos] === "\n") {
 									break;
@@ -2656,9 +2300,6 @@ async function computeDiff({
 							addAnchor("after", leftAnchorPos, rightAnchorPos);
 						}
 					}
-					
-
-					
 				}
 				if (leftCount > 0) {
 					leftPos = longSidePos;
@@ -2679,22 +2320,6 @@ async function computeDiff({
 				throw new Error("WTF? both leftCount and rightCount are 0");
 			}
 
-			// if (anchorBefore) {
-			// 	anchors.push({
-			// 		type: "before",
-			// 		diffIndex: diffs.length,
-			// 		left: leftPos,
-			// 		right: rightPos,
-			// 	});
-			// }
-			// if (anchorAfter) {
-			// 	anchors.push({
-			// 		type: "after",
-			// 		diffIndex: diffs.length,
-			// 		left: leftPos + leftLen,
-			// 		right: rightPos + rightLen,
-			// 	});
-			// }
 			diffs.push({
 				left: {
 					pos: leftPos,
@@ -2712,15 +2337,14 @@ async function computeDiff({
 
 	// console.debug("computeDiff done", { diffs, anchors });
 	return { diffs, anchors };
-}
-</script>
+}</script>
     <style id="highlightStyle">
     </style>
 </head>
 
 <body>
     <div class="container">
-        <div id="topbar">
+        <!-- <div id="topbar">
             <div class="">
 
             </div>
@@ -2728,11 +2352,12 @@ async function computeDiff({
                 <button id="alignedModeToggle" class="toggle">📖</button>
                 <button id="syncScrollToggle" class="toggle" data-target="strike">🔗</button>
             </div>
-        </div>
+        </div> -->
         <main id="main">
             <!-- <div id="left"></div>
             <div id="right"></div> -->
 
+            <div id="scrollSyncIndicator">🔗</div>
         </main>
         <div id="sidebar">
             <ol id="diffList"></ol>
@@ -2759,379 +2384,256 @@ async function computeDiff({
     </script>
 <script id='main.js'>"use strict";
 
-/*
-코드 증말 더럽다... 
-주말에 좀 정리하고:
-	1. 성능에 너무 얽매이지 말고
-	2. 필요할지 말지 애매하면 그냥 다 제거
-그리고 이제 신경 끄자. 시간 아깝다. 언제 짤려서 쓸일 없어질지 모르는데 ㅋ
-*/
-
+// 너무나도 센스 넘쳐버리는 이름
 const DiffSeek = (function () {
 	let _diffs = [];
 	let _anchors = [];
 	let _alignedMode = false;
 	let _alignedDirty = false;
-	let _updateTimeoutId = null;
 	let _activeEditor = null;
 	let _lastFocusedEditor = null;
 	let _lastScrolledEditor = null;
-	let _syncingScroll = false;
-	let _syncingScrollTimeoutId = null;
+	let _preventScrollSync = false;
 	let _mousedOverEditor = null;
 	let _currentDiffIndex = -1;
-	let _alignTimeoutId = null;
 	let _syncEditor = false;
+	let _currentlyScrollingEditor = null;
+	let _resetCurrentlyScrollingEditorId = null;
 
+	const _diffOptions = {
+		method: 2,
+		greedyMatch: true,
+		useFallback: true,
+	};
+
+	const useEditableMirror = false;
 	const container = document.getElementById("main");
 	const leftEditor = createEditor(container, "left", getEditorCallbacks("left"));
 	const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
+	leftEditor.wrapper.tabIndex = 100;
+	rightEditor.wrapper.tabIndex = 101;
 	const diffList = document.getElementById("diffList");
+
+	const resizeObserver = new ResizeObserver((entries) => {
+		_alignedDirty = true;
+		if (_alignedMode) {
+			recalculateAlignmentPaddingAndPositionsDebounced();
+		} else if (_syncEditor) {
+			// 어느 에디터를 기준으로 싱크를 하냐?
+			// 기준이 단순하고 명확하지 않으면 오히려 더 혼란스러움.
+			// 1. 포커스를 가진 에디터?...
+			// 2. 마우스커서가 올려진 에디터?...
+			// 3. 최근에 스크롤된 에디터?...
+		}
+	});
 
 	const recalculateAlignmentPaddingAndPositionsDebounced = debounce(recalculateAlignmentPaddingAndPositions, 200);
 
-	function getEditorCallbacks(key) {
+	function getEditorCallbacks(editorName) {
+		const pendingDiffVisibilities = new Map();
+		let updateDiffVisilitiesPending = false;
+
 		return {
-			onDiffVisibilityChanged: (diffIndex, visible) => {
-				const listItem = diffList.children[diffIndex];
-				if (listItem) {
-					const button = listItem.firstElementChild;
-					button.classList.toggle(key + "-visible", visible);
-				}
-				// updateVisibleDiffs();
-			},
-			onEnter: () => {
-				_mousedOverEditor = key === "left" ? leftEditor : rightEditor;
-			},
-			onLeave: () => {
-				_mousedOverEditor = null;
-			},
-			onFocus: () => {
-				if (key === "left") {
-					_activeEditor = _lastFocusedEditor = leftEditor;
-				} else {
-					_activeEditor = _lastFocusedEditor = rightEditor;
-				}
-			},
-			onBlur: () => {
-				_activeEditor = null;
-			},
-			onScroll: function () {
-				// _lastScrolledEditor = key === "left" ? leftEditor : rightEditor;
-				// if (!_syncingScroll && !_alignedMode) {
-				// 	syncScrollPosition(_lastScrolledEditor);
-				// }
-			},
 			onTextChanged: function () {
-				if (_updateTimeoutId) {
-					clearTimeout(_updateTimeoutId);
-				}
 				_diffs = null;
 				_anchors = null;
 				_currentDiffIndex = -1;
 				_alignedDirty = true;
-				_updateTimeoutId = setTimeout(() => {
-					_updateTimeoutId = null;
-					computeDiff();
-				}, COMPUTE_DEBOUNCE_TIME);
+				computeDiff();
 			},
+
 			onMirrorUpdated: function () {
 				_alignedDirty = true;
 				if (_alignedMode) {
 					recalculateAlignmentPaddingAndPositions();
 				}
 			},
+
+			// 현재 화면 상에 보이는 diff 아이템들.
+			onDiffVisibilityChanged: (diffIndex, visible) => {
+				pendingDiffVisibilities.set(diffIndex, visible);
+				if (!updateDiffVisilitiesPending) {
+					updateDiffVisilitiesPending = true;
+					requestAnimationFrame(() => {
+						updateDiffVisilitiesPending = false;
+						for (const [diffIndex, visible] of pendingDiffVisibilities) {
+							const listItem = diffList.children[diffIndex];
+							if (listItem) {
+								const button = listItem.firstElementChild;
+								button.classList.toggle(editorName + "-visible", visible);
+							}
+						}
+						pendingDiffVisibilities.clear();
+					});
+				}
+			},
 		};
 	}
 
-	// #region WORKER STUFF
-	let workerURL;
-	const workerCode = document.getElementById("worker.js").textContent;
-	if (workerCode.trim().length === 0) {
-		workerURL = "worker.js";
-	} else {
-		const blob = new Blob([workerCode], { type: "application/javascript" });
-		workerURL = URL.createObjectURL(blob);
-	}
-	const worker = new Worker(workerURL);
-	const encoder = new TextEncoder();
-	let reqId = 0;
-	function computeDiff() {
-		progress.textContent = PROCESSING_MESSAGES[Math.floor(Math.random() * PROCESSING_MESSAGES.length)];
-		document.querySelector("body").classList.add("computing");
-		if (reqId === Number.MAX_SAFE_INTEGER) {
-			reqId = 1;
+	const { computeDiff } = (function () {
+		// 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
+		let workerURL;
+		const workerCode = document.getElementById("worker.js").textContent;
+		if (workerCode.trim().length === 0) {
+			workerURL = "worker.js";
 		} else {
-			reqId++;
+			const blob = new Blob([workerCode], { type: "application/javascript" });
+			workerURL = URL.createObjectURL(blob);
 		}
-		worker.postMessage({
-			type: "diff",
-			reqId: reqId,
-			left: encoder.encode(leftEditor.text),
-			right: encoder.encode(rightEditor.text),
-			method: 2,
-		});
-	}
+		const worker = new Worker(workerURL);
+		// 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
+		// const encoder = new TextEncoder();
 
-	worker.onmessage = function (e) {
-		const data = e.data;
-		if (data.type === "diffs") {
-			if (data.reqId === reqId) {
-				//console.log("diffs computed", data);
-				document.querySelector("body").classList.remove("computing");
-				onDiffComputed(data);
+		function htmlEntityToChar(entity) {
+			const doc = new DOMParser().parseFromString(entity, "text/html");
+			const char = doc.body.textContent;
+			if (char.length !== 1) {
+				throw new Error("htmlEntityToChar: not a single character entity: " + entity);
 			}
+			return char;
 		}
-	};
 
-	function onDiffComputed({ diffs, anchors }) {
-		// console.debug("diffs computed", diffs, anchors);
-		_diffs = diffs;
-		_anchors = anchors;
-		_alignedDirty = true;
-		leftEditor.update({ diffs, anchors });
-		rightEditor.update({ diffs, anchors });
-		updateDiffList();
-	}
-	// #endregion
+		for (var entry of NORMALIZE_CHARS) {
+			// entry[0] = encoder.encode(entry[0]);
+			let chars = "";
+			for (var i = 0; i < entry.length; i++) {
+				const char = entry[i];
+				if (char.length === 1) {
+					chars += char;
+				} else if (typeof char === "number") {
+					chars += String.fromCharCode(char);
+				} else if (char[0] === "&") {
+					chars += htmlEntityToChar(char);
+				} else {
+					throw new Error("normalizeChars: not a single character: " + char);
+				}
+			}
+			worker.postMessage({
+				type: "normalizeChars",
+				chars: chars,
+			});
+		}
+
+		let reqId = 0;
+		let computeDiffTimeoutId = null;
+		function computeDiff() {
+			if (computeDiffTimeoutId) {
+				clearTimeout(computeDiffTimeoutId);
+			}
+
+			computeDiffTimeoutId = setTimeout(() => {
+				progress.textContent = "...";
+				document.querySelector("body").classList.toggle("identical", leftEditor.text === rightEditor.text);
+				document.querySelector("body").classList.add("computing");
+				if (reqId === Number.MAX_SAFE_INTEGER) {
+					reqId = 1;
+				} else {
+					reqId++;
+				}
+				worker.postMessage({
+					type: "diff",
+					reqId: reqId,
+					left: leftEditor.text,
+					right: rightEditor.text,
+					// left: encoder.encode(leftEditor.text),
+					// right: encoder.encode(rightEditor.text),
+					// method: _diffMethod,
+					// useFallback: _useFallback,
+					// greedyMatch: _greedyMatch,
+					options: _diffOptions,
+				});
+			}, COMPUTE_DEBOUNCE_TIME);
+		}
+
+		worker.onmessage = function (e) {
+			const data = e.data;
+			if (data.type === "diffs") {
+				if (data.reqId === reqId) {
+					document.querySelector("body").classList.remove("computing");
+					onDiffComputed(data);
+				}
+			} else if (data.type === "start") {
+				progress.textContent = PROCESSING_MESSAGES[Math.floor(Math.random() * PROCESSING_MESSAGES.length)];
+			}
+		};
+
+		function onDiffComputed({ diffs, anchors }) {
+			//console.debug("diffs computed", diffs, anchors);
+			_diffs = diffs;
+			_anchors = anchors;
+			_alignedDirty = true;
+			leftEditor.update({ diffs, anchors });
+			rightEditor.update({ diffs, anchors });
+			updateDiffList();
+		}
+
+		return { computeDiff };
+	})();
 
 	function enableAlignedMode() {
+		// 스크롤 위치는 어디쪽 에디터에 맞추나?
+		// 역시 명확한 기준이 필요.
+
 		if (!_alignedMode) {
+			const currentSelectionRange = getSelectionRange();
 			const currentEditor = _activeEditor || _mousedOverEditor || _lastFocusedEditor || rightEditor;
-			let firstVisibleLine, firstVisibleLineTop;
-
-			if (_activeEditor) {
-				_activeEditor.saveCaret();
-			}
-
-			if (currentEditor) {
-				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
-			}
+			// let firstVisibleLine, firstVisibleLineTop;
+			// if (currentEditor) {
+			// 	[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
+			// }
 
 			_alignedMode = true;
+			leftEditor.mirror.tabIndex = 100;
+			rightEditor.mirror.tabIndex = 101;
+			if (useEditableMirror) {
+				leftEditor.mirror.contentEditable = "plaintext-only";
+				rightEditor.mirror.contentEditable = "plaintext-only";
+			}
 			updateButtons();
+			leftEditor.setEditMode(false);
+			rightEditor.setEditMode(false);
 			const body = document.querySelector("body");
 			body.classList.remove("edit");
 			body.classList.add("aligned");
 			recalculateAlignmentPaddingAndPositions();
 
-			if (_activeEditor) {
-				_activeEditor.restoreCaret();
+			if (currentSelectionRange) {
+				restoreSelectionRange(currentSelectionRange);
 			}
-			if (firstVisibleLine) {
+
+			//if (firstVisibleLine) {
+			// const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
+			requestAnimationFrame(() => {
 				const theOtherEditor = currentEditor === leftEditor ? rightEditor : leftEditor;
 				theOtherEditor.wrapper.scrollTop = currentEditor.wrapper.scrollTop;
-
-				// const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
-				// requestAnimationFrame(() => {
-				// 	container.scrollTop = top;
-				// });
-			}
+				// container.scrollTop = top;
+			});
+			//}
 		}
 	}
 
-	function resolveSelectionRange(range) {
-		let startLine = range.startContainer;
-		while (startLine && startLine.tagName !== "DIV") {
-			startLine = startLine.parentElement;
-		}
-		let endLine = range.endContainer;
-		while (endLine && endLine.tagName !== "DIV") {
-			endLine = endLine.parentElement;
-		}
-		let startOffset = range.startOffset;
-		let prevSibling = range.startContainer.previousSibling;
-		while (prevSibling) {
-			startOffset += prevSibling.textContent.length;
-			prevSibling = prevSibling.previousSibling;
-		}
+	function disableAlignedMode() {
+		const currentSelectionRange = getSelectionRange();
 
-		let endOffset = range.endOffset;
-		prevSibling = range.endContainer.previousSibling;
-		while (prevSibling) {
-			endOffset += prevSibling.textContent.length;
-			prevSibling = prevSibling.previousSibling;
-		}
-	}
-
-	window.addEventListener("resize", () => {
-		_alignedDirty = true;
-		if (_alignedMode) {
-			recalculateAlignmentPaddingAndPositionsDebounced();
-		}
-	});
-
-	// 아 귀찮아
-	for (const editor of [leftEditor, rightEditor]) {
-		editor.editor.addEventListener("keydown", (e) => {
-			if (e.key === " " && e.ctrlKey) {
-				syncScrollPosition(editor);
-			}
-		});
-
-		editor.mirror.addEventListener("click", (e) => {
-			if (e.ctrlKey) {
-				disableAlignedMode(true);
-			}
-		});
-
-		editor.wrapper.addEventListener("scroll", (e) => {
-			if (_syncingScroll) {
-				return;
-			}
-			_lastScrolledEditor = editor;
-
-			if (_alignedMode) {
-				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
-				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 한쪽(공통부모)에만 보이는게 생각보다 어색하고 불편하다.
-				// 그래서 그냥 강제로 스크롤 동기화 시킴.
-				if (editor === leftEditor) {
-					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
-				} else {
-					leftEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
-				}
-			} else {
-				if (_syncEditor && !_syncingScroll) {
-					syncScrollPosition(editor);
-				}
-			}
-		});
-	}
-
-	function selectText(range, editor, startLineNumber, startOffset, endLineNumber, endOffset) {
-		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
-		let currentNode;
-		let lineNum = 1;
-		let startSet = false;
-
-		while ((currentNode = walker.nextNode())) {
-			const text = currentNode.textContent;
-			let linePos = 0;
-			if (!startSet) {
-				if (lineNum < startLineNumber) {
-					for (let i = linePos; i < text.length; i++) {
-						if (text[i] === "\n") {
-							lineNum++;
-							if (lineNum === startLineNumber) {
-								linePos = i + 1;
-								break;
-							}
-						}
-					}
-				}
-				if (lineNum !== startLineNumber) {
-					continue;
-				}
-				range.setStart(currentNode, Math.min(linePos + startOffset, text.length));
-				startSet = true;
-			}
-
-			if (lineNum !== endLineNumber) {
-				for (let i = linePos; i < text.length; i++) {
-					if (text[i] === "\n") {
-						lineNum++;
-						if (lineNum === endLineNumber) {
-							linePos = i + 1;
-							break;
-						}
-					}
-				}
-				if (lineNum !== endLineNumber) {
-					continue;
-				}
-			}
-			if (lineNum === endLineNumber) {
-				range.setEnd(currentNode, Math.min(linePos + endOffset, text.length));
-				return true;
-			}
-		}
-		return false;
-	}
-
-	function getSelectionRange() {
-		const selection = window.getSelection();
-		const range = selection.rangeCount ? selection.getRangeAt(0) : null;
-		let editor;
-		if (range) {
-			if (leftEditor.mirror.contains(range.commonAncestorContainer)) {
-				editor = leftEditor.editor;
-			} else if (rightEditor.mirror.contains(range.commonAncestorContainer)) {
-				editor = rightEditor.editor;
-			} else {
-				return;
-			}
-
-			let startLineEl = range.startContainer;
-			while (startLineEl && startLineEl.tagName !== "DIV") {
-				startLineEl = startLineEl.parentElement;
-			}
-			let endLineEl = range.endContainer;
-			while (endLineEl && endLineEl.tagName !== "DIV") {
-				endLineEl = endLineEl.parentElement;
-			}
-
-			// console.log("startLineEl", startLineEl, "endLineEl", endLineEl);
-
-			const startLineNumber = Number(startLineEl.dataset.lineNum);
-			const endLineNumber = Number(endLineEl.dataset.lineNum);
-
-			let currentNode;
-			let startOffset = 0;
-			let walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null, false);
-			while ((currentNode = walker.nextNode())) {
-				if (currentNode === range.startContainer) {
-					startOffset += range.startOffset;
-					break;
-				} else {
-					startOffset += currentNode.textContent.length;
-				}
-			}
-
-			let endOffset = 0;
-			walker = document.createTreeWalker(endLineEl, NodeFilter.SHOW_TEXT, null, false);
-			while ((currentNode = walker.nextNode())) {
-				if (currentNode === range.endContainer) {
-					endOffset += range.endOffset;
-					break;
-				} else {
-					endOffset += currentNode.textContent.length;
-				}
-			}
-
-			// console.log("selection", {
-			// 	editor,
-			// 	startLineNumber,
-			// 	startOffset,
-			// 	endLineNumber,
-			// 	endOffset,
-			// });
-			return {
-				editor,
-				startLineNumber,
-				startOffset,
-				endLineNumber,
-				endOffset,
-			};
-		}
-		return null;
-	}
-
-	function disableAlignedMode(retainSelection = true) {
-		const selectionRange = getSelectionRange();
+		// 일단 editmode로 가기 전에 스크롤 위치를 복원할 수 있게 화면 상 첫줄을 보존해두고...
 		const [leftFirstLine, leftFirstLineDistance] = leftEditor.getFirstVisibleLineElement();
 		const [rightFirstLine, rightFirstLineDistance] = rightEditor.getFirstVisibleLineElement();
 
-		if (_lastFocusedEditor) {
-			_lastFocusedEditor.saveCaret();
-		}
+		const activeEditor = _activeEditor;
 
 		_alignedMode = false;
-		updateButtons();
+		leftEditor.setEditMode(true);
+		rightEditor.setEditMode(true);
 		const body = document.querySelector("body");
+		leftEditor.mirror.removeAttribute("tabindex");
+		rightEditor.mirror.removeAttribute("tabindex");
+		leftEditor.mirror.contentEditable = false;
+		rightEditor.mirror.contentEditable = false;
 		body.classList.remove("aligned");
 		body.classList.add("edit");
+		updateButtons();
 
-		_syncingScroll = true;
+		_preventScrollSync = true;
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
 				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance);
@@ -3139,42 +2641,18 @@ const DiffSeek = (function () {
 			if (rightFirstLine) {
 				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance);
 			}
-			_syncingScroll = false;
+			_preventScrollSync = false;
 		});
 
-
-
-		// if (_lastFocusedEditor) {
-		// 	console.log("restoring caret", _lastFocusedEditor.name);
-		// 	_lastFocusedEditor.restoreCaret();
-		// 	_lastFocusedEditor.editor.focus();
-		// }
-
-		if (selectionRange && retainSelection) {
-			selectionRange.editor.focus();
-			const range = document.createRange();
-			if (
-				selectText(
-					range,
-					selectionRange.editor,
-					selectionRange.startLineNumber,
-					selectionRange.startOffset,
-					selectionRange.endLineNumber,
-					selectionRange.endOffset
-				)
-			) {
-				const selection = window.getSelection();
-				selection.removeAllRanges();
-				selection.addRange(range);
-			}
-		} else {
-			if (_lastFocusedEditor) {
-				_lastFocusedEditor.editor.focus();
-				_lastFocusedEditor.restoreCaret();
-			}
+		if (currentSelectionRange) {
+			restoreSelectionRange(currentSelectionRange);
 		}
 	}
 
+	// 최적화의 여지가 있다.
+	// 엘러먼트 별로 스타일과 클래스를 지정할 게 아니라 css텍스트(예: #leftAnchor17 { height: 60px; } ...)를 만들어서 style요소에다 한번에 집어넣어버리면
+	// reset이 간단하고 브라우저도 한번만 일을 하면 되니 더 낫지 않을까...? offsetHeight 같은 속성을 사용하면 브라우저가 매번 계산을 다시 해야한다.
+	// 위에서부터 왼쪽/오른쪽 누적 패딩을 계산하면서 내려오면 될 것 같은데...?
 	function recalculateAlignmentPaddingAndPositions() {
 		if (!_alignedDirty) {
 			return;
@@ -3207,6 +2685,11 @@ const DiffSeek = (function () {
 				alignAnchor(leftAnchor, rightAnchor, anchor.type);
 			}
 		}
+
+		// console.log("wrapper height:", leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+		// const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+		// leftEditor.mirror.style.height = `${height}px`;
+		// rightEditor.mirror.style.height = `${height}px`;
 		_alignedDirty = false;
 	}
 
@@ -3250,107 +2733,52 @@ const DiffSeek = (function () {
 		}
 	}
 
-	function updateDiffList() {
-		if (!_diffs) {
-			return;
+	function restoreSelectionRange({ editor, startOffset, endOffset }) {
+		if (editor) {
+			editor.selectTextRange(startOffset, endOffset);
 		}
-
-		const leftWholeText = leftEditor.text;
-		const rightWholeText = rightEditor.text;
-		const fragment = document.createDocumentFragment();
-
-		for (let i = 0; i < _diffs.length; i++) {
-			const diff = _diffs[i];
-			const li = document.createElement("LI");
-			const button = document.createElement("MARK");
-			button.dataset.diff = i;
-			button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
-			li.appendChild(button);
-
-			const leftText = leftWholeText.substring(diff.left.pos, diff.left.pos + diff.left.len);
-			const leftSpan = document.createElement("SPAN");
-			leftSpan.textContent = leftText.length > 0 ? leftText : "💭";
-			leftSpan.classList.add("left");
-			button.appendChild(leftSpan);
-
-			const rightText = rightWholeText.substring(diff.right.pos, diff.right.pos + diff.right.len);
-			const rightSpan = document.createElement("SPAN");
-			rightSpan.textContent = rightText.length > 0 ? rightText : "💭";
-			rightSpan.classList.add("right");
-			button.appendChild(rightSpan);
-
-			fragment.appendChild(li);
-		}
-
-		diffList.innerHTML = "";
-		diffList.appendChild(fragment);
 	}
 
-	document.addEventListener("keydown", (e) => {
-		// 편하게 쓸 수 있지만 커서가 위치가 어디인지 모르는 상황에서 쓰면 난처한 일이 있을 수 있다.
-		// 텍스트가 1글자 이상 선택되고 그 선택 range가 화면 상에 보일 때에만???
-		// aligned mode에서는 커서가 안보이니까 더 위험.
-		// if (_alignedMode && (e.key.length === 1 || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")) {
-		// 	console.log(document.activeElement);
-		// 	disableAlignedMode();
-		// 	return;
-		// }
-
-		if (e.key === "F2") {
-			if (e.shiftKey) {
-				toggleSyncScroll();
-				return;
+	function getSelectionRange() {
+		let editor;
+		let range = leftEditor.getTextSelectionRange();
+		if (range !== null) {
+			editor = leftEditor;
+		} else {
+			range = rightEditor.getTextSelectionRange();
+			if (range !== null) {
+				editor = rightEditor;
 			}
-
-			e.preventDefault();
-			if (_alignedMode) {
-				disableAlignedMode();
-			} else {
-				enableAlignedMode();
-			}
-			return;
 		}
 
-		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-			e.preventDefault();
-			if (!_diffs || _diffs.length === 0) {
-				return;
-			}
-
-			_currentDiffIndex += e.key === "ArrowUp" ? -1 : 1;
-			if (_currentDiffIndex < 0) {
-				_currentDiffIndex = _diffs.length - 1;
-			}
-			if (_currentDiffIndex >= _diffs.length) {
-				_currentDiffIndex = 0;
-			}
-			_syncingScroll = true;
-			leftEditor.scrollToDiff(_currentDiffIndex);
-			rightEditor.scrollToDiff(_currentDiffIndex);
-			requestAnimationFrame(() => {
-				_syncingScroll = false;
-				highlightDiff(_currentDiffIndex);
-			});
-			return;
+		if (editor) {
+			return {
+				editor,
+				startOffset: range.startOffset,
+				endOffset: range.endOffset,
+			};
+		} else {
+			return null;
 		}
-	});
-
-	diffList.addEventListener("click", (e) => {
-		const diffIndex = Number(e.target.dataset.diff);
-		if (!isNaN(diffIndex)) {
-			leftEditor.scrollToDiff(diffIndex);
-			rightEditor.scrollToDiff(diffIndex);
-		}
-	});
-
-	disableAlignedMode();
+	}
 
 	function syncScrollPosition(sourceEditor) {
-		if (_syncingScroll) {
+		if (_preventScrollSync) {
 			return;
 		}
-		_syncingScroll = true;
 
+		if (!sourceEditor) {
+			sourceEditor = _currentlyScrollingEditor || _activeEditor || _mousedOverEditor || _lastFocusedEditor;
+			if (!sourceEditor) {
+				return;
+			}
+		}
+
+		if (_currentlyScrollingEditor !== null && _currentlyScrollingEditor !== sourceEditor) {
+			return;
+		}
+
+		_preventScrollSync = true;
 		const targetEditor = sourceEditor === leftEditor ? rightEditor : leftEditor;
 		let sourceAnchor = null;
 		let targetAnchor = null;
@@ -3368,9 +2796,8 @@ const DiffSeek = (function () {
 			targetWrapper.scrollTop = sourceWrapper.scrollTop - sourceAnchor.offsetTop + targetAnchor.offsetTop;
 			_lastScrolledEditor = prevLastScrolledEditor;
 		}
-
 		requestAnimationFrame(() => {
-			_syncingScroll = false;
+			_preventScrollSync = false;
 		});
 	}
 
@@ -3394,27 +2821,244 @@ animation: highlightAnimation 0.3s linear 3;
 		}
 	});
 
-	syncScrollToggle.addEventListener("click", () => {
-		toggleSyncScroll();
-	});
+	// syncScrollToggle.addEventListener("click", () => {
+	// 	toggleSyncScroll();
+	// });
 
-	alignedModeToggle.addEventListener("click", () => {
-		if (_alignedMode) {
-			disableAlignedMode();
-		} else {
-			enableAlignedMode();
-		}
-	});
+	// alignedModeToggle.addEventListener("click", () => {
+	// 	if (_alignedMode) {
+	// 		disableAlignedMode();
+	// 	} else {
+	// 		enableAlignedMode();
+	// 	}
+	// });
 
-	function toggleSyncScroll(primaryEditor) {
+	function toggleSyncScroll() {
 		_syncEditor = !_syncEditor;
 		updateButtons();
 	}
 
 	function updateButtons() {
-		syncScrollToggle.setAttribute("aria-pressed", _syncEditor);
-		alignedModeToggle.setAttribute("aria-pressed", _alignedMode);
+		//syncScrollToggle.setAttribute("aria-pressed", _syncEditor);
+		// alignedModeToggle.setAttribute("aria-pressed", _alignedMode);
+		if (_syncEditor && !_alignedMode) {
+			scrollSyncIndicator.style.display = "block";
+		} else {
+			scrollSyncIndicator.style.display = "none";
+		}
 	}
+
+	function updateDiffList() {
+		if (!_diffs) {
+			return;
+		}
+
+		const leftWholeText = leftEditor.text;
+		const rightWholeText = rightEditor.text;
+		const fragment = document.createDocumentFragment();
+
+		for (let i = 0; i < _diffs.length; i++) {
+			const diff = _diffs[i];
+			const li = document.createElement("LI");
+			const button = document.createElement("MARK");
+			button.dataset.diff = i;
+			button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
+			li.appendChild(button);
+
+			const leftText = leftWholeText.substring(diff.left.pos, diff.left.pos + diff.left.len);
+			const leftSpan = document.createElement("SPAN");
+			leftSpan.textContent = leftText;
+			leftSpan.classList.add("left");
+			button.appendChild(leftSpan);
+
+			const rightText = rightWholeText.substring(diff.right.pos, diff.right.pos + diff.right.len);
+			const rightSpan = document.createElement("SPAN");
+			rightSpan.textContent = rightText;
+			rightSpan.classList.add("right");
+			button.appendChild(rightSpan);
+
+			fragment.appendChild(li);
+		}
+
+		diffList.innerHTML = "";
+		diffList.appendChild(fragment);
+	}
+
+	document.addEventListener("keydown", (e) => {
+		// 어느 단축키를 써야 잘썼다고 소문나냐?
+		if (e.key === "F2" || e.key === "Escape") {
+			e.preventDefault();
+
+			if (e.shiftKey) {
+				toggleSyncScroll();
+				return;
+			}
+
+			if (_alignedMode) {
+				disableAlignedMode();
+			} else {
+				enableAlignedMode();
+			}
+			return;
+		}
+
+		// 주의 요망
+		// aligned 모드에서 후딱 단어 하나 삭제하고 싶을 때 단어 더블클릭하고 삭제
+		if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
+			disableAlignedMode();
+			return;
+		}
+
+		// diff cycling
+		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+			e.preventDefault();
+			if (!_diffs || _diffs.length === 0) {
+				return;
+			}
+
+			_currentDiffIndex += e.key === "ArrowUp" ? -1 : 1;
+			if (_currentDiffIndex < 0) {
+				_currentDiffIndex = _diffs.length - 1;
+			}
+			if (_currentDiffIndex >= _diffs.length) {
+				_currentDiffIndex = 0;
+			}
+			_preventScrollSync = true;
+			leftEditor.scrollToDiff(_currentDiffIndex);
+			rightEditor.scrollToDiff(_currentDiffIndex);
+			highlightDiff(_currentDiffIndex);
+			requestAnimationFrame(() => {
+				_preventScrollSync = false;
+			});
+			return;
+		}
+	});
+
+	diffList.addEventListener("click", (e) => {
+		const diffIndex = Number(e.target.dataset.diff);
+		if (!isNaN(diffIndex)) {
+			_preventScrollSync = true;
+			leftEditor.scrollToDiff(diffIndex);
+			rightEditor.scrollToDiff(diffIndex);
+			requestAnimationFrame(() => {
+				_preventScrollSync = false;
+			});
+		}
+	});
+
+	for (const editor of [leftEditor, rightEditor]) {
+		editor.wrapper.addEventListener("scroll", (e) => {
+			if (_currentlyScrollingEditor !== null || _preventScrollSync) {
+				return;
+			}
+
+			_lastScrolledEditor = _currentlyScrollingEditor = editor;
+			if (_alignedMode) {
+				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
+				// 그래서 그냥 강제로 스크롤 동기화 시킴.
+				if (editor === leftEditor) {
+					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				} else {
+					leftEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
+				}
+			} else if (_syncEditor) {
+				syncScrollPosition(editor);
+			}
+
+			if (_resetCurrentlyScrollingEditorId) {
+				cancelAnimationFrame(_resetCurrentlyScrollingEditorId);
+			}
+			_resetCurrentlyScrollingEditorId = requestAnimationFrame(() => {
+				_currentlyScrollingEditor = null;
+			});
+		});
+
+		editor.wrapper.addEventListener("mouseenter", () => {
+			_mousedOverEditor = editor;
+		});
+
+		editor.wrapper.addEventListener("mouseleave", () => {
+			_mousedOverEditor = null;
+		});
+
+		function onFocus() {
+			_activeEditor = _lastFocusedEditor = editor;
+		}
+
+		function onBlur() {
+			_activeEditor = null;
+		}
+		editor.editor.addEventListener("focus", onFocus);
+		editor.mirror.addEventListener("focus", onFocus);
+		editor.editor.addEventListener("blur", onBlur);
+		editor.mirror.addEventListener("blur", onBlur);
+
+		editor.editor.addEventListener("keydown", (e) => {
+			if (e.key === " " && e.ctrlKey) {
+				syncScrollPosition(editor);
+			} else if (e.ctrlKey && e.key === "ArrowUp") {
+				editor.wrapper.scrollTop -= LINE_HEIGHT * 2;
+				e.preventDefault();
+			} else if (e.ctrlKey && e.key === "ArrowDown") {
+				editor.wrapper.scrollTop += LINE_HEIGHT * 2;
+				e.preventDefault();
+			}
+		});
+
+		// editor.editor.addEventListener("click", (e) => {
+		// 	if (e.ctrlKey) {
+		// 		enableAlignedMode(true);
+		// 	}
+		// });
+
+		editor.mirror.addEventListener("click", (e) => {
+			if (e.ctrlKey) {
+				disableAlignedMode();
+			}
+		});
+
+		if (useEditableMirror) {
+			editor.mirror.addEventListener("paste", (e) => {
+				disableAlignedMode();
+			});
+
+			editor.mirror.addEventListener("drop", (e) => {
+				e.preventDefault();
+			});
+
+			editor.mirror.addEventListener("cut", (e) => {
+				disableAlignedMode();
+			});
+
+			// aligned mode에서도 텍스트 커서가 깜빡이면서 보였으면 좋겠고 단순한 편집은 모드 토글 없이 바로 수행할 수 있게?
+			// 수정을 시도하는 순간:
+			// 1. editor로 포커스를 옮기고
+			// 2. mirror의 커서위치와 텍스트선택 범위롤 editor에서 복원
+			// 3. 나머지는 브라우저가 하게 내비둔다.
+			// 불안하지만 일단 써보면서 문제가 있으면 지워버리지 뭐
+			// => 결론: 쓰지마. 한글을 입력할 때 가끔씩 아무 조건에도 안걸리고 뚫려서 입력이 된다. ㅋㅋ
+			// editor.mirror.addEventListener("keydown", (e) => {
+			// 	if (
+			// 		_alignedMode &&
+			// 		!e.ctrlKey &&
+			// 		//e.key.length === 1 ||
+			// 		(e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")
+			// 	) {
+			// 		disableAlignedMode();
+			// 		return;
+			// 	}
+			// 	e.preventDefault();
+			// });
+		}
+
+		resizeObserver.observe(editor.wrapper);
+	}
+
+	disableAlignedMode();
+
+	leftEditor.updateText();
+	rightEditor.updateText();
 
 	return {
 		get alignedMode() {
@@ -3436,12 +3080,49 @@ animation: highlightAnimation 0.3s linear 3;
 				rightEditor,
 			};
 		},
+
+		compute: computeDiff,
+
+		diffOptions: {
+			get greedyMatch() {
+				return _diffOptions.greedyMatch;
+			},
+			set greedyMatch(value) {
+				value = !!value;
+				if (_diffOptions.greedyMatch === value) {
+					return;
+				}
+				_diffOptions.greedyMatch = value;
+				computeDiff();
+			},
+			get useFallback() {
+				return _diffOptions.useFallback;
+			},
+			set useFallback(value) {
+				value = !!value;
+				if (_diffOptions.useFallback === value) {
+					return;
+				}
+				_diffOptions.useFallback = value;
+				computeDiff();
+			},
+			get method() {
+				return _diffOptions.method;
+			},
+			set method(value) {
+				value = Number(value);
+				if (_diffOptions.method === value) {
+					return;
+				}
+				_diffOptions.method = value;
+				computeDiff();
+			},
+		},
 	};
 })();
 
 function debounce(func, delay) {
 	let timeoutId;
-
 	return function (...args) {
 		const context = this;
 		clearTimeout(timeoutId);

@@ -20,15 +20,15 @@ const SPACE_CHARS = {
 	"\v": true, // 볼일이 없을것...
 };
 
-const NORMALIZE_CHARS = {};
+const normalizeChars = {};
 
 //let greedyMatch = false;
 
 function insertNormalizeChar(chars) {
 	const norm = chars[0];
-	NORMALIZE_CHARS[norm] = norm;
+	normalizeChars[norm] = norm;
 	for (let i = 1; i < chars.length; i++) {
-		NORMALIZE_CHARS[chars[i]] = norm;
+		normalizeChars[chars[i]] = norm;
 	}
 }
 
@@ -248,7 +248,7 @@ function normalize(text) {
 	let result = "";
 	for (let i = 0; i < text.length; i++) {
 		const char = text[i];
-		result += NORMALIZE_CHARS[char] || char;
+		result += normalizeChars[char] || char;
 	}
 	return result;
 }
@@ -293,9 +293,9 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 				}
 			}
 		} else {
-			if (NORMALIZE_CHARS[char]) {
+			if (normalizeChars[char]) {
 				flags |= NORMALIZE;
-				char = NORMALIZE_CHARS[char];
+				char = normalizeChars[char];
 			}
 			if (char === "(") {
 				let p = i + 1;

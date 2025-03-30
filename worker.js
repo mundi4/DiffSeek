@@ -3,16 +3,36 @@
 const DIFF_BY_CHAR = 1;
 const DIFF_BY_WORD = 2;
 const DIFF_BY_LINE = 3;
-const DIFF_BY_PARAGRAPH = 4;
+const TOKEN_CACHE_SIZE = 2;
 
-const TOKEN_CACHE_SIZE = 4;
-const MIN_PARAGRAPH_GAP = 1;
-
-const FIRST_OF_LINE = 1; // PRECEDED_BY_NEWLINE ?
-const LAST_OF_LINE = 2; // FOLLOWED_BY_NEWLINE ?
+// token flags
+const FIRST_OF_LINE = 1;
+const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
+const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
 
-const decoder = new TextDecoder();
+const SPACE_CHARS = {
+	" ": true,
+	"\t": true,
+	"\n": true,
+	"\r": true, // 글쎄...
+	"\f": true, // 이것들은...
+	"\v": true, // 볼일이 없을것...
+};
+
+const NORMALIZE_CHARS = {};
+
+//let greedyMatch = false;
+
+function insertNormalizeChar(chars) {
+	const norm = chars[0];
+	NORMALIZE_CHARS[norm] = norm;
+	for (let i = 1; i < chars.length; i++) {
+		NORMALIZE_CHARS[chars[i]] = norm;
+	}
+}
+
+// const decoder = new TextDecoder();
 let _nextWork = null;
 let _currentWork = null;
 
@@ -20,10 +40,8 @@ const tokenCache = {
 	[DIFF_BY_CHAR]: [],
 	[DIFF_BY_WORD]: [],
 	[DIFF_BY_LINE]: [],
-	[DIFF_BY_PARAGRAPH]: [],
 };
 
-// #region trie
 function createTrieNode() {
 	const children = {};
 	function next(char) {
@@ -53,17 +71,13 @@ function createTrie() {
 
 	return { insert, root };
 }
-// #endregion
 
-const SPACE_CHARS = {
-	" ": true, // 공백
-	"\t": true, // 탭
-	"\n": true, // 줄 바꿈
-	"\r": true, // 캐리지 리턴
-	"\f": true, // 폼 피드
-	"\v": true, // 수평 탭
-};
-
+// wildcards.
+// 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
+// 와일드카드diff인 경우 다른 diff와 병합되지 않으면 좋지만 와일드카드가 얼마나 greedy하게 반대쪽 텍스트를 잡아먹어야 할지
+// 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
+// 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
+// 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
 const Trie = createTrie();
 Trie.insert("(추가)", WILD_CARD);
 Trie.insert("(삭제)", WILD_CARD);
@@ -78,9 +92,9 @@ self.onmessage = (e) => {
 	if (e.data.type === "diff") {
 		const work = {
 			reqId: e.data.reqId,
-			left: e.data.left,
-			right: e.data.right,
-			method: e.data.method,
+			leftText: e.data.left,
+			rightText: e.data.right,
+			...e.data.options,
 			cancel: false,
 		};
 		if (_currentWork) {
@@ -89,16 +103,32 @@ self.onmessage = (e) => {
 			return;
 		}
 		runDiff(work);
+	} else if (e.data.type === "normalizeChars") {
+		insertNormalizeChar(e.data.chars);
+		// } else if (e.data.type === "option") {
+		// 	if (e.data.key === "greedyMatch") {
+		// 		greedyMatch = e.data.value;
+		// 	}
 	}
 };
 
 async function runDiff(work) {
 	_currentWork = work;
-	const leftText = decoder.decode(work.left);
-	const rightText = decoder.decode(work.right);
+	// const leftText = decoder.decode(work.left);
+	// const rightText = decoder.decode(work.right);
+	// const leftText = work.left;
+	// const rightText = work.right;
 	try {
 		work.lastYield = work.start = performance.now();
-		const results = await computeDiff({ leftText, rightText, method: work.method || DIFF_BY_WORD, ctx: work });
+		self.postMessage({
+			reqId: work.reqId,
+			type: "start",
+			start: work.start,
+		});
+		const results = await computeDiff({
+			...work,
+			ctx: work,
+		});
 		work.finish = performance.now();
 		//console.log("Elapsed time:", work.finish - work.start);
 		_currentWork = null;
@@ -123,10 +153,6 @@ async function runDiff(work) {
 	if (work) {
 		return await runDiff(work);
 	}
-}
-
-function normalizeText(input) {
-	return input.replace(/\s{2,}/g, " ").trim();
 }
 
 function checkIfFirstOfLine(input, pos) {
@@ -218,6 +244,15 @@ function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseL
 	return tokens;
 }
 
+function normalize(text) {
+	let result = "";
+	for (let i = 0; i < text.length; i++) {
+		const char = text[i];
+		result += NORMALIZE_CHARS[char] || char;
+	}
+	return result;
+}
+
 function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
 	const tokens = [];
 	let currentStart = -1;
@@ -234,16 +269,14 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 	}
 
 	for (let i = inputPos; i < inputEnd; i++) {
-		const char = input[i];
-		//if (/[\w\u3131-\uD79D]+/.test(char)) {
+		let char = input[i];
 		// 문장부호를 별개로 단어로 분리하는 방법도 생각해볼 필요가 있음.
-		// but!! "(현행과 같음)"의 여는 괄호가 별개로 매치되는 건 원하지 않음.
-
+		// 문제는 (hello)와 (world)에서 '('만 매치되면 눈이 피곤해진다. 괄호안의 문자들이 여러줄이면 더더욱..
 		if (SPACE_CHARS[char]) {
 			if (currentStart !== -1) {
 				flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 				tokens.push({
-					text: input.substring(currentStart, i),
+					text: flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i),
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: baseLineNum + lineCount,
@@ -260,6 +293,10 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 				}
 			}
 		} else {
+			if (NORMALIZE_CHARS[char]) {
+				flags |= NORMALIZE;
+				char = NORMALIZE_CHARS[char];
+			}
 			if (char === "(") {
 				let p = i + 1;
 				let found = null;
@@ -306,7 +343,7 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 	if (currentStart !== -1) {
 		flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 		tokens.push({
-			text: input.substring(currentStart),
+			text: flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart),
 			pos: currentStart,
 			len: inputEnd - currentStart,
 			lineNum: baseLineNum + lineCount,
@@ -358,7 +395,7 @@ function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseL
 		} else {
 			if (currentStart !== -1) {
 				tokens.push({
-					text: input.substring(currentStart, currentEnd),
+					text: input.substring(currentStart, currentEnd).trim(),
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: baseLineNum + lineCount,
@@ -372,7 +409,7 @@ function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseL
 
 	if (currentStart !== -1) {
 		tokens.push({
-			text: input.substring(currentStart, currentEnd),
+			text: input.substring(currentStart, currentEnd).trim(),
 			pos: currentStart,
 			len: currentEnd - currentStart,
 			lineNum: baseLineNum + lineCount,
@@ -425,160 +462,23 @@ function tokenize(input, method, inputPos = undefined, inputEnd = undefined, bas
 	return tokens;
 }
 
-// function computeLCS(leftTokens, rightTokens) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-// 	const dp = new Array(m + 1);
-// 	const blockLength = new Array(m + 1);
-// 	const lcsIndices = [];
-
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 		blockLength[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		for (let j = 1; j <= n; j++) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				let weight = 1;
-// 				// 연속된 매치 토큰에 가중치 부여
-// 				if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 					weight += dp[i - 1][j - 1];
-// 				}
-// 				// dp 테이블 갱신
-// 				dp[i][j] = dp[i - 1][j - 1] + weight;
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 			}
-// 		}
-// 	}
-
-// 	// for (let i = 1; i <= m; i++) {
-// 	// 	for (let j = 1; j <= n; j++) {
-// 	// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 	// 			let weight = 1;
-// 	// 			if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 	// 				weight += blockLength[i - 1][j - 1];
-// 	// 			}
-// 	// 			dp[i][j] = dp[i - 1][j - 1] + weight;
-// 	// 			blockLength[i][j] = blockLength[i - 1][j - 1] + 1;
-// 	// 		} else {
-// 	// 			dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 	// 			blockLength[i][j] = 0;
-// 	// 		}
-// 	// 	}
-// 	// }
-
-// 	let i = m;
-// 	let j = n;
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			}
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-// function backtrackLCS(dp, leftTokens, rightTokens) {
-// 	let i = leftTokens.length;
-// 	let j = rightTokens.length;
-// 	const lcsIndices = [];
-
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			if (dp[i][j] === dp[i - 1][j - 1] + 1) {
-// 				lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 				i--;
-// 				j--;
-// 			} else {
-// 				if (dp[i - 1][j] > dp[i][j - 1]) {
-// 					i--;
-// 				} else if (dp[i - 1][j] < dp[i][j - 1]) {
-// 					j--;
-// 				} else {
-// 					i--;
-// 				}
-// 			}
-// 		} else {
-// 			if (dp[i - 1][j] > dp[i][j - 1]) {
-// 				i--;
-// 			} else {
-// 				j--;
-// 			}
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-//
-// WEIGHTED LCS! meticulous하게 테스트 해볼 필요 있음.
-//
-// function computeLCS(leftTokens, rightTokens) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-// 	const dp = new Array(m + 1);
-// 	const lcsIndices = [];
-
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		for (let j = 1; j <= n; j++) {
-// 			if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 				let weight = 1;
-// 				if (i > 1 && j > 1 && leftTokens[i - 2].text === rightTokens[j - 2].text) {
-// 					weight += dp[i - 1][j - 1];
-// 				}
-// 				dp[i][j] = dp[i - 1][j - 1] + weight;
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 			}
-// 		}
-// 	}
-
-// 	let i = m;
-// 	let j = n;
-// 	while (i > 0 && j > 0) {
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
 async function computeLCS(leftTokens, rightTokens, ctx) {
 	const m = leftTokens.length;
 	const n = rightTokens.length;
 
 	const dp = new Array(m + 1);
-	//const consecutive = new Array(m + 1);
 	for (let i = 0; i <= m; i++) {
 		dp[i] = new Array(n + 1).fill(0);
-		//consecutive[i] = new Array(n + 1).fill(0);
 	}
+
+	// 텍스트가 길어지는 경우(토큰이 많은 경우) 끔찍하게 많은 반복을 수행하게된다.
 	for (let i = 1; i <= m; i++) {
 		const leftText = leftTokens[i - 1].text;
 		for (let j = 1; j <= n; j++) {
+			// 주기적으로 yield 해서 취소요청을 받아야함.
+			// performance.now()는 미친게 아닌가 싶을 정도로 무거운 함수이기 때문에 되도록 자제.
+			// await new Promise(...) 역시 자주 사용하면 안됨
+			// (i+j) % 0x4000 === 0 일 때만 사용하기로. 브라우저 js엔진의 비트연산 속도를 믿어본다 ㅋ
 			if (ctx && ((i + j) & 16383) === 0) {
 				const now = performance.now();
 				if (now - ctx.lastYield > 100) {
@@ -590,13 +490,10 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 				}
 			}
 
-			const rightText = rightTokens[j - 1].text;
-			if (leftText === rightText) {
-				//consecutive[i][j] = consecutive[i - 1][j - 1] + 1;
+			if (leftText === rightTokens[j - 1].text) {
 				dp[i][j] = dp[i - 1][j - 1] + 1; // + consecutive[i][j];
 			} else {
 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-				//consecutive[i][j] = 0;
 			}
 		}
 	}
@@ -605,21 +502,10 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 	let j = n;
 	const lcsIndices = [];
 	while (i > 0 && j > 0) {
-		// if (ctx && ((i + j) & 511) === 0) {
-		// 	const now = performance.now();
-		// 	if (now - ctx.lastYield > 100) {
-		// 		ctx.lastYield = now;
-		// 		await new Promise((resolve) => setTimeout(resolve, 0));
-		// 		if (ctx.cancel) {
-		// 			throw new Error("cancelled");
-		// 		}
-		// 	}
-		// }
 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
 			lcsIndices.push({
 				leftIndex: i - 1,
 				rightIndex: j - 1,
-				//text: leftTokens[i - 1].text, // 필요하면 leftTokens[leftIndex]로 얻을 수 있음!
 			});
 			i--;
 			j--;
@@ -633,109 +519,6 @@ async function computeLCS(leftTokens, rightTokens, ctx) {
 	return lcsIndices;
 }
 
-// async function computeLCS(leftTokens, rightTokens, ctx) {
-// 	const m = leftTokens.length;
-// 	const n = rightTokens.length;
-
-// 	const dp = new Array(m + 1);
-// 	const consecutive = new Array(m + 1);
-// 	for (let i = 0; i <= m; i++) {
-// 		dp[i] = new Array(n + 1).fill(0);
-// 		consecutive[i] = new Array(n + 1).fill(0);
-// 	}
-
-// 	for (let i = 1; i <= m; i++) {
-// 		const leftText = leftTokens[i - 1].text;
-// 		for (let j = 1; j <= n; j++) {
-// 			if (j % 1023 === 0) {
-// 				if (ctx && performance.now() - ctx.lastYield > 100) {
-// 					ctx.lastYield = performance.now();
-// 					await new Promise((resolve) => setTimeout(resolve, 0));
-// 					if (ctx.cancel) {
-// 						return null;
-// 					}
-// 				}
-// 			}
-
-// 			const rightText = rightTokens[j - 1].text;
-
-// 			if (leftText === rightText) {
-// 				consecutive[i][j] = consecutive[i - 1][j - 1] + 1; // 연속 매치 횟수 증가
-// 				dp[i][j] = dp[i - 1][j - 1] + 1 + consecutive[i][j]; // 연속 매치에 가중치 부여
-// 			} else {
-// 				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-// 				consecutive[i][j] = 0;
-// 			}
-// 		}
-// 	}
-
-// 	let i = m;
-// 	let j = n;
-// 	const lcsIndices = [];
-// 	while (i > 0 && j > 0) {
-// 		if ((i + j) % 1023 === 0 && ctx && performance.now() - ctx.lastYield > 100) {
-// 			ctx.lastYield = performance.now();
-// 			await new Promise((resolve) => setTimeout(resolve, 0));
-// 			if (ctx.cancel) {
-// 				return null;
-// 			}
-// 		}
-// 		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-// 			lcsIndices.push({ leftIndex: i - 1, rightIndex: j - 1, text: leftTokens[i - 1].text });
-// 			i--;
-// 			j--;
-// 		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-// 			i--;
-// 		} else {
-// 			j--;
-// 		}
-// 	}
-
-// 	lcsIndices.reverse();
-// 	return lcsIndices;
-// }
-
-// function findLineEndPos(text, pos, maxPos, numLines = 1){
-// 	while (pos < maxPos && numLines > 0) {
-// 		if (text[pos] === "\n") {
-// 			numLines--;
-// 			if (numLines === 0) {
-// 				break;
-// 			}
-// 		}
-// 		pos++;
-// 	}
-// 	return pos;
-// }
-
-function skipCommonChars(leftTokens, leftTokenIndex, leftTokenCount, rightTokens, rightTokenIndex, rightTokenCount) {
-	let i = leftTokenIndex;
-	let j = rightTokenIndex;
-	// 각 토큰의 text의 한글자 한글자를 비교
-
-	let leftToken = leftTokens[i];
-	let rightToken = rightTokens[j];
-	let leftCharIndex = 0;
-	let rightCharIndex = 0;
-	let leftSkipped = 0;
-	let rightSkipped = 0;
-	while (leftToken && rightToken) {
-		const leftText = leftToken.text[leftCharIndex];
-		const rightText = rightToken.text[rightCharIndex];
-		while (leftCharIndex < leftToken.text.length && rightCharIndex < rightToken.text.length) {
-			if (leftText[leftCharIndex] !== rightText[rightCharIndex]) {
-				break;
-			}
-			if (++leftCharIndex >= leftToken.text.length) {
-				leftToken = leftTokens[++i];
-				leftCharIndex = 0;
-			}
-		}
-	}
-
-	return { leftIndex: i, rightIndex: j };
-}
-
 async function computeDiff({
 	leftText,
 	rightText,
@@ -743,16 +526,16 @@ async function computeDiff({
 	leftInputEnd = undefined,
 	rightInputPos = undefined,
 	rightInputEnd = undefined,
-	leftTokens = undefined,
-	rightTokens = undefined,
+	// leftTokens = undefined,
+	// rightTokens = undefined,
 	method = DIFF_BY_WORD,
+	greedyMatch = false,
+	useFallback = false,
 	ctx,
-	skipFallback = false,
 }) {
+	//console.log("computeDiff", { leftText, rightText, leftInputPos, leftInputEnd, rightInputPos, rightInputEnd, method, greedyMatch, useFallback });
 	const diffs = [],
 		anchors = [];
-
-	let now = performance.now();
 
 	if (leftInputPos === undefined) {
 		leftInputPos = 0;
@@ -767,27 +550,29 @@ async function computeDiff({
 		rightInputEnd = rightText.length;
 	}
 
-	if (!leftTokens) {
-		leftTokens = tokenize(leftText, method, leftInputPos, leftInputEnd);
-	}
-	if (!rightTokens) {
-		rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
-	}
-	let elapsed = performance.now() - now;
-	// console.debug("Tokenize elapsed time:", elapsed, { leftTokens, rightTokens });
+	const leftTokens = tokenize(leftText, method, leftInputPos, leftInputEnd);
+	const rightTokens = tokenize(rightText, method, rightInputPos, rightInputEnd);
 
-	now = performance.now();
+	if (leftText === rightText) {
+		for (let i = 0; i < leftTokens.length; i++) {
+			const token = leftTokens[i];
+			if (token.flags & FIRST_OF_LINE) {
+				let anchorPos = token.pos;
+				while (anchorPos > 0 && leftText[anchorPos - 1] !== "\n") {
+					anchorPos--;
+				}
+				addAnchor("before", anchorPos, anchorPos);
+			}
+		}
+		return { diffs, anchors };
+	}
+
+	// console.log("tokens:", { leftTokens, rightTokens });
+
 	const lcs = await computeLCS(leftTokens, rightTokens, ctx);
-	elapsed = performance.now() - now;
-	// console.debug("LCS elapsed time:", elapsed);
-
-	if (ctx && ctx.cancel) {
-		throw new Error("cancelled");
-	}
 	const lcsLength = lcs.length;
 	const leftTokensLength = leftTokens.length;
 	const rightTokensLength = rightTokens.length;
-	// LCS에 비해 나머지 부분은 성능에 큰 영향을 미치지 않음.
 
 	function addAnchor(type, leftPos, rightPos, diffIndex = null) {
 		if (leftPos === undefined || rightPos === undefined) {
@@ -808,23 +593,19 @@ async function computeDiff({
 	}
 
 	if (leftTokensLength === 0 && rightTokensLength === 0) {
-		//
+		// 딱히 할 수 있는게 없다.
+		// 앵커도 없다.
 	} else if (leftTokensLength === 0) {
 		diffs.push({
 			left: {
-				pos: 0,
+				pos: leftInputPos,
 				len: 0,
-				line: 1,
-				lineEnd: 1,
-				entireLines: true,
 				empty: true,
 			},
 			right: {
 				pos: rightTokens[0].pos,
 				len: rightTokens[rightTokensLength - 1].pos + rightTokens[rightTokensLength - 1].len - rightTokens[0].pos,
 				line: rightTokens[0].lineNum,
-				lineEnd: rightTokens[rightTokensLength - 1].lineNum,
-				entireLines: true,
 			},
 		});
 	} else if (rightTokensLength === 0) {
@@ -832,16 +613,10 @@ async function computeDiff({
 			left: {
 				pos: leftTokens[0].pos,
 				len: leftTokens[leftTokensLength - 1].pos + leftTokens[leftTokensLength - 1].len - leftTokens[0].pos,
-				line: leftTokens[0].lineNum,
-				lineEnd: leftTokens[leftTokensLength - 1].lineNum,
-				entireLines: true,
 			},
 			right: {
-				pos: 0,
+				pos: rightInputPos,
 				len: 0,
-				line: 1,
-				lineEnd: 1,
-				entireLines: true,
 				empty: true,
 			},
 		});
@@ -849,7 +624,6 @@ async function computeDiff({
 		let i = 0;
 		let j = 0;
 		let lcsIndex = 0;
-		let lastYield = 0;
 		let iteration = 0;
 
 		while (lcsIndex < lcsLength || i < leftTokensLength || j < rightTokensLength) {
@@ -863,8 +637,13 @@ async function computeDiff({
 					}
 				}
 			}
-			if (lcsIndex < lcsLength && i === lcs[lcsIndex].leftIndex && j === lcs[lcsIndex].rightIndex) {
-				// if (lcsIndex < lcsLength && leftTokens[i].text === leftTokens[lcs[lcsIndex].leftIndex].text && rightTokens[j].text === rightTokens[lcs[lcsIndex].rightIndex].text) {
+			if (
+				lcsIndex < lcsLength &&
+				((greedyMatch &&
+					leftTokens[i].text === leftTokens[lcs[lcsIndex].leftIndex].text &&
+					rightTokens[j].text === rightTokens[lcs[lcsIndex].rightIndex].text) ||
+					(i === lcs[lcsIndex].leftIndex && j === lcs[lcsIndex].rightIndex))
+			) {
 				const leftToken = leftTokens[i];
 				const rightToken = rightTokens[j];
 				if ((leftToken.flags & rightToken.flags & FIRST_OF_LINE) === FIRST_OF_LINE) {
@@ -881,33 +660,103 @@ async function computeDiff({
 				i++;
 				j++;
 				lcsIndex++;
-				continue; // 다음 순회로 건너뜀
+				continue;
 			}
 
+			const lcsEntry = lcs[lcsIndex];
 			let leftIndex = i;
 			let leftCount = 0;
 			let rightIndex = j;
 			let rightCount = 0;
 
-			while (i < leftTokensLength && (lcsIndex >= lcsLength || i < lcs[lcsIndex].leftIndex)) {
-				// while (i < leftTokensLength && (lcsIndex >= lcsLength || leftTokens[i].text !== leftTokens[lcs[lcsIndex].leftIndex].text)) {
+			// greedyMatch인 경우 최대한 공통부분을 일찍/많이 잡아먹어야하므로
+			// diff는 최대한 적게 잡아먹어야함. 맞...지..?
+
+			while (
+				i < leftTokensLength && // 유효한 토큰 index
+				(!lcsEntry || // 공통 sequence가 없는 경우
+					(!greedyMatch && i < lcsEntry.leftIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
+					leftTokens[i].text !== leftTokens[lcsEntry.leftIndex].text) // or 텍스트가 같으면 바로 중단
+			) {
 				leftCount++;
 				i++;
 			}
 
-			while (j < rightTokensLength && (lcsIndex >= lcsLength || j < lcs[lcsIndex].rightIndex)) {
-				// while (j < rightTokensLength && (lcsIndex >= lcsLength || rightTokens[j].text !== rightTokens[lcs[lcsIndex].rightIndex].text)) {
+			while (
+				j < rightTokensLength && // 유효한 토큰 index
+				(!lcsEntry || // 공통 sequence가 없는 경우
+					(!greedyMatch && j < lcsEntry.rightIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
+					rightTokens[j].text !== rightTokens[lcsEntry.rightIndex].text) // or 텍스트가 같으면 바로 중단
+			) {
 				rightCount++;
 				j++;
 			}
 
-			let anchorBefore = false,
-				anchorAfter = false;
+			if (leftCount > 0 && rightCount > 0) {
+				if (useFallback && method > DIFF_BY_WORD) {
+					const result = await computeDiff({
+						leftText,
+						rightText,
+						leftInputPos: leftTokens[leftIndex].pos,
+						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
+						rightInputPos: rightTokens[rightIndex].pos,
+						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
+						method: DIFF_BY_WORD,
+						greedyMatch,
+						useFallback: useFallback,
+						ctx,
+					});
+					for (const anchor of result.anchors) {
+						if (anchor.diffIndex !== null) {
+							anchor.diffIndex += diffs.length;
+						}
+						addAnchor(anchor.type, anchor.left, anchor.right, diffs.length);
+					}
+					for (const diff of result.diffs) {
+						diffs.push(diff);
+					}
+					continue;
+				} else if (method > DIFF_BY_CHAR) {
+					// 단어 사이에서 예기치 않은 공백이 나오는 경우가 왕왕 있다.
+					// 게다가 우리말은 띄어쓰기를 해도 맞고 안해도 맞는 것 같은 느낌적인 느낌의 느낌이 느껴지는 경우가 많은 느낌이다!!!
+					// FALLBACK으로 글자단위 비교를 하고 그 결과를 최종결과에 넣어버리는 방법을 써도 되지만
+					// 글자단위 DIFF는 오히려 사람의 눈에는 더 불편함.
+
+					// 문제: [diff0] abc [diff1] vs [diff0] a bc [diff1] 같은 경우 "abc" vs "a bc"도 diff로 처리됨.
+					// > diff0에서부터 diff1 범위까지를 몽땅 diff 범위로 묶어버렸기 때문에 abc vs a bc를 별개로 비교하지 못함.
+					// > 그렇다고 토큰 하나씩 따로따로 처리를 하면 시작부분부터 "ab cd" vs "abcd" 같은걸 처리하지 못함(ab vs abcd 비교를 하게되기 때문에)
+					// 그래도 diff를 diff가 아닌 걸로 표시하는 게 아니라라 diff가 아닌 걸 diff로 표시하는 거니까 큰 문제가 되지는 않을 것...
+					const result = await computeDiff({
+						leftText,
+						rightText,
+						leftInputPos: leftTokens[leftIndex].pos,
+						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
+						rightInputPos: rightTokens[rightIndex].pos,
+						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
+						method: DIFF_BY_CHAR,
+						useFallback: false,
+						ctx,
+					});
+
+					if (result.diffs.length === 0) {
+						continue;
+					}
+
+					// 글자단위로 표시하면 오히려 눈깔 빠진다.
+					// 공백무시 글자단위로 비교에서도 두 문자열이 같지 않다는 것은 알았으니 기존 토큰을 기준으로 diff를 만든다.
+				}
+			}
+
+			// 조금씩 수정하다가 난장판이 된 부분인데 섣불리 손대고 싶지 않다... ㅋ
+
 			let leftPos, leftLen, rightPos, rightLen;
 			let leftEmpty;
 			let rightEmpty;
 			let leftAnchorPos = null;
 			let rightAnchorPos = null;
+
+			let anchorBefore = false,
+				anchorAfter = false;
 
 			if (leftCount > 0 && rightCount > 0) {
 				leftPos = leftTokens[leftIndex].pos;
@@ -918,65 +767,6 @@ async function computeDiff({
 				rightEmpty = false;
 				anchorBefore = !!(leftTokens[leftIndex].flags & rightTokens[rightIndex].flags & FIRST_OF_LINE);
 				anchorAfter = !!(leftTokens[leftIndex + leftCount - 1].flags & rightTokens[rightIndex + rightCount - 1].flags & LAST_OF_LINE);
-
-				if (method > DIFF_BY_CHAR) {
-					// console.log("try fallback", {
-					// 	leftPos,
-					// 	leftEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
-					// 	rightPos,
-					// 	rightEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-					// });
-					const result = await computeDiff({
-						leftText,
-						rightText,
-						leftInputPos: leftPos,
-						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
-						rightInputPos: rightPos,
-						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-						method: method - 1,
-						ctx,
-						skipFallback: true,
-					});
-
-					// console.log("fallback result ", { result });
-
-					// diff 결과가 1개 이하일 때에만 결과를 사용하고 그렇지 않은 경우는 무시하고 현재 method로 diff 생성.
-
-					if (result.diffs.length <= 1) {
-						const leftEnd = leftPos + leftLen;
-						const rightEnd = rightPos + rightLen;
-						for (const anchor of result.anchors) {
-							if (anchor.left < leftEnd && anchor.right < rightEnd) {
-								if (anchor.diffIndex !== null) {
-									anchor.diffIndex += diffs.length;
-								}
-								addAnchor(anchor.type, anchor.left, anchor.right, anchor.diffIndex);
-							}
-						}
-						for (const diff of result.diffs) {
-							diffs.push(diff);
-						}
-						continue;
-					}
-
-					// for (const diff of result.diffs) {
-					// 	diffs.push(diff);
-					// }
-
-					// console.log("fallback done");
-					// continue;
-				}
-				// if (method !== DIFF_BY_CHAR) {
-				// 	if (leftLen <= 40 && rightLen <= 40) {
-				// 		let leftFragment = leftText.substring(leftPos, leftPos + leftLen).replace(/\s/g, "");
-				// 		let rightFragment = rightText.substring(rightPos, rightPos + rightLen).replace(/\s/g, "");
-				// 		if (leftFragment === rightFragment) {
-				// 			leftIndex = rightIndex = 0;
-				// 			leftCount = rightCount = 0;
-				// 			continue;
-				// 		}
-				// 	}
-				// }
 
 				if (anchorBefore) {
 					leftAnchorPos = leftPos;
@@ -1027,6 +817,8 @@ async function computeDiff({
 					}
 				}
 			} else if (leftCount > 0 || rightCount > 0) {
+				// 이렇게까지 장황하게 만들어야되나 싶은데 더이상은 손대기 싫은 부분...
+
 				let longSideText, shortSideText;
 				let longSideIndex, longSideCount, longSideTokens;
 				let shortSideIndex, shortSideCount, shortSideTokens;
@@ -1136,41 +928,12 @@ async function computeDiff({
 										}
 									}
 								}
-								// while (p >= 0) {
-								// 	if (shortSideText[p] === "\n") {
-								// 		console.log(7);
-								// 		shortSidePos = p + 1;
-								// 		shortSideAnchorPos = shortSidePos;
-								// 		success = true;
-								// 		p--;
-								// 		continue;
-								// 		// keep going.
-								// 	}
-								// 	if (!SPACE_CHARS[shortSideText[p--]]) {
-								// 		break;
-								// 	}
-								// }
-								// if (!success) {
-								// 	p = shortSidePos;
-								// 	while (p < shortSideEnd) {
-								// 		if (shortSideText[p] === "\n") {
-								// 			console.log(8);
-								// 			shortSidePos = p + 1;
-								// 			shortSideAnchorPos = shortSidePos;
-								// 			break;
-								// 		}
-								// 		if (!SPACE_CHARS[shortSideText[p++]]) {
-								// 			break;
-								// 		}
-								// 	}
-								// }
 							}
 						}
 					}
 				}
 
 				if (longSideIsFirstWord) {
-			
 					if (shortSideAnchorPos !== undefined) {
 						shortSideAnchorPos = shortSidePos;
 						while (shortSideAnchorPos > 0 && shortSideText[shortSideAnchorPos - 1] !== "\n") {
@@ -1196,7 +959,7 @@ async function computeDiff({
 							}
 							shortSideAnchorPos = shortSidePos + shortSideLen;
 							// 이후 이어지는 공백 문자 중 마지막 공백 문자 자리에서 AFTER 앵커
-	
+
 							while (shortSideAnchorPos < shortSideEnd) {
 								if (shortSideText[shortSideAnchorPos] === "\n") {
 									break;
@@ -1214,9 +977,6 @@ async function computeDiff({
 							addAnchor("after", leftAnchorPos, rightAnchorPos);
 						}
 					}
-					
-
-					
 				}
 				if (leftCount > 0) {
 					leftPos = longSidePos;
@@ -1237,22 +997,6 @@ async function computeDiff({
 				throw new Error("WTF? both leftCount and rightCount are 0");
 			}
 
-			// if (anchorBefore) {
-			// 	anchors.push({
-			// 		type: "before",
-			// 		diffIndex: diffs.length,
-			// 		left: leftPos,
-			// 		right: rightPos,
-			// 	});
-			// }
-			// if (anchorAfter) {
-			// 	anchors.push({
-			// 		type: "after",
-			// 		diffIndex: diffs.length,
-			// 		left: leftPos + leftLen,
-			// 		right: rightPos + rightLen,
-			// 	});
-			// }
 			diffs.push({
 				left: {
 					pos: leftPos,

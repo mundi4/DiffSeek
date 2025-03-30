@@ -1,7 +1,7 @@
 "use strict";
 
 function createEditor(container, name, callbacks) {
-	const { onTextChanged, onMirrorUpdated } = callbacks;
+	const { onDiffVisibilityChanged, onTextChanged, onMirrorUpdated } = callbacks;
 	const _lineElements = [];
 	const _diffElements = [];
 	const _anchorElements = [];
@@ -10,8 +10,7 @@ function createEditor(container, name, callbacks) {
 	let _text = "";
 	let _savedCaret = null;
 	let _observingAnchors = false;
-
-	const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged;
+	let _editMode = false;
 
 	const wrapper = document.createElement("div");
 	wrapper.id = name + "EditorWrapper";
@@ -20,13 +19,15 @@ function createEditor(container, name, callbacks) {
 	const mirror = document.createElement("div");
 	mirror.id = name + "Mirror";
 	mirror.classList.add("mirror");
+	mirror.spellcheck = false;
+
 
 	const editor = document.createElement("div");
-	editor.id = name + "Editor";
+ 	editor.id = name + "Editor";
 	editor.classList.add("editor");
 	editor.contentEditable = "plaintext-only";
 	editor.spellcheck = false;
-
+ 
 	editor.appendChild(document.createTextNode(""));
 
 	wrapper.appendChild(mirror);
@@ -35,30 +36,25 @@ function createEditor(container, name, callbacks) {
 
 	function updateText() {
 		_text = editor.textContent;
-		let p = _text.length - 1;
-		let endsWithNewline = false;
-		while (p >= 0) {
-			if (!/\s/.test(_text[p])) {
-				break;
-			}
-			if (_text[p] === "\n") {
-				endsWithNewline = true;
-				break;
-			}
-			p--;
-		}
-		if (!endsWithNewline) {
-			_text += "\n";
-		}
+		// let p = _text.length - 1;
+		// let endsWithNewline = false;
+		// while (p >= 0) {
+		// 	if (!/\s/.test(_text[p])) {
+		// 		break;
+		// 	}
+		// 	if (_text[p] === "\n") {
+		// 		endsWithNewline = true;
+		// 		break;
+		// 	}
+		// 	p--;
+		// }
+		// if (!endsWithNewline) {
+		// }
+		_text += "\n";
 		onTextChanged(_text);
 	}
 
 	editor.addEventListener("input", updateText);
-	editor.addEventListener("focus", callbacks.onFocus);
-	editor.addEventListener("blur", callbacks.onBlur);
-	wrapper.addEventListener("scroll", callbacks.onScroll);
-	wrapper.addEventListener("mouseenter", callbacks.onEnter);
-	wrapper.addEventListener("mouseleave", callbacks.onLeave);
 
 	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
@@ -83,7 +79,7 @@ function createEditor(container, name, callbacks) {
 			}
 		},
 
-		{ threshold: 1, root: document.getElementById("main") }
+		{ threshold: 1, root: wrapper }
 	);
 
 	function saveCaret() {
@@ -148,112 +144,43 @@ function createEditor(container, name, callbacks) {
 		return nearestAnchor;
 	}
 
-	function getFirstVisibleLineElementInEditor() {
+	function getFirstVisibleLineElement() {
 		const lineEls = _lineElements;
-		// 이진 검색으로 현재 화면에 보이는 줄 엘러먼트 중 첫번째 찾기
-		// 모든 픽셀이 화면에 다 보이는 경우만! 윗부분 1px만 짤려도 가차 없다.
 		let low = 0;
 		let high = lineEls.length - 1;
 		let mid;
 		let lineEl = null;
-		let lineTop = null;
+		let distance = null;
 		while (low <= high) {
 			mid = (low + high) >>> 1;
-			const top = lineEls[mid].getBoundingClientRect().top;
-			if (top >= 0) {
+			const thisDistance = lineEls[mid].getBoundingClientRect().top - TOPBAR_HEIGHT;
+			if (thisDistance >= -LINE_HEIGHT) {
 				lineEl = lineEls[mid];
-				if (top < 10) {
-					// 이정도면 안전하게 "찾았다"라고 말할 수 있지 않을까?
-					// 변태같이 화면 스케일을 1/2로 줄이지 않는 이상...
-					break;
-				}
-				lineTop = top;
+				distance = thisDistance;
 				high = mid - 1;
 			} else {
 				low = mid + 1;
 			}
 		}
-		return [lineEl, lineTop];
-	}
-
-	// 현재 화면에 보이는 editor의 문자 인덱스를 찾음.
-	function getFirstVisiblePosInEditor() {
-		const rect = editor.getBoundingClientRect();
-		let x = rect.left + 10;
-		let y = rect.top + 10;
-		let parentEl = editor.parentElement;
-		while (parentEl) {
-			x += parentEl.scrollLeft;
-			y += parentEl.scrollTop;
-			parentEl = parentEl.parentElement;
-		}
-
-		const caretPos = document.caretPositionFromPoint(x, y);
-		if (caretPos !== null) {
-			const offsetNode = caretPos.offsetNode;
-			let offset = caretPos.offset;
-			if (offsetNode.nodeType === 3 && editor.contains(offsetNode)) {
-				// 찾았다. 그대로 리턴... 하면 인생 참 편하지?
-				// editor 안에 여러개의 text node가 있을 수 있기 때문에 offsetNode보다 앞에 위치한 text node들의 text length를 모두 더해야함.
-				// previous sibling으로 찾으면 훨씬 간단하고 빠를테지만 나중에 editor를 구조를 바꿀지도 모르니 일단 안정빵으로
-				const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
-				let node;
-				while ((node = walker.nextNode())) {
-					if (node === offsetNode) {
-						return offset;
-					}
-					offset += node.nodeValue.length;
-				}
-			}
-		}
-
-		return null;
+		return [lineEl, distance];
 	}
 
 	function scrollToDiff(diffIndex) {
-		_diffElements[diffIndex][0].scrollIntoView({});
+		const offsetTop = _diffElements[diffIndex][0].offsetTop - wrapper.clientTop;
+		wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
 	}
 
-	function scrollToLine(lineNum, offset = 0) {
+	// 내가 머리가 나쁘다는 걸 확실하게 알게 해주는 함수
+	function scrollToLine(lineNum, distance = 0) {
 		const lineEl = _lineElements[lineNum - 1];
 		if (lineEl) {
-			wrapper.scrollTop = lineEl.offsetTop;
+			const scrollTop = lineEl.offsetTop - distance;
+			wrapper.scrollTop = scrollTop;
 		}
 	}
 
-	function scrollToTextPosition(pos) {
-		if (window.getComputedStyle(editor).display === "none") {
-			for (let i = 0; i < _lineElements.length; i++) {
-				const linePos = Number(_lineElements[i].dataset.pos);
-				if (linePos > pos) {
-					if (i > 0) {
-						_lineElements[i - 1].scrollIntoView();
-					} else {
-						mirror.scrollHeight = 0;
-					}
-					break;
-				}
-			}
-		} else {
-			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
-			let node;
-			while ((node = walker.nextNode())) {
-				const nodeLen = node.nodeValue.length;
-				if (pos < nodeLen) {
-					// TODO
-					// const range = document.createRange();
-					// const sel = window.getSelection();
-					// range.setStart(node, pos);
-					// range.setEnd(node, pos);
-					// sel.removeAllRanges();
-					// sel.addRange(range);
-					break;
-				}
-				pos -= nodeLen;
-			}
-		}
-	}
-
+	// generator 함수로 만들고 requestIdleCallback으로 점증적으로 업데이트...?
+	// 그게 절실할 만큼 큰 업무매뉴얼은 별로 없다 ㅋ
 	function update({ diffs, anchors }) {
 		if (!diffs) {
 			return;
@@ -278,15 +205,13 @@ function createEditor(container, name, callbacks) {
 		let currentDiffIndex = null;
 		let lineNum = 1;
 		let unwrittenDiff = false;
-		let lineHasNonSpaceChar = false;
-		let lineHasNonSpaceNonDiffChar = false;
-		let diffAnchorIndex = null;
 		let _pos = 0;
 
 		function appendAnchor(pos, anchorIndex, diffIndex = null) {
 			const anchor = anchors[anchorIndex];
 			if (inlineNode === null || inlineNode.nodeName !== ANCHOR_TAG) {
 				const el = document.createElement(ANCHOR_TAG);
+				el.contentEditable = false;
 				lineEl.insertBefore(el, inlineNode);
 				inlineNode = el;
 			}
@@ -345,8 +270,8 @@ function createEditor(container, name, callbacks) {
 			lineEl.dataset.lineNum = lineNum;
 			lineEl.dataset.pos = _pos;
 			lineNum++;
-			_lineElements.push(lineEl);
 		}
+		_lineElements.push(lineEl);
 		inlineNode = lineEl.firstChild;
 
 		for (const textrun of textruns) {
@@ -371,6 +296,9 @@ function createEditor(container, name, callbacks) {
 			} else if (textrun.type === "LINEBREAK" || textrun.type === "END_OF_STRING") {
 				if (unwrittenDiff) {
 					appendChars("");
+				}
+				if (inlineNode === null || inlineNode.nodeType !== 3 || inlineNode.nodeValue !== "\n") {
+					lineEl.insertBefore(document.createTextNode("\n"), inlineNode);
 				}
 
 				while (inlineNode) {
@@ -405,74 +333,6 @@ function createEditor(container, name, callbacks) {
 				}
 			}
 		}
-		// let textRunResult;
-		// do {
-		// 	lineHasNonSpaceChar = false;
-		// 	lineHasNonSpaceNonDiffChar = false;
-		// 	if (currentDiffIndex !== null) {
-		// 		unwrittenDiff = true;
-		// 	}
-		// 	if (lineEl === null) {
-		// 		lineEl = document.createElement(LINE_TAG);
-		// 		view.appendChild(lineEl);
-		// 		lineEl.dataset.lineNum = lineNum;
-		// 		lineEl.dataset.pos = _pos;
-		// 	}
-		// 	_lineElements[lineNum - 1] = lineEl;
-		// 	inlineNode = lineEl.firstChild;
-
-		// 	while (!(textRunResult = textruns.next()).done) {
-		// 		const { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar } = textRunResult.value;
-		// 		// if (name === "right") {
-		// 		// 	console.log(lineNum, { type, pos, len, diffIndex, anchorIndex, hasNonSpaceChar });
-		// 		// }
-		// 		_pos = pos;
-		// 		if (type === DIFF) {
-		// 			currentDiffIndex = diffIndex;
-		// 			unwrittenDiff = true;
-		// 		} else if (type === DIFF_END) {
-		// 			if (unwrittenDiff) {
-		// 				appendChars("", hasNonSpaceChar);
-		// 			}
-		// 			currentDiffIndex = null;
-		// 		} else if (type === CHARS) {
-		// 			lineHasNonSpaceChar = lineHasNonSpaceChar || hasNonSpaceChar;
-		// 			if (currentDiffIndex === null) {
-		// 				lineHasNonSpaceNonDiffChar = lineHasNonSpaceNonDiffChar || hasNonSpaceChar;
-		// 			}
-		// 			appendChars(text.substring(pos, pos + len), hasNonSpaceChar);
-		// 		} else if (type === LINEBREAK || type === END_OF_STRING) {
-		// 			//console.log("linebreak", { type, pos, len });
-		// 			break;
-		// 		} else if (type === ANCHOR) {
-		// 			appendAnchor(pos, anchorIndex, diffIndex);
-		// 		}
-		// 	}
-
-		// 	if (unwrittenDiff) {
-		// 		appendChars("", false);
-		// 	}
-
-		// 	while (inlineNode) {
-		// 		const nextInlineNode = inlineNode.nextSibling;
-		// 		inlineNode.remove();
-		// 		inlineNode = nextInlineNode;
-		// 	}
-
-		// 	lineEl = lineEl.nextElementSibling;
-		// 	if (textRunResult.value.type === END_OF_STRING) {
-		// 		break;
-		// 	}
-		// 	lineNum++;
-		// } while (!textRunResult.done);
-
-		// _lineElements.length = lineNum;
-
-		// while (lineEl) {
-		// 	const nextLineEl = lineEl.nextElementSibling;
-		// 	lineEl.remove();
-		// 	lineEl = nextLineEl;
-		// }
 
 		requestAnimationFrame(() => {
 			// const height = view.scrollHeight;
@@ -523,22 +383,198 @@ function createEditor(container, name, callbacks) {
 	}
 
 	function setEditMode(editMode) {
-		// editmode인 경우 mirror와 editor를 둘 다 보여주고 높이도 동기화 해야한다.
-		// 둘의 높이는 무조건 같다. 왜냐면 editor에 따라 wrapper 크기가 결정되고 wrapper에 따라 mirror크기 결정되니까.
-		// 자바스크립트 쓸 필요가 없어야 한다.
+		_editMode = !!editMode;
 	}
 
-	updateText();
+	function getTextOffsetFromRoot(root, textNode, textNodeOffset) {
+		let offset = 0;
+		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+		while (walker.nextNode()) {
+			if (walker.currentNode === textNode) {
+				return offset + textNodeOffset;
+			}
+			offset += walker.currentNode.nodeValue.length;
+		}
+		return null;
+	}
+
+	function findLineIndexByPos(pos, low = 0, high = _lineElements.length - 1) {
+		let mid;
+		while (low <= high) {
+			mid = (low + high) >>> 1;
+			const lineEl = _lineElements[mid];
+			const linePos = Number(lineEl.dataset.pos);
+			if (linePos === pos) {
+				return mid;
+			}
+			if (linePos > pos) {
+				high = mid - 1;
+			} else {
+				low = mid + 1;
+			}
+		}
+		return high;
+	}
+
+	window.findLineIndexByPos = findLineIndexByPos;
+
+	function selectTextRange(startOffset, endOffset) {
+		const range = document.createRange();
+		let startSet = false;
+		let endSet = false;
+		if (_editMode) {
+			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+			let currentNode;
+			let pos = 0;
+			while (!endSet && (currentNode = walker.nextNode())) {
+				if (!startSet && pos + currentNode.nodeValue.length >= startOffset) {
+					range.setStart(currentNode, startOffset - pos);
+					startSet = true;
+				}
+				if (!endSet && pos + currentNode.nodeValue.length >= endOffset) {
+					range.setEnd(currentNode, endOffset - pos);
+					endSet = true;
+				}
+				pos += currentNode.nodeValue.length;
+			}
+		} else {
+			// binary search in _lineElements for startOffset
+			let startLineIndex = findLineIndexByPos(startOffset);
+			let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
+
+			let currentNode;
+			let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null, false);
+			let pos = Number(_lineElements[startLineIndex].dataset.pos);
+			while ((currentNode = walker.nextNode())) {
+				const nodeLen = currentNode.nodeValue.length;
+				if (pos + nodeLen >= startOffset) {
+					range.setStart(currentNode, startOffset - pos);
+					startSet = true;
+					break;
+				}
+				pos += nodeLen;
+			}
+
+			walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null, false);
+			pos = Number(_lineElements[endLineIndex].dataset.pos);
+			while ((currentNode = walker.nextNode())) {
+				const nodeLen = currentNode.nodeValue.length;
+				if (pos + nodeLen >= endOffset) {
+					range.setEnd(currentNode, endOffset - pos);
+					endSet = true;
+					break;
+				}
+				pos += nodeLen;
+			}
+		}
+
+		if (startSet && endSet) {
+			const sel = window.getSelection();
+			sel.removeAllRanges();
+			sel.addRange(range);
+		}
+	}
+
+	function getTextSelectionRange() {
+		const selection = window.getSelection();
+		if (!selection.rangeCount) {
+			return null;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!wrapper.contains(range.commonAncestorContainer)) {
+			return null;
+		}
+
+		let startOffset = Number.NaN;
+		let endOffset = Number.NaN;
+		if (_editMode) {
+			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null, false);
+			let currentNode;
+			let pos = 0;
+			while ((currentNode = walker.nextNode())) {
+				if (currentNode === range.startContainer) {
+					startOffset = pos + range.startOffset;
+				}
+				if (currentNode === range.endContainer) {
+					endOffset = pos + range.endOffset;
+					break;
+				}
+				pos += currentNode.textContent.length;
+			}
+		} else {
+			// 이 경우 조금 최적화가 가능. 실제로 이게 얼마나 효율적인지는 테스트해 볼 필요가 있겠지만...
+			// 몇천 라인의 텍스트고 diff, anchor가 많은 경우 당연히 시작줄, 끝줄을 먼저 찾고 그 줄에 대해서만
+			// offset을 계산하는 것이 더 빠르겠지!
+
+			// 주의: startContainer, endContainer가 text노드가 아닐 수도 있음.
+			let startLineEl = range.startContainer;
+			if (startLineEl.nodeType === 3) {
+				startLineEl = startLineEl.parentElement.closest("div[data-pos]");
+			} else {
+				startOffset = Number(startLineEl.dataset.pos);
+			}
+			let endLineEl = range.endContainer;
+			if (endLineEl.nodeType === 3) {
+				endLineEl = endLineEl.parentElement.closest("div[data-pos]");
+			} else {
+				endOffset = Number(endLineEl.dataset.pos) + endLineEl.textContent.length;
+			}
+
+			if (isNaN(startOffset) || isNaN(endOffset)) {
+				if (startLineEl && endLineEl) {
+					if (isNaN(startOffset)) {
+						startOffset = getTextOffsetFromRoot(startLineEl, range.startContainer, range.startOffset) + Number(startLineEl.dataset.pos);
+					}
+					if (isNaN(endOffset)) {
+						endOffset = getTextOffsetFromRoot(endLineEl, range.endContainer, range.endOffset) + Number(endLineEl.dataset.pos);
+					}
+				} else {
+					const walker = document.createTreeWalker(mirror, NodeFilter.SHOW_TEXT, null, false);
+					let currentNode;
+					let pos = 0;
+					while (isNaN(startOffset) && isNaN(endOffset) && (currentNode = walker.nextNode())) {
+						if (currentNode === range.startContainer && isNaN(startOffset)) {
+							startOffset = pos + range.startOffset;
+						}
+						if (currentNode === range.endContainer && isNaN(endOffset)) {
+							endOffset = pos + range.endOffset;
+							break;
+						}
+						pos += currentNode.textContent.length;
+					}
+				}
+			}
+		}
+
+		if (isNaN(startOffset) || isNaN(endOffset)) {
+			return null;
+		}
+
+		// 원본텍스트의 끝에 하나의 "\n"이 더 붙어있으니 원본텍스트 크기보다 offset이 더 커질 수 있음!!
+		if (startOffset >= _text.length) {
+			startOffset = _text.length - 1;
+		}
+		if (endOffset >= _text.length) {
+			endOffset = _text.length - 1;
+		}
+
+		return {
+			startOffset,
+			endOffset,
+		};
+	}
+
+	//updateText();
 
 	return {
 		name: name,
 		wrapper,
 		editor,
 		mirror,
+		updateText,
 		update,
-		getFirstVisiblePosInEditor,
 		scrollToDiff,
-		scrollToTextPosition,
 		saveCaret,
 		restoreCaret,
 		getVisibleAnchors,
@@ -546,8 +582,11 @@ function createEditor(container, name, callbacks) {
 		untrackVisibleAnchors: untrackIntersections,
 		getFirstVisibleAnchor,
 		scrollToLine,
-		getFirstVisibleLineElementInEditor,
+		getFirstVisibleLineElement,
 		getNearestAnchorToCaret,
+		setEditMode,
+		getTextSelectionRange,
+		selectTextRange,
 		get text() {
 			return _text;
 		},

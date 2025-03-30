@@ -55,12 +55,23 @@ button.toggle[aria-pressed="true"] {
 
 .container {
 	display: grid;
-	grid-template-rows: var(--topbar-height) 1fr; /* 상단 바 (40px) + 나머지 공간 */
-	grid-template-columns: 1fr 300px;
+	/* grid-template-rows: var(--topbar-height) 1fr; */
+	grid-template-columns: 1fr 250px;
 	height: 100vh;
 	overflow: hidden;
 	gap: 0 8px;
 	position: relative;
+}
+
+#scrollSyncIndicator {
+	position: absolute;
+	left: calc(50% - 10px);
+	z-index: 1000;
+	top: calc(50% - 10px);
+	width: 20px;
+	height: 20px;
+	pointer-events: none;
+	display: none;
 }
 
 #progress {
@@ -96,23 +107,13 @@ button.toggle[aria-pressed="true"] {
 	padding: 8px;
 }
 
-/* .line-break {
-	display: block;
-}
-.line-break::before {
-	content: " ";
-	display: block;
-	height: 1rem;
-} */
-
 .editor-wrapper {
 	width: 100%;
 	height: 100%;
 	overflow-x: hidden;
 	position: relative;
 	outline: 1px solid #ccc;
-	outline-offset: -2px;
-	border-radius: 4px;
+	outline-offset: 0px;
 }
 
 .mirror,
@@ -123,11 +124,10 @@ button.toggle[aria-pressed="true"] {
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	font-family: monospace;
-	font-size: 1rem;
+	font-family: "돋움체", monospace;
+	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
-	/* height: 100%; */
 	white-space: pre-wrap;
 	word-break: break-all;
 	overflow-wrap: anywhere;
@@ -135,6 +135,7 @@ button.toggle[aria-pressed="true"] {
 	width: 100%;
 	outline: none;
 	padding: var(--editor-padding);
+	/* scroll-margin: var(--scroll-margin); */
 }
 
 .mirror div,
@@ -144,11 +145,15 @@ button.toggle[aria-pressed="true"] {
 
 .editor {
 	z-index: 2;
+	color: #333;
 }
 
+.editor-wrapper:focus-within .editor {
+	color: #000;
+}
 
 .mirror {
-	background-color:hsl(0  0% 80% / 0.3);
+	background-color: hsl(0 0% 80% / 0.3);
 	z-index: -1;
 	position: absolute;
 	top: 0;
@@ -159,10 +164,9 @@ button.toggle[aria-pressed="true"] {
 	background-color: #f8f8f8; */
 }
 
-.editor-wrapper:focus-within .mirror {
+.edit .editor-wrapper:focus-within .mirror {
 	background: transparent;
 }
-
 
 .aligned .editor {
 	display: none;
@@ -178,43 +182,21 @@ button.toggle[aria-pressed="true"] {
 	/* cursor: default; */
 }
 
+.edit .mirror {
+	height: unset !important;
+}
+
 .mirror div {
 	line-height: var(--line-height);
 	min-height: var(--line-height);
 }
 
-.aligned [data-pad-top]::before {
-	content: "";
-	display: block;
-	height: var(--pad-top);
-	background: #efefef
-		repeating-linear-gradient(
-			135deg,
-			rgba(200, 200, 200, 0.15) 0px,
-			rgba(200, 200, 200, 0.15) 3px,
-			rgba(255, 255, 255, 0.05) 3px,
-			rgba(255, 255, 255, 0.05) 6px
-		);
-}
-
-.aligned [data-pad-diff]::after {
-	content: "";
-	display: block;
-	height: var(--pad-diff);
-	background-color: #f7d4d4;
-}
-
 mark {
 	line-height: var(--line-height);
 	background-color: hsl(var(--diff-hue) 100% 80%);
-
-	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), -1px 1px hsl(var(--diff-hue) 100% 40%); */
-	/* outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	outline-offset: 0px 3px; */
 	color: inherit;
 }
 mark:not(:empty) {
-	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
 	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
 	outline-offset: 0px;
 }
@@ -390,6 +372,15 @@ scrolling
 	margin-bottom: 6px;
 }
 
+.identical #diffList:empty::after {
+	content: "👬";
+	font-size: 128px;
+	font-weight: bold;
+	font-family: 'Consolas', Courier, monospace;
+	text-align: center;
+	display: block;
+}
+
 #diffList mark {
 	position: relative;
 	display: block;
@@ -415,6 +406,10 @@ scrolling
 	font-weight: bold;
 }
 
+#diffList span:empty::after {
+	content: "💭";
+}
+
 #diffList .left::before,
 #diffList .right::before {
 	display: inline-block;
@@ -438,7 +433,6 @@ scrolling
 #diffList .right-visible .right::before {
 	opacity: 1;
 }
-
 
 #diffList .right::before {
 	content: "R" !important;

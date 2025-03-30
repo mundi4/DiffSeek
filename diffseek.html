@@ -646,7 +646,7 @@ function createEditor(container, name, callbacks) {
 		return nearestAnchor;
 	}
 
-	function getFirstVisibleLineElementInEditor() {
+	function getFirstVisibleLineElement() {
 		const lineEls = _lineElements;
 		// 이진 검색으로 현재 화면에 보이는 줄 엘러먼트 중 첫번째 찾기
 		// 모든 픽셀이 화면에 다 보이는 경우만! 윗부분 1px만 짤려도 가차 없다.
@@ -1044,7 +1044,7 @@ function createEditor(container, name, callbacks) {
 		untrackVisibleAnchors: untrackIntersections,
 		getFirstVisibleAnchor,
 		scrollToLine,
-		getFirstVisibleLineElementInEditor,
+		getFirstVisibleLineElement,
 		getNearestAnchorToCaret,
 		get text() {
 			return _text;
@@ -2905,7 +2905,7 @@ const DiffSeek = (function () {
 			}
 
 			if (currentEditor) {
-				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElementInEditor();
+				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
 			}
 
 			_alignedMode = true;
@@ -3118,8 +3118,8 @@ const DiffSeek = (function () {
 
 	function disableAlignedMode(retainSelection = true) {
 		const selectionRange = getSelectionRange();
-		const [leftFirstLine, leftFirstLineDistance] = leftEditor.getFirstVisibleLineElementInEditor();
-		const [rightFirstLine, rightFirstLineDistance] = rightEditor.getFirstVisibleLineElementInEditor();
+		const [leftFirstLine, leftFirstLineDistance] = leftEditor.getFirstVisibleLineElement();
+		const [rightFirstLine, rightFirstLineDistance] = rightEditor.getFirstVisibleLineElement();
 
 		if (_lastFocusedEditor) {
 			_lastFocusedEditor.saveCaret();

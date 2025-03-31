@@ -2705,10 +2705,19 @@ const DiffSeek = (function () {
 			}
 		}
 
-		const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
-		leftEditor.mirror.style.height = `${height}px`;
-		rightEditor.mirror.style.height = `${height}px`;
 		_alignedDirty = false;
+		requestAnimationFrame(() => {
+			const height = leftEditor.wrapper.scrollHeight;//Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+			// console.log("height", {
+			// 	left: leftEditor.mirror.offsetHeight,
+			// 	right: rightEditor.mirror.offsetHeight,
+			// 	height: height,
+			// 	leftScrollHeight: leftEditor.wrapper.scrollHeight,
+			// 	rightScrollHeight: rightEditor.wrapper.scrollHeight,
+			// });
+			leftEditor.mirror.style.height = `${height}px`;
+			rightEditor.mirror.style.height = `${height}px`;
+		});
 	}
 
 	function alignAnchor(leftAnchor, rightAnchor, type) {

@@ -534,6 +534,9 @@ async function computeDiff({
 	ctx,
 }) {
 	//console.log("computeDiff", { leftText, rightText, leftInputPos, leftInputEnd, rightInputPos, rightInputEnd, method, greedyMatch, useFallback });
+
+	// 앵커라는 이름도 구현 방식도 사실 좀 마음에 안들지만
+	// 양쪽 텍스트에서 공통 부분(diff가 아닌 부분)을 서로 대응시킬 만한 딱히 좋은 수가 없음
 	const diffs = [],
 		anchors = [];
 
@@ -574,6 +577,9 @@ async function computeDiff({
 	const leftTokensLength = leftTokens.length;
 	const rightTokensLength = rightTokens.length;
 
+	// 앵커 추가는 나중에 한번에 처리하고 싶은데
+	// common sequence인 경우 대응하는 반대쪽 토큰에 대한 정보가 필요하므로 쉽지 않음.
+	// 결국 서로 대응하는 토큰 쌍을 저장해놔야하는데 그러면 앵커를 나중에 추가하는게 무슨 의미?
 	function addAnchor(type, leftPos, rightPos, diffIndex = null) {
 		if (leftPos === undefined || rightPos === undefined) {
 			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
@@ -594,7 +600,6 @@ async function computeDiff({
 
 	if (leftTokensLength === 0 && rightTokensLength === 0) {
 		// 딱히 할 수 있는게 없다.
-		// 앵커도 없다.
 	} else if (leftTokensLength === 0) {
 		diffs.push({
 			left: {
@@ -890,7 +895,7 @@ async function computeDiff({
 							}
 						} else if (shortSideIndex > 0) {
 							// 현재 pos는 이전 토큰의 끝이므로 그 이후 첫번째 줄바꿈 위치를 찾아서 +1한 자리로.
-							// 줄바꿈은 무조건 있다. 내가 텍스트를 그렇게 만들거니까.
+							// 마지막 토큰 이후에도 줄바꿈은 무조건 하나 이상 있다. 내가 텍스트를 강제로 그렇게 만들거니까.
 							while (shortSideText[shortSidePos++] !== "\n") {}
 						} else {
 							// 이전 토큰은 없지만 이게 텍스트의 시작은 아닐 수도 있다. - 텍스트 중간 부분에서 diff를 구하는 경우.
@@ -994,9 +999,11 @@ async function computeDiff({
 					rightEmpty = false;
 				}
 			} else {
-				throw new Error("WTF? both leftCount and rightCount are 0");
+				throw new Error("WTF just happened?");
 			}
 
+			// 빈 diff일 경우에도 하나 이상의 공백(줄바꿈) 위치를 차지할 수 있게 하려고 empty 속성을 추가했는데
+			// 쓰지도 않는다. 그리고 적절한 공백을 할당시켜 주는 코드가 정말 지랄같음.
 			diffs.push({
 				left: {
 					pos: leftPos,

@@ -302,10 +302,9 @@ const DiffSeek = (function () {
 			}
 		}
 
-		// console.log("wrapper height:", leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
-		// const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
-		// leftEditor.mirror.style.height = `${height}px`;
-		// rightEditor.mirror.style.height = `${height}px`;
+		const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+		leftEditor.mirror.style.height = `${height}px`;
+		rightEditor.mirror.style.height = `${height}px`;
 		_alignedDirty = false;
 	}
 

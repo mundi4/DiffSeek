@@ -15,7 +15,7 @@ foreach ($line in $content -split "`n") {
         # 외부 스크립트 파일 읽어서 <script> 태그 안에 내용 삽입
         if (Test-Path $src) {
             $scriptContent = Get-Content $src -Raw
-            $scriptTag = "<script id='$src'>$scriptContent</script>"
+            $scriptTag = "<script id='$src'>`n$scriptContent`n</script>"
             $newContent += $scriptTag + "`n"
         } else {
             Write-Host "Warning: $src not found"
@@ -29,7 +29,7 @@ foreach ($line in $content -split "`n") {
         # 외부 CSS 파일 읽어서 <style> 태그로 변환
         if (Test-Path $href) {
             $styleContent = Get-Content $href -Raw
-            $styleTag = "<style>$styleContent</style>"
+            $styleTag = "<style>`n$styleContent`n</style>"
             $newContent += $styleTag + "`n"
         } else {
             Write-Host "Warning: $href not found"

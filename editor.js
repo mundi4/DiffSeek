@@ -179,12 +179,15 @@ function createEditor(container, name, callbacks) {
 		}
 	}
 
-	// generator 함수로 만들고 requestIdleCallback으로 점증적으로 업데이트...?
-	// 그게 절실할 만큼 큰 업무매뉴얼은 별로 없다 ㅋ
+	// generator 함수로 만들고 requestIdleCallback으로 점증적으로 업데이트 할까?
+	// => 그리 무겁고 오래 걸리는 작업이 아니다.
+	// 양쪽에 3000줄, 대략 diff가 20개정도 있는 상황에서 20ms 정도. 회사똥컴에서는 더 오래 걸리겠지만
+	// 그렇게 큰 문서는 드물고 requestIdleCallback 자체의 오버헤드도 생각해야되니 일단 보류.
 	function update({ diffs, anchors }) {
 		if (!diffs) {
 			return;
 		}
+		// const startTime = performance.now();
 		// console.debug("update");
 
 		_lineElements.length = 0;
@@ -230,7 +233,7 @@ function createEditor(container, name, callbacks) {
 
 		function appendChars(chars) {
 			if (currentDiffIndex !== null) {
-				const diff = diffs[currentDiffIndex];
+				//const diff = diffs[currentDiffIndex];
 				if (inlineNode === null || inlineNode.nodeName !== DIFF_ELEMENT_NAME) {
 					const el = document.createElement(DIFF_ELEMENT_NAME);
 					el.textContent = chars;
@@ -334,15 +337,12 @@ function createEditor(container, name, callbacks) {
 			}
 		}
 
-		requestAnimationFrame(() => {
-			// const height = view.scrollHeight;
-			// editor.style.minHeight = height + "px";
-			// mirror.style.minHeight = height + "px";
-			// wrapper.style.minHeight = height + "px";
-		});
-		// console.debug("update done");
 		trackIntersections();
 		onMirrorUpdated();
+
+		// const endTime = performance.now();
+		// const elapsedTime = endTime - startTime;
+		// console.debug(`update took ${elapsedTime} ms`);
 	}
 
 	function trackIntersections() {

@@ -711,6 +711,7 @@ async function computeDiff({
 						useFallback: useFallback,
 						ctx,
 					});
+
 					for (const anchor of result.anchors) {
 						if (anchor.diffIndex !== null) {
 							anchor.diffIndex += diffs.length;
@@ -730,7 +731,8 @@ async function computeDiff({
 					// 문제: [diff0] abc [diff1] vs [diff0] a bc [diff1] 같은 경우 "abc" vs "a bc"도 diff로 처리됨.
 					// > diff0에서부터 diff1 범위까지를 몽땅 diff 범위로 묶어버렸기 때문에 abc vs a bc를 별개로 비교하지 못함.
 					// > 그렇다고 토큰 하나씩 따로따로 처리를 하면 시작부분부터 "ab cd" vs "abcd" 같은걸 처리하지 못함(ab vs abcd 비교를 하게되기 때문에)
-					// 그래도 diff를 diff가 아닌 걸로 표시하는 게 아니라라 diff가 아닌 걸 diff로 표시하는 거니까 큰 문제가 되지는 않을 것...
+					// > 생각보다 안풀림..
+					// > 글자단위 diff 결과를 토대로 diff 위치에 대한 단어단위 token을 찾아서 단어단위 diff를 만들면 될 것 같기도 한데... 일단 보류
 					const result = await computeDiff({
 						leftText,
 						rightText,
@@ -747,8 +749,9 @@ async function computeDiff({
 						continue;
 					}
 
-					// 글자단위로 표시하면 오히려 눈깔 빠진다.
 					// 공백무시 글자단위로 비교에서도 두 문자열이 같지 않다는 것은 알았으니 기존 토큰을 기준으로 diff를 만든다.
+					// 글자단위로 표시하면 오히려 눈깔 빠지니까 글자단위diff결과는 버림
+					// 상당히 비효율적이지만... 일단 보류 ㅋ
 				}
 			}
 

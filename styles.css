@@ -214,7 +214,7 @@ mark:empty::after {
 	position: absolute;
 	content: "";
 	top: 0px;
-	right: 0px;
+	left: 0px;
 	height: var(--line-height);
 	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
 	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
@@ -335,18 +335,6 @@ scrolling
 	overflow-y: scroll;
 }
 
-.aligned #main {
-	/* overflow-y: scroll; */
-}
-
-.aligned .editor-wrapper {
-	/* overflow: visible;
-	padding-right: 7px; */
-}
-
-.aligned .editor-wrapper:last-child {
-	/* margin-left: 8px; */
-}
 
 @keyframes highlightAnimation {
 	0% {

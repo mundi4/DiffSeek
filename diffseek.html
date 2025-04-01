@@ -5,463 +5,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>DiffSeek</title>
-<style>
-:root {
-	--diff-hue-removed: 0;
-	--diff-hue-added: 120;
-	--diff-hue: 0;
-	font-size: 16px;
-}
-
-* {
-	margin: 0;
-	padding: 0;
-	box-sizing: border-box;
-}
-
-body,
-html {
-	height: 100vh;
-	width: 100vw;
-	overflow: hidden;
-	scroll-padding-top: 1rem;
-	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
-}
-
-#topbar {
-	grid-column: span 2;
-	display: flex;
-	align-items: center;
-	padding: 5px 10px;
-	background: #444;
-	color: white;
-	align-items: center;
-	justify-content: space-between;
-}
-
-.buttons {
-	display: flex;
-	gap: 10px;
-	margin-left: auto;
-}
-
-button.toggle {
-	background: none;
-	border: 2px solid transparent;
-	cursor: pointer;
-	padding: 2px 4px;
-	transition: all 0.2s ease-in-out;
-	opacity: 0.3;
-	font-size: 14px;
-	outline: none;
-}
-
-button.toggle[aria-pressed="true"] {
-	opacity: 1;
-	transform: scale(1.2);
-}
-
-.container {
-	display: grid;
-	/* grid-template-rows: var(--topbar-height) 1fr; */
-	grid-template-columns: 1fr 250px;
-	height: 100vh;
-	overflow: hidden;
-	gap: 0 8px;
-	position: relative;
-}
-
-#scrollSyncIndicator {
-	position: absolute;
-	left: calc(50% - 10px);
-	z-index: 1000;
-	top: calc(50% - 10px);
-	width: 20px;
-	height: 20px;
-	pointer-events: none;
-	display: none;
-}
-
-#progress {
-	display: none;
-	position: fixed;
-	bottom: 20px;
-	right: 20px;
-	background-color: rgba(0, 0, 0, 0.7);
-	color: white;
-	padding: 10px 20px;
-	border-radius: 5px;
-	font-size: 14px;
-	z-index: 1000;
-}
-
-.computing #progress {
-	display: block;
-}
-
-#main {
-	height: 100%;
-	display: grid;
-	grid-template-columns: 1fr 1fr;
-	gap: 0rem;
-	padding: 0;
-	overflow-x: hidden;
-	position: relative;
-}
-
-#sidebar {
-	overflow-y: auto;
-	background: #eee;
-	padding: 8px;
-}
-
-.editor-wrapper {
-	width: 100%;
-	height: 100%;
-	overflow-x: hidden;
-	position: relative;
-	outline: 1px solid #ccc;
-	outline-offset: 0px;
-}
-
-.mirror,
-.editor {
-	border: 0;
-	min-height: 100%;
-	max-width: 100%;
-	overflow-y: visible;
-	line-height: var(--line-height);
-	scroll-padding-top: var(--scroll-margin);
-	font-family: "돋움체", monospace;
-	font-size: 14px;
-	margin: 0;
-	overflow-y: visible;
-	white-space: pre-wrap;
-	word-break: break-all;
-	overflow-wrap: anywhere;
-	max-width: 100%;
-	width: 100%;
-	outline: none;
-	padding: var(--editor-padding);
-	/* scroll-margin: var(--scroll-margin); */
-}
-
-.mirror div,
-.editor div {
-	min-height: var(--line-height);
-}
-
-.editor {
-	z-index: 2;
-	color: #333;
-}
-
-.editor-wrapper:focus-within .editor {
-	color: #000;
-}
-
-.mirror {
-	background-color: hsl(0 0% 80% / 0.3);
-	z-index: -1;
-	position: absolute;
-	top: 0;
-	left: 0;
-	pointer-events: none;
-	color: rgba(0, 0, 0, 0.1);
-	/* color: rgba(0, 0, 0, 0.1);
-	background-color: #f8f8f8; */
-}
-
-.edit .editor-wrapper:focus-within .mirror {
-	background: transparent;
-}
-
-.aligned .editor {
-	display: none;
-}
-
-.aligned .mirror {
-	pointer-events: auto;
-	position: static;
-	color: inherit;
-	background-color: transparent;
-	cursor: text;
-	caret-color: white; /* 커서 유지 */
-	/* cursor: default; */
-}
-
-.edit .mirror {
-	height: unset !important;
-}
-
-.mirror div {
-	line-height: var(--line-height);
-	min-height: var(--line-height);
-}
-
-mark {
-	line-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-	color: inherit;
-}
-mark:not(:empty) {
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-}
-
-mark:empty {
-	position: relative;
-	outline: none;
-	background-color: unset;
-	vertical-align: top;
-	min-height: 20px;
-	display: inline-block; /* inline-block으로 안해두면 높이 1px이 모자르게 된다. 묻지마... */
-}
-
-mark:empty::after {
-	position: absolute;
-	content: "";
-	top: 0px;
-	right: 0px;
-	height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
-	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
-	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-	width: 3px;
-	display: inline-block;
-}
-
-.aligned mark {
-	color: #000;
-}
-/* .diff:empty {
-	position: relative;
-	min-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-} */
-
-/* mark:empty::after {
-	position: absolute;
-	content: "";
-	min-height: var(--line-height);
-	top: 0;
-	left: 0;
-	width: 2px;
-	display: inline-block;
-	background-color: hsl(var(--diff-hue), 100%, 80%);
-	outline: 1px solid hsl(var(--diff-hue), 100%, 40%);
-} */
-
-/* non empty diff */
-
-/*
-empty diff
-공간을 전혀 차지하지 않으면서도 visual이 있어야함
-*/
-/* .diff:empty {
-	display: inline-block;
-	position: relative;
-	vertical-align: bottom;
-} */
-
-/* .diff:empty::after {
-	content: "";
-	display: inline-block;
-	background-color: hsl(var(--diff-hue) 100% 80%);
-	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	position: absolute;
-	top: 0;
-	width: 2px;
-	height: var(--line-height);
-} */
-
-/* .mirror > div:has(mark:not(.block)),
-hr[data-type="diffEnd"] {
-	background-color: hsl(0 75% 95%);
-} */
-
-/*
-줄맞춤 용 marker element
-*/
-
-hr {
-	border: 0;
-	height: 0;
-	display: inline;
-	pointer-events: none;
-}
-
-.aligned hr.expanded {
-	display: block;
-}
-
-.aligned hr {
-	background: black
-		repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
-}
-
-.aligned hr[data-type="after"] {
-	background: hsl(0 75% 25% / 0.25)
-		repeating-linear-gradient(135deg, hsl(0 100% 88% / 0.15) 0px, hsl(0 100% 88% / 0.15) 4px, hsl(0 100% 100% / 0.05) 4px, hsl(0 100% 100% / 0.05) 8px);
-}
-
-.aligned .mirror {
-	color: #fff;
-	background-color: #000;
-}
-
-.aligned .mirror > div:has(mark) {
-	background-color: hsl(0 75% 25% / 0.75);
-}
-
-/*
-줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
-diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
-당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
-고민해 볼 필요가 왕왕 있다.
-*/
-.aligned hr[data-type="after"] + span {
-	display: block;
-	background: black;
-}
-
-.edit .mirror > div:has(mark) {
-	background-color: hsl(0 100% 90%);
-}
-
-/*
-scrolling
-*/
-#main {
-	overflow: hidden;
-	overflow-y: hidden;
-}
-
-.editor-wrapper {
-	overflow-y: scroll;
-}
-
-.aligned #main {
-	/* overflow-y: scroll; */
-}
-
-.aligned .editor-wrapper {
-	/* overflow: visible;
-	padding-right: 7px; */
-}
-
-.aligned .editor-wrapper:last-child {
-	/* margin-left: 8px; */
-}
-
-@keyframes highlightAnimation {
-	0% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
-	50% {
-		background-color: white;
-	}
-	100% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
-}
-
-#diffList {
-	list-style-type: none;
-}
-
-.computing #diffList {
-	opacity: 0.5;
-}
-
-#diffList li:not(:last-child) {
-	margin-bottom: 6px;
-}
-
-.identical #diffList:empty::after {
-	content: "👬";
-	font-size: 128px;
-	font-weight: bold;
-	font-family: 'Consolas', Courier, monospace;
-	text-align: center;
-	display: block;
-}
-
-#diffList mark {
-	position: relative;
-	display: block;
-	color: hsl(var(--diff-hue) 100% 20%);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	border-radius: 4px;
-	padding: 4px;
-	display: flex;
-	flex-direction: column;
-}
-
-#diffList span {
-	pointer-events: none;
-	font-size: 12px;
-	margin-bottom: 1px;
-	white-space: nowrap;
-	overflow: hidden;
-	text-overflow: ellipsis;
-	padding: 4px 2px;
-	text-decoration: none;
-	padding-inline: 4px;
-	font-weight: bold;
-}
-
-#diffList span:empty::after {
-	content: "💭";
-}
-
-#diffList .left::before,
-#diffList .right::before {
-	display: inline-block;
-	justify-content: center;
-	padding-inline: 3px;
-	align-items: center;
-	border-radius: 25%;
-	background-color: hsl(var(--diff-hue) 100% 40%);
-	border: 1px solid hsl(var(--diff-hue) 100% 20%);
-	color: white;
-	font-weight: bold;
-
-	font-family: "Consolas", "Courier New", monospace;
-	content: "L";
-	margin-right: 4px;
-	opacity: 0.2;
-	/* content: "◀️"; */
-}
-
-#diffList .left-visible .left::before,
-#diffList .right-visible .right::before {
-	opacity: 1;
-}
-
-#diffList .right::before {
-	content: "R" !important;
-	/* content: "▶️" !important; */
-}
-
-.edit hr {
-	height: 0 !important;
-}
-
-/* 의미없다
-.aligned .mirror > div:hover {
-	background-color: hsl(0 30% 30% / 0.3);
-	
-} */
-
-#rightAnchor12-after {
-	display: inline;
-}
-
-</style>
 <script id='constants.js'>
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
@@ -544,6 +87,14 @@ const PROCESSING_MESSAGES = [
 <script id='textrun.js'>
 "use strict";
 
+// 개정대비표에서 복붙 했을때 빨간색 텍스트를 그대로 보여줄 방법이 있을까?
+// 텍스트 색과 diff 범위는 완전히 별개라서 서로 완전히 겹칠 수도 있고 안겹칠 수도 있고 일부분만 겹칠 수도 있다
+// 일부분만 겹칠 경우가 까다로워지는 부분인데 textrun은 만들더라도 update때에도 일일히 속성 별로 다른 요소를 써서 DOM을 만들어야한다.
+// 또.. 색상데이터를 어떻게 관리할 것인가?
+// 텍스트의 어느 위치 어느 범위에 색이 들어가있는지 뭐 그런 data가 필요하다. 붙여넣기 때 그런 데이터를 추출하는건 어렵지 않지만(??)
+// 이후에 텍스트가 변경되면 그에 따라 범위의 pos,len값도 조정되어야하니 결국 원본 텍스트 자체에 색상정보가 포함되어야 한다.
+// 그럼 원본텍스트를 html로 저장하고 변경될 때마다 매번 parsing? 미쳤다.
+// 원본 텍스트에 marker문자(zero-width space 등)를 넣고 그걸로 빨간색 범위 파악? nope!
 function getTextRuns(textKey, text, diffs, anchors) {
 	let pos = 0;
 	let textLen = text.length;
@@ -2043,6 +1594,7 @@ async function computeDiff({
 						useFallback: useFallback,
 						ctx,
 					});
+
 					for (const anchor of result.anchors) {
 						if (anchor.diffIndex !== null) {
 							anchor.diffIndex += diffs.length;
@@ -2062,7 +1614,8 @@ async function computeDiff({
 					// 문제: [diff0] abc [diff1] vs [diff0] a bc [diff1] 같은 경우 "abc" vs "a bc"도 diff로 처리됨.
 					// > diff0에서부터 diff1 범위까지를 몽땅 diff 범위로 묶어버렸기 때문에 abc vs a bc를 별개로 비교하지 못함.
 					// > 그렇다고 토큰 하나씩 따로따로 처리를 하면 시작부분부터 "ab cd" vs "abcd" 같은걸 처리하지 못함(ab vs abcd 비교를 하게되기 때문에)
-					// 그래도 diff를 diff가 아닌 걸로 표시하는 게 아니라라 diff가 아닌 걸 diff로 표시하는 거니까 큰 문제가 되지는 않을 것...
+					// > 생각보다 안풀림..
+					// > 글자단위 diff 결과를 토대로 diff 위치에 대한 단어단위 token을 찾아서 단어단위 diff를 만들면 될 것 같기도 한데... 일단 보류
 					const result = await computeDiff({
 						leftText,
 						rightText,
@@ -2079,8 +1632,9 @@ async function computeDiff({
 						continue;
 					}
 
-					// 글자단위로 표시하면 오히려 눈깔 빠진다.
 					// 공백무시 글자단위로 비교에서도 두 문자열이 같지 않다는 것은 알았으니 기존 토큰을 기준으로 diff를 만든다.
+					// 글자단위로 표시하면 오히려 눈깔 빠지니까 글자단위diff결과는 버림
+					// 상당히 비효율적이지만... 일단 보류 ㅋ
 				}
 			}
 
@@ -2358,6 +1912,451 @@ async function computeDiff({
 </script>
     <style id="highlightStyle">
     </style>
+<style>
+:root {
+	--diff-hue-removed: 0;
+	--diff-hue-added: 120;
+	--diff-hue: 0;
+	font-size: 16px;
+}
+
+* {
+	margin: 0;
+	padding: 0;
+	box-sizing: border-box;
+}
+
+body,
+html {
+	height: 100vh;
+	width: 100vw;
+	overflow: hidden;
+	scroll-padding-top: 1rem;
+	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+}
+
+#topbar {
+	grid-column: span 2;
+	display: flex;
+	align-items: center;
+	padding: 5px 10px;
+	background: #444;
+	color: white;
+	align-items: center;
+	justify-content: space-between;
+}
+
+.buttons {
+	display: flex;
+	gap: 10px;
+	margin-left: auto;
+}
+
+button.toggle {
+	background: none;
+	border: 2px solid transparent;
+	cursor: pointer;
+	padding: 2px 4px;
+	transition: all 0.2s ease-in-out;
+	opacity: 0.3;
+	font-size: 14px;
+	outline: none;
+}
+
+button.toggle[aria-pressed="true"] {
+	opacity: 1;
+	transform: scale(1.2);
+}
+
+.container {
+	display: grid;
+	/* grid-template-rows: var(--topbar-height) 1fr; */
+	grid-template-columns: 1fr 250px;
+	height: 100vh;
+	overflow: hidden;
+	gap: 0 8px;
+	position: relative;
+}
+
+#scrollSyncIndicator {
+	position: absolute;
+	left: calc(50% - 10px);
+	z-index: 1000;
+	top: calc(50% - 10px);
+	width: 20px;
+	height: 20px;
+	pointer-events: none;
+	display: none;
+}
+
+#progress {
+	display: none;
+	position: fixed;
+	bottom: 20px;
+	right: 20px;
+	background-color: rgba(0, 0, 0, 0.7);
+	color: white;
+	padding: 10px 20px;
+	border-radius: 5px;
+	font-size: 14px;
+	z-index: 1000;
+}
+
+.computing #progress {
+	display: block;
+}
+
+#main {
+	height: 100%;
+	display: grid;
+	grid-template-columns: 1fr 1fr;
+	gap: 0rem;
+	padding: 0;
+	overflow-x: hidden;
+	position: relative;
+}
+
+#sidebar {
+	overflow-y: auto;
+	background: #eee;
+	padding: 8px;
+}
+
+.editor-wrapper {
+	width: 100%;
+	height: 100%;
+	overflow-x: hidden;
+	position: relative;
+	outline: 1px solid #ccc;
+	outline-offset: 0px;
+}
+
+.mirror,
+.editor {
+	border: 0;
+	min-height: 100%;
+	max-width: 100%;
+	overflow-y: visible;
+	line-height: var(--line-height);
+	scroll-padding-top: var(--scroll-margin);
+	font-family: "돋움체", monospace;
+	font-size: 14px;
+	margin: 0;
+	overflow-y: visible;
+	white-space: pre-wrap;
+	word-break: break-all;
+	overflow-wrap: anywhere;
+	max-width: 100%;
+	width: 100%;
+	outline: none;
+	padding: var(--editor-padding);
+	/* scroll-margin: var(--scroll-margin); */
+}
+
+.mirror div,
+.editor div {
+	min-height: var(--line-height);
+}
+
+.editor {
+	z-index: 2;
+	color: #333;
+}
+
+.editor-wrapper:focus-within .editor {
+	color: #000;
+}
+
+.mirror {
+	background-color: hsl(0 0% 80% / 0.3);
+	z-index: -1;
+	position: absolute;
+	top: 0;
+	left: 0;
+	pointer-events: none;
+	color: rgba(0, 0, 0, 0.1);
+	/* color: rgba(0, 0, 0, 0.1);
+	background-color: #f8f8f8; */
+}
+
+.edit .editor-wrapper:focus-within .mirror {
+	background: transparent;
+}
+
+.aligned .editor {
+	display: none;
+}
+
+.aligned .mirror {
+	pointer-events: auto;
+	position: static;
+	color: inherit;
+	background-color: transparent;
+	cursor: text;
+	caret-color: white; /* 커서 유지 */
+	/* cursor: default; */
+}
+
+.edit .mirror {
+	height: unset !important;
+}
+
+.mirror div {
+	line-height: var(--line-height);
+	min-height: var(--line-height);
+}
+
+mark {
+	line-height: var(--line-height);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+	color: inherit;
+}
+mark:not(:empty) {
+	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
+	outline-offset: 0px;
+}
+
+mark:empty {
+	position: relative;
+	outline: none;
+	background-color: unset;
+	vertical-align: top;
+	min-height: 20px;
+	display: inline-block; /* inline-block으로 안해두면 높이 1px이 모자르게 된다. 묻지마... */
+}
+
+mark:empty::after {
+	position: absolute;
+	content: "";
+	top: 0px;
+	left: 0px;
+	height: var(--line-height);
+	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
+	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
+	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
+	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
+	outline-offset: 0px;
+	width: 3px;
+	display: inline-block;
+}
+
+.aligned mark {
+	color: #000;
+}
+/* .diff:empty {
+	position: relative;
+	min-height: var(--line-height);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+} */
+
+/* mark:empty::after {
+	position: absolute;
+	content: "";
+	min-height: var(--line-height);
+	top: 0;
+	left: 0;
+	width: 2px;
+	display: inline-block;
+	background-color: hsl(var(--diff-hue), 100%, 80%);
+	outline: 1px solid hsl(var(--diff-hue), 100%, 40%);
+} */
+
+/* non empty diff */
+
+/*
+empty diff
+공간을 전혀 차지하지 않으면서도 visual이 있어야함
+*/
+/* .diff:empty {
+	display: inline-block;
+	position: relative;
+	vertical-align: bottom;
+} */
+
+/* .diff:empty::after {
+	content: "";
+	display: inline-block;
+	background-color: hsl(var(--diff-hue) 100% 80%);
+	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
+	position: absolute;
+	top: 0;
+	width: 2px;
+	height: var(--line-height);
+} */
+
+/* .mirror > div:has(mark:not(.block)),
+hr[data-type="diffEnd"] {
+	background-color: hsl(0 75% 95%);
+} */
+
+/*
+줄맞춤 용 marker element
+*/
+
+hr {
+	border: 0;
+	height: 0;
+	display: inline;
+	pointer-events: none;
+}
+
+.aligned hr.expanded {
+	display: block;
+}
+
+.aligned hr {
+	background: black
+		repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
+}
+
+.aligned hr[data-type="after"] {
+	background: hsl(0 75% 25% / 0.25)
+		repeating-linear-gradient(135deg, hsl(0 100% 88% / 0.15) 0px, hsl(0 100% 88% / 0.15) 4px, hsl(0 100% 100% / 0.05) 4px, hsl(0 100% 100% / 0.05) 8px);
+}
+
+.aligned .mirror {
+	color: #fff;
+	background-color: #000;
+}
+
+.aligned .mirror > div:has(mark) {
+	background-color: hsl(0 75% 25% / 0.75);
+}
+
+/*
+줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
+diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
+당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
+고민해 볼 필요가 왕왕 있다.
+*/
+.aligned hr[data-type="after"] + span {
+	display: block;
+	background: black;
+}
+
+.edit .mirror > div:has(mark) {
+	background-color: hsl(0 100% 90%);
+}
+
+/*
+scrolling
+*/
+#main {
+	overflow: hidden;
+	overflow-y: hidden;
+}
+
+.editor-wrapper {
+	overflow-y: scroll;
+}
+
+
+@keyframes highlightAnimation {
+	0% {
+		background-color: hsl(var(--diff-hue) 100% 80%);
+	}
+	50% {
+		background-color: white;
+	}
+	100% {
+		background-color: hsl(var(--diff-hue) 100% 80%);
+	}
+}
+
+#diffList {
+	list-style-type: none;
+}
+
+.computing #diffList {
+	opacity: 0.5;
+}
+
+#diffList li:not(:last-child) {
+	margin-bottom: 6px;
+}
+
+.identical #diffList:empty::after {
+	content: "👬";
+	font-size: 128px;
+	font-weight: bold;
+	font-family: 'Consolas', Courier, monospace;
+	text-align: center;
+	display: block;
+}
+
+#diffList mark {
+	position: relative;
+	display: block;
+	color: hsl(var(--diff-hue) 100% 20%);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
+	border-radius: 4px;
+	padding: 4px;
+	display: flex;
+	flex-direction: column;
+}
+
+#diffList span {
+	pointer-events: none;
+	font-size: 12px;
+	margin-bottom: 1px;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	padding: 4px 2px;
+	text-decoration: none;
+	padding-inline: 4px;
+	font-weight: bold;
+}
+
+#diffList span:empty::after {
+	content: "💭";
+}
+
+#diffList .left::before,
+#diffList .right::before {
+	display: inline-block;
+	justify-content: center;
+	padding-inline: 3px;
+	align-items: center;
+	border-radius: 25%;
+	background-color: hsl(var(--diff-hue) 100% 40%);
+	border: 1px solid hsl(var(--diff-hue) 100% 20%);
+	color: white;
+	font-weight: bold;
+
+	font-family: "Consolas", "Courier New", monospace;
+	content: "L";
+	margin-right: 4px;
+	opacity: 0.2;
+	/* content: "◀️"; */
+}
+
+#diffList .left-visible .left::before,
+#diffList .right-visible .right::before {
+	opacity: 1;
+}
+
+#diffList .right::before {
+	content: "R" !important;
+	/* content: "▶️" !important; */
+}
+
+.edit hr {
+	height: 0 !important;
+}
+
+/* 의미없다
+.aligned .mirror > div:hover {
+	background-color: hsl(0 30% 30% / 0.3);
+	
+} */
+
+#rightAnchor12-after {
+	display: inline;
+}
+
+</style>
 </head>
 
 <body>
@@ -2676,6 +2675,10 @@ const DiffSeek = (function () {
 		if (!_alignedDirty) {
 			return;
 		}
+
+		leftEditor.mirror.style.height = "auto";
+		rightEditor.mirror.style.height = "auto";
+
 		const anchors = _anchors;
 		if (!anchors) {
 			return;
@@ -2707,7 +2710,7 @@ const DiffSeek = (function () {
 
 		_alignedDirty = false;
 		requestAnimationFrame(() => {
-			const height = leftEditor.wrapper.scrollHeight;//Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+			const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
 			// console.log("height", {
 			// 	left: leftEditor.mirror.offsetHeight,
 			// 	right: rightEditor.mirror.offsetHeight,
@@ -2913,7 +2916,11 @@ animation: highlightAnimation 0.3s linear 3;
 
 	document.addEventListener("keydown", (e) => {
 		// 어느 단축키를 써야 잘썼다고 소문나냐?
-		if (e.key === "F2" || e.key === "Escape") {
+		if (
+			e.key === "F2"
+			|| (e.key === "Enter" && e.ctrlKey)
+			// || e.key === "Escape"
+		) {
 			e.preventDefault();
 
 			if (e.shiftKey) {
@@ -2929,10 +2936,28 @@ animation: highlightAnimation 0.3s linear 3;
 			return;
 		}
 
+		// 기본적으로 브라우저의 첫번째 탭, 두번째 탭을 선택하는 단축키이긴 한데...
+		// 아몰랑.
+		if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
+			// TODO focus가 양쪽을 왔다갔다 할때 caret cursor 위치가 초기화됨.
+			// 포커스를 잃을때 위치를 저장하고 포커스를 받은 뒤 딱히 위치를 정할 수 없을 때 저장된 위치 복구??
+			e.preventDefault();
+			if (_alignedMode) {
+				disableAlignedMode();
+			}
+			const editor = e.key === "1" ? leftEditor : rightEditor;
+			editor.editor.focus();
+			return;
+		}
+
 		// 주의 요망
-		// aligned 모드에서 후딱 단어 하나 삭제하고 싶을 때 단어 더블클릭하고 삭제
+		// aligned 모드에서 후딱 단어 하나를 삭제하거나 등등등 정말 단순한 수정을 바로 할 수 있게
 		if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
 			disableAlignedMode();
+			// 위험. 텍스트가 변경이 되고 mirror는 아직 업데이트 되지 않은 상태임.
+			// requestAnimationFrame(() => {
+			// 	enableAlignedMode();
+			// });
 			return;
 		}
 
@@ -2964,6 +2989,7 @@ animation: highlightAnimation 0.3s linear 3;
 	diffList.addEventListener("click", (e) => {
 		const diffIndex = Number(e.target.dataset.diff);
 		if (!isNaN(diffIndex)) {
+			_currentDiffIndex = diffIndex;
 			_preventScrollSync = true;
 			leftEditor.scrollToDiff(diffIndex);
 			rightEditor.scrollToDiff(diffIndex);
@@ -2982,7 +3008,7 @@ animation: highlightAnimation 0.3s linear 3;
 			_lastScrolledEditor = _currentlyScrollingEditor = editor;
 			if (_alignedMode) {
 				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
-				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 그렇게 하면 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
 				// 그래서 그냥 강제로 스크롤 동기화 시킴.
 				if (editor === leftEditor) {
 					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
@@ -3023,8 +3049,10 @@ animation: highlightAnimation 0.3s linear 3;
 
 		editor.editor.addEventListener("keydown", (e) => {
 			if (e.key === " " && e.ctrlKey) {
+				// 에디터에서 컨트롤-스페이스바로 현재 줄위치 동기화
 				syncScrollPosition(editor);
 			} else if (e.ctrlKey && e.key === "ArrowUp") {
+				// 이정도 스크롤은 기본적으로 되어되는거 아니야?
 				editor.wrapper.scrollTop -= LINE_HEIGHT * 2;
 				e.preventDefault();
 			} else if (e.ctrlKey && e.key === "ArrowDown") {
@@ -3041,22 +3069,38 @@ animation: highlightAnimation 0.3s linear 3;
 
 		editor.mirror.addEventListener("click", (e) => {
 			if (e.ctrlKey) {
+				_activeEditor = editor;
 				disableAlignedMode();
 			}
 		});
 
+		// 그냥 써도 괜찮을 것 같은데?
+		editor.mirror.addEventListener("paste", (e) => {
+			disableAlignedMode();
+		});
+
+		editor.mirror.addEventListener("cut", (e) => {
+			disableAlignedMode();
+		});
+
 		if (useEditableMirror) {
-			editor.mirror.addEventListener("paste", (e) => {
-				disableAlignedMode();
-			});
+			// editor.mirror.addEventListener("paste", (e) => {
+			// 	disableAlignedMode();
+			// });
+
+			// editor.mirror.addEventListener("paste", (e) => {
+			// 	disableAlignedMode();
+			// });
+	
+			// editor.mirror.addEventListener("cut", (e) => {
+			// 	disableAlignedMode();
+			// });
 
 			editor.mirror.addEventListener("drop", (e) => {
 				e.preventDefault();
 			});
 
-			editor.mirror.addEventListener("cut", (e) => {
-				disableAlignedMode();
-			});
+
 
 			// aligned mode에서도 텍스트 커서가 깜빡이면서 보였으면 좋겠고 단순한 편집은 모드 토글 없이 바로 수행할 수 있게?
 			// 수정을 시도하는 순간:

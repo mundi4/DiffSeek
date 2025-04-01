@@ -273,6 +273,10 @@ const DiffSeek = (function () {
 		if (!_alignedDirty) {
 			return;
 		}
+
+		leftEditor.mirror.style.height = "auto";
+		rightEditor.mirror.style.height = "auto";
+
 		const anchors = _anchors;
 		if (!anchors) {
 			return;
@@ -304,7 +308,7 @@ const DiffSeek = (function () {
 
 		_alignedDirty = false;
 		requestAnimationFrame(() => {
-			const height = leftEditor.wrapper.scrollHeight;//Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
+			const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
 			// console.log("height", {
 			// 	left: leftEditor.mirror.offsetHeight,
 			// 	right: rightEditor.mirror.offsetHeight,
@@ -510,7 +514,11 @@ animation: highlightAnimation 0.3s linear 3;
 
 	document.addEventListener("keydown", (e) => {
 		// 어느 단축키를 써야 잘썼다고 소문나냐?
-		if (e.key === "F2" || e.key === "Escape") {
+		if (
+			e.key === "F2"
+			|| (e.key === "Enter" && e.ctrlKey)
+			// || e.key === "Escape"
+		) {
 			e.preventDefault();
 
 			if (e.shiftKey) {
@@ -526,10 +534,28 @@ animation: highlightAnimation 0.3s linear 3;
 			return;
 		}
 
+		// 기본적으로 브라우저의 첫번째 탭, 두번째 탭을 선택하는 단축키이긴 한데...
+		// 아몰랑.
+		if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
+			// TODO focus가 양쪽을 왔다갔다 할때 caret cursor 위치가 초기화됨.
+			// 포커스를 잃을때 위치를 저장하고 포커스를 받은 뒤 딱히 위치를 정할 수 없을 때 저장된 위치 복구??
+			e.preventDefault();
+			if (_alignedMode) {
+				disableAlignedMode();
+			}
+			const editor = e.key === "1" ? leftEditor : rightEditor;
+			editor.editor.focus();
+			return;
+		}
+
 		// 주의 요망
-		// aligned 모드에서 후딱 단어 하나 삭제하고 싶을 때 단어 더블클릭하고 삭제
+		// aligned 모드에서 후딱 단어 하나를 삭제하거나 등등등 정말 단순한 수정을 바로 할 수 있게
 		if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
 			disableAlignedMode();
+			// 위험. 텍스트가 변경이 되고 mirror는 아직 업데이트 되지 않은 상태임.
+			// requestAnimationFrame(() => {
+			// 	enableAlignedMode();
+			// });
 			return;
 		}
 
@@ -561,6 +587,7 @@ animation: highlightAnimation 0.3s linear 3;
 	diffList.addEventListener("click", (e) => {
 		const diffIndex = Number(e.target.dataset.diff);
 		if (!isNaN(diffIndex)) {
+			_currentDiffIndex = diffIndex;
 			_preventScrollSync = true;
 			leftEditor.scrollToDiff(diffIndex);
 			rightEditor.scrollToDiff(diffIndex);
@@ -579,7 +606,7 @@ animation: highlightAnimation 0.3s linear 3;
 			_lastScrolledEditor = _currentlyScrollingEditor = editor;
 			if (_alignedMode) {
 				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
-				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 그렇게 하면 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
 				// 그래서 그냥 강제로 스크롤 동기화 시킴.
 				if (editor === leftEditor) {
 					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
@@ -620,8 +647,10 @@ animation: highlightAnimation 0.3s linear 3;
 
 		editor.editor.addEventListener("keydown", (e) => {
 			if (e.key === " " && e.ctrlKey) {
+				// 에디터에서 컨트롤-스페이스바로 현재 줄위치 동기화
 				syncScrollPosition(editor);
 			} else if (e.ctrlKey && e.key === "ArrowUp") {
+				// 이정도 스크롤은 기본적으로 되어되는거 아니야?
 				editor.wrapper.scrollTop -= LINE_HEIGHT * 2;
 				e.preventDefault();
 			} else if (e.ctrlKey && e.key === "ArrowDown") {
@@ -638,22 +667,38 @@ animation: highlightAnimation 0.3s linear 3;
 
 		editor.mirror.addEventListener("click", (e) => {
 			if (e.ctrlKey) {
+				_activeEditor = editor;
 				disableAlignedMode();
 			}
 		});
 
+		// 그냥 써도 괜찮을 것 같은데?
+		editor.mirror.addEventListener("paste", (e) => {
+			disableAlignedMode();
+		});
+
+		editor.mirror.addEventListener("cut", (e) => {
+			disableAlignedMode();
+		});
+
 		if (useEditableMirror) {
-			editor.mirror.addEventListener("paste", (e) => {
-				disableAlignedMode();
-			});
+			// editor.mirror.addEventListener("paste", (e) => {
+			// 	disableAlignedMode();
+			// });
+
+			// editor.mirror.addEventListener("paste", (e) => {
+			// 	disableAlignedMode();
+			// });
+	
+			// editor.mirror.addEventListener("cut", (e) => {
+			// 	disableAlignedMode();
+			// });
 
 			editor.mirror.addEventListener("drop", (e) => {
 				e.preventDefault();
 			});
 
-			editor.mirror.addEventListener("cut", (e) => {
-				disableAlignedMode();
-			});
+
 
 			// aligned mode에서도 텍스트 커서가 깜빡이면서 보였으면 좋겠고 단순한 편집은 모드 토글 없이 바로 수행할 수 있게?
 			// 수정을 시도하는 순간:

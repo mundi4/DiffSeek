@@ -2,33 +2,74 @@
 
 // 너무나도 센스 넘쳐버리는 이름
 const DiffSeek = (function () {
-	let _diffs = [];
-	let _anchors = [];
+	let _diffs: DiffEntry[] | null = [];
+	let _anchors: Anchor[] | null = [];
 	let _alignedMode = false;
 	let _alignedDirty = false;
-	let _activeEditor = null;
-	let _lastFocusedEditor = null;
-	let _lastScrolledEditor = null;
+	let _activeEditor: Editor | null = null;
+	let _lastFocusedEditor: Editor | null = null;
+	let _lastScrolledEditor: Editor | null = null;
+	let _mousedOverEditor: Editor | null = null;
+	let _currentlyScrollingEditor: Editor | null = null;
 	let _preventScrollSync = false;
-	let _mousedOverEditor = null;
 	let _currentDiffIndex = -1;
 	let _syncEditor = false;
-	let _currentlyScrollingEditor = null;
-	let _resetCurrentlyScrollingEditorId = null;
+	let _resetCurrentlyScrollingEditorId: number | null = null;
 
 	const _diffOptions = {
+		algorithm: "myers",
 		tokenization: 2,
 		greedyMatch: true,
 		useFallback: true,
 	};
 
 	const useEditableMirror = false;
-	const container = document.getElementById("main");
+	const container = document.getElementById("main") as HTMLElement;
 	const leftEditor = createEditor(container, "left", getEditorCallbacks("left"));
 	const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
 	leftEditor.wrapper.tabIndex = 100;
 	rightEditor.wrapper.tabIndex = 101;
-	const diffList = document.getElementById("diffList");
+
+	leftEditor.editor.innerHTML = `<div>@@@
+type TokenCacheEntry = {
+	text: string;
+	tokens: Token[];
+};
+
+const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+	[TOKENIZE_BY_CHAR]: [],
+	[TOKENIZE_BY_WORD]: [],
+	[TOKENIZE_BY_LINE]: [],
+};
+
+type TrieNode = {
+	next: (char: string | number) => TrieNode | null;
+	addChild: (char: string | number) => TrieNode;
+	word: string | null;
+	flags: number | null;
+};</div>`;
+
+	rightEditor.editor.innerHTML = `<div>@@@
+const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+	[TOKENIZE_BY_CHAR]: [],
+	[TOKENIZE_BY_WORD]: [],
+	[TOKENIZE3_BY_LINE]: [],
+};
+
+type TrieNode = {
+	next: (char: string | number) => TrieNode | null;
+	addChild: (char: string | number) => TrieNode;
+	word: string | null;
+	fl3ags: number | null;1
+};
+</div>`;
+// rightEditor.editor.innerHTML = `<div>111
+// </div>`;
+	const body = document.querySelector("body") as HTMLBodyElement;
+	const diffList = document.getElementById("diffList") as HTMLUListElement;
+	const highlightStyle = document.getElementById("highlightStyle") as HTMLStyleElement;
+	const progress = document.getElementById("progress") as HTMLElement;
+	const scrollSyncIndicator = document.getElementById("scrollSyncIndicator") as HTMLElement;
 
 	const resizeObserver = new ResizeObserver((entries) => {
 		_alignedDirty = true;
@@ -45,7 +86,7 @@ const DiffSeek = (function () {
 
 	const recalculateAlignmentPaddingAndPositionsDebounced = debounce(recalculateAlignmentPaddingAndPositions, 200);
 
-	function getEditorCallbacks(editorName) {
+	function getEditorCallbacks(editorName: EditorName) {
 		const pendingDiffVisibilities = new Map();
 		let updateDiffVisilitiesPending = false;
 
@@ -66,7 +107,7 @@ const DiffSeek = (function () {
 			},
 
 			// 현재 화면 상에 보이는 diff 아이템들.
-			onDiffVisibilityChanged: (diffIndex, visible) => {
+			onDiffVisibilityChanged: (diffIndex: number, visible: boolean) => {
 				pendingDiffVisibilities.set(diffIndex, visible);
 				if (!updateDiffVisilitiesPending) {
 					updateDiffVisilitiesPending = true;
@@ -75,7 +116,7 @@ const DiffSeek = (function () {
 						for (const [diffIndex, visible] of pendingDiffVisibilities) {
 							const listItem = diffList.children[diffIndex];
 							if (listItem) {
-								const button = listItem.firstElementChild;
+								const button = listItem.firstElementChild as HTMLElement;
 								button.classList.toggle(editorName + "-visible", visible);
 							}
 						}
@@ -89,20 +130,20 @@ const DiffSeek = (function () {
 	const { computeDiff } = (function () {
 		// 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
 		let workerURL;
-		const workerCode = document.getElementById("worker.js").textContent;
-		if (workerCode.trim().length === 0) {
+		const workerCode = (document.getElementById("worker.js") as HTMLElement).textContent;
+		if (workerCode!.trim().length === 0) {
 			workerURL = "./dist/worker.js";
 		} else {
-			const blob = new Blob([workerCode], { type: "application/javascript" });
+			const blob = new Blob([workerCode!], { type: "application/javascript" });
 			workerURL = URL.createObjectURL(blob);
 		}
 		const worker = new Worker(workerURL);
 		// 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
 		// const encoder = new TextEncoder();
 
-		function htmlEntityToChar(entity) {
+		function htmlEntityToChar(entity: string) {
 			const doc = new DOMParser().parseFromString(entity, "text/html");
-			const char = doc.body.textContent;
+			const char = doc.body.textContent!;
 			if (char.length !== 1) {
 				throw new Error("htmlEntityToChar: not a single character entity: " + entity);
 			}
@@ -131,7 +172,7 @@ const DiffSeek = (function () {
 		}
 
 		let reqId = 0;
-		let computeDiffTimeoutId = null;
+		let computeDiffTimeoutId: number | null = null;
 		function computeDiff() {
 			if (computeDiffTimeoutId) {
 				clearTimeout(computeDiffTimeoutId);
@@ -139,8 +180,8 @@ const DiffSeek = (function () {
 
 			computeDiffTimeoutId = setTimeout(() => {
 				progress.textContent = "...";
-				document.querySelector("body").classList.toggle("identical", leftEditor.text === rightEditor.text);
-				document.querySelector("body").classList.add("computing");
+				body.classList.toggle("identical", leftEditor.text === rightEditor.text);
+				body.classList.add("computing");
 				if (reqId === Number.MAX_SAFE_INTEGER) {
 					reqId = 1;
 				} else {
@@ -165,7 +206,7 @@ const DiffSeek = (function () {
 			const data = e.data;
 			if (data.type === "diffs") {
 				if (data.reqId === reqId) {
-					document.querySelector("body").classList.remove("computing");
+					document.querySelector("body")!.classList.remove("computing");
 					onDiffComputed(data);
 				}
 			} else if (data.type === "start") {
@@ -173,7 +214,7 @@ const DiffSeek = (function () {
 			}
 		};
 
-		function onDiffComputed({ diffs, anchors }) {
+		function onDiffComputed({ diffs, anchors }: { diffs: DiffEntry[]; anchors: Anchor[] }) {
 			//console.debug("diffs computed", diffs, anchors);
 			_diffs = diffs;
 			_anchors = anchors;
@@ -208,7 +249,6 @@ const DiffSeek = (function () {
 			updateButtons();
 			leftEditor.setEditMode(false);
 			rightEditor.setEditMode(false);
-			const body = document.querySelector("body");
 			body.classList.remove("edit");
 			body.classList.add("aligned");
 			recalculateAlignmentPaddingAndPositions();
@@ -240,11 +280,10 @@ const DiffSeek = (function () {
 		_alignedMode = false;
 		leftEditor.setEditMode(true);
 		rightEditor.setEditMode(true);
-		const body = document.querySelector("body");
 		leftEditor.mirror.removeAttribute("tabindex");
 		rightEditor.mirror.removeAttribute("tabindex");
-		leftEditor.mirror.contentEditable = false;
-		rightEditor.mirror.contentEditable = false;
+		leftEditor.mirror.contentEditable = "false";
+		rightEditor.mirror.contentEditable = "false";
 		body.classList.remove("aligned");
 		body.classList.add("edit");
 		updateButtons();
@@ -252,10 +291,10 @@ const DiffSeek = (function () {
 		_preventScrollSync = true;
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
-				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance);
+				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance!);
 			}
 			if (rightFirstLine) {
-				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance);
+				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance!);
 			}
 			_preventScrollSync = false;
 		});
@@ -284,12 +323,12 @@ const DiffSeek = (function () {
 
 		for (let i = 0; i < leftEditor.anchorElements.length; i++) {
 			const anchor = leftEditor.anchorElements[i];
-			anchor.style.height = 0;
+			anchor.style.height = "0";
 			anchor.className = "";
 		}
 		for (let i = 0; i < rightEditor.anchorElements.length; i++) {
 			const anchor = rightEditor.anchorElements[i];
-			anchor.style.height = 0;
+			anchor.style.height = "0";
 			anchor.className = "";
 		}
 
@@ -321,7 +360,7 @@ const DiffSeek = (function () {
 		});
 	}
 
-	function alignAnchor(leftAnchor, rightAnchor, type) {
+	function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType) {
 		if (type === "before") {
 			const leftTop = leftAnchor.offsetTop;
 			const rightTop = rightAnchor.offsetTop;
@@ -361,7 +400,7 @@ const DiffSeek = (function () {
 		}
 	}
 
-	function restoreSelectionRange({ editor, startOffset, endOffset }) {
+	function restoreSelectionRange({ editor, startOffset, endOffset }: { editor: Editor; startOffset: number; endOffset: number }) {
 		if (editor) {
 			editor.selectTextRange(startOffset, endOffset);
 		}
@@ -382,15 +421,15 @@ const DiffSeek = (function () {
 		if (editor) {
 			return {
 				editor,
-				startOffset: range.startOffset,
-				endOffset: range.endOffset,
+				startOffset: range!.startOffset,
+				endOffset: range!.endOffset,
 			};
 		} else {
 			return null;
 		}
 	}
 
-	function syncScrollPosition(sourceEditor) {
+	function syncScrollPosition(sourceEditor: Editor | null) {
 		if (_preventScrollSync) {
 			return;
 		}
@@ -429,22 +468,22 @@ const DiffSeek = (function () {
 		});
 	}
 
-	function highlightDiff(diff) {
-		highlightStyle.textContent = `mark[data-diff="${diff}"], mark[data-diff="${diff}"]::after { 
+	function highlightDiff(diffIndex: number) {
+		highlightStyle.textContent = `mark[data-diff="${diffIndex}"], mark[data-diff="${diffIndex}"]::after { 
 box-shadow: 0px 0px 15px 3px hsl(var(--diff-hue) 100% 80% / 0.8);
 animation: highlightAnimation 0.3s linear 3; 
 }`;
 	}
 
 	document.addEventListener("mouseover", (e) => {
-		if (e.target.dataset.diff !== undefined) {
-			const diff = Number(e.target.dataset.diff);
+		if ((e.target as HTMLElement).dataset.diff !== undefined) {
+			const diff = Number((e.target as HTMLElement).dataset.diff);
 			highlightDiff(diff);
 		}
 	});
 
 	document.addEventListener("mouseout", (e) => {
-		if (e.target.dataset.diff !== undefined) {
+		if ((e.target as HTMLElement).dataset.diff !== undefined) {
 			highlightStyle.textContent = "";
 		}
 	});
@@ -489,7 +528,7 @@ animation: highlightAnimation 0.3s linear 3;
 			const diff = _diffs[i];
 			const li = document.createElement("LI");
 			const button = document.createElement("MARK");
-			button.dataset.diff = i;
+			button.dataset.diff = i.toString();
 			button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
 			li.appendChild(button);
 
@@ -515,8 +554,8 @@ animation: highlightAnimation 0.3s linear 3;
 	document.addEventListener("keydown", (e) => {
 		// 어느 단축키를 써야 잘썼다고 소문나냐?
 		if (
-			e.key === "F2"
-			|| (e.key === "Enter" && e.ctrlKey)
+			e.key === "F2" ||
+			(e.key === "Enter" && e.ctrlKey)
 			// || e.key === "Escape"
 		) {
 			e.preventDefault();
@@ -585,7 +624,7 @@ animation: highlightAnimation 0.3s linear 3;
 	});
 
 	diffList.addEventListener("click", (e) => {
-		const diffIndex = Number(e.target.dataset.diff);
+		const diffIndex = Number((e.target as HTMLElement).dataset.diff);
 		if (!isNaN(diffIndex)) {
 			_currentDiffIndex = diffIndex;
 			_preventScrollSync = true;
@@ -689,7 +728,7 @@ animation: highlightAnimation 0.3s linear 3;
 			// editor.mirror.addEventListener("paste", (e) => {
 			// 	disableAlignedMode();
 			// });
-	
+
 			// editor.mirror.addEventListener("cut", (e) => {
 			// 	disableAlignedMode();
 			// });
@@ -697,8 +736,6 @@ animation: highlightAnimation 0.3s linear 3;
 			editor.mirror.addEventListener("drop", (e) => {
 				e.preventDefault();
 			});
-
-
 
 			// aligned mode에서도 텍스트 커서가 깜빡이면서 보였으면 좋겠고 단순한 편집은 모드 토글 없이 바로 수행할 수 있게?
 			// 수정을 시도하는 순간:
@@ -790,20 +827,19 @@ animation: highlightAnimation 0.3s linear 3;
 				return _diffOptions.algorithm;
 			},
 			set algorithm(value) {
-				value = Number(value);
 				if (_diffOptions.algorithm === value) {
 					return;
 				}
 				_diffOptions.algorithm = value;
 				computeDiff();
-			},
+			}
 		},
 	};
 })();
 
-function debounce(func, delay) {
-	let timeoutId;
-	return function (...args) {
+function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
+	let timeoutId: number;
+	return function (this: any, ...args: any) {
 		const context = this;
 		clearTimeout(timeoutId);
 		timeoutId = setTimeout(function () {

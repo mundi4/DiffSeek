@@ -1,8 +1,9 @@
 "use strict";
 
-const DIFF_BY_CHAR = 1;
-const DIFF_BY_WORD = 2;
-const DIFF_BY_LINE = 3;
+const TOKENIZE_BY_CHAR = 1;
+const TOKENIZE_BY_WORD = 2;
+const TOKENIZE_BY_LINE = 3;
+
 const TOKEN_CACHE_SIZE = 2;
 
 // token flags
@@ -11,7 +12,7 @@ const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
 
-const SPACE_CHARS = {
+const SPACE_CHARS: { [char: string]: boolean } = {
 	" ": true,
 	"\t": true,
 	"\n": true,
@@ -20,11 +21,42 @@ const SPACE_CHARS = {
 	"\v": true, // 볼일이 없을것...
 };
 
-const normalizeChars = {};
+const normalizeChars: { [ch: string]: string } = {};
 
-//let greedyMatch = false;
+let _nextWork: WorkContext | null = null;
+let _currentWork: WorkContext | null = null;
 
-function insertNormalizeChar(chars) {
+type DiffOptions = {
+	algorithm: string;
+	greedyMatch?: boolean;
+	useFallback?: boolean;
+	tokenization: 1 | 2 | 3;
+};
+
+type DiffRequest = {
+	type: "diff";
+	reqId: number;
+	left: string;
+	right: string;
+	options?: {
+		method?: 1 | 2 | 3;
+		greedyMatch?: boolean;
+		useFallback?: boolean;
+	};
+};
+
+type WorkContext = {
+	reqId: number;
+	cancel: boolean;
+	leftText: string;
+	rightText: string;
+	start: number;
+	finish: number;
+	lastYield: number;
+	options: DiffOptions;
+};
+
+function insertNormalizeChar(chars: string) {
 	const norm = chars[0];
 	normalizeChars[norm] = norm;
 	for (let i = 1; i < chars.length; i++) {
@@ -33,22 +65,38 @@ function insertNormalizeChar(chars) {
 }
 
 // const decoder = new TextDecoder();
-let _nextWork = null;
-let _currentWork = null;
 
-const tokenCache = {
-	[DIFF_BY_CHAR]: [],
-	[DIFF_BY_WORD]: [],
-	[DIFF_BY_LINE]: [],
+type DiffResult = {
+	diffs: DiffEntry[];
+	anchors: Anchor[];
 };
 
-function createTrieNode() {
-	const children = {};
-	function next(char) {
+type TokenCacheEntry = {
+	text: string;
+	tokens: Token[];
+};
+
+const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+	[TOKENIZE_BY_CHAR]: [],
+	[TOKENIZE_BY_WORD]: [],
+	[TOKENIZE_BY_LINE]: [],
+};
+
+type TrieNode = {
+	next: (char: string | number) => TrieNode | null;
+	addChild: (char: string | number) => TrieNode;
+	word: string | null;
+	flags: number | null;
+};
+
+function createTrieNode(): TrieNode {
+	const children: { [ch: string]: TrieNode } = {};
+
+	function next(this: TrieNode, char: string | number): TrieNode | null {
 		return char === " " ? this : children[char] || null;
 	}
 
-	function addChild(char) {
+	function addChild(char: string | number): TrieNode {
 		if (!children[char]) {
 			children[char] = createTrieNode();
 		}
@@ -60,7 +108,7 @@ function createTrieNode() {
 function createTrie() {
 	const root = createTrieNode();
 
-	function insert(word, flags = 0) {
+	function insert(word: string, flags = 0) {
 		let node = root;
 		for (const char of word) {
 			node = node.addChild(char);
@@ -90,12 +138,15 @@ const WildcardNode = Trie.root.next("(");
 
 self.onmessage = (e) => {
 	if (e.data.type === "diff") {
-		const work = {
+		const work: WorkContext = {
 			reqId: e.data.reqId,
-			leftText: e.data.left,
-			rightText: e.data.right,
-			...e.data.options,
+			leftText: e.data.leftText,
+			rightText: e.data.rightText,
+			options: e.data.options as DiffOptions,
 			cancel: false,
+			start: 0,
+			finish: 0,
+			lastYield: 0,
 		};
 		if (_currentWork) {
 			_currentWork.cancel = true;
@@ -112,7 +163,7 @@ self.onmessage = (e) => {
 	}
 };
 
-async function runDiff(work) {
+async function runDiff(work: WorkContext) {
 	_currentWork = work;
 	// const leftText = decoder.decode(work.left);
 	// const rightText = decoder.decode(work.right);
@@ -125,11 +176,24 @@ async function runDiff(work) {
 			type: "start",
 			start: work.start,
 		});
-		const results = await computeDiff({
-			...work,
-			ctx: work,
-		});
+
+		let results: DiffResult | undefined = undefined;
+		console.log(work.options);
+		if (work.options.algorithm === "myers") {
+			const lhsTokens = tokenize(work.leftText, work.options.tokenization);
+			const rhsTokens = tokenize(work.rightText, work.options.tokenization);
+			results = await runMyersDiff(work);
+			console.log("myers diff", results.diffs);
+		} else if (work.options.algorithm === "lcs") {
+			results = await computeDiff({
+				...work,
+				ctx: work,
+			});
+		} else {
+			throw new Error("Unknown algorithm: " + work.options.algorithm);
+		}
 		work.finish = performance.now();
+
 		//console.log("Elapsed time:", work.finish - work.start);
 		_currentWork = null;
 		if (results) {
@@ -143,19 +207,19 @@ async function runDiff(work) {
 			// console.debug("Diff canceled");
 		}
 	} catch (e) {
-		if (e.message === "cancelled") {
+		if (e instanceof Error && e.message === "cancelled") {
 			// console.debug("Diff canceled");
 		} else {
 			console.error(e);
 		}
 	}
-	[work, _nextWork] = [_nextWork, null];
+	[work, _nextWork] = [_nextWork!, null];
 	if (work) {
 		return await runDiff(work);
 	}
 }
 
-function checkIfFirstOfLine(input, pos) {
+function checkIfFirstOfLine(input: string, pos: number) {
 	pos--;
 	while (pos >= 0) {
 		if (input[pos] === "\n") {
@@ -167,9 +231,8 @@ function checkIfFirstOfLine(input, pos) {
 	}
 	return true;
 }
-
-function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
-	const tokens = [];
+function tokenizeByChar(input: string, inputPos?: number, inputEnd?: number, baseLineNum?: number): Token[] {
+	const tokens: Token[] = [];
 	let lineCount = 0;
 	let flags = 0;
 	if (inputPos === undefined) {
@@ -188,7 +251,7 @@ function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseL
 			if (char === "(") {
 				let p = i + 1;
 				let found = null;
-				for (let node = WildcardNode; p < inputEnd && (node = node.next(input[p++])) !== null; ) {
+				for (let node = WildcardNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
 					if (node.word !== null) {
 						found = node;
 						break;
@@ -197,11 +260,11 @@ function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseL
 				if (found) {
 					flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
 					tokens.push({
-						text: found.word,
+						text: found.word!,
 						pos: i,
 						len: p - i,
 						lineNum: baseLineNum + lineCount,
-						flags: flags | found.flags,
+						flags: flags | (found.flags || 0),
 					});
 					flags = 0;
 					i = p - 1;
@@ -244,7 +307,7 @@ function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseL
 	return tokens;
 }
 
-function normalize(text) {
+function normalize(text: string) {
 	let result = "";
 	for (let i = 0; i < text.length; i++) {
 		const char = text[i];
@@ -253,8 +316,8 @@ function normalize(text) {
 	return result;
 }
 
-function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
-	const tokens = [];
+function tokenizeByWord(input: string, inputPos?: number, inputEnd?: number, baseLineNum?: number): Token[] {
+	const tokens: Token[] = [];
 	let currentStart = -1;
 	let lineCount = 0;
 	let flags = 0;
@@ -300,7 +363,7 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 			if (char === "(") {
 				let p = i + 1;
 				let found = null;
-				for (let node = WildcardNode; p < inputEnd && (node = node.next(input[p++])) !== null; ) {
+				for (let node = WildcardNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
 					if (node.word !== null) {
 						found = node;
 						break;
@@ -322,11 +385,11 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 
 					flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 					tokens.push({
-						text: found.word,
+						text: found.word!,
 						pos: i,
 						len: p - i,
 						lineNum: baseLineNum + lineCount,
-						flags: flags | found.flags,
+						flags: flags | (found.flags || 0),
 					});
 					flags = 0;
 					i = p - 1;
@@ -368,8 +431,8 @@ function tokenizeByWord(input, inputPos = undefined, inputEnd = undefined, baseL
 	return tokens;
 }
 
-function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
-	const tokens = [];
+function tokenizeByLine(input: string, inputPos?: number, inputEnd?: number, baseLineNum?: number): Token[] {
+	const tokens: Token[] = [];
 	let currentStart = -1;
 	let currentEnd = -1;
 	let lineCount = 0;
@@ -420,28 +483,28 @@ function tokenizeByLine(input, inputPos = undefined, inputEnd = undefined, baseL
 	return tokens;
 }
 
-function tokenize(input, method, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
+function tokenize(input: string, method: 1 | 2 | 3, inputPos?: number, inputEnd?: number, baseLineNum?: number): Token[] {
 	let cacheArr;
 	if ((inputPos === undefined || inputPos === 0) && (inputEnd === undefined || inputEnd === input.length)) {
 		cacheArr = tokenCache[method];
 		if (cacheArr) {
 			for (let i = 0; i < cacheArr.length; i++) {
-				const token = cacheArr[i];
-				if (token.text === input) {
+				const cache = cacheArr[i];
+				if (cache.text === input) {
 					if (i !== cacheArr.length - 1) {
 						cacheArr.splice(i, 1);
-						cacheArr.push(token);
+						cacheArr.push(cache);
 					}
-					return token.tokens;
+					return cache.tokens;
 				}
 			}
 		}
 	}
 
 	const tokens =
-		method === DIFF_BY_CHAR
+		method === TOKENIZE_BY_CHAR
 			? tokenizeByChar(input, inputPos, inputEnd, baseLineNum)
-			: method === DIFF_BY_LINE
+			: method === TOKENIZE_BY_LINE
 			? tokenizeByLine(input, inputPos, inputEnd, baseLineNum)
 			: tokenizeByWord(input, inputPos, inputEnd, baseLineNum);
 
@@ -457,12 +520,12 @@ function tokenize(input, method, inputPos = undefined, inputEnd = undefined, bas
 		if (cacheArr.length >= TOKEN_CACHE_SIZE) {
 			cacheArr.shift();
 		}
-		cacheArr.push({ text: input, tokens });
+		cacheArr.push({ text: input, tokens: tokens as Token[] });
 	}
 	return tokens;
 }
 
-async function computeLCS(leftTokens, rightTokens, ctx) {
+async function computeLCS(leftTokens: Token[], rightTokens: Token[], ctx?: WorkContext) {
 	const m = leftTokens.length;
 	const n = rightTokens.length;
 
@@ -528,17 +591,28 @@ async function computeDiff({
 	rightInputEnd = undefined,
 	// leftTokens = undefined,
 	// rightTokens = undefined,
-	method = DIFF_BY_WORD,
+	method = TOKENIZE_BY_WORD,
 	greedyMatch = false,
 	useFallback = false,
 	ctx,
+}: {
+	leftText: string;
+	rightText: string;
+	leftInputPos?: number;
+	leftInputEnd?: number;
+	rightInputPos?: number;
+	rightInputEnd?: number;
+	method?: 1 | 2 | 3;
+	greedyMatch?: boolean;
+	useFallback?: boolean;
+	ctx?: WorkContext;
 }) {
 	//console.log("computeDiff", { leftText, rightText, leftInputPos, leftInputEnd, rightInputPos, rightInputEnd, method, greedyMatch, useFallback });
 
 	// 앵커라는 이름도 구현 방식도 사실 좀 마음에 안들지만
 	// 양쪽 텍스트에서 공통 부분(diff가 아닌 부분)을 서로 대응시킬 만한 딱히 좋은 수가 없음
-	const diffs = [],
-		anchors = [];
+	const diffs: DiffEntry[] = [],
+		anchors: Anchor[] = [];
 
 	if (leftInputPos === undefined) {
 		leftInputPos = 0;
@@ -564,7 +638,7 @@ async function computeDiff({
 				while (anchorPos > 0 && leftText[anchorPos - 1] !== "\n") {
 					anchorPos--;
 				}
-				addAnchor("before", anchorPos, anchorPos);
+				addAnchor("before", anchorPos, anchorPos, null);
 			}
 		}
 		return { diffs, anchors };
@@ -572,7 +646,7 @@ async function computeDiff({
 
 	// console.log("tokens:", { leftTokens, rightTokens });
 
-	const lcs = await computeLCS(leftTokens, rightTokens, ctx);
+	const lcs = await computeLCS(leftTokens as Token[], rightTokens as Token[], ctx);
 	const lcsLength = lcs.length;
 	const leftTokensLength = leftTokens.length;
 	const rightTokensLength = rightTokens.length;
@@ -580,7 +654,7 @@ async function computeDiff({
 	// 앵커 추가는 나중에 한번에 처리하고 싶은데
 	// common sequence인 경우 대응하는 반대쪽 토큰에 대한 정보가 필요하므로 쉽지 않음.
 	// 결국 서로 대응하는 토큰 쌍을 저장해놔야하는데 그러면 앵커를 나중에 추가하는게 무슨 의미?
-	function addAnchor(type, leftPos, rightPos, diffIndex = null) {
+	function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
 		if (leftPos === undefined || rightPos === undefined) {
 			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
 		}
@@ -602,6 +676,7 @@ async function computeDiff({
 		// 딱히 할 수 있는게 없다.
 	} else if (leftTokensLength === 0) {
 		diffs.push({
+			type: 2,
 			left: {
 				pos: leftInputPos,
 				len: 0,
@@ -615,6 +690,7 @@ async function computeDiff({
 		});
 	} else if (rightTokensLength === 0) {
 		diffs.push({
+			type: 1,
 			left: {
 				pos: leftTokens[0].pos,
 				len: leftTokens[leftTokensLength - 1].pos + leftTokens[leftTokensLength - 1].len - leftTokens[0].pos,
@@ -660,7 +736,7 @@ async function computeDiff({
 					while (rightAnchorPos > 0 && rightText[rightAnchorPos - 1] !== "\n") {
 						rightAnchorPos--;
 					}
-					addAnchor("before", leftAnchorPos, rightAnchorPos);
+					addAnchor("before", leftAnchorPos, rightAnchorPos, null);
 				}
 				i++;
 				j++;
@@ -698,7 +774,7 @@ async function computeDiff({
 			}
 
 			if (leftCount > 0 && rightCount > 0) {
-				if (useFallback && method > DIFF_BY_WORD) {
+				if (useFallback && method > TOKENIZE_BY_WORD) {
 					const result = await computeDiff({
 						leftText,
 						rightText,
@@ -706,7 +782,7 @@ async function computeDiff({
 						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
 						rightInputPos: rightTokens[rightIndex].pos,
 						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-						method: DIFF_BY_WORD,
+						method: TOKENIZE_BY_WORD,
 						greedyMatch,
 						useFallback: useFallback,
 						ctx,
@@ -722,7 +798,7 @@ async function computeDiff({
 						diffs.push(diff);
 					}
 					continue;
-				} else if (method > DIFF_BY_CHAR) {
+				} else if (method > TOKENIZE_BY_CHAR) {
 					// 단어 사이에서 예기치 않은 공백이 나오는 경우가 왕왕 있다.
 					// 게다가 우리말은 띄어쓰기를 해도 맞고 안해도 맞는 것 같은 느낌적인 느낌의 느낌이 느껴지는 경우가 많은 느낌이다!!!
 					// FALLBACK으로 글자단위 비교를 하고 그 결과를 최종결과에 넣어버리는 방법을 써도 되지만
@@ -740,7 +816,7 @@ async function computeDiff({
 						leftInputEnd: leftTokens[leftIndex + leftCount - 1].pos + leftTokens[leftIndex + leftCount - 1].len,
 						rightInputPos: rightTokens[rightIndex].pos,
 						rightInputEnd: rightTokens[rightIndex + rightCount - 1].pos + rightTokens[rightIndex + rightCount - 1].len,
-						method: DIFF_BY_CHAR,
+						method: TOKENIZE_BY_CHAR,
 						useFallback: false,
 						ctx,
 					});
@@ -796,7 +872,7 @@ async function computeDiff({
 					while (rightAnchorPos > 0 && rightText[rightAnchorPos - 1] !== "\n") {
 						rightAnchorPos--;
 					}
-					addAnchor("before", leftAnchorPos, rightAnchorPos);
+					addAnchor("before", leftAnchorPos, rightAnchorPos, null);
 					if (leftTokens[leftIndex].flags & rightTokens[rightIndex].flags & FIRST_OF_LINE) {
 						if (leftTokens[leftIndex + leftCount - 1].flags & rightTokens[rightIndex + rightCount - 1].flags & LAST_OF_LINE) {
 							leftAnchorPos = leftPos + leftLen;
@@ -820,7 +896,7 @@ async function computeDiff({
 							// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
 							// 	rightAnchorPos++;
 							// }
-							addAnchor("after", leftAnchorPos, rightAnchorPos);
+							addAnchor("after", leftAnchorPos, rightAnchorPos, null);
 						}
 					}
 				}
@@ -873,8 +949,8 @@ async function computeDiff({
 					shortSideTokens.length === 0 ||
 					(shortSideIndex > 0 && shortSideTokens[shortSideIndex - 1].flags & FIRST_OF_LINE) ||
 					(shortSideIndex < shortSideTokens.length && shortSideTokens[shortSideIndex].flags & FIRST_OF_LINE);
-				anchorBefore = longSideIsFirstWord && shortSideIsOnLineEdge;
-				anchorAfter = longSideIsLastWord && shortSideIsOnLineEdge;
+				anchorBefore = !!(longSideIsFirstWord && shortSideIsOnLineEdge);
+				anchorAfter = !!(longSideIsLastWord && shortSideIsOnLineEdge);
 
 				// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
 				shortSidePos = shortSideIndex > 0 ? shortSideTokens[shortSideIndex - 1].pos + shortSideTokens[shortSideIndex - 1].len : shortSideStart;
@@ -958,7 +1034,7 @@ async function computeDiff({
 						} else {
 							[leftAnchorPos, rightAnchorPos] = [shortSideAnchorPos, longSideAnchorPos];
 						}
-						addAnchor("before", leftAnchorPos, rightAnchorPos);
+						addAnchor("before", leftAnchorPos, rightAnchorPos, null);
 
 						if (longSideIsLastWord && shortSideIsOnLineEdge) {
 							longSideAnchorPos = longSidePos + longSideLen;
@@ -982,7 +1058,7 @@ async function computeDiff({
 							} else {
 								[leftAnchorPos, rightAnchorPos] = [shortSideAnchorPos, longSideAnchorPos];
 							}
-							addAnchor("after", leftAnchorPos, rightAnchorPos);
+							addAnchor("after", leftAnchorPos, rightAnchorPos, null);
 						}
 					}
 				}
@@ -1008,6 +1084,7 @@ async function computeDiff({
 			// 빈 diff일 경우에도 하나 이상의 공백(줄바꿈) 위치를 차지할 수 있게 하려고 empty 속성을 추가했는데
 			// 쓰지도 않는다. 그리고 적절한 공백을 할당시켜 주는 코드가 정말 지랄같음.
 			diffs.push({
+				type: leftCount > 0 ? 1 : 2,
 				left: {
 					pos: leftPos,
 					len: leftLen,
@@ -1026,17 +1103,23 @@ async function computeDiff({
 	return { diffs, anchors };
 }
 
-
-function matchTokensCharByChar(leftTokens, rightTokens, lx, rx) {
-	let i = lx,
-		j = rx;
+function matchTokens(
+	leftTokens: Token[],
+	lhsLower: number,
+	lhsUpper: number,
+	rightTokens: Token[],
+	rhsLower: number,
+	rhsUpper: number
+): false | [number, number] {
+	let i = lhsLower,
+		j = rhsLower;
 	let ci = 0,
 		cj = 0;
 
-	const llen = leftTokens.length;
-	const rlen = rightTokens.length;
+	const llen = lhsUpper;
+	const rlen = rhsUpper;
 
-	do {
+	while (i < llen && j < rlen) {
 		const ltext = leftTokens[i].text;
 		const rtext = rightTokens[j].text;
 
@@ -1056,8 +1139,677 @@ function matchTokensCharByChar(leftTokens, rightTokens, lx, rx) {
 			cj = 0;
 		}
 
-		if (ci === 0 && cj === 0) return [i - lx, j - rx];
-	} while (i < llen && j < rlen);
+		if (ci === 0 && cj === 0) return [i - lhsLower, j - rhsLower];
+	}
 
 	return false;
+}
+
+function matchTokensBackward(
+	leftTokens: Token[],
+	lhsLower: number,
+	lhsUpper: number,
+	rightTokens: Token[],
+	rhsLower: number,
+	rhsUpper: number
+): false | [number, number] {
+	// console.log("matchTokensBackward", leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper);
+	let i = lhsUpper - 1, // Start from the last token of lhs
+		j = rhsUpper - 1; // Start from the last token of rhs
+	let ci = leftTokens[i].text.length - 1, // Start from the last character of the last token of lhs
+		cj = rightTokens[j].text.length - 1; // Start from the last character of the last token of rhs
+
+	const llen = lhsLower;
+	const rlen = rhsLower;
+
+	OUTER: while (i >= llen && j >= rlen) {
+		const ltext = leftTokens[i].text;
+		const rtext = rightTokens[j].text;
+
+		while (ci >= 0 && cj >= 0) {
+			if (ltext[ci--] !== rtext[cj--]) {
+				// console.log("false", JSON.stringify(ltext), JSON.stringify(rtext), i, lhsUpper, j, rhsUpper, ci, cj);
+				break OUTER;
+			}
+		}
+
+		// If both ci and cj are -1, we know we've exhausted the tokens
+		if (ci === -1 && cj === -1) {
+			// console.log("true", lhsUpper - i + 1, rhsUpper - j + 1, leftTokens[i], rightTokens[j]);
+			return [lhsUpper - i, rhsUpper - j]; // +1 to account for the initial token
+		}
+
+		if (ci < 0) {
+			i--; // Move to the previous token on the left
+			if (i >= llen) ci = leftTokens[i].text.length - 1;
+		}
+		if (cj < 0) {
+			j--; // Move to the previous token on the right
+			if (j >= rlen) cj = rightTokens[j].text.length - 1;
+		}
+	}
+	// console.log("false")
+	return false;
+}
+
+async function myersDiff(
+	lhsTokens: Token[],
+	lhsLower: number,
+	lhsUpper: number,
+	rhsTokens: Token[],
+	rhsLower: number,
+	rhsUpper: number,
+	vectorUp: number[] = [],
+	vectorDown: number[] = [],
+	ctx: WorkContext
+): Promise<DiffEntry[]> {
+	// Recursively calculate the diff for the left and right parts
+	const diffs: DiffEntry[] = [];
+
+	const now = performance.now();
+	if (now - ctx.lastYield > 100) {
+		ctx.lastYield = now;
+		await new Promise((resolve) => setTimeout(resolve, 0));
+		if (ctx.cancel) {
+			throw new Error("cancelled");
+		}
+	}
+
+	// Skip common prefix
+	let matchedCount;
+	while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+		// 일단 빠른 비교!
+		if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
+			diffs.push({
+				type: 0,
+				left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
+				right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
+			});
+			lhsLower++;
+			rhsLower++;
+		} else if (
+			// 깡으로 매칭해보기 ㅋ
+			lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
+			lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] && // 첫글자까지는 일단 체크해보고
+			(matchedCount = matchTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+		) {
+			diffs.push({
+				type: 0,
+				left: { pos: lhsLower, len: matchedCount[0], text: lhsTokens[lhsLower].text },
+				right: { pos: rhsLower, len: matchedCount[1], text: rhsTokens[rhsLower].text },
+			});
+			// console.log("matchedCount", matchedCount);
+			lhsLower += matchedCount[0];
+			rhsLower += matchedCount[1];
+		} else {
+			break;
+		}
+	}
+
+	// Skip common suffix
+	const tailDiffs: DiffEntry[] = [];
+	while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
+		if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
+			tailDiffs.push({
+				type: 0,
+				left: { pos: lhsUpper - 1, len: 1, text: lhsTokens[lhsUpper - 1].text },
+				right: { pos: rhsUpper - 1, len: 1, text: rhsTokens[rhsUpper - 1].text },
+			});
+			lhsUpper--;
+			rhsUpper--;
+		} else if (
+			lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
+			lhsTokens[lhsUpper - 1].text[lhsTokens[lhsUpper - 1].text.length - 1] === rhsTokens[rhsUpper - 1].text[rhsTokens[rhsUpper - 1].text.length - 1] && // 첫글자까지는 일단 체크해보고...
+			(matchedCount = matchTokensBackward(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+		) {
+			// console.log("matchedCountBACKWARD", matchedCount);
+			tailDiffs.push({
+				type: 0,
+				left: { pos: lhsUpper - matchedCount[0], len: matchedCount[0], text: lhsTokens[lhsUpper - matchedCount[0]].text },
+				right: { pos: rhsUpper - matchedCount[1], len: matchedCount[1], text: rhsTokens[rhsUpper - matchedCount[1]].text },
+			});
+			lhsUpper -= matchedCount[0];
+			rhsUpper -= matchedCount[1];
+		} else {
+			break;
+		}
+	}
+
+	if (lhsLower === lhsUpper) {
+		console.log("222", lhsUpper, lhsLower, rhsUpper, rhsLower);
+		while (rhsLower < rhsUpper) {
+			diffs.push({
+				type: 2,
+				left: { pos: lhsLower, len: 0, text: "" },
+				right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
+			});
+			rhsLower++;
+		}
+	} else if (rhsLower === rhsUpper) {
+		console.log("111", lhsUpper, lhsLower, rhsUpper, rhsLower);
+		while (lhsLower < lhsUpper) {
+			diffs.push({
+				type: 1,
+				left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
+				right: { pos: rhsLower, len: 0, text: "" },
+			});
+			lhsLower++;
+		}
+	} else {
+		// Find the shortest middle snake between lhs and rhs
+		// console.log("BEFORE SNAKE", {
+		// 	lhsLower,
+		// 	lhsUpper,
+		// 	rhsLower,
+		// 	rhsUpper,
+		// 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
+		// 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
+		// });
+		const middleSnake = getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, vectorUp, vectorDown);
+
+		// console.log("SNAKE DONE", {
+		// 	lhsLower,
+		// 	lhsUpper,
+		// 	rhsLower,
+		// 	rhsUpper,
+		// 	middleSnake,
+		// 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
+		// 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
+		// });
+
+		if (middleSnake.x > lhsLower || middleSnake.y > rhsLower) {
+			// console.log("middleSnake!!!", middleSnake, lhsLower, lhsUpper, rhsLower, rhsUpper);
+			// Left part of the text (lhsLower to middleSnake.x)
+			const leftDiff = await myersDiff(lhsTokens, lhsLower, middleSnake.x, rhsTokens, rhsLower, middleSnake.y, vectorUp, vectorDown, ctx);
+
+			// Right part of the text (middleSnake.x to lhsUpper)
+			const rightDiff = await myersDiff(lhsTokens, middleSnake.x, lhsUpper, rhsTokens, middleSnake.y, rhsUpper, vectorUp, vectorDown, ctx);
+
+			// Combine the left and right diffs
+			diffs.push(...leftDiff, ...rightDiff);
+		} else {
+			console.warn("no middle snake", lhsLower, lhsUpper, rhsLower, rhsUpper, middleSnake);
+
+			// If no middle snake found, this means we're at the base case and just need to add the diff
+			let diff: DiffEntry = {
+				type: 0,
+				left: { pos: lhsLower, len: lhsUpper - lhsLower, text: "" },
+				right: { pos: rhsLower, len: rhsUpper - rhsLower, text: "" },
+			};
+			console.log("diff????");
+
+			// Only push the diff if there is a change
+			if (diff.left.len > 0 || diff.right.len > 0) {
+				// If there is a left change
+				if (lhsUpper - lhsLower > 0) {
+					diff.left.text = lhsTokens
+						.slice(lhsLower, lhsUpper)
+						.map((t) => t.text)
+						.join(" ");
+					diff.type |= 1;
+					console.log("zzzzz");
+				}
+
+				// If there is a right change
+				if (rhsUpper - rhsLower > 0) {
+					diff.right.text = rhsTokens
+						.slice(rhsLower, rhsUpper)
+						.map((t) => t.text)
+						.join(" ");
+					diff.type |= 2;
+					console.log("xxxxx");
+				}
+				console.log("????");
+				diffs.push(diff);
+			}
+		}
+	}
+
+	// Add the tail diffs to the result
+	for (let i = tailDiffs.length - 1; i >= 0; i--) {
+		diffs.push(tailDiffs[i]);
+	}
+
+	return diffs;
+}
+
+function getShortestMiddleSnake(
+	lhsTokens: Token[],
+	lhsLower: number,
+	lhsUpper: number,
+	rhsTokens: Token[],
+	rhsLower: number,
+	rhsUpper: number,
+	vectorU: number[],
+	vectorD: number[]
+): { x: number; y: number } {
+	const max = lhsTokens.length + rhsTokens.length + 1;
+	const width = lhsUpper - lhsLower;
+	const height = rhsUpper - rhsLower;
+	const delta = width - height;
+	const kdown = lhsLower - rhsLower;
+	const kup = lhsUpper - rhsUpper;
+	const offset_down = max - kdown;
+	const offset_up = max - kup;
+	const maxD = (lhsUpper - lhsLower + rhsUpper - rhsLower) / 2 + 1;
+	const odd = (delta & 1) != 0;
+	const ret = { x: 0, y: 0 };
+
+	// console.log("getShortestMiddleSnake", {
+	// 	lhsLower,
+	// 	lhsUpper,
+	// 	rhsLower,
+	// 	rhsUpper,
+	// 	width,
+	// 	height,
+	// 	delta,
+	// 	kDown: kdown,
+	// 	kUp: kup,
+	// 	offsetDown: offset_down,
+	// 	offsetUp: offset_up,
+	// 	maxD,
+	// 	odd,
+	// });
+
+	let guard = 0;
+	vectorD[offset_down + kdown + 1] = lhsLower;
+	vectorU[offset_up + kup - 1] = lhsUpper;
+	// console.log("offsetDown", offset_down, kdown, vectorD[offset_down + kdown + 1]);
+	let d, k, x, y, c, px, py;
+	OUTER: for (d = 0; d <= maxD; d++) {
+		for (k = kdown - d; k <= kdown + d; k += 2) {
+			if (++guard > 100) {
+				break OUTER;
+			}
+			if (k === kdown - d) {
+				x = vectorD[offset_down + k + 1]; //down
+			} else {
+				x = vectorD[offset_down + k - 1] + 1; //right
+				if (k < kdown + d && vectorD[offset_down + k + 1] >= x) {
+					x = vectorD[offset_down + k + 1]; //down
+				}
+			}
+			y = x - k;
+
+			// console.log("BEFORE \\", x, y);
+			while (x < lhsUpper && y < rhsUpper && lhsTokens[x].text === rhsTokens[y].text) {
+				x++;
+				y++;
+			}
+
+			vectorD[offset_down + k] = x;
+
+			// console.log("FORWARD", {
+			// 	x,
+			// 	y,
+			// 	k,
+			// 	d,
+			// 	kDown: kdown,
+			// 	vectorD,
+			// 	vectorU,
+			// 	"vectorDown[offsetDown + k + 1]": vectorD[offset_down + k + 1],
+			// 	"vectorDown[offsetDown + k - 1]": vectorD[offset_down + k - 1],
+			// });
+
+			if (odd && kup - d < k && k < kup + d) {
+				if (vectorU[offset_up + k] <= vectorD[offset_down + k]) {
+					ret.x = vectorD[offset_down + k];
+					ret.y = vectorD[offset_down + k] - k;
+					return ret;
+				}
+			}
+		}
+
+		for (k = kup - d; k <= kup + d; k += 2) {
+			// find the only or better starting point
+			if (k === kup + d) {
+				x = vectorU[offset_up + k - 1]; // up
+			} else {
+				x = vectorU[offset_up + k + 1] - 1; // left
+				if (k > kup - d && vectorU[offset_up + k - 1] < x) x = vectorU[offset_up + k - 1]; // up
+			}
+			y = x - k;
+			while (x > lhsLower && y > rhsLower && lhsTokens[x - 1].text === rhsTokens[y - 1].text) {
+				// diagonal
+				x--;
+				y--;
+			}
+			vectorU[offset_up + k] = x;
+			// console.log("BACKWARD", {
+			// 	x,
+			// 	y,
+			// 	k,
+			// 	d,
+			// 	kUp: kup,
+			// 	vectorD,
+			// 	vectorU,
+			// 	"vectorD[offset_down + k]": vectorD[offset_down + k],
+			// 	"vectorU[offset_up + k]": vectorU[offset_up + k],
+			// });
+
+			// overlap ?
+			if (!odd && kdown - d <= k && k <= kdown + d) {
+				if (vectorU[offset_up + k] <= vectorD[offset_down + k]) {
+					ret.x = vectorD[offset_down + k];
+					ret.y = vectorD[offset_down + k] - k;
+					return ret;
+				}
+			}
+		}
+	}
+	return ret;
+	// throw new Error("No middle snake found");
+	// return { x: lhsLower - 1, y: rhsLower - 1 };
+	// return { x: -1, y: -1 }; // No snake found
+}
+
+function postProcess(entries: DiffEntry[], leftText: string, rightText: string, leftTokens: Token[], rightTokens: Token[]): DiffResult {
+	console.log("postProcess", "raw entries:", Array.from(entries), leftTokens, rightTokens);
+	let prevEntry = null;
+
+	// 최종 결과물 - 변경되지 않은 부분은 포함시키지 않음.
+	const diffs: DiffEntry[] = [];
+	const anchors: Anchor[] = [];
+
+	// 연속된 엔트리를 병합(diff/non-diff)
+	const mergedEntries: DiffEntry[] = [];
+	for (let i = 0; i < entries.length; i++) {
+		const entry = entries[i];
+		if (prevEntry && !!prevEntry.type === !!entry.type) {
+			console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos);
+			console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos);
+			prevEntry.type |= entry.type;
+			prevEntry.left.len += entry.left.len;
+			prevEntry.right.len += entry.right.len;
+		} else {
+			// prevEntry = entry;
+			prevEntry = { ...entry, left: entry.left, right: entry.right }; // 디버깅을 위해 deep copy
+			mergedEntries.push(prevEntry);
+		}
+	}
+
+	console.log("mergedEntries", mergedEntries);
+
+	// if (entry.type === 3) {
+	// 	// 양쪽 모두 비어 있지 않은 경우(삭제 & 추가)
+	// 	// 앵커 추가는 병합이 된 후에 해야함.
+	// 	// 아직 병합이 완전히 되지 않은 경우 한쪽의 토큰 개수가 0일 수도 있음
+	// 	const leftToken = leftTokens[entry.left.pos];
+	// 	const rightToken = rightTokens[entry.right.pos];
+	// 	if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
+	// 		// 앵커 추가
+	// 		addAnchor("before", leftToken.pos, rightToken.pos, tempDiffs.length - 1);
+	// 	}
+	// }
+
+	// 앵커 추가는 나중에 한번에 처리하고 싶은데
+	// common sequence인 경우 대응하는 반대쪽 토큰에 대한 정보가 필요하므로 쉽지 않음.
+	// 결국 서로 대응하는 토큰 쌍을 저장해놔야하는데 그러면 앵커를 나중에 추가하는게 무슨 의미?
+	function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
+		if (leftPos === undefined || rightPos === undefined) {
+			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
+		}
+
+		if (type === "before") {
+			// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
+			while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
+				leftPos--;
+			}
+			while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
+				rightPos--;
+			}
+		} else if (type === "after") {
+			// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
+			// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
+			let p;
+			p = leftPos;
+			while (p < leftText.length) {
+				const ch = leftText[p++];	
+				if (ch === "\n") {
+					leftPos = p - 1;
+					break;
+				} else if (!SPACE_CHARS[ch]) {
+					break;
+				}
+			}
+			p = rightPos;
+			while (p < rightText.length) {
+				const ch = rightText[p++];
+				if (ch === "\n") {
+					rightPos = p - 1;
+					break;
+				} else if (!SPACE_CHARS[ch]) {
+					break;
+				}
+			}
+		}
+
+		if (anchors.length > 0) {
+			let lastAnchor = anchors[anchors.length - 1];
+			if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
+				return;
+			}
+			if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
+				if (type === lastAnchor.type || type === "before") {
+					return;
+				}
+			}
+		}
+		anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
+	}
+
+	for (let i = 0; i < mergedEntries.length; i++) {
+		const entry = mergedEntries[i];
+
+		if (entry.type === 0) {
+			// Common sequence
+			let leftToken = leftTokens[entry.left.pos];
+			let rightToken = rightTokens[entry.right.pos];
+			if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
+				addAnchor("before", leftToken.pos, rightToken.pos, !!entry.type ? diffs.length : null);
+			}
+			continue;
+		}
+
+		const {
+			left: { pos: leftIndex, len: leftCount },
+			right: { pos: rightIndex, len: rightCount },
+		} = entry;
+
+		console.assert(!!leftCount === !!(entry.type & 1));
+		console.assert(!!rightCount === !!(entry.type & 2));
+
+		let leftPos, leftLen, rightPos, rightLen;
+		let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos;
+		let leftEmpty, rightEmpty;
+
+		if (entry.type === 3) {
+			let leftTokenStart = leftTokens[leftIndex];
+			let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
+			let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
+			let rightTokenStart = rightTokens[rightIndex];
+
+			leftPos = leftTokenStart.pos;
+			leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
+			leftEmpty = false;
+			rightPos = rightTokenStart.pos;
+			rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
+			rightEmpty = false;
+
+			if ((leftTokenStart.flags | rightTokenStart.flags) & FIRST_OF_LINE) {
+				leftBeforeAnchorPos = leftPos;
+				rightBeforeAnchorPos = rightPos;
+				while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
+					leftBeforeAnchorPos--;
+				}
+				while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
+					rightBeforeAnchorPos--;
+				}
+				// addAnchor("before", leftAnchorPos, rightAnchorPos, null);
+
+				if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
+					leftAfterAnchorPos = leftPos + leftLen;
+					rightAfterAnchorPos = rightPos + rightLen;
+					// 줄바꿈 문자 위치까지 스킵
+
+					if (leftText[leftBeforeAnchorPos] !== "\n") {
+						do {
+							leftBeforeAnchorPos++;
+						} while (leftBeforeAnchorPos < leftText.length && leftText[leftBeforeAnchorPos] !== "\n");
+					}
+					if (rightText[rightBeforeAnchorPos] !== "\n") {
+						do {
+							rightBeforeAnchorPos++;
+						} while (rightBeforeAnchorPos < rightText.length && rightText[rightBeforeAnchorPos] !== "\n");
+					}
+
+					// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
+					// 	leftAnchorPos++;
+					// }
+					// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
+					// 	rightAnchorPos++;
+					// }
+					// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
+				}
+			}
+		} else {
+			let longSideText, shortSideText;
+			let longSideIndex, longSideCount, longSideTokens;
+			let shortSideIndex, shortSideTokens;
+			let longSidePos, longSideLen;
+			let shortSidePos, shortSideLen;
+			let longSideStartPos, shortSideStart;
+			let longSideEndPos, shortSideEnd;
+			let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
+			let longSideAfterAnchorPos, shortSideAfterAnchorPos;
+			let longSideTokenStart, longSideTokenEnd;
+			let shortSideBeforeToken, shortSideAfterToken;
+
+			if (leftCount > 0) {
+				longSideText = leftText;
+				longSideTokens = leftTokens;
+				longSideIndex = leftIndex;
+				longSideCount = leftCount;
+				shortSideText = rightText;
+				shortSideTokens = rightTokens;
+				shortSideIndex = rightIndex;
+				longSideStartPos = 0;
+				shortSideStart = 0;
+				longSideEndPos = leftText.length;
+				shortSideEnd = rightText.length;
+				leftEmpty = false;
+				rightEmpty = true;
+			} else {
+				longSideText = rightText;
+				longSideTokens = rightTokens;
+				longSideIndex = rightIndex;
+				longSideCount = rightCount;
+				shortSideText = leftText;
+				shortSideTokens = leftTokens;
+				shortSideIndex = leftIndex;
+				longSideStartPos = 0;
+				shortSideStart = 0;
+				longSideEndPos = leftText.length;
+				shortSideEnd = rightText.length;
+				leftEmpty = true;
+				rightEmpty = false;
+			}
+			longSideTokenStart = longSideTokens[longSideIndex];
+			longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
+			shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
+			shortSideAfterToken = shortSideTokens[shortSideIndex];
+
+			longSidePos = longSideTokenStart.pos;
+			longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
+			shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
+			shortSideLen = 0;
+
+			const longSideIsFirstWord = longSideTokenStart.flags & FIRST_OF_LINE;
+			const longSideIsLastWord = longSideTokenEnd.flags & LAST_OF_LINE;
+			const shortSideIsOnLineEdge =
+				shortSideTokens.length === 0 ||
+				(shortSideBeforeToken && shortSideBeforeToken.flags & FIRST_OF_LINE) ||
+				(shortSideAfterToken && shortSideAfterToken.flags & FIRST_OF_LINE);
+
+			// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
+			if (shortSideIsOnLineEdge) {
+				// 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
+				if (longSideIsFirstWord) {
+					if (shortSidePos !== 0) {
+						// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
+						// 주의: 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함. 잊지말고 꼭 붙일 것.
+						while (shortSideText[shortSidePos++] !== "\n");
+					}
+
+					// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커를 추가하기에 좋은 날씨
+					longSideBeforeAnchorPos = longSidePos;
+					shortSideBeforeAnchorPos = shortSidePos;
+					if (longSideIsLastWord) {
+						longSideAfterAnchorPos = longSidePos + longSideLen;
+						shortSideAfterAnchorPos = shortSidePos;
+					}
+				}
+			}
+
+			if (leftCount > 0) {
+				leftPos = longSidePos;
+				leftLen = longSideLen;
+				leftEmpty = false;
+				leftBeforeAnchorPos = longSideBeforeAnchorPos;
+				leftAfterAnchorPos = longSideAfterAnchorPos;
+				rightPos = shortSidePos;
+				rightLen = shortSideLen;
+				rightEmpty = true;
+				rightBeforeAnchorPos = shortSideBeforeAnchorPos;
+				rightAfterAnchorPos = shortSideAfterAnchorPos;
+			} else {
+				leftPos = shortSidePos;
+				leftLen = shortSideLen;
+				leftEmpty = true;
+				leftBeforeAnchorPos = shortSideBeforeAnchorPos;
+				leftAfterAnchorPos = shortSideAfterAnchorPos;
+				rightPos = longSidePos;
+				rightLen = longSideLen;
+				rightEmpty = false;
+				rightBeforeAnchorPos = longSideBeforeAnchorPos;
+				rightAfterAnchorPos = longSideAfterAnchorPos;
+			}
+		}
+
+		if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
+			addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
+		}
+		if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
+			addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
+		}
+
+		diffs.push({
+			type: entry.type,
+			left: {
+				pos: leftPos,
+				len: leftLen,
+				empty: leftEmpty,
+			},
+			right: {
+				pos: rightPos,
+				len: rightLen,
+				empty: rightEmpty,
+			},
+		});
+	}
+
+	return { diffs: diffs, anchors };
+	// return entries;
+}
+
+async function runMyersDiff(ctx: WorkContext): Promise<DiffResult> {
+	const leftText = ctx.leftText;
+	const rightText = ctx.rightText;
+	const leftTokens = tokenize(leftText, ctx.options.tokenization);
+	const rightTokens = tokenize(rightText, ctx.options.tokenization);
+	const vectorSize = (leftTokens.length + rightTokens.length + 1) * 2;
+	const vectorDown = new Array(vectorSize); //.fill(0);
+	const vectorUp = new Array(vectorSize); //.fill(0);
+	const diffs = await myersDiff(leftTokens, 0, leftTokens.length, rightTokens, 0, rightTokens.length, vectorUp, vectorDown, ctx);
+	return postProcess(diffs, leftText, rightText, leftTokens, rightTokens);
 }

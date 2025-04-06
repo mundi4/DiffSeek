@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+	<meta charset="UTF-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1.0">
+	<title>temp</title>
+	<script>
+		"use strict";
+
+		const DIFF_BY_CHAR = 1;
+		const DIFF_BY_WORD = 2;
+		const DIFF_BY_LINE = 3;
+		const TOKEN_CACHE_SIZE = 2;
+
+		// token flags
+		const FIRST_OF_LINE = 1;
+		const LAST_OF_LINE = 2;
+		const WILD_CARD = 16;
+		const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
+
+		const SPACE_CHARS = {
+			" ": true,
+			"\t": true,
+			"\n": true,
+			"\r": true, // 글쎄...
+			"\f": true, // 이것들은...
+			"\v": true, // 볼일이 없을것...
+		};
+
+		const normalizeChars = {};
+
+		//let greedyMatch = false;
+
+		function insertNormalizeChar(chars) {
+			const norm = chars[0];
+			normalizeChars[norm] = norm;
+			for (let i = 1; i < chars.length; i++) {
+				normalizeChars[chars[i]] = norm;
+			}
+		}
+
+		// const decoder = new TextDecoder();
+		let _nextWork = null;
+		let _currentWork = null;
+
+		const tokenCache = {
+			[DIFF_BY_CHAR]: [],
+			[DIFF_BY_WORD]: [],
+			[DIFF_BY_LINE]: [],
+		};
+
+		function createTrieNode() {
+			const children = {};
+			function next(char) {
+				return char === " " ? this : children[char] || null;
+			}
+
+			function addChild(char) {
+				if (!children[char]) {
+					children[char] = createTrieNode();
+				}
+				return children[char];
+			}
+			return { next, addChild, word: null, flags: null };
+		}
+
+		function createTrie() {
+			const root = createTrieNode();
+
+			function insert(word, flags = 0) {
+				let node = root;
+				for (const char of word) {
+					node = node.addChild(char);
+				}
+				node.word = word;
+				node.flags = flags;
+			}
+
+			return { insert, root };
+		}
+
+		// wildcards.
+		// 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
+		// 와일드카드diff인 경우 다른 diff와 병합되지 않으면 좋지만 와일드카드가 얼마나 greedy하게 반대쪽 텍스트를 잡아먹어야 할지
+		// 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
+		// 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
+		// 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
+		const Trie = createTrie();
+		Trie.insert("(추가)", WILD_CARD);
+		Trie.insert("(삭제)", WILD_CARD);
+		Trie.insert("(신설)", WILD_CARD);
+		Trie.insert("(생략)", WILD_CARD);
+		Trie.insert("(현행과같음)", WILD_CARD);
+
+		const TrieRoot = Trie.root;
+		const WildcardNode = Trie.root.next("(");
+
+		self.onmessage = (e) => {
+			if (e.data.type === "diff") {
+				const work = {
+					reqId: e.data.reqId,
+					leftText: e.data.left,
+					rightText: e.data.right,
+					...e.data.options,
+					cancel: false,
+				};
+				if (_currentWork) {
+					_currentWork.cancel = true;
+					_nextWork = work;
+					return;
+				}
+				runDiff(work);
+			} else if (e.data.type === "normalizeChars") {
+				insertNormalizeChar(e.data.chars);
+				// } else if (e.data.type === "option") {
+				// 	if (e.data.key === "greedyMatch") {
+				// 		greedyMatch = e.data.value;
+				// 	}
+			}
+		};
+
+		async function runDiff(work) {
+			_currentWork = work;
+			// const leftText = decoder.decode(work.left);
+			// const rightText = decoder.decode(work.right);
+			// const leftText = work.left;
+			// const rightText = work.right;
+			try {
+				work.lastYield = work.start = performance.now();
+				self.postMessage({
+					reqId: work.reqId,
+					type: "start",
+					start: work.start,
+				});
+				const results = await computeDiff({
+					...work,
+					ctx: work,
+				});
+				work.finish = performance.now();
+				//console.log("Elapsed time:", work.finish - work.start);
+				_currentWork = null;
+				if (results) {
+					self.postMessage({
+						reqId: work.reqId,
+						type: "diffs",
+						diffs: results.diffs,
+						anchors: results.anchors,
+					});
+				} else {
+					// console.debug("Diff canceled");
+				}
+			} catch (e) {
+				if (e.message === "cancelled") {
+					// console.debug("Diff canceled");
+				} else {
+					console.error(e);
+				}
+			}
+			[work, _nextWork] = [_nextWork, null];
+			if (work) {
+				return await runDiff(work);
+			}
+		}
+
+		function checkIfFirstOfLine(input, pos) {
+			pos--;
+			while (pos >= 0) {
+				if (input[pos] === "\n") {
+					break;
+				} else if (!SPACE_CHARS[input[pos]]) {
+					return false;
+				}
+				pos--;
+			}
+			return true;
+		}
+
+		function tokenizeByChar(input, inputPos = undefined, inputEnd = undefined, baseLineNum = undefined) {
+			const tokens = [];
+			let lineCount = 0;
+			let flags = 0;
+			if (inputPos === undefined) {
+				inputPos = 0;
+			}
+			if (inputEnd === undefined) {
+				inputEnd = input.length;
+			}
+			if (baseLineNum === undefined) {
+				baseLineNum = 1;
+			}
+
+			for (let i = inputPos; i < inputEnd; i++) {
+				const char = input[i];
+				if (!SPACE_CHARS[char]) {
+					if (char === "(") {
+						let p = i + 1;
+						let found = null;
+						for (let node = WildcardNode; p < inputEnd && (node = node.next(input[p++])) !== null;) {
+							if (node.word !== null) {
+								found = node;
+								break;
+							}
+						}
+						if (found) {
+							flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+							tokens.push({
+								text: found.word,
+								pos: i,
+								len: p - i,
+								lineNum: baseLineNum + lineCount,
+								flags: flags | found.flags,
+							});
+							flags = 0;
+							i = p - 1;
+							continue;
+						}
+					}
+					flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+					tokens.push({
+						text: char,
+						pos: i,
+						len: 1,
+						lineNum: baseLineNum + lineCount,
+						flags,
+					});
+					flags = 0;
+				}
+				if (char === "\n") {
+					lineCount++;
+					flags = FIRST_OF_LINE;
+					if (tokens.length > 0) {
+						tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+					}
+				}
+			}
+
+			if (tokens.length > 0) {
+				let p = inputEnd;
+				while (p <= input.length) {
+					if (p === input.length || input[p] === "\n") {
+						tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+						break;
+					} else if (!SPACE_CHARS[input[p]]) {
+						break;
+					}
+					p++;
+				}
+			}
+
+			//console.log("tokenizeByChar", tokens);
+			return tokens;
+		}
+
+		function normalize(text) {
+			let result = "";
+			for (let i = 0; i < text.length; i++) {
+				const char = text[i];
+				result += normalizeChars[char] || char;
+			}
+			return result;
+		}
+
+		function tokenize(input, lower = undefined, upper = undefined, baseLineNum = undefined) {
+			const tokens = [];
+			let currentStart = -1;
+			let lineCount = 0;
+			let flags = 0;
+			let numTotalChars = 0;
+			if (lower === undefined) {
+				lower = 0;
+			}
+			if (upper === undefined) {
+				upper = input.length;
+			}
+			if (baseLineNum === undefined) {
+				baseLineNum = 1;
+			}
+
+			for (let i = lower; i < upper; i++) {
+				let char = input[i];
+				// 문장부호를 별개로 단어로 분리하는 방법도 생각해볼 필요가 있음.
+				// 문제는 (hello)와 (world)에서 '('만 매치되면 눈이 피곤해진다. 괄호안의 문자들이 여러줄이면 더더욱..
+				if (SPACE_CHARS[char]) {
+					if (currentStart !== -1) {
+						flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+						const len = i - currentStart;
+						tokens.push({
+							text: flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i),
+							pos: currentStart,
+							len: len,
+							lineNum: baseLineNum + lineCount,
+							flags,
+						});
+						flags = 0;
+						currentStart = -1;
+					}
+					if (char === "\n") {
+						lineCount++;
+						flags = FIRST_OF_LINE;
+						if (tokens.length > 0) {
+							tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+						}
+					}
+				} else {
+					if (normalizeChars[char]) {
+						flags |= NORMALIZE;
+						char = normalizeChars[char];
+					}
+					if (char === "(") {
+						let p = i + 1;
+						let found = null;
+						for (let node = WildcardNode; p < upper && (node = node.next(input[p++])) !== null;) {
+							if (node.word !== null) {
+								found = node;
+								break;
+							}
+						}
+						if (found) {
+							if (currentStart !== -1) {
+								flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+								tokens.push({
+									text: input.substring(currentStart, i),
+									pos: currentStart,
+									len: i - currentStart,
+									lineNum: baseLineNum + lineCount,
+									flags,
+								});
+								flags = 0;
+								currentStart = -1;
+							}
+
+							flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+							tokens.push({
+								text: found.word,
+								pos: i,
+								len: p - i,
+								lineNum: baseLineNum + lineCount,
+								flags: flags | found.flags,
+							});
+							flags = 0;
+							i = p - 1;
+							continue;
+						}
+					}
+
+					if (currentStart === -1) {
+						currentStart = i;
+					}
+				}
+			}
+
+			if (currentStart !== -1) {
+				flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+				tokens.push({
+					text: flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart),
+					pos: currentStart,
+					len: upper - currentStart,
+					lineNum: baseLineNum + lineCount,
+					flags: flags,
+				});
+			}
+
+			if (tokens.length > 0) {
+				let p = upper;
+				while (p <= input.length) {
+					if (p === input.length || input[p] === "\n") {
+						tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+						break;
+					} else if (!SPACE_CHARS[input[p]]) {
+						break;
+					}
+					p++;
+				}
+			}
+
+			//console.log("tokenizeByWord", tokens);
+			return tokens;
+		}
+
+
+
+		function matchTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper) {
+			let i = lhsLower,
+				j = rhsLower;
+			let ci = 0,
+				cj = 0;
+
+			const llen = lhsUpper;
+			const rlen = rhsUpper;
+
+			while (i < llen && j < rlen) {
+				const ltext = leftTokens[i].text;
+				const rtext = rightTokens[j].text;
+
+				const llen2 = ltext.length;
+				const rlen2 = rtext.length;
+
+				while (ci < llen2 && cj < rlen2) {
+					if (ltext[ci++] !== rtext[cj++]) return false;
+				}
+
+				if (ci >= ltext.length) {
+					i++;
+					ci = 0;
+				}
+				if (cj >= rtext.length) {
+					j++;
+					cj = 0;
+				}
+
+				if (ci === 0 && cj === 0) return [i - lhsLower, j - rhsLower];
+			}
+
+			return false;
+		}
+
+		function matchTokensBackward(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper) {
+			console.log("matchTokensBackward", leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper);
+			let i = lhsUpper - 1, // Start from the last token of lhs
+				j = rhsUpper - 1; // Start from the last token of rhs
+			let ci = leftTokens[i].text.length - 1, // Start from the last character of the last token of lhs
+				cj = rightTokens[j].text.length - 1; // Start from the last character of the last token of rhs
+
+			const llen = lhsLower;
+			const rlen = rhsLower;
+
+			OUTER: while (i >= llen && j >= rlen) {
+				const ltext = leftTokens[i].text;
+				const rtext = rightTokens[j].text;
+
+				while (ci >= 0 && cj >= 0) {
+					if (ltext[ci--] !== rtext[cj--]) {
+						// console.log("false", JSON.stringify(ltext), JSON.stringify(rtext), i, lhsUpper, j, rhsUpper, ci, cj);
+						break OUTER;
+					}
+				}
+
+				// If both ci and cj are -1, we know we've exhausted the tokens
+				if (ci === -1 && cj === -1) {
+					// console.log("true", lhsUpper - i + 1, rhsUpper - j + 1, leftTokens[i], rightTokens[j]);
+					return [lhsUpper - i, rhsUpper - j]; // +1 to account for the initial token
+				}
+
+				if (ci < 0) {
+					i--; // Move to the previous token on the left
+					if (i >= llen) ci = leftTokens[i].text.length - 1;
+				}
+				if (cj < 0) {
+					j--; // Move to the previous token on the right
+					if (j >= rlen) cj = rightTokens[j].text.length - 1;
+				}
+
+
+			}
+			// console.log("false")
+			return false;
+		}
+
+	</script>
+	<script src="myers.js"></script>
+</head>
+
+<body>
+</body>
+
+</html>

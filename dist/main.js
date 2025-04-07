@@ -15,7 +15,7 @@ const DiffSeek = (function () {
     let _syncEditor = false;
     let _resetCurrentlyScrollingEditorId = null;
     const _diffOptions = {
-        algorithm: "myers",
+        algorithm: "histogram",
         tokenization: 2,
         greedyMatch: true,
         useFallback: true,
@@ -26,38 +26,35 @@ const DiffSeek = (function () {
     const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
     leftEditor.wrapper.tabIndex = 100;
     rightEditor.wrapper.tabIndex = 101;
-    leftEditor.editor.innerHTML = `<div>@@@
-type TokenCacheEntry = {
-	text: string;
-	tokens: Token[];
-};
-
-const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-	[TOKENIZE_BY_CHAR]: [],
-	[TOKENIZE_BY_WORD]: [],
-	[TOKENIZE_BY_LINE]: [],
-};
-
-type TrieNode = {
-	next: (char: string | number) => TrieNode | null;
-	addChild: (char: string | number) => TrieNode;
-	word: string | null;
-	flags: number | null;
-};</div>`;
-    rightEditor.editor.innerHTML = `<div>@@@
-const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-	[TOKENIZE_BY_CHAR]: [],
-	[TOKENIZE_BY_WORD]: [],
-	[TOKENIZE3_BY_LINE]: [],
-};
-
-type TrieNode = {
-	next: (char: string | number) => TrieNode | null;
-	addChild: (char: string | number) => TrieNode;
-	word: string | null;
-	fl3ags: number | null;1
-};
-</div>`;
+    // 	leftEditor.editor.innerHTML = `<div>@@@
+    // type TokenCacheEntry = {
+    // 	text: string;
+    // 	tokens: Token[];
+    // };
+    // const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+    // 	[TOKENIZE_BY_CHAR]: [],
+    // 	[TOKENIZE_BY_WORD]: [],
+    // 	[TOKENIZE_BY_LINE]: [],
+    // };
+    // type TrieNode = {
+    // 	next: (char: string | number) => TrieNode | null;
+    // 	addChild: (char: string | number) => TrieNode;
+    // 	word: string | null;
+    // 	flags: number | null;
+    // };</div>`;
+    // 	rightEditor.editor.innerHTML = `<div>@@@
+    // const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+    // 	[TOKENIZE_BY_CHAR]: [],
+    // 	[TOKENIZE_BY_WORD]: [],
+    // 	[TOKENIZE3_BY_LINE]: [],
+    // };
+    // type TrieNode = {
+    // 	next: (char: string | number) => TrieNode | null;
+    // 	addChild: (char: string | number) => TrieNode;
+    // 	word: string | null;
+    // 	fl3ags: number | null;1
+    // };
+    // </div>`;
     // rightEditor.editor.innerHTML = `<div>111
     // </div>`;
     const body = document.querySelector("body");

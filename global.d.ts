@@ -14,10 +14,10 @@ declare type DiffEntrySide = {
 	text?: string;
 };
 
-declare type DiffType = "insert" | "delete" | "replace" | "equal";
+declare type DiffType = 0 | 1 | 2 | 3;
 
 declare type DiffEntry = {
-	type: 0 | 1 | 2 | 3;
+	type: DiffType;
 	left: DiffEntrySide;
 	right: DiffEntrySide;
 };

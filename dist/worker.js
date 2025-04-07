@@ -58,6 +58,7 @@ function createTrie() {
 }
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
+// 글자단위로 토큰화하는 경우에도 얘네들은 (...) 통채로 하나의 토큰으로 취급.
 // 와일드카드diff인 경우 다른 diff와 병합되지 않으면 좋지만 와일드카드가 얼마나 greedy하게 반대쪽 텍스트를 잡아먹어야 할지
 // 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
 // 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
@@ -81,6 +82,8 @@ self.onmessage = (e) => {
             start: 0,
             finish: 0,
             lastYield: 0,
+            entries: [],
+            states: {},
         };
         if (_currentWork) {
             _currentWork.cancel = true;
@@ -110,11 +113,13 @@ async function runDiff(work) {
             type: "start",
             start: work.start,
         });
+        console.log("algo:", work.options.algorithm);
         let results = undefined;
         console.log(work.options);
-        if (work.options.algorithm === "myers") {
-            const lhsTokens = tokenize(work.leftText, work.options.tokenization);
-            const rhsTokens = tokenize(work.rightText, work.options.tokenization);
+        if (work.options.algorithm === "histogram") {
+            results = await runHistogramDiff(work);
+        }
+        else if (work.options.algorithm === "myers") {
             results = await runMyersDiff(work);
             console.log("myers diff", results.diffs);
         }
@@ -1031,168 +1036,174 @@ function matchTokensBackward(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
     // console.log("false")
     return false;
 }
-async function myersDiff(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, vectorUp = [], vectorDown = [], ctx) {
-    // Recursively calculate the diff for the left and right parts
-    const diffs = [];
-    const now = performance.now();
-    if (now - ctx.lastYield > 100) {
-        ctx.lastYield = now;
-        await new Promise((resolve) => setTimeout(resolve, 0));
-        if (ctx.cancel) {
-            throw new Error("cancelled");
-        }
-    }
-    // Skip common prefix
-    let matchedCount;
-    while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
-        // 일단 빠른 비교!
-        if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
-            diffs.push({
-                type: 0,
-                left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
-                right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
-            });
-            lhsLower++;
-            rhsLower++;
-        }
-        else if (
-        // 깡으로 매칭해보기 ㅋ
-        lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
-            lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] && // 첫글자까지는 일단 체크해보고
-            (matchedCount = matchTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
-            diffs.push({
-                type: 0,
-                left: { pos: lhsLower, len: matchedCount[0], text: lhsTokens[lhsLower].text },
-                right: { pos: rhsLower, len: matchedCount[1], text: rhsTokens[rhsLower].text },
-            });
-            // console.log("matchedCount", matchedCount);
-            lhsLower += matchedCount[0];
-            rhsLower += matchedCount[1];
-        }
-        else {
-            break;
-        }
-    }
-    // Skip common suffix
-    const tailDiffs = [];
-    while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
-        if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
-            tailDiffs.push({
-                type: 0,
-                left: { pos: lhsUpper - 1, len: 1, text: lhsTokens[lhsUpper - 1].text },
-                right: { pos: rhsUpper - 1, len: 1, text: rhsTokens[rhsUpper - 1].text },
-            });
-            lhsUpper--;
-            rhsUpper--;
-        }
-        else if (lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
-            lhsTokens[lhsUpper - 1].text[lhsTokens[lhsUpper - 1].text.length - 1] === rhsTokens[rhsUpper - 1].text[rhsTokens[rhsUpper - 1].text.length - 1] && // 첫글자까지는 일단 체크해보고...
-            (matchedCount = matchTokensBackward(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
-            // console.log("matchedCountBACKWARD", matchedCount);
-            tailDiffs.push({
-                type: 0,
-                left: { pos: lhsUpper - matchedCount[0], len: matchedCount[0], text: lhsTokens[lhsUpper - matchedCount[0]].text },
-                right: { pos: rhsUpper - matchedCount[1], len: matchedCount[1], text: rhsTokens[rhsUpper - matchedCount[1]].text },
-            });
-            lhsUpper -= matchedCount[0];
-            rhsUpper -= matchedCount[1];
-        }
-        else {
-            break;
-        }
-    }
-    if (lhsLower === lhsUpper) {
-        console.log("222", lhsUpper, lhsLower, rhsUpper, rhsLower);
-        while (rhsLower < rhsUpper) {
-            diffs.push({
-                type: 2,
-                left: { pos: lhsLower, len: 0, text: "" },
-                right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
-            });
-            rhsLower++;
-        }
-    }
-    else if (rhsLower === rhsUpper) {
-        console.log("111", lhsUpper, lhsLower, rhsUpper, rhsLower);
-        while (lhsLower < lhsUpper) {
-            diffs.push({
-                type: 1,
-                left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
-                right: { pos: rhsLower, len: 0, text: "" },
-            });
-            lhsLower++;
-        }
-    }
-    else {
-        // Find the shortest middle snake between lhs and rhs
-        // console.log("BEFORE SNAKE", {
-        // 	lhsLower,
-        // 	lhsUpper,
-        // 	rhsLower,
-        // 	rhsUpper,
-        // 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
-        // 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
-        // });
-        const middleSnake = getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, vectorUp, vectorDown);
-        // console.log("SNAKE DONE", {
-        // 	lhsLower,
-        // 	lhsUpper,
-        // 	rhsLower,
-        // 	rhsUpper,
-        // 	middleSnake,
-        // 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
-        // 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
-        // });
-        if (middleSnake.x > lhsLower || middleSnake.y > rhsLower) {
-            // console.log("middleSnake!!!", middleSnake, lhsLower, lhsUpper, rhsLower, rhsUpper);
-            // Left part of the text (lhsLower to middleSnake.x)
-            const leftDiff = await myersDiff(lhsTokens, lhsLower, middleSnake.x, rhsTokens, rhsLower, middleSnake.y, vectorUp, vectorDown, ctx);
-            // Right part of the text (middleSnake.x to lhsUpper)
-            const rightDiff = await myersDiff(lhsTokens, middleSnake.x, lhsUpper, rhsTokens, middleSnake.y, rhsUpper, vectorUp, vectorDown, ctx);
-            // Combine the left and right diffs
-            diffs.push(...leftDiff, ...rightDiff);
-        }
-        else {
-            console.warn("no middle snake", lhsLower, lhsUpper, rhsLower, rhsUpper, middleSnake);
-            // If no middle snake found, this means we're at the base case and just need to add the diff
-            let diff = {
-                type: 0,
-                left: { pos: lhsLower, len: lhsUpper - lhsLower, text: "" },
-                right: { pos: rhsLower, len: rhsUpper - rhsLower, text: "" },
-            };
-            console.log("diff????");
-            // Only push the diff if there is a change
-            if (diff.left.len > 0 || diff.right.len > 0) {
-                // If there is a left change
-                if (lhsUpper - lhsLower > 0) {
-                    diff.left.text = lhsTokens
-                        .slice(lhsLower, lhsUpper)
-                        .map((t) => t.text)
-                        .join(" ");
-                    diff.type |= 1;
-                    console.log("zzzzz");
-                }
-                // If there is a right change
-                if (rhsUpper - rhsLower > 0) {
-                    diff.right.text = rhsTokens
-                        .slice(rhsLower, rhsUpper)
-                        .map((t) => t.text)
-                        .join(" ");
-                    diff.type |= 2;
-                    console.log("xxxxx");
-                }
-                console.log("????");
-                diffs.push(diff);
-            }
-        }
-    }
-    // Add the tail diffs to the result
-    for (let i = tailDiffs.length - 1; i >= 0; i--) {
-        diffs.push(tailDiffs[i]);
-    }
-    return diffs;
-}
-function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, vectorU, vectorD) {
+// async function myersDiff(
+// 	lhsTokens: Token[],
+// 	lhsLower: number,
+// 	lhsUpper: number,
+// 	rhsTokens: Token[],
+// 	rhsLower: number,
+// 	rhsUpper: number,
+// 	vectorDown: number[] = [],
+// 	vectorUp: number[] = [],
+// 	ctx: WorkContext
+// ): Promise<DiffEntry[]> {
+// 	// Recursively calculate the diff for the left and right parts
+// 	const diffs: DiffEntry[] = [];
+// 	const now = performance.now();
+// 	if (now - ctx.lastYield > 100) {
+// 		ctx.lastYield = now;
+// 		await new Promise((resolve) => setTimeout(resolve, 0));
+// 		if (ctx.cancel) {
+// 			throw new Error("cancelled");
+// 		}
+// 	}
+// 	// Skip common prefix
+// 	let matchedCount;
+// 	while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+// 		// 일단 빠른 비교!
+// 		if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
+// 			diffs.push({
+// 				type: 0,
+// 				left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
+// 				right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
+// 			});
+// 			lhsLower++;
+// 			rhsLower++;
+// 		} else if (
+// 			// 깡으로 매칭해보기 ㅋ
+// 			lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
+// 			lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] && // 첫글자까지는 일단 체크해보고
+// 			(matchedCount = matchTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+// 		) {
+// 			diffs.push({
+// 				type: 0,
+// 				left: { pos: lhsLower, len: matchedCount[0], text: lhsTokens[lhsLower].text },
+// 				right: { pos: rhsLower, len: matchedCount[1], text: rhsTokens[rhsLower].text },
+// 			});
+// 			// console.log("matchedCount", matchedCount);
+// 			lhsLower += matchedCount[0];
+// 			rhsLower += matchedCount[1];
+// 		} else {
+// 			break;
+// 		}
+// 	}
+// 	// Skip common suffix
+// 	const tailDiffs: DiffEntry[] = [];
+// 	while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
+// 		if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
+// 			tailDiffs.push({
+// 				type: 0,
+// 				left: { pos: lhsUpper - 1, len: 1, text: lhsTokens[lhsUpper - 1].text },
+// 				right: { pos: rhsUpper - 1, len: 1, text: rhsTokens[rhsUpper - 1].text },
+// 			});
+// 			lhsUpper--;
+// 			rhsUpper--;
+// 		} else if (
+// 			lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length && // 여기까지 왔는데 길이가 같다면 다른 문자열...이겠지
+// 			lhsTokens[lhsUpper - 1].text[lhsTokens[lhsUpper - 1].text.length - 1] === rhsTokens[rhsUpper - 1].text[rhsTokens[rhsUpper - 1].text.length - 1] && // 첫글자까지는 일단 체크해보고...
+// 			(matchedCount = matchTokensBackward(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+// 		) {
+// 			// console.log("matchedCountBACKWARD", matchedCount);
+// 			tailDiffs.push({
+// 				type: 0,
+// 				left: { pos: lhsUpper - matchedCount[0], len: matchedCount[0], text: lhsTokens[lhsUpper - matchedCount[0]].text },
+// 				right: { pos: rhsUpper - matchedCount[1], len: matchedCount[1], text: rhsTokens[rhsUpper - matchedCount[1]].text },
+// 			});
+// 			lhsUpper -= matchedCount[0];
+// 			rhsUpper -= matchedCount[1];
+// 		} else {
+// 			break;
+// 		}
+// 	}
+// 	if (lhsLower === lhsUpper) {
+// 		console.log("222", lhsUpper, lhsLower, rhsUpper, rhsLower);
+// 		while (rhsLower < rhsUpper) {
+// 			diffs.push({
+// 				type: 2,
+// 				left: { pos: lhsLower, len: 0, text: "" },
+// 				right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
+// 			});
+// 			rhsLower++;
+// 		}
+// 	} else if (rhsLower === rhsUpper) {
+// 		console.log("111", lhsUpper, lhsLower, rhsUpper, rhsLower);
+// 		while (lhsLower < lhsUpper) {
+// 			diffs.push({
+// 				type: 1,
+// 				left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
+// 				right: { pos: rhsLower, len: 0, text: "" },
+// 			});
+// 			lhsLower++;
+// 		}
+// 	} else {
+// 		// Find the shortest middle snake between lhs and rhs
+// 		// console.log("BEFORE SNAKE", {
+// 		// 	lhsLower,
+// 		// 	lhsUpper,
+// 		// 	rhsLower,
+// 		// 	rhsUpper,
+// 		// 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
+// 		// 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
+// 		// });
+// 		const middleSnake = getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, vectorUp, vectorDown);
+// 		// console.log("SNAKE DONE", {
+// 		// 	lhsLower,
+// 		// 	lhsUpper,
+// 		// 	rhsLower,
+// 		// 	rhsUpper,
+// 		// 	middleSnake,
+// 		// 	lhsTokens: lhsTokens.slice(lhsLower, lhsUpper),
+// 		// 	rhsTokens: rhsTokens.slice(rhsLower, rhsUpper),
+// 		// });
+// 		if (middleSnake.x > lhsLower || middleSnake.y > rhsLower) {
+// 			// console.log("middleSnake!!!", middleSnake, lhsLower, lhsUpper, rhsLower, rhsUpper);
+// 			// Left part of the text (lhsLower to middleSnake.x)
+// 			const leftDiff = await myersDiff(lhsTokens, lhsLower, middleSnake.x, rhsTokens, rhsLower, middleSnake.y, vectorDown, vectorUp, ctx);
+// 			// Right part of the text (middleSnake.x to lhsUpper)
+// 			const rightDiff = await myersDiff(lhsTokens, middleSnake.x, lhsUpper, rhsTokens, middleSnake.y, rhsUpper, vectorDown, vectorUp, ctx);
+// 			// Combine the left and right diffs
+// 			diffs.push(...leftDiff, ...rightDiff);
+// 		} else {
+// 			console.warn("no middle snake", lhsLower, lhsUpper, rhsLower, rhsUpper, middleSnake);
+// 			// If no middle snake found, this means we're at the base case and just need to add the diff
+// 			let diff: DiffEntry = {
+// 				type: 0,
+// 				left: { pos: lhsLower, len: lhsUpper - lhsLower, text: "" },
+// 				right: { pos: rhsLower, len: rhsUpper - rhsLower, text: "" },
+// 			};
+// 			console.log("diff????");
+// 			// Only push the diff if there is a change
+// 			if (diff.left.len > 0 || diff.right.len > 0) {
+// 				// If there is a left change
+// 				if (lhsUpper - lhsLower > 0) {
+// 					diff.left.text = lhsTokens
+// 						.slice(lhsLower, lhsUpper)
+// 						.map((t) => t.text)
+// 						.join(" ");
+// 					diff.type |= 1;
+// 					console.log("zzzzz");
+// 				}
+// 				// If there is a right change
+// 				if (rhsUpper - rhsLower > 0) {
+// 					diff.right.text = rhsTokens
+// 						.slice(rhsLower, rhsUpper)
+// 						.map((t) => t.text)
+// 						.join(" ");
+// 					diff.type |= 2;
+// 					console.log("xxxxx");
+// 				}
+// 				console.log("????");
+// 				diffs.push(diff);
+// 			}
+// 		}
+// 	}
+// 	// Add the tail diffs to the result
+// 	for (let i = tailDiffs.length - 1; i >= 0; i--) {
+// 		diffs.push(tailDiffs[i]);
+// 	}
+// 	return diffs;
+// }
+function findMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, ctx) {
     const max = lhsTokens.length + rhsTokens.length + 1;
     const width = lhsUpper - lhsLower;
     const height = rhsUpper - rhsLower;
@@ -1219,9 +1230,10 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
     // 	maxD,
     // 	odd,
     // });
+    const { vectorDown, vectorUp } = ctx.states;
     let guard = 0;
-    vectorD[offset_down + kdown + 1] = lhsLower;
-    vectorU[offset_up + kup - 1] = lhsUpper;
+    vectorDown[offset_down + kdown + 1] = lhsLower;
+    vectorUp[offset_up + kup - 1] = lhsUpper;
     // console.log("offsetDown", offset_down, kdown, vectorD[offset_down + kdown + 1]);
     let d, k, x, y, c, px, py;
     OUTER: for (d = 0; d <= maxD; d++) {
@@ -1230,12 +1242,12 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
                 break OUTER;
             }
             if (k === kdown - d) {
-                x = vectorD[offset_down + k + 1]; //down
+                x = vectorDown[offset_down + k + 1]; //down
             }
             else {
-                x = vectorD[offset_down + k - 1] + 1; //right
-                if (k < kdown + d && vectorD[offset_down + k + 1] >= x) {
-                    x = vectorD[offset_down + k + 1]; //down
+                x = vectorDown[offset_down + k - 1] + 1; //right
+                if (k < kdown + d && vectorDown[offset_down + k + 1] >= x) {
+                    x = vectorDown[offset_down + k + 1]; //down
                 }
             }
             y = x - k;
@@ -1244,7 +1256,7 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
                 x++;
                 y++;
             }
-            vectorD[offset_down + k] = x;
+            vectorDown[offset_down + k] = x;
             // console.log("FORWARD", {
             // 	x,
             // 	y,
@@ -1257,9 +1269,9 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
             // 	"vectorDown[offsetDown + k - 1]": vectorD[offset_down + k - 1],
             // });
             if (odd && kup - d < k && k < kup + d) {
-                if (vectorU[offset_up + k] <= vectorD[offset_down + k]) {
-                    ret.x = vectorD[offset_down + k];
-                    ret.y = vectorD[offset_down + k] - k;
+                if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+                    ret.x = vectorDown[offset_down + k];
+                    ret.y = vectorDown[offset_down + k] - k;
                     return ret;
                 }
             }
@@ -1267,12 +1279,12 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
         for (k = kup - d; k <= kup + d; k += 2) {
             // find the only or better starting point
             if (k === kup + d) {
-                x = vectorU[offset_up + k - 1]; // up
+                x = vectorUp[offset_up + k - 1]; // up
             }
             else {
-                x = vectorU[offset_up + k + 1] - 1; // left
-                if (k > kup - d && vectorU[offset_up + k - 1] < x)
-                    x = vectorU[offset_up + k - 1]; // up
+                x = vectorUp[offset_up + k + 1] - 1; // left
+                if (k > kup - d && vectorUp[offset_up + k - 1] < x)
+                    x = vectorUp[offset_up + k - 1]; // up
             }
             y = x - k;
             while (x > lhsLower && y > rhsLower && lhsTokens[x - 1].text === rhsTokens[y - 1].text) {
@@ -1280,7 +1292,7 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
                 x--;
                 y--;
             }
-            vectorU[offset_up + k] = x;
+            vectorUp[offset_up + k] = x;
             // console.log("BACKWARD", {
             // 	x,
             // 	y,
@@ -1294,15 +1306,15 @@ function getShortestMiddleSnake(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLow
             // });
             // overlap ?
             if (!odd && kdown - d <= k && k <= kdown + d) {
-                if (vectorU[offset_up + k] <= vectorD[offset_down + k]) {
-                    ret.x = vectorD[offset_down + k];
-                    ret.y = vectorD[offset_down + k] - k;
+                if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+                    ret.x = vectorDown[offset_down + k];
+                    ret.y = vectorDown[offset_down + k] - k;
                     return ret;
                 }
             }
         }
     }
-    return ret;
+    return null;
     // throw new Error("No middle snake found");
     // return { x: lhsLower - 1, y: rhsLower - 1 };
     // return { x: -1, y: -1 }; // No snake found
@@ -1410,8 +1422,8 @@ function postProcess(entries, leftText, rightText, leftTokens, rightTokens) {
             continue;
         }
         const { left: { pos: leftIndex, len: leftCount }, right: { pos: rightIndex, len: rightCount }, } = entry;
-        console.assert(!!leftCount === !!(entry.type & 1));
-        console.assert(!!rightCount === !!(entry.type & 2));
+        console.assert(!!leftCount === !!(entry.type & 1), entry, leftCount);
+        console.assert(!!rightCount === !!(entry.type & 2), entry, rightCount);
         let leftPos, leftLen, rightPos, rightLen;
         let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos;
         let leftEmpty, rightEmpty;
@@ -1466,8 +1478,6 @@ function postProcess(entries, leftText, rightText, leftTokens, rightTokens) {
             let shortSideIndex, shortSideTokens;
             let longSidePos, longSideLen;
             let shortSidePos, shortSideLen;
-            let longSideStartPos, shortSideStart;
-            let longSideEndPos, shortSideEnd;
             let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
             let longSideAfterAnchorPos, shortSideAfterAnchorPos;
             let longSideTokenStart, longSideTokenEnd;
@@ -1480,10 +1490,6 @@ function postProcess(entries, leftText, rightText, leftTokens, rightTokens) {
                 shortSideText = rightText;
                 shortSideTokens = rightTokens;
                 shortSideIndex = rightIndex;
-                longSideStartPos = 0;
-                shortSideStart = 0;
-                longSideEndPos = leftText.length;
-                shortSideEnd = rightText.length;
                 leftEmpty = false;
                 rightEmpty = true;
             }
@@ -1495,10 +1501,6 @@ function postProcess(entries, leftText, rightText, leftTokens, rightTokens) {
                 shortSideText = leftText;
                 shortSideTokens = leftTokens;
                 shortSideIndex = leftIndex;
-                longSideStartPos = 0;
-                shortSideStart = 0;
-                longSideEndPos = leftText.length;
-                shortSideEnd = rightText.length;
                 leftEmpty = true;
                 rightEmpty = false;
             }
@@ -1590,7 +1592,291 @@ async function runMyersDiff(ctx) {
     const vectorSize = (leftTokens.length + rightTokens.length + 1) * 2;
     const vectorDown = new Array(vectorSize); //.fill(0);
     const vectorUp = new Array(vectorSize); //.fill(0);
-    const diffs = await myersDiff(leftTokens, 0, leftTokens.length, rightTokens, 0, rightTokens.length, vectorUp, vectorDown, ctx);
+    ctx.states.vectorDown = vectorDown;
+    ctx.states.vectorUp = vectorUp;
+    const diffs = await diffCore(leftTokens, 0, leftTokens.length, rightTokens, 0, rightTokens.length, ctx, findMiddleSnake);
     return postProcess(diffs, leftText, rightText, leftTokens, rightTokens);
+}
+function findBestHistogramAnchorRange(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, options = {}) {
+    const useLengthBias = options.useLengthBias ?? true;
+    const freq = {};
+    // 1. 빈도 계산
+    for (let i = lhsLower; i < lhsUpper; i++) {
+        const key = lhsTokens[i].text;
+        freq[key] = (freq[key] || 0) + 1;
+    }
+    for (let i = rhsLower; i < rhsUpper; i++) {
+        const key = rhsTokens[i].text;
+        freq[key] = (freq[key] || 0) + 1;
+    }
+    // 2. 오른쪽 토큰 위치 맵
+    const rhsMap = new Map();
+    for (let i = rhsLower; i < rhsUpper; i++) {
+        const key = rhsTokens[i].text;
+        if (!rhsMap.has(key))
+            rhsMap.set(key, []);
+        rhsMap.get(key).push(i - rhsLower); // 상대 인덱스
+    }
+    // 3. 왼쪽 순회하면서 anchor 후보 찾기
+    let best = null;
+    for (let i = lhsLower; i < lhsUpper; i++) {
+        const key = lhsTokens[i].text;
+        if (!rhsMap.has(key))
+            continue;
+        let score = freq[key];
+        if (useLengthBias) {
+            score += 1 / (key.length + 1);
+        }
+        if (!best || score < best.score) {
+            best = {
+                leftIndex: i - lhsLower,
+                rightIndex: rhsMap.get(key)[0], // 첫 등장
+                token: lhsTokens[i],
+                score,
+            };
+        }
+    }
+    return best ?? null;
+}
+async function runHistogramDiff(ctx) {
+    const leftText = ctx.leftText;
+    const rightText = ctx.rightText;
+    const leftTokens = tokenize(leftText, ctx.options.tokenization);
+    const rightTokens = tokenize(rightText, ctx.options.tokenization);
+    const diffs = histogramDiff(leftTokens, rightTokens);
+    return postProcess(diffs, leftText, rightText, leftTokens, rightTokens);
+}
+function histogramDiff(lhsTokens, rhsTokens, options = {}) {
+    const results = [];
+    function getText(tokens, pos, len) {
+        return tokens
+            .slice(pos, pos + len)
+            .map((t) => t.text)
+            .join("");
+    }
+    function classify(lhsPos, lhsLen, rhsPos, rhsLen) {
+        let type = 0;
+        if (lhsLen === 0 && rhsLen > 0)
+            type = 2;
+        else if (rhsLen === 0 && lhsLen > 0)
+            type = 1;
+        else if (lhsLen > 0 && rhsLen > 0)
+            type = 3;
+        return {
+            type,
+            left: {
+                pos: lhsPos,
+                len: lhsLen,
+                text: getText(lhsTokens, lhsPos, lhsLen),
+            },
+            right: {
+                pos: rhsPos,
+                len: rhsLen,
+                text: getText(rhsTokens, rhsPos, rhsLen),
+            },
+        };
+    }
+    function recurse(lhsLower, lhsUpper, rhsLower, rhsUpper) {
+        if (lhsLower === lhsUpper && rhsLower === rhsUpper)
+            return;
+        if (lhsLower === lhsUpper) {
+            results.push(classify(lhsLower, 0, rhsLower, rhsUpper - rhsLower));
+            return;
+        }
+        if (rhsLower === rhsUpper) {
+            results.push(classify(lhsLower, lhsUpper - lhsLower, rhsLower, 0));
+            return;
+        }
+        const anchor = findBestHistogramAnchorRange(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, options);
+        if (!anchor) {
+            results.push(classify(lhsLower, lhsUpper - lhsLower, rhsLower, rhsUpper - rhsLower));
+            return;
+        }
+        const aL = lhsLower + anchor.leftIndex;
+        const aR = rhsLower + anchor.rightIndex;
+        recurse(lhsLower, aL, rhsLower, aR);
+        // Anchor 토큰은 equal
+        results.push({
+            type: 0,
+            left: {
+                pos: aL,
+                len: 1,
+                text: lhsTokens[aL].text,
+            },
+            right: {
+                pos: aR,
+                len: 1,
+                text: rhsTokens[aR].text,
+            },
+        });
+        recurse(aL + 1, lhsUpper, aR + 1, rhsUpper);
+    }
+    recurse(0, lhsTokens.length, 0, rhsTokens.length);
+    return results;
+}
+function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, rhsUpper) {
+    const head = [];
+    const tail = [];
+    let matchedCount;
+    // Prefix
+    while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+        if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
+            head.push({
+                type: 0,
+                left: { pos: lhsLower, len: 1, text: lhsTokens[lhsLower].text },
+                right: { pos: rhsLower, len: 1, text: rhsTokens[rhsLower].text },
+            });
+            lhsLower++;
+            rhsLower++;
+        }
+        else if (lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
+            lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
+            (matchedCount = matchTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
+            head.push({
+                type: 0,
+                left: {
+                    pos: lhsLower,
+                    len: matchedCount[0],
+                    text: lhsTokens
+                        .slice(lhsLower, lhsLower + matchedCount[0])
+                        .map((t) => t.text)
+                        .join(""),
+                },
+                right: {
+                    pos: rhsLower,
+                    len: matchedCount[1],
+                    text: rhsTokens
+                        .slice(rhsLower, rhsLower + matchedCount[1])
+                        .map((t) => t.text)
+                        .join(""),
+                },
+            });
+            lhsLower += matchedCount[0];
+            rhsLower += matchedCount[1];
+        }
+        else {
+            break;
+        }
+    }
+    // Suffix
+    while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
+        if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
+            tail.unshift({
+                type: 0,
+                left: { pos: lhsUpper - 1, len: 1, text: lhsTokens[lhsUpper - 1].text },
+                right: { pos: rhsUpper - 1, len: 1, text: rhsTokens[rhsUpper - 1].text },
+            });
+            lhsUpper--;
+            rhsUpper--;
+        }
+        else if (lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
+            lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
+            (matchedCount = matchTokensBackward(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
+            tail.unshift({
+                type: 0,
+                left: {
+                    pos: lhsUpper - matchedCount[0],
+                    len: matchedCount[0],
+                    text: lhsTokens
+                        .slice(lhsUpper - matchedCount[0], lhsUpper)
+                        .map((t) => t.text)
+                        .join(""),
+                },
+                right: {
+                    pos: rhsUpper - matchedCount[1],
+                    len: matchedCount[1],
+                    text: rhsTokens
+                        .slice(rhsUpper - matchedCount[1], rhsUpper)
+                        .map((t) => t.text)
+                        .join(""),
+                },
+            });
+            lhsUpper -= matchedCount[0];
+            rhsUpper -= matchedCount[1];
+        }
+        else {
+            break;
+        }
+    }
+    return [lhsLower, lhsUpper, rhsLower, rhsUpper, head, tail];
+}
+async function diffCore(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper, ctx, findAnchor) {
+    const results = ctx.entries;
+    if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
+        throw new Error("Invalid range");
+    }
+    const now = performance.now();
+    if (now - (ctx.lastYield ?? 0) > 100) {
+        ctx.lastYield = now;
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        if (ctx.cancel)
+            throw new Error("cancelled");
+    }
+    // 1. prefix/suffix 스킵
+    let skippedHead;
+    let skippedTail;
+    console.log("BEFORE CONSUME", lhsLower, lhsUpper, rhsLower, rhsUpper);
+    [lhsLower, lhsUpper, rhsLower, rhsUpper, skippedHead, skippedTail] = consumeCommonEdges(leftTokens, rightTokens, lhsLower, lhsUpper, rhsLower, rhsUpper);
+    results.push(...skippedHead);
+    // 2. 종료 조건
+    if (lhsLower === lhsUpper || rhsLower === rhsUpper) {
+        console.log("종료조건:", lhsLower, lhsUpper, rhsLower, rhsUpper);
+        if (lhsLower !== lhsUpper || rhsLower !== rhsUpper) {
+            results.push({
+                type: lhsLower === lhsUpper ? 2 : 1,
+                left: {
+                    pos: lhsLower,
+                    len: lhsUpper - lhsLower,
+                },
+                right: {
+                    pos: rhsLower,
+                    len: rhsUpper - rhsLower,
+                },
+            });
+            console.log(results[results.length - 1]);
+        }
+        results.push(...skippedTail);
+        return results;
+    }
+    // 3. anchor 찾기
+    const anchor = findAnchor(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper, ctx);
+    console.log("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
+    if (!anchor ||
+        (anchor.x <= lhsLower && anchor.y <= rhsLower)
+    //anchor.x < lhsLower || anchor.x >= lhsUpper || anchor.y < rhsLower || anchor.y >= rhsUpper
+    ) {
+        //{x: 2, y: 1} 1 2 1 1 => inifinite loop
+        // let type = ((lhsLower === lhsUpper ? 2 : 0) | (rhsLower === rhsUpper ? 1 : 0)) as DiffType;
+        let type = 0;
+        if (lhsUpper > lhsLower)
+            type |= 1;
+        if (rhsUpper > rhsLower)
+            type |= 2;
+        console.assert(type !== 0, "anchor not found", type, lhsLower, lhsUpper, rhsLower, rhsUpper, anchor);
+        results.push({
+            type: type,
+            left: {
+                pos: lhsLower,
+                len: lhsUpper - lhsLower,
+            },
+            right: {
+                pos: rhsLower,
+                len: rhsUpper - rhsLower,
+            },
+        });
+        results.push(...skippedTail);
+        return results;
+    }
+    // 4. 재귀 호출
+    console.log("재귀호출", lhsLower, lhsUpper, rhsLower, rhsUpper, anchor.x, anchor.y);
+    await diffCore(leftTokens, lhsLower, anchor.x, rightTokens, rhsLower, anchor.y, ctx, findAnchor);
+    // results.push({
+    // 	type: 0,
+    // 	left: { pos: anchor.x, len: 1 },
+    // 	right: { pos: anchor.y, len: 1 },
+    // });
+    await diffCore(leftTokens, anchor.x, lhsUpper, rightTokens, anchor.y, rhsUpper, ctx, findAnchor);
+    results.push(...skippedTail);
+    return results;
 }
 //# sourceMappingURL=worker.js.map

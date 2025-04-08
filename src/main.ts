@@ -30,41 +30,41 @@ const DiffSeek = (function () {
 	leftEditor.wrapper.tabIndex = 100;
 	rightEditor.wrapper.tabIndex = 101;
 
-// 	leftEditor.editor.innerHTML = `<div>@@@
-// type TokenCacheEntry = {
-// 	text: string;
-// 	tokens: Token[];
-// };
+	// 	leftEditor.editor.innerHTML = `<div>@@@
+	// type TokenCacheEntry = {
+	// 	text: string;
+	// 	tokens: Token[];
+	// };
 
-// const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-// 	[TOKENIZE_BY_CHAR]: [],
-// 	[TOKENIZE_BY_WORD]: [],
-// 	[TOKENIZE_BY_LINE]: [],
-// };
+	// const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+	// 	[TOKENIZE_BY_CHAR]: [],
+	// 	[TOKENIZE_BY_WORD]: [],
+	// 	[TOKENIZE_BY_LINE]: [],
+	// };
 
-// type TrieNode = {
-// 	next: (char: string | number) => TrieNode | null;
-// 	addChild: (char: string | number) => TrieNode;
-// 	word: string | null;
-// 	flags: number | null;
-// };</div>`;
+	// type TrieNode = {
+	// 	next: (char: string | number) => TrieNode | null;
+	// 	addChild: (char: string | number) => TrieNode;
+	// 	word: string | null;
+	// 	flags: number | null;
+	// };</div>`;
 
-// 	rightEditor.editor.innerHTML = `<div>@@@
-// const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-// 	[TOKENIZE_BY_CHAR]: [],
-// 	[TOKENIZE_BY_WORD]: [],
-// 	[TOKENIZE3_BY_LINE]: [],
-// };
+	// 	rightEditor.editor.innerHTML = `<div>@@@
+	// const tokenCache: { [method: number]: TokenCacheEntry[] } = {
+	// 	[TOKENIZE_BY_CHAR]: [],
+	// 	[TOKENIZE_BY_WORD]: [],
+	// 	[TOKENIZE3_BY_LINE]: [],
+	// };
 
-// type TrieNode = {
-// 	next: (char: string | number) => TrieNode | null;
-// 	addChild: (char: string | number) => TrieNode;
-// 	word: string | null;
-// 	fl3ags: number | null;1
-// };
-// </div>`;
-// rightEditor.editor.innerHTML = `<div>111
-// </div>`;
+	// type TrieNode = {
+	// 	next: (char: string | number) => TrieNode | null;
+	// 	addChild: (char: string | number) => TrieNode;
+	// 	word: string | null;
+	// 	fl3ags: number | null;1
+	// };
+	// </div>`;
+	// rightEditor.editor.innerHTML = `<div>111
+	// </div>`;
 	const body = document.querySelector("body") as HTMLBodyElement;
 	const diffList = document.getElementById("diffList") as HTMLUListElement;
 	const highlightStyle = document.getElementById("highlightStyle") as HTMLStyleElement;
@@ -92,10 +92,6 @@ const DiffSeek = (function () {
 
 		return {
 			onTextChanged: function () {
-				_diffs = null;
-				_anchors = null;
-				_currentDiffIndex = -1;
-				_alignedDirty = true;
 				computeDiff();
 			},
 
@@ -128,6 +124,11 @@ const DiffSeek = (function () {
 	}
 
 	const { computeDiff } = (function () {
+		_diffs = null;
+		_anchors = null;
+		_currentDiffIndex = -1;
+		_alignedDirty = true;
+
 		// 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
 		let workerURL;
 		const workerCode = (document.getElementById("worker.js") as HTMLElement).textContent;
@@ -309,6 +310,7 @@ const DiffSeek = (function () {
 	// reset이 간단하고 브라우저도 한번만 일을 하면 되니 더 낫지 않을까...? offsetHeight 같은 속성을 사용하면 브라우저가 매번 계산을 다시 해야한다.
 	// 위에서부터 왼쪽/오른쪽 누적 패딩을 계산하면서 내려오면 될 것 같은데...?
 	function recalculateAlignmentPaddingAndPositions() {
+		console.log("recalculateAlignmentPaddingAndPositions", _alignedDirty);
 		if (!_alignedDirty) {
 			return;
 		}
@@ -321,6 +323,7 @@ const DiffSeek = (function () {
 			return;
 		}
 
+		console.log("anchors:", anchors)
 		for (let i = 0; i < leftEditor.anchorElements.length; i++) {
 			const anchor = leftEditor.anchorElements[i];
 			anchor.style.height = "0";
@@ -360,9 +363,11 @@ const DiffSeek = (function () {
 		});
 	}
 
-	function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType) {
+	// delta = 왼쪽 위치 - 오른쪽 위치
+	// 
+	function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType, accumulatedDelta = 0) {
 		if (type === "before") {
-			const leftTop = leftAnchor.offsetTop;
+			const leftTop = leftAnchor.offsetTop; 
 			const rightTop = rightAnchor.offsetTop;
 			let topDiff = leftTop - rightTop;
 			let shortSide, longSide;
@@ -370,9 +375,11 @@ const DiffSeek = (function () {
 				shortSide = leftAnchor;
 				longSide = rightAnchor;
 				topDiff = -topDiff;
+				accumulatedDelta += topDiff;
 			} else if (topDiff > 0) {
 				shortSide = rightAnchor;
 				longSide = leftAnchor;
+				accumulatedDelta += topDiff;
 			}
 
 			if (shortSide) {
@@ -388,9 +395,11 @@ const DiffSeek = (function () {
 				shortSide = leftAnchor;
 				longSide = rightAnchor;
 				bottomDiff = -bottomDiff;
+				accumulatedDelta += bottomDiff;
 			} else if (bottomDiff > 0) {
 				shortSide = rightAnchor;
 				longSide = leftAnchor;
+				accumulatedDelta += bottomDiff;
 			}
 
 			if (shortSide) {
@@ -398,6 +407,9 @@ const DiffSeek = (function () {
 				shortSide.className = "expanded";
 			}
 		}
+
+		return accumulatedDelta;
+		
 	}
 
 	function restoreSelectionRange({ editor, startOffset, endOffset }: { editor: Editor; startOffset: number; endOffset: number }) {
@@ -832,7 +844,7 @@ animation: highlightAnimation 0.3s linear 3;
 				}
 				_diffOptions.algorithm = value;
 				computeDiff();
-			}
+			},
 		},
 	};
 })();

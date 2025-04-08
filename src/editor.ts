@@ -243,12 +243,22 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 				//const diff = diffs[currentDiffIndex];
 				if (inlineNode === null || inlineNode.nodeName !== DIFF_ELEMENT_NAME) {
 					const el = document.createElement(DIFF_ELEMENT_NAME);
-					el.textContent = chars;
+					if (chars !== "") {
+						el.textContent = chars;
+					}
 					lineEl!.insertBefore(el, inlineNode);
 					inlineNode = el;
 				} else {
-					if (inlineNode.textContent !== chars) {
-						inlineNode.textContent = chars;
+					if (chars === "") {
+						if (inlineNode.childNodes.length > 0) {
+							while (inlineNode.firstChild) {
+								inlineNode.removeChild(inlineNode.firstChild);
+							}
+						}
+					} else {
+						if (inlineNode.textContent !== chars) {
+							inlineNode.textContent = chars;
+						}
 					}
 				}
 				inlineNode.dataset.diff = currentDiffIndex.toString();
@@ -307,9 +317,12 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 				if (unwrittenDiff) {
 					appendChars("");
 				}
-				if (inlineNode === null || inlineNode.nodeType !== 3 || inlineNode.nodeValue !== "\n") {
-					lineEl.insertBefore(document.createTextNode("\n"), inlineNode);
-				}
+
+				// \n을 넣어야할지 말아야할지... 차이 비교해보기
+				// 특히 선택영역 복구할 때 문제 없는지.
+				// if (inlineNode === null || inlineNode.nodeType !== 3 || inlineNode.nodeValue !== "\n") {
+				// 	lineEl.insertBefore(document.createTextNode("\n"), inlineNode);
+				// }
 
 				while (inlineNode) {
 					const nextInlineNode = inlineNode.nextSibling as HTMLElement;
@@ -612,7 +625,6 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		},
 	};
 }
-
 
 type Editor = ReturnType<typeof createEditor>;
 type EditorName = Editor["name"];

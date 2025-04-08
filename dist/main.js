@@ -81,10 +81,6 @@ const DiffSeek = (function () {
         let updateDiffVisilitiesPending = false;
         return {
             onTextChanged: function () {
-                _diffs = null;
-                _anchors = null;
-                _currentDiffIndex = -1;
-                _alignedDirty = true;
                 computeDiff();
             },
             onMirrorUpdated: function () {
@@ -114,6 +110,10 @@ const DiffSeek = (function () {
         };
     }
     const { computeDiff } = (function () {
+        _diffs = null;
+        _anchors = null;
+        _currentDiffIndex = -1;
+        _alignedDirty = true;
         // 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
         let workerURL;
         const workerCode = document.getElementById("worker.js").textContent;
@@ -282,6 +282,7 @@ const DiffSeek = (function () {
     // reset이 간단하고 브라우저도 한번만 일을 하면 되니 더 낫지 않을까...? offsetHeight 같은 속성을 사용하면 브라우저가 매번 계산을 다시 해야한다.
     // 위에서부터 왼쪽/오른쪽 누적 패딩을 계산하면서 내려오면 될 것 같은데...?
     function recalculateAlignmentPaddingAndPositions() {
+        console.log("recalculateAlignmentPaddingAndPositions", _alignedDirty);
         if (!_alignedDirty) {
             return;
         }
@@ -291,6 +292,7 @@ const DiffSeek = (function () {
         if (!anchors) {
             return;
         }
+        console.log("anchors:", anchors);
         for (let i = 0; i < leftEditor.anchorElements.length; i++) {
             const anchor = leftEditor.anchorElements[i];
             anchor.style.height = "0";
@@ -326,7 +328,9 @@ const DiffSeek = (function () {
             rightEditor.mirror.style.height = `${height}px`;
         });
     }
-    function alignAnchor(leftAnchor, rightAnchor, type) {
+    // delta = 왼쪽 위치 - 오른쪽 위치
+    // 
+    function alignAnchor(leftAnchor, rightAnchor, type, accumulatedDelta = 0) {
         if (type === "before") {
             const leftTop = leftAnchor.offsetTop;
             const rightTop = rightAnchor.offsetTop;
@@ -336,10 +340,12 @@ const DiffSeek = (function () {
                 shortSide = leftAnchor;
                 longSide = rightAnchor;
                 topDiff = -topDiff;
+                accumulatedDelta += topDiff;
             }
             else if (topDiff > 0) {
                 shortSide = rightAnchor;
                 longSide = leftAnchor;
+                accumulatedDelta += topDiff;
             }
             if (shortSide) {
                 shortSide.style.height = `${topDiff}px`;
@@ -355,16 +361,19 @@ const DiffSeek = (function () {
                 shortSide = leftAnchor;
                 longSide = rightAnchor;
                 bottomDiff = -bottomDiff;
+                accumulatedDelta += bottomDiff;
             }
             else if (bottomDiff > 0) {
                 shortSide = rightAnchor;
                 longSide = leftAnchor;
+                accumulatedDelta += bottomDiff;
             }
             if (shortSide) {
                 shortSide.style.height = `${bottomDiff}px`;
                 shortSide.className = "expanded";
             }
         }
+        return accumulatedDelta;
     }
     function restoreSelectionRange({ editor, startOffset, endOffset }) {
         if (editor) {
@@ -752,7 +761,7 @@ animation: highlightAnimation 0.3s linear 3;
                 }
                 _diffOptions.algorithm = value;
                 computeDiff();
-            }
+            },
         },
     };
 })();

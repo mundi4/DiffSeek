@@ -9,9 +9,7 @@ declare type Token = {
 declare type DiffEntrySide = {
 	pos: number;
 	len: number;
-	line?: number;
 	empty?: boolean;
-	text?: string;
 };
 
 declare type DiffType = 0 | 1 | 2 | 3;

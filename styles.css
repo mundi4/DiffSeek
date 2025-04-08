@@ -312,7 +312,7 @@ hr {
 줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
 diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
 당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
-고민해 볼 필요가 왕왕 있다.
+고민 필요
 */
 .aligned hr[data-type="after"] + span {
 	display: block;
@@ -323,6 +323,14 @@ diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
 	background-color: hsl(0 100% 90%);
 }
 
+.aligned div {
+	
+}
+.aligned span {
+	
+	z-index: 1;
+	background: transparent;
+}
 /*
 scrolling
 */
@@ -440,3 +448,4 @@ scrolling
 #rightAnchor12-after {
 	display: inline;
 }
+

@@ -1,5 +1,8 @@
 "use strict";
 
+const MANUAL_ANCHOR1 = "@@@";
+const MANUAL_ANCHOR2 = "###";
+
 const TOKEN_CACHE_SIZE = 2;
 
 // token flags
@@ -73,24 +76,24 @@ type TrieNode = {
 	flags: number | null;
 };
 
-function createTrieNode(): TrieNode {
+function createTrieNode(ignoreSpaces:boolean): TrieNode {
 	const children: { [ch: string]: TrieNode } = {};
 
 	function next(this: TrieNode, char: string | number): TrieNode | null {
-		return char === " " ? this : children[char] || null;
+		return ignoreSpaces && char === " " ? this : children[char] || null;
 	}
 
 	function addChild(char: string | number): TrieNode {
 		if (!children[char]) {
-			children[char] = createTrieNode();
+			children[char] = createTrieNode(ignoreSpaces);
 		}
 		return children[char];
 	}
 	return { next, addChild, word: null, flags: null };
 }
 
-function createTrie() {
-	const root = createTrieNode();
+function createTrie(ignoreSpaces = false) {
+	const root = createTrieNode(ignoreSpaces);
 
 	function insert(word: string, flags = 0) {
 		let node = root;
@@ -1265,8 +1268,24 @@ function findBestHistogramAnchor(
 
 	let best: null | { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number; score: number } = null;
 
-	outer: for (let i = lhsLower; i < lhsUpper; i++) {
+	for (let i = lhsLower; i < lhsUpper; i++) {
 		const ltext1 = lhsTokens[i].text;
+
+		// 특수 케이스
+		// 강제로 문서의 특정 지점끼리 매칭시킴. 문서 구조가 항상 내 맘 같은 것이 아니야. ㅠ
+		if (ltext1 === MANUAL_ANCHOR1 || ltext1 === MANUAL_ANCHOR2) {
+			for (let j = rhsLower; j < rhsUpper; j++) {
+				if (rhsTokens[j].text === ltext1) {
+					return {
+						lhsIndex: i,
+						lhsLength: 1,
+						rhsIndex: j,
+						rhsLength: 1,
+					};
+				}
+			}
+		}
+
 		for (let j = rhsLower; j < rhsUpper; j++) {
 			const rtext1 = rhsTokens[j].text;
 

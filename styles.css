@@ -323,9 +323,7 @@ diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
 	background-color: hsl(0 100% 90%);
 }
 
-.aligned div {
-	
-}
+
 .aligned span {
 	
 	z-index: 1;

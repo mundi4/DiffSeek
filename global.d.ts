@@ -29,3 +29,34 @@ declare type Anchor = {
 	diffIndex: number | null;
 };
 
+declare type WhitespaceHandling = "ignore" | "normalize";
+
+declare type DiffAlgorithm = "lcs" | "myers" | "histogram";
+
+// declare const TOKENIZE_BY_CHAR: 1;
+// declare const TOKENIZE_BY_WORD: 2;
+// declare const TOKENIZE_BY_LINE: 3;
+declare type TokenizationMode = "char" | "word" | "line";
+
+declare type DiffOptions = {
+	algorithm: DiffAlgorithm;
+	tokenization: TokenizationMode;
+	whitespace: WhitespaceHandling;
+
+	greedyMatch?: boolean;
+	useLengthBias?: boolean;
+	maxGram: number;
+};
+
+declare type DiffRequest = {
+	type: "diff";
+	reqId: number;
+	leftText: string;
+	rightText: string;
+	options: DiffOptions;
+};
+
+declare type DiffResult = {
+	diffs: DiffEntry[];
+	anchors: Anchor[];
+};

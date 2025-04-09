@@ -16,9 +16,11 @@ const DiffSeek = (function () {
     let _resetCurrentlyScrollingEditorId = null;
     const _diffOptions = {
         algorithm: "histogram",
-        tokenization: 2,
-        greedyMatch: true,
-        useFallback: true,
+        tokenization: "word",
+        whitespace: "ignore",
+        greedyMatch: false,
+        useLengthBias: true,
+        maxGram: 5,
     };
     const useEditableMirror = false;
     const container = document.getElementById("main");
@@ -109,11 +111,7 @@ const DiffSeek = (function () {
             },
         };
     }
-    const { computeDiff } = (function () {
-        _diffs = null;
-        _anchors = null;
-        _currentDiffIndex = -1;
-        _alignedDirty = true;
+    function createWorker() {
         // 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
         let workerURL;
         const workerCode = document.getElementById("worker.js").textContent;
@@ -124,7 +122,14 @@ const DiffSeek = (function () {
             const blob = new Blob([workerCode], { type: "application/javascript" });
             workerURL = URL.createObjectURL(blob);
         }
-        const worker = new Worker(workerURL);
+        return new Worker(workerURL);
+    }
+    const { computeDiff } = (function () {
+        _diffs = null;
+        _anchors = null;
+        _currentDiffIndex = -1;
+        _alignedDirty = true;
+        const worker = createWorker();
         // 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
         // const encoder = new TextEncoder();
         function htmlEntityToChar(entity) {
@@ -174,18 +179,14 @@ const DiffSeek = (function () {
                 else {
                     reqId++;
                 }
-                worker.postMessage({
+                const request = {
                     type: "diff",
                     reqId: reqId,
                     leftText: leftEditor.text,
                     rightText: rightEditor.text,
-                    // left: encoder.encode(leftEditor.text),
-                    // right: encoder.encode(rightEditor.text),
-                    // method: _diffMethod,
-                    // useFallback: _useFallback,
-                    // greedyMatch: _greedyMatch,
                     options: _diffOptions,
-                });
+                };
+                worker.postMessage(request);
             }, COMPUTE_DEBOUNCE_TIME);
         }
         worker.onmessage = function (e) {
@@ -329,7 +330,7 @@ const DiffSeek = (function () {
         });
     }
     // delta = 왼쪽 위치 - 오른쪽 위치
-    // 
+    //
     function alignAnchor(leftAnchor, rightAnchor, type, accumulatedDelta = 0) {
         if (type === "before") {
             const leftTop = leftAnchor.offsetTop;
@@ -719,39 +720,6 @@ animation: highlightAnimation 0.3s linear 3;
         },
         compute: computeDiff,
         diffOptions: {
-            get greedyMatch() {
-                return _diffOptions.greedyMatch;
-            },
-            set greedyMatch(value) {
-                value = !!value;
-                if (_diffOptions.greedyMatch === value) {
-                    return;
-                }
-                _diffOptions.greedyMatch = value;
-                computeDiff();
-            },
-            get useFallback() {
-                return _diffOptions.useFallback;
-            },
-            set useFallback(value) {
-                value = !!value;
-                if (_diffOptions.useFallback === value) {
-                    return;
-                }
-                _diffOptions.useFallback = value;
-                computeDiff();
-            },
-            get tokenization() {
-                return _diffOptions.tokenization;
-            },
-            set tokenization(value) {
-                value = Number(value);
-                if (_diffOptions.tokenization === value) {
-                    return;
-                }
-                _diffOptions.tokenization = value;
-                computeDiff();
-            },
             get algorithm() {
                 return _diffOptions.algorithm;
             },
@@ -762,6 +730,48 @@ animation: highlightAnimation 0.3s linear 3;
                 _diffOptions.algorithm = value;
                 computeDiff();
             },
+            get tokenization() {
+                return _diffOptions.tokenization;
+            },
+            set tokenization(value) {
+                if (_diffOptions.tokenization === value) {
+                    return;
+                }
+                _diffOptions.tokenization = value;
+                computeDiff();
+            },
+            get whitespace() {
+                return _diffOptions.whitespace;
+            },
+            set whitespace(value) {
+                if (_diffOptions.whitespace === value) {
+                    return;
+                }
+                _diffOptions.whitespace = value;
+                computeDiff();
+            },
+            get greedyMatch() {
+                return !!_diffOptions.greedyMatch;
+            },
+            set greedyMatch(value) {
+                value = !!value;
+                if (!!_diffOptions.greedyMatch === value) {
+                    return;
+                }
+                _diffOptions.greedyMatch = value;
+                computeDiff();
+            },
+            get useLengthBias() {
+                return !!_diffOptions.useLengthBias;
+            },
+            set useLengthBias(value) {
+                value = !!value;
+                if (!!_diffOptions.useLengthBias === value) {
+                    return;
+                }
+                _diffOptions.useLengthBias = value;
+                computeDiff();
+            }
         },
     };
 })();

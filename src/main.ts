@@ -16,13 +16,15 @@ const DiffSeek = (function () {
 	let _syncEditor = false;
 	let _resetCurrentlyScrollingEditorId: number | null = null;
 
-	const _diffOptions = {
+	const _diffOptions: DiffOptions = {
 		algorithm: "histogram",
-		tokenization: 2,
-		greedyMatch: true,
-		useFallback: true,
+		tokenization: "word",
+		whitespace: "ignore",
+		greedyMatch: false,
+		useLengthBias: true,
+		maxGram: 5,
 	};
-
+	
 	const useEditableMirror = false;
 	const container = document.getElementById("main") as HTMLElement;
 	const leftEditor = createEditor(container, "left", getEditorCallbacks("left"));
@@ -123,12 +125,7 @@ const DiffSeek = (function () {
 		};
 	}
 
-	const { computeDiff } = (function () {
-		_diffs = null;
-		_anchors = null;
-		_currentDiffIndex = -1;
-		_alignedDirty = true;
-
+	function createWorker() {
 		// 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
 		let workerURL;
 		const workerCode = (document.getElementById("worker.js") as HTMLElement).textContent;
@@ -138,7 +135,16 @@ const DiffSeek = (function () {
 			const blob = new Blob([workerCode!], { type: "application/javascript" });
 			workerURL = URL.createObjectURL(blob);
 		}
-		const worker = new Worker(workerURL);
+		return new Worker(workerURL);
+	}
+
+	const { computeDiff } = (function () {
+		_diffs = null;
+		_anchors = null;
+		_currentDiffIndex = -1;
+		_alignedDirty = true;
+
+		const worker = createWorker();
 		// 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
 		// const encoder = new TextEncoder();
 
@@ -188,18 +194,16 @@ const DiffSeek = (function () {
 				} else {
 					reqId++;
 				}
-				worker.postMessage({
+
+				const request: DiffRequest = {
 					type: "diff",
 					reqId: reqId,
 					leftText: leftEditor.text,
 					rightText: rightEditor.text,
-					// left: encoder.encode(leftEditor.text),
-					// right: encoder.encode(rightEditor.text),
-					// method: _diffMethod,
-					// useFallback: _useFallback,
-					// greedyMatch: _greedyMatch,
 					options: _diffOptions,
-				});
+				};
+
+				worker.postMessage(request);
 			}, COMPUTE_DEBOUNCE_TIME);
 		}
 
@@ -323,7 +327,7 @@ const DiffSeek = (function () {
 			return;
 		}
 
-		console.log("anchors:", anchors)
+		console.log("anchors:", anchors);
 		for (let i = 0; i < leftEditor.anchorElements.length; i++) {
 			const anchor = leftEditor.anchorElements[i];
 			anchor.style.height = "0";
@@ -364,10 +368,10 @@ const DiffSeek = (function () {
 	}
 
 	// delta = 왼쪽 위치 - 오른쪽 위치
-	// 
+	//
 	function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType, accumulatedDelta = 0) {
 		if (type === "before") {
-			const leftTop = leftAnchor.offsetTop; 
+			const leftTop = leftAnchor.offsetTop;
 			const rightTop = rightAnchor.offsetTop;
 			let topDiff = leftTop - rightTop;
 			let shortSide, longSide;
@@ -409,7 +413,6 @@ const DiffSeek = (function () {
 		}
 
 		return accumulatedDelta;
-		
 	}
 
 	function restoreSelectionRange({ editor, startOffset, endOffset }: { editor: Editor; startOffset: number; endOffset: number }) {
@@ -802,39 +805,6 @@ animation: highlightAnimation 0.3s linear 3;
 		compute: computeDiff,
 
 		diffOptions: {
-			get greedyMatch() {
-				return _diffOptions.greedyMatch;
-			},
-			set greedyMatch(value) {
-				value = !!value;
-				if (_diffOptions.greedyMatch === value) {
-					return;
-				}
-				_diffOptions.greedyMatch = value;
-				computeDiff();
-			},
-			get useFallback() {
-				return _diffOptions.useFallback;
-			},
-			set useFallback(value) {
-				value = !!value;
-				if (_diffOptions.useFallback === value) {
-					return;
-				}
-				_diffOptions.useFallback = value;
-				computeDiff();
-			},
-			get tokenization() {
-				return _diffOptions.tokenization;
-			},
-			set tokenization(value) {
-				value = Number(value);
-				if (_diffOptions.tokenization === value) {
-					return;
-				}
-				_diffOptions.tokenization = value;
-				computeDiff();
-			},
 			get algorithm() {
 				return _diffOptions.algorithm;
 			},
@@ -845,6 +815,48 @@ animation: highlightAnimation 0.3s linear 3;
 				_diffOptions.algorithm = value;
 				computeDiff();
 			},
+			get tokenization() {
+				return _diffOptions.tokenization;
+			},
+			set tokenization(value: TokenizationMode) {
+				if (_diffOptions.tokenization === value) {
+					return;
+				}
+				_diffOptions.tokenization = value;
+				computeDiff();
+			},
+			get whitespace() {
+				return _diffOptions.whitespace;
+			},
+			set whitespace(value: WhitespaceHandling) {
+				if (_diffOptions.whitespace === value) {
+					return;
+				}
+				_diffOptions.whitespace = value;
+				computeDiff();
+			},
+			get greedyMatch() {
+				return !!_diffOptions.greedyMatch;
+			},
+			set greedyMatch(value: boolean) {
+				value = !!value;
+				if (!!_diffOptions.greedyMatch === value) {
+					return;
+				}
+				_diffOptions.greedyMatch = value;
+				computeDiff();
+			},
+			get useLengthBias() {
+				return !!_diffOptions.useLengthBias;
+			},
+			set useLengthBias(value: boolean) {
+				value = !!value;
+				if (!!_diffOptions.useLengthBias === value) {
+					return;
+				}
+				_diffOptions.useLengthBias = value;
+				computeDiff();
+			}
 		},
 	};
 })();

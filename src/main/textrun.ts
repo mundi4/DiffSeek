@@ -1,5 +1,3 @@
-"use strict";
-
 // 개정대비표에서 복붙 했을때 빨간색 텍스트를 그대로 보여줄 방법이 있을까?
 // 텍스트 색과 diff 범위는 완전히 별개라서 서로 완전히 겹칠 수도 있고 안겹칠 수도 있고 일부분만 겹칠 수도 있다
 // 일부분만 겹칠 경우가 까다로워지는 부분인데 textrun은 만들더라도 update때에도 일일히 속성 별로 다른 요소를 써서 DOM을 만들어야한다.
@@ -8,15 +6,6 @@
 // 이후에 텍스트가 변경되면 그에 따라 범위의 pos,len값도 조정되어야하니 결국 원본 텍스트 자체에 색상정보가 포함되어야 한다.
 // 그럼 원본텍스트를 html로 저장하고 변경될 때마다 매번 parsing? 미쳤다.
 // 원본 텍스트에 marker문자(zero-width space 등)를 넣고 그걸로 빨간색 범위 파악? nope!
-
-type TextRun = {
-	type: "CHARS" | "MODIFIER" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
-	pos: number;
-	len: number;
-	diffIndex: number | null;
-	anchorIndex: number | null;
-	props: TextProperties | null;
-};
 
 function getTextRuns(textKey: "left" | "right", text: string, textProps: TextProperties[], diffs: DiffEntry[], anchors: Anchor[]): TextRun[] {
 	let pos = 0;

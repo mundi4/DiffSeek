@@ -22,6 +22,7 @@ for (let line of lines) {
     if (fs.existsSync(scriptPath)) {
       const scriptContent = fs.readFileSync(scriptPath, 'utf8');
       newContent += `<script${idAttr}${typeAttr}>` + '\n';
+      newContent += `// ${src}\n`;
       newContent += scriptContent + '\n';
       newContent += `</script>\n`;
     } else {
@@ -38,7 +39,10 @@ for (let line of lines) {
     const stylePath = path.resolve(href);
     if (fs.existsSync(stylePath)) {
       const styleContent = fs.readFileSync(stylePath, 'utf8');
-      newContent += `<style>\n${styleContent}\n</style>\n`;
+      newContent += `<style>\n`
+      newContent += `/* ${href} */\n`;
+      newContent += styleContent;
+      newContent += `\n</style>\n`;
     } else {
       console.warn(`⚠️ Warning: CSS file not found: ${href}`);
       newContent += line + '\n'; // fallback

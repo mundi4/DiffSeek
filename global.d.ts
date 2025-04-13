@@ -75,5 +75,14 @@ declare type TokenMatchEntry = {
 declare type TextProperties = {
 	pos: number;
 	color: string | null;
-	supsub: string | null;// not implemented yet
-}
+	supsub: "SUP" | "SUB" | null; // not implemented yet
+};
+
+type TextRun = {
+	type: "CHARS" | "MODIFIER" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
+	pos: number;
+	len: number;
+	diffIndex: number | null;
+	anchorIndex: number | null;
+	props: TextProperties | null;
+};

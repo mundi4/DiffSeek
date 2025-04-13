@@ -22,7 +22,7 @@ const SCROLL_MARGIN = LINE_HEIGHT * 4;
 
 // 어차피 백그라운드에서 처리되고 기존 작업이 취소시킨 후에 시작되니 너무 크게 잡을 필요는 없을 듯
 const COMPUTE_DEBOUNCE_TIME = 100; // ms
-
+const FORCE_RENDER_TIMEOUT = 300; // ms
 // 문장부호나 특수문자를 정규화 하기 위해서...
 // 따옴표, 중간점 등등등 문자코드는 다르지만 같다고 처리해야 될 문자들이 많음.
 // length===1인 문자는 그냥 문자

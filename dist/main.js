@@ -31,16 +31,6 @@ const DiffSeek = (function () {
     const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
     leftEditor.wrapper.tabIndex = 100;
     rightEditor.wrapper.tabIndex = 101;
-    leftEditor.editor.innerHTML = `<div>[별첨]
-
- 첨부파일 참조 
-(붙임1)7_대출한도_보증목적물주택가액 산정 업무처리방법_ 
-
-(붙임2)7_대출한도_주택도시보증공사 선정 감정평가기관_20240124 기준.xlsx(20KB) 
-(붙임3)10_소득및재직사실확인_「전세보증금 반환보증·전세금 안심대출보증」연간인정소득 산출을 위한 세부기준.hwp(24KB) (붙임4)14_기한연장_KB전세금안심대출 기한연장
-</div>`;
-    rightEditor.editor.innerHTML = `<div>[별첨] (붙임1)7_대출한도_보증목적물주택가액 산정 업무처리방법
-(붙임2)7_대출한도_주택도시보증공사 선정 감정평가기관 (붙임3)10_소득및재직사실확인_전세보증금 반환보증·전세금 안심대출보증」연간인정소득 산출을 위한 세부기준 (붙임4)14_기한연장_전세금안심대출 기한연장`;
     const body = document.querySelector("body");
     const diffList = document.getElementById("diffList");
     const highlightStyle = document.getElementById("highlightStyle");
@@ -48,7 +38,7 @@ const DiffSeek = (function () {
     const scrollSyncIndicator = document.getElementById("scrollSyncIndicator");
     const alignmentStyleElement = document.createElement("style");
     document.head.appendChild(alignmentStyleElement);
-    const resizeObserver = new ResizeObserver((entries) => {
+    const resizeObserver = new ResizeObserver(() => {
         _alignedDirty = true;
         if (_alignedMode) {
             recalculateAlignmentPaddingAndPositionsDebounced();
@@ -61,6 +51,7 @@ const DiffSeek = (function () {
             // 3. 최근에 스크롤된 에디터?...
         }
     });
+    resizeObserver.observe(container);
     const recalculateAlignmentPaddingAndPositionsDebounced = debounce(recalculateAlignmentPaddingAndPositions, 200);
     function getEditorCallbacks(editorName) {
         const pendingDiffVisibilities = new Map();
@@ -98,20 +89,16 @@ const DiffSeek = (function () {
     function createWorker() {
         // 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
         let workerURL;
-        const workerCode = document.getElementById("worker.js").textContent;
-        if (workerCode.trim().length === 0) {
-            workerURL = "./dist/worker.js";
+        const scriptElement = document.getElementById("worker.js");
+        const workerCode = scriptElement.textContent;
+        if (workerCode.length < 10) {
+            workerURL = scriptElement.src; // "./dist/worker.js";
         }
         else {
             const blob = new Blob([workerCode], { type: "application/javascript" });
             workerURL = URL.createObjectURL(blob);
         }
-        return new Worker(workerURL);
-    }
-    const { computeDiff } = (function () {
-        const worker = createWorker();
-        // 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
-        // const encoder = new TextEncoder();
+        const worker = new Worker(workerURL);
         function htmlEntityToChar(entity) {
             const doc = new DOMParser().parseFromString(entity, "text/html");
             const char = doc.body.textContent;
@@ -120,6 +107,8 @@ const DiffSeek = (function () {
             }
             return char;
         }
+        // TODO
+        // 그냥 { type: "init? config?", normalizeChars: {...}, ... } 이런 식으로 보내는게 더 나을듯.
         for (var entry of NORMALIZE_CHARS) {
             // entry[0] = encoder.encode(entry[0]);
             let chars = "";
@@ -143,6 +132,10 @@ const DiffSeek = (function () {
                 chars: chars,
             });
         }
+        return worker;
+    }
+    const { computeDiff } = (function () {
+        const worker = createWorker();
         let reqId = 0;
         let computeDiffTimeoutId = null;
         function computeDiff() {
@@ -155,9 +148,11 @@ const DiffSeek = (function () {
                 _mappings = null;
                 _currentDiffIndex = -1;
                 _alignedDirty = true;
+                // 토큰화를 UI 쓰레드에서도 해봤지만 텍스트 수정 시에 살짝 거슬리는 느낌.
                 // _leftTokens = tokenize(leftEditor.text, _diffOptions.tokenization);
                 // _rightTokens = tokenize(rightEditor.text, _diffOptions.tokenization);
                 progress.textContent = "...";
+                // 복붙이 제대로 되었는지(ctrl-c를 믿을 수 없음) 확인하기 위해...
                 body.classList.toggle("identical", leftEditor.text === rightEditor.text);
                 body.classList.add("computing");
                 if (reqId === Number.MAX_SAFE_INTEGER) {
@@ -203,16 +198,21 @@ const DiffSeek = (function () {
         }
         return { computeDiff };
     })();
+    // 손 볼 여지가 많은데... 으...
+    // 스크롤 위치 계산하는게 좀.. 음...
     function enableAlignedMode() {
         // 스크롤 위치는 어디쪽 에디터에 맞추나?
         // 역시 명확한 기준이 필요.
         if (!_alignedMode) {
             const currentSelectionRange = getSelectionRange();
             const currentEditor = _activeEditor || _mousedOverEditor || _lastFocusedEditor || rightEditor;
-            // let firstVisibleLine, firstVisibleLineTop;
-            // if (currentEditor) {
-            // 	[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
-            // }
+            let firstVisibleLine = null, firstVisibleLineTop;
+            if (currentEditor) {
+                [firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
+            }
+            else {
+            }
+            console.log("currentEditor", currentEditor, firstVisibleLine, firstVisibleLineTop);
             _alignedMode = true;
             leftEditor.mirror.tabIndex = 100;
             rightEditor.mirror.tabIndex = 101;
@@ -223,20 +223,22 @@ const DiffSeek = (function () {
             updateButtons();
             leftEditor.setEditMode(false);
             rightEditor.setEditMode(false);
-            body.classList.remove("edit");
-            body.classList.add("aligned");
+            body.classList.toggle("aligned", true);
+            body.classList.toggle("edit", false);
             recalculateAlignmentPaddingAndPositions();
             if (currentSelectionRange) {
                 restoreSelectionRange(currentSelectionRange);
             }
-            //if (firstVisibleLine) {
-            // const top = firstVisibleLine.offsetTop + TOPBAR_HEIGHT;
+            //_preventScrollSync = true;
             requestAnimationFrame(() => {
+                let lineNum = Number(firstVisibleLine?.dataset?.lineNum) || 1;
+                let distance = firstVisibleLineTop || 0;
+                currentEditor.scrollToLine(lineNum, distance);
                 const theOtherEditor = currentEditor === leftEditor ? rightEditor : leftEditor;
                 theOtherEditor.wrapper.scrollTop = currentEditor.wrapper.scrollTop;
-                // container.scrollTop = top;
+                //_preventScrollSync = false;
+                //container.scrollTop = top;
             });
-            //}
         }
     }
     function disableAlignedMode() {
@@ -252,8 +254,8 @@ const DiffSeek = (function () {
         rightEditor.mirror.removeAttribute("tabindex");
         leftEditor.mirror.contentEditable = "false";
         rightEditor.mirror.contentEditable = "false";
-        body.classList.remove("aligned");
-        body.classList.add("edit");
+        body.classList.toggle("aligned", false);
+        body.classList.toggle("edit", true);
         updateButtons();
         _preventScrollSync = true;
         requestAnimationFrame(() => {
@@ -281,91 +283,104 @@ const DiffSeek = (function () {
         if (!anchors) {
             return;
         }
+        // 얘네들은 스스로 쑥쑥 자라게 auto로
         leftEditor.mirror.style.height = "auto";
         rightEditor.mirror.style.height = "auto";
-        console.log("anchors:", anchors);
-        for (let i = 0; i < leftEditor.anchorElements.length; i++) {
-            const anchor = leftEditor.anchorElements[i];
-            anchor.style.height = "0";
-            anchor.className = "";
+        // 기존 스타일 한번에 날려버리기
+        alignmentStyleElement.textContent = "";
+        const leftAnchorEls = leftEditor.anchorElements, rightAnchorEls = rightEditor.anchorElements, leftTops = [], rightTops = [], leftHeights = [], rightHeights = [];
+        // 레이아웃을 변경하기 전에 필요한 모든 값을 가져와서 캐시해서 reflow 최소화
+        // 캐시된 offsetTop은 최신 값이 아니므로(먼저 나오는 앵커의 높이가 변경되거나 ...) 추가로 계산이 필요함
+        for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
+            leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
+            rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
+            leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
+            rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
         }
-        for (let i = 0; i < rightEditor.anchorElements.length; i++) {
-            const anchor = rightEditor.anchorElements[i];
-            anchor.style.height = "0";
-            anchor.className = "";
-        }
+        let styleText = "";
+        let leftDelta = 0, rightDelta = 0;
         for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
             const anchor = anchors[anchorIndex];
-            const leftAnchor = leftEditor.anchorElements[anchorIndex];
-            const rightAnchor = rightEditor.anchorElements[anchorIndex];
-            if (!leftAnchor || !rightAnchor) {
-                console.warn("anchor not found", anchorIndex, leftAnchor, rightAnchor);
+            if (leftTops[anchorIndex] === undefined || rightTops[anchorIndex] === undefined) {
+                continue;
             }
-            if (leftAnchor && rightAnchor) {
-                alignAnchor(leftAnchor, rightAnchor, anchor.type);
+            const leftY = leftTops[anchorIndex] + leftDelta, rightY = rightTops[anchorIndex] + rightDelta;
+            let delta;
+            if (anchor.type === "before") {
+                delta = leftY - rightY;
+            }
+            else if (anchor.type === "after") {
+                const leftH = leftHeights[anchorIndex], rightH = rightHeights[anchorIndex];
+                const leftB = leftY + leftH, rightB = rightY + rightH;
+                delta = leftB - rightB;
+            }
+            else {
+                console.warn("unknown anchor type", anchor.type);
+                continue;
+            }
+            if (delta > 0) {
+                // 오른쪽에 패딩 추가
+                styleText += `.aligned #rightAnchor${anchorIndex} { display:block; height:${delta}px; }\n`;
+                rightDelta += delta;
+            }
+            else {
+                // 왼쪽에 패딩 추가
+                styleText += `.aligned #leftAnchor${anchorIndex} { display:block; height:${-delta}px; }\n`;
+                leftDelta += -delta;
             }
         }
+        alignmentStyleElement.textContent = styleText;
         _alignedDirty = false;
         requestAnimationFrame(() => {
             const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
-            // console.log("height", {
-            // 	left: leftEditor.mirror.offsetHeight,
-            // 	right: rightEditor.mirror.offsetHeight,
-            // 	height: height,
-            // 	leftScrollHeight: leftEditor.wrapper.scrollHeight,
-            // 	rightScrollHeight: rightEditor.wrapper.scrollHeight,
-            // });
             leftEditor.mirror.style.height = `${height}px`;
             rightEditor.mirror.style.height = `${height}px`;
         });
     }
     // delta = 왼쪽 위치 - 오른쪽 위치
     //
-    function alignAnchor(leftAnchor, rightAnchor, type, accumulatedDelta = 0) {
-        if (type === "before") {
-            const leftTop = leftAnchor.offsetTop;
-            const rightTop = rightAnchor.offsetTop;
-            let topDiff = leftTop - rightTop;
-            let shortSide, longSide;
-            if (topDiff < 0) {
-                shortSide = leftAnchor;
-                longSide = rightAnchor;
-                topDiff = -topDiff;
-                accumulatedDelta += topDiff;
-            }
-            else if (topDiff > 0) {
-                shortSide = rightAnchor;
-                longSide = leftAnchor;
-                accumulatedDelta += topDiff;
-            }
-            if (shortSide) {
-                shortSide.style.height = `${topDiff}px`;
-                shortSide.className = "expanded";
-            }
-        }
-        else {
-            const leftBottom = leftAnchor.offsetTop + leftAnchor.offsetHeight;
-            const rightBottom = rightAnchor.offsetTop + rightAnchor.offsetHeight;
-            let bottomDiff = leftBottom - rightBottom;
-            let shortSide, longSide;
-            if (bottomDiff < 0) {
-                shortSide = leftAnchor;
-                longSide = rightAnchor;
-                bottomDiff = -bottomDiff;
-                accumulatedDelta += bottomDiff;
-            }
-            else if (bottomDiff > 0) {
-                shortSide = rightAnchor;
-                longSide = leftAnchor;
-                accumulatedDelta += bottomDiff;
-            }
-            if (shortSide) {
-                shortSide.style.height = `${bottomDiff}px`;
-                shortSide.className = "expanded";
-            }
-        }
-        return accumulatedDelta;
-    }
+    // function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType, accumulatedDelta = 0) {
+    // 	if (type === "before") {
+    // 		const leftTop = leftAnchor.offsetTop;
+    // 		const rightTop = rightAnchor.offsetTop;
+    // 		let topDiff = leftTop - rightTop;
+    // 		let shortSide, longSide;
+    // 		if (topDiff < 0) {
+    // 			shortSide = leftAnchor;
+    // 			longSide = rightAnchor;
+    // 			topDiff = -topDiff;
+    // 			accumulatedDelta += topDiff;
+    // 		} else if (topDiff > 0) {
+    // 			shortSide = rightAnchor;
+    // 			longSide = leftAnchor;
+    // 			accumulatedDelta += topDiff;
+    // 		}
+    // 		if (shortSide) {
+    // 			shortSide.style.height = `${topDiff}px`;
+    // 			shortSide.className = "expanded";
+    // 		}
+    // 	} else {
+    // 		const leftBottom = leftAnchor.offsetTop + leftAnchor.offsetHeight;
+    // 		const rightBottom = rightAnchor.offsetTop + rightAnchor.offsetHeight;
+    // 		let bottomDiff = leftBottom - rightBottom;
+    // 		let shortSide, longSide;
+    // 		if (bottomDiff < 0) {
+    // 			shortSide = leftAnchor;
+    // 			longSide = rightAnchor;
+    // 			bottomDiff = -bottomDiff;
+    // 			accumulatedDelta += bottomDiff;
+    // 		} else if (bottomDiff > 0) {
+    // 			shortSide = rightAnchor;
+    // 			longSide = leftAnchor;
+    // 			accumulatedDelta += bottomDiff;
+    // 		}
+    // 		if (shortSide) {
+    // 			shortSide.style.height = `${bottomDiff}px`;
+    // 			shortSide.className = "expanded";
+    // 		}
+    // 	}
+    // 	return accumulatedDelta;
+    // }
     function restoreSelectionRange({ editor, startOffset, endOffset }) {
         if (editor) {
             editor.selectTextRange(startOffset, endOffset);
@@ -411,7 +426,7 @@ const DiffSeek = (function () {
         const targetEditor = sourceEditor === leftEditor ? rightEditor : leftEditor;
         let sourceAnchor = null;
         let targetAnchor = null;
-        sourceAnchor = sourceEditor.getNearestAnchorToCaret() || sourceEditor.getFirstVisibleAnchor();
+        sourceAnchor = sourceEditor.getClosestAnchorToCaret() || sourceEditor.getFirstVisibleAnchor();
         if (sourceAnchor) {
             const anchorIndex = Number(sourceAnchor.dataset.anchor);
             targetAnchor = targetEditor.anchorElements[anchorIndex];
@@ -745,7 +760,6 @@ animation: highlightAnimation 0.3s linear 3;
             // 	e.preventDefault();
             // });
         }
-        resizeObserver.observe(editor.wrapper);
     }
     disableAlignedMode();
     leftEditor.updateText();

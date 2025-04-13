@@ -2,7 +2,7 @@ const fs = require('fs');
 const path = require('path');
 
 const inputFile = 'index.html';
-const outputFile = 'diffseek.html';
+const outputFile = './dist/diffseek.html';
 
 let content = fs.readFileSync(inputFile, 'utf8');
 let lines = content.split(/\r?\n/);
@@ -45,6 +45,19 @@ for (let line of lines) {
       newContent += `\n</style>\n`;
     } else {
       console.warn(`⚠️ Warning: CSS file not found: ${href}`);
+      newContent += line + '\n'; // fallback
+    }
+    continue;
+  }
+
+  if (line === "<!--README-->") {
+    if (fs.existsSync("README.md")) {
+      const readmeContent = fs.readFileSync("README.md", 'utf8');
+      newContent += `<!--\n`;
+      newContent += readmeContent + '\n';
+      newContent += `-->\n`;
+    } else {
+      console.warn(`⚠️ Warning: README.md file not found.`);
       newContent += line + '\n'; // fallback
     }
     continue;

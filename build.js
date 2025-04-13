@@ -21,8 +21,7 @@ for (let line of lines) {
     const scriptPath = path.resolve(src);
     if (fs.existsSync(scriptPath)) {
       const scriptContent = fs.readFileSync(scriptPath, 'utf8');
-      newContent += `<script${idAttr}${typeAttr}>` + '\n';
-      newContent += `// ${src}\n`;
+      newContent += `<script${idAttr}${typeAttr}>`;
       newContent += scriptContent + '\n';
       newContent += `</script>\n`;
     } else {
@@ -40,7 +39,6 @@ for (let line of lines) {
     if (fs.existsSync(stylePath)) {
       const styleContent = fs.readFileSync(stylePath, 'utf8');
       newContent += `<style>\n`
-      newContent += `/* ${href} */\n`;
       newContent += styleContent;
       newContent += `\n</style>\n`;
     } else {

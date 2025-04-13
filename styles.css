@@ -143,6 +143,7 @@ button.toggle[aria-pressed="true"] {
 	min-height: var(--line-height);
 }
 
+
 .editor {
 	z-index: 2;
 	color: #333;
@@ -164,6 +165,7 @@ button.toggle[aria-pressed="true"] {
 	background-color: #f8f8f8; */
 }
 
+
 .edit .editor-wrapper:focus-within .mirror {
 	background: transparent;
 }
@@ -182,8 +184,9 @@ button.toggle[aria-pressed="true"] {
 	/* cursor: default; */
 }
 
-.edit .mirror {
+.edit .mirror * {
 	height: unset !important;
+	color: unset !important;
 }
 
 .mirror div {
@@ -447,3 +450,22 @@ scrolling
 	display: inline;
 }
 
+sup, .sup {
+	vertical-align: super;
+	font-size:smaller;
+}
+
+sub, .sub {
+	vertical-align: sub;
+	font-size:smaller;
+}
+
+.red {
+	color: hsl(0 100% 40%);
+	font-weight: bold;
+}
+
+.aligned .red {
+	color: hsl(0 100% 40%) !important;
+	font-weight: bold;
+}

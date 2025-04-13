@@ -53,10 +53,27 @@ declare type DiffRequest = {
 	reqId: number;
 	leftText: string;
 	rightText: string;
+	// leftTokens: Token[];
+	// rightTokens: Token[];
 	options: DiffOptions;
 };
 
-declare type DiffResult = {
+declare type DiffResponse = {
+	type: "diff";
+	reqId: number;
 	diffs: DiffEntry[];
 	anchors: Anchor[];
 };
+
+declare type TokenMatchEntry = {
+	leftIndex: number;
+	leftCount: number;
+	rightIndex: number;
+	rightCount: number;
+};
+
+declare type TextProperties = {
+	pos: number;
+	color: string | null;
+	supsub: string | null;// not implemented yet
+}

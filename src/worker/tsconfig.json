@@ -7,14 +7,15 @@
 		// "module": "commonjs", // CommonJS 모듈 형식
 		"strict": true, // 타입 체크 엄격 모드
 		"forceConsistentCasingInFileNames": true, // 파일 이름 일관성 유지
-		"outDir": "./dist", // 컴파일된 파일 저장 디렉토리
+		"outDir": "../../dist", // 컴파일된 파일 저장 디렉토리
+		"rootDir": "./", // 루트 디렉토리 설정
 		"removeComments": false // 주석 제거
 	},
 	"include": [
-		"global.d.ts",
-		
+		"../../global.d.ts",
+		"worker.ts" // src 폴더 내 .ts 파일들만 포함
 	],
 	"exclude": [
-		"node_modules", // node_modules 폴더 제외
+		"../main/*.ts"
 	]
 }

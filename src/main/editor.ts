@@ -16,6 +16,7 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 	const _visibleAnchors = new Set<HTMLElement>();
 	const _visibleDiffIndices = new Set<number>();
 	let _text: string = "";
+	let _textProps: TextProperties[] = [];
 	let _savedCaret = null;
 	let _observingAnchors = false;
 	let _editMode = false;
@@ -43,6 +44,11 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 
 	function updateText() {
 		_text = editor.textContent || "";
+
+		// const [_, text, props] = flattenHTML(editor.innerHTML);
+		// _text = text;
+		// _textProps = props;
+
 		// let p = _text.length - 1;
 		// let endsWithNewline = false;
 		// while (p >= 0) {
@@ -62,6 +68,30 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 	}
 
 	editor.addEventListener("input", updateText);
+
+	
+
+	// editor.addEventListener("paste", (e) => {
+	// 	const html = e.clipboardData?.getData("text/html");
+	// 	// const plain = e.clipboardData?.getData("text/plain");
+
+	// 	if (!html) return; // 워드 복붙이 아닌 경우는 무시
+	// 	const now = performance.now();
+	// 	// (e.target as HTMLElement).contentEditable = "true";
+
+	// 	e.clipboardData?.setData("text/html", "hello");
+	// 	e.preventDefault(); // 브라우저 붙여넣기 막고 우리가 처리함
+
+	// 	const [cleanedHTML, text, textProps] = flattenHTML(html);
+	// 	_text = text;
+	// 	_textProps = textProps;
+	// 	// 현재 커서 위치에 삽입
+	// 	insertHTMLAtCursor(cleanedHTML);
+
+	// 	// console.log("paste", performance.now() - now, cleanedHTML);
+	// 	// (e.target as HTMLElement).contentEditable = "plaintext-only";
+	// 	updateText();
+	// });
 
 	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
@@ -202,7 +232,7 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		_anchorElements.length = 0;
 		untrackIntersections();
 
-		const textruns = getTextRuns(name, _text, diffs, anchors);
+		const textruns = getTextRuns(name, _text, _textProps, diffs, anchors);
 
 		// editor.style.removeProperty("min-height");
 		// mirror.style.removeProperty("min-height");
@@ -216,6 +246,7 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		let lineNum = 1;
 		let unwrittenDiff = false;
 		let _pos = 0;
+		let textProps: TextProperties = { pos: 0, color: null, supsub: null };
 
 		function appendAnchor(pos: number, anchorIndex: number, diffIndex: number | null = null) {
 			const anchor = anchors[anchorIndex];
@@ -280,6 +311,15 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 					}
 				}
 			}
+			if (textProps.color) {
+				inlineNode.classList.toggle(textProps.color, true);
+			} else {
+				// 끙... 좋지않다.
+				inlineNode.classList.remove("red");
+			}
+			//console.log(chars, textProps.supsub, textProps.color);
+			inlineNode.classList.toggle("sup", textProps.supsub === "SUP");
+			inlineNode.classList.toggle("sub", textProps.supsub === "SUB");
 			inlineNode = inlineNode.nextSibling as HTMLElement;
 		}
 
@@ -293,14 +333,16 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		}
 		_lineElements.push(lineEl);
 		inlineNode = lineEl.firstChild as HTMLElement;
-
+		// console.log("textruns:", textruns);
 		for (const textrun of textruns) {
-			// if (name === "right") {
+			// if (name === "left") {
 			// 	console.log(lineNum, textrun);
 			// }
 			if (textrun.type === "CHARS") {
 				const { pos, len } = textrun;
 				appendChars(text.substring(pos, pos + len));
+			} else if (textrun.type === "MODIFIER") {
+				textProps = textrun.props!;
 			} else if (textrun.type === "ANCHOR") {
 				const { pos, anchorIndex } = textrun;
 				appendAnchor(pos, anchorIndex!, currentDiffIndex);
@@ -493,15 +535,15 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		}
 	}
 
-	function getTextSelectionRange() {
+	function getTextSelectionRange(): [startOffset: number | null, endOffset: number | null] {
 		const selection = window.getSelection()!;
 		if (!selection.rangeCount) {
-			return null;
+			return [null, null];
 		}
 
 		const range = selection.getRangeAt(0);
 		if (!wrapper.contains(range.commonAncestorContainer)) {
-			return null;
+			return [null, null];
 		}
 
 		let startOffset = Number.NaN;
@@ -566,7 +608,7 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 		}
 
 		if (isNaN(startOffset) || isNaN(endOffset)) {
-			return null;
+			return [null, null];
 		}
 
 		// 원본텍스트의 끝에 하나의 "\n"이 더 붙어있으니 원본텍스트 크기보다 offset이 더 커질 수 있음!!
@@ -577,10 +619,7 @@ function createEditor(container: HTMLElement, name: "left" | "right", callbacks:
 			endOffset = _text.length - 1;
 		}
 
-		return {
-			startOffset,
-			endOffset,
-		};
+		return [startOffset, endOffset];
 	}
 
 	//updateText();

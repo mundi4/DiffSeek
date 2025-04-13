@@ -1,15 +1,19 @@
 {
-  "name": "diffseek",
-  "version": "1.0.0",
-  "main": "index.js",
-  "scripts": {
-    "build": "node build.js"
-  },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
-  "devDependencies": {
-    "typescript": "^5.8.3"
-  }
+	"name": "diffseek",
+	"version": "1.0.0",
+	"main": "index.js",
+	"scripts": {
+		"watch:main": "tsc -p src/main/tsconfig.json -w",
+		"watch:worker": "tsc -p src/worker/tsconfig.json -w",
+		"watch": "concurrently \"npm:watch:main\" \"npm:watch:worker\"",
+		"build": "node build.js"
+	},
+	"keywords": [],
+	"author": "",
+	"license": "ISC",
+	"description": "",
+	"devDependencies": {
+		"concurrently": "^9.1.2",
+		"typescript": "^5.8.3"
+	}
 }

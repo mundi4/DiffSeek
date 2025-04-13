@@ -3,6 +3,7 @@
 const DiffSeek = (function () {
     let _diffs = [];
     let _anchors = [];
+    let _mappings = [];
     let _alignedMode = false;
     let _alignedDirty = false;
     let _activeEditor = null;
@@ -14,6 +15,8 @@ const DiffSeek = (function () {
     let _currentDiffIndex = -1;
     let _syncEditor = false;
     let _resetCurrentlyScrollingEditorId = null;
+    // let _leftTokens: Token[] = [];
+    // let _rightTokens: Token[] = [];
     const _diffOptions = {
         algorithm: "histogram",
         tokenization: "word",
@@ -28,42 +31,23 @@ const DiffSeek = (function () {
     const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
     leftEditor.wrapper.tabIndex = 100;
     rightEditor.wrapper.tabIndex = 101;
-    // 	leftEditor.editor.innerHTML = `<div>@@@
-    // type TokenCacheEntry = {
-    // 	text: string;
-    // 	tokens: Token[];
-    // };
-    // const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-    // 	[TOKENIZE_BY_CHAR]: [],
-    // 	[TOKENIZE_BY_WORD]: [],
-    // 	[TOKENIZE_BY_LINE]: [],
-    // };
-    // type TrieNode = {
-    // 	next: (char: string | number) => TrieNode | null;
-    // 	addChild: (char: string | number) => TrieNode;
-    // 	word: string | null;
-    // 	flags: number | null;
-    // };</div>`;
-    // 	rightEditor.editor.innerHTML = `<div>@@@
-    // const tokenCache: { [method: number]: TokenCacheEntry[] } = {
-    // 	[TOKENIZE_BY_CHAR]: [],
-    // 	[TOKENIZE_BY_WORD]: [],
-    // 	[TOKENIZE3_BY_LINE]: [],
-    // };
-    // type TrieNode = {
-    // 	next: (char: string | number) => TrieNode | null;
-    // 	addChild: (char: string | number) => TrieNode;
-    // 	word: string | null;
-    // 	fl3ags: number | null;1
-    // };
-    // </div>`;
-    // rightEditor.editor.innerHTML = `<div>111
-    // </div>`;
+    leftEditor.editor.innerHTML = `<div>[별첨]
+
+ 첨부파일 참조 
+(붙임1)7_대출한도_보증목적물주택가액 산정 업무처리방법_ 
+
+(붙임2)7_대출한도_주택도시보증공사 선정 감정평가기관_20240124 기준.xlsx(20KB) 
+(붙임3)10_소득및재직사실확인_「전세보증금 반환보증·전세금 안심대출보증」연간인정소득 산출을 위한 세부기준.hwp(24KB) (붙임4)14_기한연장_KB전세금안심대출 기한연장
+</div>`;
+    rightEditor.editor.innerHTML = `<div>[별첨] (붙임1)7_대출한도_보증목적물주택가액 산정 업무처리방법
+(붙임2)7_대출한도_주택도시보증공사 선정 감정평가기관 (붙임3)10_소득및재직사실확인_전세보증금 반환보증·전세금 안심대출보증」연간인정소득 산출을 위한 세부기준 (붙임4)14_기한연장_전세금안심대출 기한연장`;
     const body = document.querySelector("body");
     const diffList = document.getElementById("diffList");
     const highlightStyle = document.getElementById("highlightStyle");
     const progress = document.getElementById("progress");
     const scrollSyncIndicator = document.getElementById("scrollSyncIndicator");
+    const alignmentStyleElement = document.createElement("style");
+    document.head.appendChild(alignmentStyleElement);
     const resizeObserver = new ResizeObserver((entries) => {
         _alignedDirty = true;
         if (_alignedMode) {
@@ -125,10 +109,6 @@ const DiffSeek = (function () {
         return new Worker(workerURL);
     }
     const { computeDiff } = (function () {
-        _diffs = null;
-        _anchors = null;
-        _currentDiffIndex = -1;
-        _alignedDirty = true;
         const worker = createWorker();
         // 인코더 쓸 필요 있을까?? 안쓰는 쪽이 메인쓰레드 부담이 작을 것 같은데...?
         // const encoder = new TextEncoder();
@@ -170,6 +150,13 @@ const DiffSeek = (function () {
                 clearTimeout(computeDiffTimeoutId);
             }
             computeDiffTimeoutId = setTimeout(() => {
+                _diffs = null;
+                _anchors = null;
+                _mappings = null;
+                _currentDiffIndex = -1;
+                _alignedDirty = true;
+                // _leftTokens = tokenize(leftEditor.text, _diffOptions.tokenization);
+                // _rightTokens = tokenize(rightEditor.text, _diffOptions.tokenization);
                 progress.textContent = "...";
                 body.classList.toggle("identical", leftEditor.text === rightEditor.text);
                 body.classList.add("computing");
@@ -184,8 +171,11 @@ const DiffSeek = (function () {
                     reqId: reqId,
                     leftText: leftEditor.text,
                     rightText: rightEditor.text,
+                    // leftTokens: _leftTokens,
+                    // rightTokens: _rightTokens,
                     options: _diffOptions,
                 };
+                // console.debug("diff request:", request.options);
                 worker.postMessage(request);
             }, COMPUTE_DEBOUNCE_TIME);
         }
@@ -201,8 +191,9 @@ const DiffSeek = (function () {
                 progress.textContent = PROCESSING_MESSAGES[Math.floor(Math.random() * PROCESSING_MESSAGES.length)];
             }
         };
-        function onDiffComputed({ diffs, anchors }) {
-            //console.debug("diffs computed", diffs, anchors);
+        function onDiffComputed(data) {
+            // console.log("onDiffComputed", data);
+            const { diffs, anchors } = data;
             _diffs = diffs;
             _anchors = anchors;
             _alignedDirty = true;
@@ -283,16 +274,15 @@ const DiffSeek = (function () {
     // reset이 간단하고 브라우저도 한번만 일을 하면 되니 더 낫지 않을까...? offsetHeight 같은 속성을 사용하면 브라우저가 매번 계산을 다시 해야한다.
     // 위에서부터 왼쪽/오른쪽 누적 패딩을 계산하면서 내려오면 될 것 같은데...?
     function recalculateAlignmentPaddingAndPositions() {
-        console.log("recalculateAlignmentPaddingAndPositions", _alignedDirty);
         if (!_alignedDirty) {
             return;
         }
-        leftEditor.mirror.style.height = "auto";
-        rightEditor.mirror.style.height = "auto";
         const anchors = _anchors;
         if (!anchors) {
             return;
         }
+        leftEditor.mirror.style.height = "auto";
+        rightEditor.mirror.style.height = "auto";
         console.log("anchors:", anchors);
         for (let i = 0; i < leftEditor.anchorElements.length; i++) {
             const anchor = leftEditor.anchorElements[i];
@@ -382,22 +372,22 @@ const DiffSeek = (function () {
         }
     }
     function getSelectionRange() {
-        let editor;
-        let range = leftEditor.getTextSelectionRange();
-        if (range !== null) {
+        let editor = null;
+        let [startOffset, endOffset] = leftEditor.getTextSelectionRange();
+        if (startOffset !== null) {
             editor = leftEditor;
         }
         else {
-            range = rightEditor.getTextSelectionRange();
-            if (range !== null) {
+            [startOffset, endOffset] = rightEditor.getTextSelectionRange();
+            if (startOffset !== null) {
                 editor = rightEditor;
             }
         }
         if (editor) {
             return {
                 editor,
-                startOffset: range.startOffset,
-                endOffset: range.endOffset,
+                startOffset: startOffset,
+                endOffset: endOffset,
             };
         }
         else {
@@ -489,6 +479,7 @@ animation: highlightAnimation 0.3s linear 3;
             const diff = _diffs[i];
             const li = document.createElement("LI");
             const button = document.createElement("MARK");
+            button.draggable = true;
             button.dataset.diff = i.toString();
             button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
             li.appendChild(button);
@@ -585,6 +576,67 @@ animation: highlightAnimation 0.3s linear 3;
         }
     });
     for (const editor of [leftEditor, rightEditor]) {
+        // editor.editor.addEventListener("dragstart", (e) => {
+        // 	console.log("dragstart", {
+        // 		e,
+        // 		dt: e.dataTransfer,
+        // 		items: Array.from(e.dataTransfer!.items),
+        // 	});
+        // 	const [startOffset, endOffset] = editor.getTextSelectionRange();
+        // 	if (startOffset) {
+        // 		// find matching token
+        // 		const [tokens, theOtherTokens] = editor === leftEditor ? [_leftTokens, _rightTokens] : [_rightTokens, _leftTokens];
+        // 		const startIndex = findTokenAt(tokens, startOffset);
+        // 		const startToken = tokens[startIndex];
+        // 		if (startToken) {
+        // 			const endIndex = findTokenAt(tokens, endOffset!, startIndex);
+        // 			const endToken = tokens[endIndex];
+        // 			if (endToken) {
+        // 				const [otherStartIndex] = findTokenMapping(
+        // 					editor === leftEditor ? startIndex : undefined,
+        // 					editor === rightEditor ? startIndex : undefined
+        // 				);
+        // 				const [otherEndIndex, otherEndCount] = findTokenMapping(
+        // 					editor === leftEditor ? endIndex : undefined,
+        // 					editor === rightEditor ? endIndex : undefined
+        // 				);
+        // 				if (otherStartIndex === null || otherEndIndex === null || otherEndCount === null) {
+        // 					return;
+        // 				}
+        // 				const theOtherText = editor === leftEditor ? rightEditor.text : leftEditor.text;
+        // 				const otherStartToken = theOtherTokens[otherStartIndex];
+        // 				const otherEndToken = theOtherTokens[otherEndIndex + otherEndCount];
+        // 				let resultText = editor.text.substring(startToken.pos, endToken.pos + endToken.len) + "\r\n" + "\r\n";
+        // 				resultText += theOtherText.substring(otherStartToken.pos, otherEndToken.pos + otherEndToken.len) + "\r\n" + "\r\n";
+        // 				e.dataTransfer!.setData("text/plain", resultText);
+        // 			}
+        // 		}
+        // 		console.log("dragstart", { startOffset, endOffset, startIndex, startToken });
+        // 	}
+        // });
+        // editor.mirror.addEventListener("dragstart", (e) => {
+        // 	console.log("dragstart", {
+        // 		e,
+        // 		dt: e.dataTransfer,
+        // 		items: Array.from(e.dataTransfer!.items),
+        // 	});
+        // 	const [startOffset, endOffset] = editor.getTextSelectionRange();
+        // 	if (startOffset) {
+        // 		// find matching token
+        // 		const tokens = editor === leftEditor ? _leftTokens : _rightTokens;
+        // 		const startIndex = findTokenAt(tokens, startOffset);
+        // 		const startToken = tokens[startIndex];
+        // 		if (startToken) {
+        // 			const endIndex = findTokenAt(tokens, endOffset!, startIndex);
+        // 			const endToken = tokens[endIndex];
+        // 			if (endToken) {
+        // 				const text = editor.text.substring(startToken.pos, endToken.pos + endToken.len) + "\r\n";
+        // 				console.log("text:", text);
+        // 			}
+        // 		}
+        // 		console.log("dragstart", { startOffset, endOffset, startIndex, startToken });
+        // 	}
+        // });
         editor.wrapper.addEventListener("scroll", (e) => {
             if (_currentlyScrollingEditor !== null || _preventScrollSync) {
                 return;
@@ -698,6 +750,38 @@ animation: highlightAnimation 0.3s linear 3;
     disableAlignedMode();
     leftEditor.updateText();
     rightEditor.updateText();
+    function findTokenMapping(leftIndex, rightIndex) {
+        if (leftIndex !== undefined || rightIndex !== undefined) {
+            const key = leftIndex !== undefined ? "left" : "right";
+            let sideIndex = leftIndex !== undefined ? leftIndex : rightIndex;
+            let lo = 0;
+            let hi = _mappings.length - 1;
+            let mid = 0;
+            let entry = null;
+            let side;
+            while (lo <= hi) {
+                mid = (lo + hi) >>> 1;
+                entry = _mappings[mid];
+                side = key === "left" ? entry.left : entry.right;
+                if (side.pos >= sideIndex && side.pos + side.len > sideIndex) {
+                    if (key === "left") {
+                        return [entry.right.pos + entry.right.len];
+                    }
+                    else {
+                        return [entry.left.pos + entry.left.len];
+                    }
+                }
+                else if (side.pos + side.len <= sideIndex) {
+                    lo = mid + 1;
+                }
+                else {
+                    //if (side.pos > sideIndex!) {
+                    hi = mid - 1;
+                }
+            }
+        }
+        return [null, null];
+    }
     return {
         get alignedMode() {
             return _alignedMode;
@@ -714,6 +798,7 @@ animation: highlightAnimation 0.3s linear 3;
             return {
                 diffs: _diffs,
                 anchors: _anchors,
+                mappings: _mappings,
                 leftEditor,
                 rightEditor,
             };
@@ -771,18 +856,18 @@ animation: highlightAnimation 0.3s linear 3;
                 }
                 _diffOptions.useLengthBias = value;
                 computeDiff();
-            }
+            },
+            get maxGram() {
+                return _diffOptions.maxGram;
+            },
+            set maxGram(value) {
+                if (_diffOptions.maxGram === value) {
+                    return;
+                }
+                _diffOptions.maxGram = value;
+                computeDiff();
+            },
         },
     };
 })();
-function debounce(func, delay) {
-    let timeoutId;
-    return function (...args) {
-        const context = this;
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(function () {
-            func.apply(context, args);
-        }, delay);
-    };
-}
 //# sourceMappingURL=main.js.map

@@ -1,7 +1,9 @@
 "use strict";
-function getTextRuns(textKey, text, diffs, anchors) {
+function getTextRuns(textKey, text, textProps, diffs, anchors) {
     let pos = 0;
     let textLen = text.length;
+    let nextPropsPos = null;
+    let nextProps = null;
     let nextDiffPos = null;
     let nextDiffEndPos = null;
     let nextDiff = null;
@@ -9,8 +11,10 @@ function getTextRuns(textKey, text, diffs, anchors) {
     let nextAnchor = null;
     let nextNewLinePos = null;
     let nextNewLineIsEndOfString = false;
+    let textPropsIndex = -1;
     let diffIndex = -1;
     let anchorIndex = -1;
+    let lastSupSubPos = null;
     const textruns = [];
     // let counter = 0;
     // pos < textLen 조건을 쓰면 text의 끝에 위치한 이벤트가 무시될 수 있음.
@@ -34,6 +38,24 @@ function getTextRuns(textKey, text, diffs, anchors) {
         // 	throw new Error("Infinite loop detected");
         // }
         let nextEventPos = textLen;
+        if (nextPropsPos === null) {
+            textPropsIndex++;
+            if (textPropsIndex < textProps.length) {
+                nextProps = textProps[textPropsIndex];
+                nextPropsPos = nextProps.pos;
+                if (nextPropsPos < pos) {
+                    // skipped text property. this should not happen.
+                    console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
+                    nextPropsPos = nextProps = null;
+                }
+            }
+            else {
+                nextPropsPos = Number.MAX_SAFE_INTEGER;
+            }
+        }
+        if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
+            nextEventPos = nextPropsPos;
+        }
         if (nextAnchorPos === null) {
             anchorIndex++;
             if (anchorIndex < anchors.length) {
@@ -43,14 +65,14 @@ function getTextRuns(textKey, text, diffs, anchors) {
                     // skipped anchor. this should not happen.
                     console.warn("Skipped anchor", { anchor: nextAnchor, anchorIndex: anchorIndex, pos: pos, anchorPos: nextAnchorPos });
                     nextAnchorPos = nextAnchor = null;
-                    continue;
+                    // continue;
                 }
             }
             else {
                 nextAnchorPos = Number.MAX_SAFE_INTEGER;
             }
         }
-        if (nextAnchorPos < nextEventPos) {
+        if (nextAnchorPos !== null && nextAnchorPos < nextEventPos) {
             nextEventPos = nextAnchorPos;
         }
         if (nextDiffEndPos === null) {
@@ -69,10 +91,10 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 nextDiffEndPos = Number.MAX_SAFE_INTEGER;
             }
         }
-        if (nextDiffPos < nextEventPos) {
+        if (nextDiffPos !== null && nextDiffPos < nextEventPos) {
             nextEventPos = nextDiffPos;
         }
-        else if (nextDiffEndPos < nextEventPos) {
+        else if (nextDiffEndPos !== null && nextDiffEndPos < nextEventPos) {
             nextEventPos = nextDiffEndPos;
         }
         if (nextNewLinePos === null) {
@@ -82,7 +104,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 nextNewLineIsEndOfString = true;
             }
         }
-        if (nextNewLinePos < nextEventPos) {
+        if (nextNewLinePos !== null && nextNewLinePos < nextEventPos) {
             nextEventPos = nextNewLinePos;
         }
         if (pos < nextEventPos) {
@@ -93,8 +115,35 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 len: nextEventPos - pos,
                 diffIndex: null,
                 anchorIndex: null,
+                props: null,
             });
             pos = nextEventPos;
+        }
+        else if (pos === lastSupSubPos) {
+            // 비어있는 sub나 sup도 렌더링 되면 줄 높이가 바뀌기 때문에 mirror에서도 렌더링 해줘야함.
+            // 으... 정말 지저분하고 끔찍한데 일단 이렇게 대충...
+            textruns.push({
+                type: "CHARS",
+                pos: pos,
+                len: 0,
+                diffIndex: null,
+                anchorIndex: null,
+                props: null,
+            });
+            lastSupSubPos = null;
+        }
+        if (nextEventPos === nextPropsPos) {
+            textruns.push({
+                type: "MODIFIER",
+                pos: nextPropsPos,
+                len: 0,
+                diffIndex: null,
+                anchorIndex: null,
+                props: nextProps,
+            });
+            lastSupSubPos = !!nextProps?.supsub ? nextPropsPos : null;
+            nextPropsPos = null;
+            continue;
         }
         // 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
         if (nextEventPos === nextAnchorPos && nextAnchor.type === "before") {
@@ -104,6 +153,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: anchorIndex,
+                props: null,
             });
             nextAnchorPos = nextAnchor = null;
             continue;
@@ -115,6 +165,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: null,
+                props: null,
             });
             nextDiffPos = Number.MAX_SAFE_INTEGER;
             continue;
@@ -127,6 +178,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: null,
+                props: null,
             });
             nextDiffPos = nextDiffEndPos = nextDiff = null;
             continue;
@@ -138,6 +190,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: anchorIndex,
+                props: null,
             });
             nextAnchorPos = null;
             continue;
@@ -153,6 +206,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
                     len: 1,
                     diffIndex: null,
                     anchorIndex: null,
+                    props: null,
                 });
                 pos = nextEventPos + 1;
                 nextNewLinePos = null;
@@ -166,6 +220,7 @@ function getTextRuns(textKey, text, diffs, anchors) {
         len: 0,
         diffIndex: null,
         anchorIndex: null,
+        props: null,
     });
     return textruns;
 }

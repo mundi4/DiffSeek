@@ -16,7 +16,7 @@ for (let line of lines) {
     const typeMatch = line.match(/type="([^"]+)"/i);
     const typeAttr = typeMatch ? ` type="${typeMatch[1]}"` : '';
     const idMatch = line.match(/id="([^"]+)"/i);
-    const idAttr = idMatch ? ` id="${idMatch[1]}"` : ` id="${src}"`;
+    const idAttr = idMatch ? ` id="${idMatch[1]}"` : ``;//` id="${src}"`;
 
     const scriptPath = path.resolve(src);
     if (fs.existsSync(scriptPath)) {

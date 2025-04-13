@@ -10,16 +10,19 @@
 // 원본 텍스트에 marker문자(zero-width space 등)를 넣고 그걸로 빨간색 범위 파악? nope!
 
 type TextRun = {
-	type: "CHARS" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
+	type: "CHARS" | "MODIFIER" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
 	pos: number;
 	len: number;
 	diffIndex: number | null;
 	anchorIndex: number | null;
+	props: TextProperties | null;
 };
 
-function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[], anchors: Anchor[]): TextRun[] {
+function getTextRuns(textKey: "left" | "right", text: string, textProps: TextProperties[], diffs: DiffEntry[], anchors: Anchor[]): TextRun[] {
 	let pos = 0;
 	let textLen = text.length;
+	let nextPropsPos: number | null = null;
+	let nextProps: TextProperties | null = null;
 	let nextDiffPos: number | null = null;
 	let nextDiffEndPos: number | null = null;
 	let nextDiff: DiffEntrySide | null = null;
@@ -27,8 +30,10 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 	let nextAnchor: Anchor | null = null;
 	let nextNewLinePos: number | null = null;
 	let nextNewLineIsEndOfString = false;
+	let textPropsIndex = -1;
 	let diffIndex = -1;
 	let anchorIndex = -1;
+	let lastSupSubPos = null;
 	const textruns: TextRun[] = [];
 
 	// let counter = 0;
@@ -54,6 +59,25 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 		// }
 		let nextEventPos = textLen;
 
+		if (nextPropsPos === null) {
+			textPropsIndex++;
+			if (textPropsIndex < textProps.length) {
+				nextProps = textProps[textPropsIndex];
+				nextPropsPos = nextProps.pos;
+				if (nextPropsPos < pos) {
+					// skipped text property. this should not happen.
+					console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
+					nextPropsPos = nextProps = null;
+				}
+			} else {
+				nextPropsPos = Number.MAX_SAFE_INTEGER;
+			}
+		}
+
+		if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
+			nextEventPos = nextPropsPos;
+		}
+
 		if (nextAnchorPos === null) {
 			anchorIndex++;
 			if (anchorIndex < anchors.length) {
@@ -63,13 +87,14 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 					// skipped anchor. this should not happen.
 					console.warn("Skipped anchor", { anchor: nextAnchor, anchorIndex: anchorIndex, pos: pos, anchorPos: nextAnchorPos });
 					nextAnchorPos = nextAnchor = null;
-					continue;
+					// continue;
 				}
 			} else {
 				nextAnchorPos = Number.MAX_SAFE_INTEGER;
 			}
 		}
-		if (nextAnchorPos < nextEventPos) {
+
+		if (nextAnchorPos !== null && nextAnchorPos < nextEventPos) {
 			nextEventPos = nextAnchorPos;
 		}
 
@@ -89,10 +114,10 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 			}
 		}
 
-		if (nextDiffPos! < nextEventPos) {
-			nextEventPos = nextDiffPos!;
-		} else if (nextDiffEndPos! < nextEventPos) {
-			nextEventPos = nextDiffEndPos!;
+		if (nextDiffPos !== null && nextDiffPos < nextEventPos) {
+			nextEventPos = nextDiffPos;
+		} else if (nextDiffEndPos !== null && nextDiffEndPos < nextEventPos) {
+			nextEventPos = nextDiffEndPos;
 		}
 
 		if (nextNewLinePos === null) {
@@ -102,7 +127,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				nextNewLineIsEndOfString = true;
 			}
 		}
-		if (nextNewLinePos < nextEventPos) {
+		if (nextNewLinePos !== null && nextNewLinePos < nextEventPos) {
 			nextEventPos = nextNewLinePos;
 		}
 
@@ -114,8 +139,36 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				len: nextEventPos - pos,
 				diffIndex: null,
 				anchorIndex: null,
+				props: null,
 			});
 			pos = nextEventPos;
+		} else if (pos === lastSupSubPos) {
+			// 비어있는 sub나 sup도 렌더링 되면 줄 높이가 바뀌기 때문에 mirror에서도 렌더링 해줘야함.
+			// 으... 정말 지저분하고 끔찍한데 일단 이렇게 대충...
+			textruns.push({
+				type: "CHARS",
+				pos: pos,
+				len: 0,
+				diffIndex: null,
+				anchorIndex: null,
+				props: null,
+			});
+			lastSupSubPos = null;
+		}
+
+		if (nextEventPos === nextPropsPos) {
+			textruns.push({
+				type: "MODIFIER",
+				pos: nextPropsPos,
+				len: 0,
+				diffIndex: null,
+				anchorIndex: null,
+				props: nextProps,
+			});
+
+			lastSupSubPos = !!nextProps?.supsub ? nextPropsPos : null;
+			nextPropsPos = null;
+			continue;
 		}
 
 		// 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
@@ -126,6 +179,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: anchorIndex,
+				props: null,
 			});
 			nextAnchorPos = nextAnchor = null;
 			continue;
@@ -138,6 +192,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: null,
+				props: null,
 			});
 			nextDiffPos = Number.MAX_SAFE_INTEGER;
 			continue;
@@ -151,6 +206,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: null,
+				props: null,
 			});
 			nextDiffPos = nextDiffEndPos = nextDiff = null;
 			continue;
@@ -163,6 +219,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: anchorIndex,
+				props: null,
 			});
 			nextAnchorPos = null;
 			continue;
@@ -178,6 +235,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 					len: 1,
 					diffIndex: null,
 					anchorIndex: null,
+					props: null,
 				});
 				pos = nextEventPos + 1;
 				nextNewLinePos = null;
@@ -192,6 +250,7 @@ function getTextRuns(textKey: "left" | "right", text: string, diffs: DiffEntry[]
 		len: 0,
 		diffIndex: null,
 		anchorIndex: null,
+		props: null,
 	});
 
 	return textruns;

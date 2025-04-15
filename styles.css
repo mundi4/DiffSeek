@@ -2,6 +2,7 @@
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
+	--status-bar-height: 22px;
 	font-size: 16px;
 }
 
@@ -20,44 +21,11 @@ html {
 	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
 }
 
-#topbar {
-	grid-column: span 2;
-	display: flex;
-	align-items: center;
-	padding: 5px 10px;
-	background: #444;
-	color: white;
-	align-items: center;
-	justify-content: space-between;
-}
-
-.buttons {
-	display: flex;
-	gap: 10px;
-	margin-left: auto;
-}
-
-button.toggle {
-	background: none;
-	border: 2px solid transparent;
-	cursor: pointer;
-	padding: 2px 4px;
-	transition: all 0.2s ease-in-out;
-	opacity: 0.3;
-	font-size: 14px;
-	outline: none;
-}
-
-button.toggle[aria-pressed="true"] {
-	opacity: 1;
-	transform: scale(1.2);
-}
-
 .container {
 	display: grid;
 	/* grid-template-rows: var(--topbar-height) 1fr; */
 	grid-template-columns: 1fr 250px;
-	height: 100vh;
+	height: calc(100vh - var(--status-bar-height, 0px));
 	overflow: hidden;
 	gap: 0 8px;
 	position: relative;
@@ -77,7 +45,7 @@ button.toggle[aria-pressed="true"] {
 #progress {
 	display: none;
 	position: fixed;
-	bottom: 20px;
+	bottom: calc(20px + var(--status-bar-height, 0px));
 	right: 20px;
 	background-color: rgba(0, 0, 0, 0.7);
 	color: white;
@@ -143,7 +111,6 @@ button.toggle[aria-pressed="true"] {
 	min-height: var(--line-height);
 }
 
-
 .editor {
 	z-index: 2;
 	color: #333;
@@ -165,7 +132,6 @@ button.toggle[aria-pressed="true"] {
 	background-color: #f8f8f8; */
 }
 
-
 .edit .editor-wrapper:focus-within .mirror {
 	background: transparent;
 }
@@ -182,6 +148,10 @@ button.toggle[aria-pressed="true"] {
 	cursor: text;
 	caret-color: white; /* 커서 유지 */
 	/* cursor: default; */
+}
+
+.edit .mirror {
+	height: unset !important;
 }
 
 .edit .mirror * {
@@ -277,10 +247,6 @@ hr[data-type="diffEnd"] {
 	background-color: hsl(0 75% 95%);
 } */
 
-/*
-줄맞춤 용 marker element
-*/
-
 hr {
 	border: 0;
 	height: 0;
@@ -326,9 +292,7 @@ diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
 	background-color: hsl(0 100% 90%);
 }
 
-
 .aligned span {
-	
 	z-index: 1;
 	background: transparent;
 }
@@ -343,7 +307,6 @@ scrolling
 .editor-wrapper {
 	overflow-y: scroll;
 }
-
 
 @keyframes highlightAnimation {
 	0% {
@@ -373,7 +336,7 @@ scrolling
 	content: "👬";
 	font-size: 128px;
 	font-weight: bold;
-	font-family: 'Consolas', Courier, monospace;
+	font-family: "Consolas", Courier, monospace;
 	text-align: center;
 	display: block;
 }
@@ -450,14 +413,16 @@ scrolling
 	display: inline;
 }
 
-sup, .sup {
+sup,
+.sup {
 	vertical-align: super;
-	font-size:smaller;
+	font-size: smaller;
 }
 
-sub, .sub {
+sub,
+.sub {
 	vertical-align: sub;
-	font-size:smaller;
+	font-size: smaller;
 }
 
 .red {
@@ -467,5 +432,133 @@ sub, .sub {
 
 .aligned .red {
 	color: hsl(0 100% 40%) !important;
+	font-weight: bold;
+}
+
+:root {
+	--statusbar-bg: #f0f0f0;
+	--statusbar-fg: #333;
+	--statusbar-hover: rgba(0, 0, 0, 0.05);
+}
+
+body.aligned {
+	--statusbar-bg: #1e1e1e;
+	--statusbar-fg: #ccc;
+	--statusbar-hover: rgba(255, 255, 255, 0.08);
+}
+
+#statusbar {
+	height: 22px;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0 10px;
+	font-size: 12px;
+	font-family: "Segoe UI", sans-serif;
+	background: var(--statusbar-bg);
+	color: var(--statusbar-fg);
+	border-top: 1px solid rgba(0, 0, 0, 0.1);
+	user-select: none;
+	transition: background 0.3s ease, color 0.3s ease;
+}
+
+.status-left,
+.status-right {
+	display: flex;
+	gap: 16px;
+	align-items: center;
+}
+
+.status-item {
+	display: flex;
+	align-items: center;
+	gap: 4px;
+	white-space: nowrap;
+}
+
+.status-item.clickable {
+	cursor: pointer;
+	padding: 2px 6px;
+	border-radius: 4px;
+	transition: background 0.2s ease;
+}
+
+.status-item.clickable:hover {
+	background: var(--statusbar-hover);
+}
+
+.value {
+	font-weight: 500;
+}
+
+#statusbar {
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	padding: 0 10px;
+	height: var(--status-bar-height);
+	background: #1e1e1e;
+	color: #ccc;
+}
+
+.status-bar-left,
+.status-bar-right {
+	display: flex;
+	align-items: center;
+}
+
+.status-item {
+	margin: 0 10px;
+	
+}
+.status-item.status-item.clickable{
+	cursor: pointer;
+}
+
+.status-item.disabled {
+	opacity: 0.5;
+	cursor: not-allowed;
+}
+
+.status-item span {
+	font-weight: bold;
+}
+
+.status-bar-left {
+	justify-content: flex-start;
+}
+
+.status-bar-right {
+	justify-content: flex-end;
+}
+
+#settingsPopup {
+	position: absolute;
+	background: #2d2d2d;
+	color: #ccc;
+	font-size: 12px;
+	border: 1px solid #444;
+	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+	min-width: 150px;
+	z-index: 1000;
+	display: none;
+}
+
+.popup div {
+	padding: 6px 12px;
+	cursor: pointer;
+}
+
+.popup div:hover {
+	background: #3a3a3a;
+}
+
+.hidden {
+	display: none;
+}
+
+.popup .selected {
+	background: #3a3a3a;
+	color: #fff;
 	font-weight: bold;
 }

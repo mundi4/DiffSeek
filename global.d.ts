@@ -46,6 +46,12 @@ declare type DiffOptions = {
 	greedyMatch?: boolean;
 	useLengthBias?: boolean;
 	maxGram: number;
+
+	lengthBiasFactor: number;
+	sectionHeadingMultiplier: number;
+	lineStartMultiplier: number;
+	lineEndMultiplier: number;
+	uniqueMultiplier: number;
 };
 
 declare type DiffRequest = {
@@ -63,6 +69,9 @@ declare type DiffResponse = {
 	reqId: number;
 	diffs: DiffEntry[];
 	anchors: Anchor[];
+	leftTokenCount: number;
+	rightTokenCount: number;
+	processTime: number;
 };
 
 declare type TokenMatchEntry = {

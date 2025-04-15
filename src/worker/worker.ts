@@ -10,6 +10,7 @@ const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
 const SECTION_HEADING = 64;
+const MANUAL_ANCHOR = 128; // @@@, ### 등등
 
 const SPACE_CHARS: { [char: string]: boolean } = {
 	" ": true,
@@ -136,6 +137,11 @@ for (let i = 0; i < syllables.length; i++) {
 }
 const SectionHeadingTrieNode = SectionHeadingTrie.root;
 
+const ManualAnchorTrie = createTrie(false);
+ManualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
+ManualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
+const ManualAnchorTrieNode = ManualAnchorTrie.root;
+
 self.onmessage = (e) => {
 	if (e.data.type === "diff") {
 		const request = e.data as DiffRequest;
@@ -155,6 +161,7 @@ self.onmessage = (e) => {
 		}
 		runDiff(ctx);
 	} else if (e.data.type === "normalizeChars") {
+		// TODO 이런 요상한 방법을 쓰지말고 UI쓰레드에서 Worker 생성 후 initialize 메시지를 한번 보내기.
 		registerNormalizeChar(e.data.chars);
 		// } else if (e.data.type === "option") {
 		// 	if (e.data.key === "greedyMatch") {
@@ -188,9 +195,10 @@ async function runDiff(ctx: WorkContext) {
 
 		self.postMessage({
 			reqId: ctx.reqId,
-			type: "diffs",
+			type: "diff",
+			processTime: ctx.finish - ctx.start,
 			...result,
-		});
+		} as DiffResponse);
 	} catch (e) {
 		if (e instanceof Error && e.message === "cancelled") {
 			// console.debug("Diff canceled");
@@ -215,6 +223,7 @@ function tokenizeByChar(input: string): Token[] {
 	const tokens: Token[] = [];
 	let lineNum = 1;
 	let flags = FIRST_OF_LINE;
+	let node: TrieNode | null = null;
 	const inputPos = 0;
 	const inputEnd = input.length;
 
@@ -224,7 +233,30 @@ function tokenizeByChar(input: string): Token[] {
 			if (char === "(") {
 				let p = i + 1;
 				let found = null;
-				for (let node = WildcardTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
+				for (node = WildcardTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
+					if (node.word !== null) {
+						found = node;
+						break;
+					}
+				}
+				if (found) {
+					flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+					tokens.push({
+						text: found.word!,
+						pos: i,
+						len: p - i,
+						lineNum: lineNum,
+						flags: flags | (found.flags || 0),
+					});
+					flags = 0;
+					i = p - 1;
+					continue;
+				}
+			}
+			if ((node = ManualAnchorTrieNode.next(char))) {
+				let p = i + 1;
+				let found = null;
+				for (; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
 					if (node.word !== null) {
 						found = node;
 						break;
@@ -276,7 +308,7 @@ function tokenizeByChar(input: string): Token[] {
 		}
 	}
 
-	//console.log("tokenizeByChar", tokens);
+	//console.debug("tokenizeByChar", tokens);
 	return tokens;
 }
 
@@ -295,8 +327,12 @@ function tokenizeByWord(input: string): Token[] {
 		if (SPACE_CHARS[char]) {
 			if (currentStart !== -1) {
 				flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+				const text = flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i);
+				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+					flags |= MANUAL_ANCHOR;
+				}
 				tokens.push({
-					text: flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i),
+					text: text,
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: lineNum,
@@ -379,9 +415,13 @@ function tokenizeByWord(input: string): Token[] {
 	}
 
 	if (currentStart !== -1) {
+		const text = flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart);
+		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+			flags |= MANUAL_ANCHOR;
+		}
 		flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 		tokens.push({
-			text: flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart),
+			text: text,
 			pos: currentStart,
 			len: inputEnd - currentStart,
 			lineNum: lineNum,
@@ -402,7 +442,7 @@ function tokenizeByWord(input: string): Token[] {
 		}
 	}
 
-	//console.log("tokenizeByWord", tokens);
+	//console.debug("tokenizeByWord", tokens);
 	return tokens;
 }
 
@@ -442,8 +482,12 @@ function tokenizeByLine(input: string): Token[] {
 			}
 		} else {
 			if (currentStart !== -1) {
+				const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
+				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+					flags |= MANUAL_ANCHOR;
+				}
 				tokens.push({
-					text: input.substring(currentStart, currentEnd).replace(/ +/g, " ").trim(),
+					text: text,
 					pos: currentStart,
 					len: i - currentStart,
 					lineNum: lineNum,
@@ -457,15 +501,19 @@ function tokenizeByLine(input: string): Token[] {
 	}
 
 	if (currentStart !== -1) {
+		const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
+		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+			flags |= MANUAL_ANCHOR;
+		}
 		tokens.push({
-			text: input.substring(currentStart, currentEnd).trim(),
+			text: text,
 			pos: currentStart,
 			len: currentEnd - currentStart,
 			lineNum: lineNum,
 			flags: flags,
 		});
 	}
-
+	//console.debug("tokenizeByLine", tokens);
 	return tokens;
 }
 
@@ -546,7 +594,7 @@ function checkIfFirstOfLine(input: string, pos: number) {
 async function runLcsDiff(ctx: WorkContext): Promise<PostProcessResult> {
 	const lhrTokens = tokenize(ctx.leftText, ctx.options.tokenization);
 	const rhsTokens = tokenize(ctx.rightText, ctx.options.tokenization);
-	const rawResult = await computeDiff(lhrTokens, rhsTokens, ctx.options.greedyMatch, ctx);
+	const rawResult = await computeDiff(lhrTokens, rhsTokens, !!ctx.options.greedyMatch, ctx);
 	return postProcess(ctx, rawResult, lhrTokens, rhsTokens);
 }
 
@@ -822,7 +870,8 @@ function findMiddleSnake(
 			// });
 
 			if (odd && kup - d < k && k < kup + d) {
-				if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+				//if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+				if (vectorDown[offset_down + k] >= vectorUp[offset_up + k]) {
 					return {
 						lhsIndex: vectorDown[offset_down + k],
 						lhsLength: 1,
@@ -865,7 +914,8 @@ function findMiddleSnake(
 
 			// overlap ?
 			if (!odd && kdown - d <= k && k <= kdown + d) {
-				if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+				// if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
+				if (vectorDown[offset_down + k] >= vectorUp[offset_up + k]) {
 					return {
 						lhsIndex: vectorDown[offset_down + k],
 						lhsLength: 1,
@@ -899,7 +949,7 @@ async function runHistogramDiff(ctx: WorkContext): Promise<PostProcessResult> {
 
 // histogram diff에서 가장 중요한 함수
 // 얼마나 값어치 있는 공통 앵커를 찾느냐가 매우 중요하고 고로 그 값어치를 매기는 기준과 방법이 또 매우 중요함
-// 여러가지 생각해볼 것들이 많지만... 
+// 여러가지 생각해볼 것들이 많지만...
 const findBestHistogramAnchor: FindAnchorFunc = function (
 	lhsTokens: Token[],
 	lhsLower: number,
@@ -909,21 +959,22 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	rhsUpper: number,
 	ctx: WorkContext
 ): { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number } | null {
-	const LENGTH_BIAS_FACTOR = 0.7;
-	const UNIQUE_BONUS = 0.5;
-	const LINE_START_BONUS = 0.85;
-	const LINE_END_BONUS = 0.9;
+	const diffOptions = ctx.options;
+	const LENGTH_BIAS_FACTOR = diffOptions.lengthBiasFactor || 0.7; // 길이가 너무 크게 영향을 주는 경향이 있어서 이걸로 조절
+	const UNIQUE_BONUS = 1 / (diffOptions.uniqueMultiplier || 1 / 0.5);
+	const LINE_START_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.85);
+	const LINE_END_BONUS = 1 / (diffOptions.lineEndMultiplier || 1 / 0.9);
+	const SECTION_HEADING_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.75);
 	//const FULL_LINE_BONUS = 0.85; n그램을 사용시 여러단어가 매치되는 경우 오히려 마지막 단어가 다음 줄로 넘어가서 보너스를 못 받을 수가 있다
-	const SECTION_HEADING_BONUS = 0.75;
 
 	const useLengthBias = !!ctx.options.useLengthBias;
 	const maxGram = ctx.options.maxGram || 1;
 	const useMatchPrefix = ctx.options.whitespace === "ignore";
-	const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram;//1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
+	const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
 	const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
 
 	const freq: Record<string, number> = {};
-	for (let n = 1; n <= maxGram; n++) {
+	for (let n = 1; n <= maxLen; n++) {
 		for (let i = lhsLower; i <= lhsUpper - n; i++) {
 			let key = lhsTokens[i].text;
 			for (let k = 1; k < n; k++) {
@@ -954,18 +1005,18 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 		// 특수 케이스
 		// 강제로 문서의 특정 지점끼리 매칭시킴. 문서 구조가 항상 내 맘 같은 것이 아니야. ㅠ
-		if (ltext1 === MANUAL_ANCHOR1 || ltext1 === MANUAL_ANCHOR2) {
-			for (let j = rhsLower; j < rhsUpper; j++) {
-				if (rhsTokens[j].text === ltext1) {
-					return {
-						lhsIndex: i,
-						lhsLength: 1,
-						rhsIndex: j,
-						rhsLength: 1,
-					};
-				}
-			}
-		}
+		// if (ltext1 === MANUAL_ANCHOR1 || ltext1 === MANUAL_ANCHOR2) {
+		// 	for (let j = rhsLower; j < rhsUpper; j++) {
+		// 		if (rhsTokens[j].text === ltext1) {
+		// 			return {
+		// 				lhsIndex: i,
+		// 				lhsLength: 1,
+		// 				rhsIndex: j,
+		// 				rhsLength: 1,
+		// 			};
+		// 		}
+		// 	}
+		// }
 
 		for (let j = rhsLower; j < rhsUpper; j++) {
 			const rtext1 = rhsTokens[j].text;
@@ -981,6 +1032,15 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				const rtext = rhsTokens[ri].text;
 
 				if (ltext === rtext) {
+					if (ltext === MANUAL_ANCHOR1 || ltext === MANUAL_ANCHOR2) {
+						// 강제로 문서의 특정 지점끼리 매칭시킴. 문서 구조가 항상 내 맘 같은 것이 아니야. ㅠ
+						return {
+							lhsIndex: li,
+							lhsLength: 1,
+							rhsIndex: ri,
+							rhsLength: 1,
+						};
+					}
 					li++;
 					ri++;
 					lhsLen++;
@@ -1136,7 +1196,7 @@ async function diffCore(
 		anchor.rhsIndex >= rhsLower &&
 		anchor.rhsIndex + anchor.rhsLength <= rhsUpper
 	) {
-		//console.debug("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
+		console.debug("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
 		await diffCore(ctx, leftTokens, lhsLower, anchor.lhsIndex, rightTokens, rhsLower, anchor.rhsIndex, findAnchor);
 
 		// 앵커는 common sequence임!
@@ -1483,12 +1543,16 @@ function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Toke
 			rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
 			rightEmpty = false;
 
-			if ((leftTokenStart.flags | rightTokenStart.flags) & FIRST_OF_LINE) {
+			// 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
+			// 좌우 정렬을 할 수 있을 것 같기도 한데...
+			if (leftTokenStart.flags & rightTokenStart.flags & FIRST_OF_LINE) {
 				leftBeforeAnchorPos = leftPos;
 				rightBeforeAnchorPos = rightPos;
+
 				while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
 					leftBeforeAnchorPos--;
 				}
+
 				while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
 					rightBeforeAnchorPos--;
 				}
@@ -1497,8 +1561,6 @@ function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Toke
 				if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
 					leftAfterAnchorPos = leftPos + leftLen;
 					rightAfterAnchorPos = rightPos + rightLen;
-					// 줄바꿈 문자 위치까지 스킵
-
 					if (leftText[leftAfterAnchorPos] !== "\n") {
 						do {
 							leftAfterAnchorPos++;
@@ -1522,6 +1584,7 @@ function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Toke
 		} else {
 			// 한쪽이 비어있음.
 			// 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
+			// 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
 			let longSideText, shortSideText;
 			let longSideIndex, longSideCount, longSideTokens;
 			let shortSideIndex, shortSideTokens;
@@ -1645,5 +1708,5 @@ function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Toke
 	}
 
 	// console.log("postProcess", "final diffs:", diffs, anchors);
-	return { diffs, anchors };
+	return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length };
 }

@@ -75,9 +75,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="github" content="https://github.com/mundi4/DiffSeek">
     <title>DiffSeek</title>
-<script>
-// ./build/constants.js
-"use strict";
+<script>"use strict";
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
 // 인접한 색상과 너무 가깝지 않도록 아주 CAREFUL하게 고른 순서. 과학이다.
@@ -162,9 +160,7 @@ const TOKENIZATION = {
 };
 //# sourceMappingURL=constants.js.map
 </script>
-<script>
-// ./build/utils.js
-"use strict";
+<script>"use strict";
 const colorCache = new Map();
 function isReddish(color) {
     const rgb = parseColorFast(color);
@@ -342,9 +338,7 @@ function debounce(func, delay) {
 }
 //# sourceMappingURL=utils.js.map
 </script>
-<script>
-// ./build/textrun.js
-"use strict";
+<script>"use strict";
 // 개정대비표에서 복붙 했을때 빨간색 텍스트를 그대로 보여줄 방법이 있을까?
 // 텍스트 색과 diff 범위는 완전히 별개라서 서로 완전히 겹칠 수도 있고 안겹칠 수도 있고 일부분만 겹칠 수도 있다
 // 일부분만 겹칠 경우가 까다로워지는 부분인데 textrun은 만들더라도 update때에도 일일히 속성 별로 다른 요소를 써서 DOM을 만들어야한다.
@@ -580,9 +574,7 @@ function getTextRuns(textKey, text, textProps, diffs, anchors) {
 }
 //# sourceMappingURL=textrun.js.map
 </script>
-<script>
-// ./build/editor.js
-"use strict";
+<script>"use strict";
 function createEditor(container, editorName, callbacks) {
     const { onDiffVisibilityChanged, onTextChanged, onMirrorUpdated } = callbacks;
     const _lineElements = [];
@@ -1269,9 +1261,7 @@ function createEditor(container, editorName, callbacks) {
 }
 //# sourceMappingURL=editor.js.map
 </script>
-<script id="worker.js" type="text/plain">
-// ./build/worker.js
-"use strict";
+<script id="worker.js" type="text/plain">"use strict";
 const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
 const TOKEN_CACHE_SIZE = 2;
@@ -2707,7 +2697,6 @@ function postProcess(ctx, rawEntries, leftTokens, rightTokens) {
     <style id="highlightStyle">
     </style>
 <style>
-/* ./styles.css */
 :root {
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
@@ -3222,9 +3211,7 @@ sub, .sub {
         style.textContent = cssText;
         document.head.appendChild(style);
     </script>
-<script>
-// ./build/main.js
-"use strict";
+<script>"use strict";
 // 너무나도 센스 넘쳐버리는 이름
 const DiffSeek = (function () {
     let _diffs = [];

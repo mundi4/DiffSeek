@@ -1,9 +1,10 @@
 "use strict";
 // 너무나도 센스 넘쳐버리는 이름
+// 이것저것 넣고 빼다보니 덩치 산만해지고 더러워짐.
 const DiffSeek = (function () {
-    let _diffs = [];
-    let _anchors = [];
-    let _mappings = [];
+    // let _diffs: DiffEntry[] | null = [];
+    // let _anchors: Anchor[] | null = [];
+    // let _mappings: DiffEntry[] | null = [];
     let _alignedMode = false;
     let _alignedDirty = false;
     let _activeEditor = null;
@@ -15,22 +16,237 @@ const DiffSeek = (function () {
     let _currentDiffIndex = -1;
     let _syncEditor = false;
     let _resetCurrentlyScrollingEditorId = null;
+    let _diffResult = null;
+    // let _leftTokenCount: number | null = null;
+    // let _rightTokenCount: number | null = null;
     // let _leftTokens: Token[] = [];
     // let _rightTokens: Token[] = [];
-    const _diffOptions = {
+    const _diffOptions = (function (defaultValues) {
+        let _diffOptions = { ...defaultValues };
+        function setValue(key, value) {
+            if (_diffOptions[key] !== value) {
+                _diffOptions[key] = value;
+                computeDiff();
+            }
+        }
+        return {
+            get algorithm() {
+                return _diffOptions.algorithm;
+            },
+            set algorithm(value) {
+                if (value !== "histogram" && value !== "myers" && value !== "lcs") {
+                    throw new Error("Invalid algorithm: " + value);
+                }
+                setValue("algorithm", value);
+            },
+            get tokenization() {
+                return _diffOptions.tokenization;
+            },
+            set tokenization(value) {
+                if (value !== "char" && value !== "word" && value !== "line") {
+                    throw new Error("Invalid tokenization: " + value);
+                }
+                setValue("tokenization", value);
+            },
+            get whitespace() {
+                return _diffOptions.whitespace;
+            },
+            set whitespace(value) {
+                if (value !== "ignore" && value !== "normalize") {
+                    throw new Error("Invalid whitespace handling: " + value);
+                }
+                setValue("whitespace", value);
+            },
+            get greedyMatch() {
+                return !!_diffOptions.greedyMatch;
+            },
+            set greedyMatch(value) {
+                if (value !== true && value !== false) {
+                    throw new Error("Invalid greedyMatch: " + value);
+                }
+                setValue("greedyMatch", !!value);
+            },
+            get useLengthBias() {
+                return !!_diffOptions.useLengthBias;
+            },
+            set useLengthBias(value) {
+                if (value !== true && value !== false) {
+                    throw new Error("Invalid useLengthBias: " + value);
+                }
+                setValue("useLengthBias", !!value);
+            },
+            get maxGram() {
+                return _diffOptions.maxGram;
+            },
+            set maxGram(value) {
+                if (value < 1) {
+                    throw new Error("Invalid maxGram: " + value);
+                }
+                setValue("maxGram", value);
+            },
+            get lengthBiasFactor() {
+                return _diffOptions.lengthBiasFactor;
+            },
+            set lengthBiasFactor(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid lengthBiasFactor: " + value);
+                }
+                setValue("lengthBiasFactor", value);
+            },
+            get sectionHeadingMultiplier() {
+                return _diffOptions.sectionHeadingMultiplier;
+            },
+            set sectionHeadingMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid sectionHeadingMultiplier: " + value);
+                }
+                setValue("sectionHeadingMultiplier", value);
+            },
+            get lineStartMultiplier() {
+                return _diffOptions.lineStartMultiplier;
+            },
+            set lineStartMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid lineStartMultiplier: " + value);
+                }
+                setValue("lineStartMultiplier", value);
+            },
+            get lineEndMultiplier() {
+                return _diffOptions.lineEndMultiplier;
+            },
+            set lineEndMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid lineEndMultiplier: " + value);
+                }
+                setValue("lineEndMultiplier", value);
+            },
+            get uniqueMultiplier() {
+                return _diffOptions.uniqueMultiplier;
+            },
+            set uniqueMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid uniqueMultiplier: " + value);
+                }
+                setValue("uniqueMultiplier", value);
+            },
+        };
+    })({
         algorithm: "histogram",
         tokenization: "word",
         whitespace: "ignore",
         greedyMatch: false,
         useLengthBias: true,
         maxGram: 5,
-    };
+        lengthBiasFactor: 0.7,
+        sectionHeadingMultiplier: 1 / 0.75,
+        lineStartMultiplier: 1 / 0.85,
+        lineEndMultiplier: 1 / 0.9,
+        uniqueMultiplier: 1 / 0.6667,
+    });
     const useEditableMirror = false;
     const container = document.getElementById("main");
     const leftEditor = createEditor(container, "left", getEditorCallbacks("left"));
     const rightEditor = createEditor(container, "right", getEditorCallbacks("right"));
     leftEditor.wrapper.tabIndex = 100;
     rightEditor.wrapper.tabIndex = 101;
+    const statusBar = InitializeStatusBar([
+        {
+            side: "left",
+            key: "tokenization",
+            label: "단위",
+            get: () => _diffOptions.tokenization,
+            set: (value) => (_diffOptions.tokenization = value),
+            options: [
+                { label: "글자", value: "char" },
+                { label: "단어", value: "word" },
+                { label: "줄", value: "line" },
+            ],
+        },
+        {
+            side: "left",
+            key: "algorithm",
+            label: "알고리즘",
+            get: () => _diffOptions.algorithm,
+            set: (value) => (_diffOptions.algorithm = value),
+            options: [
+                { label: "Histogram", value: "histogram" },
+                { label: "⚠️ Myers ❌", value: "myers" },
+                { label: "LCS DP", value: "lcs" },
+            ],
+        },
+        {
+            side: "left",
+            key: "whitespace",
+            label: "공백",
+            get: () => _diffOptions.whitespace,
+            set: (value) => (_diffOptions.whitespace = value),
+            visible: () => _diffOptions.algorithm === "histogram" && _diffOptions.tokenization === "word",
+            options: [
+                { label: "정규화", value: "normalize" },
+                { label: "무시", value: "ignore" },
+            ],
+        },
+        // {
+        // 	side: "right",
+        // 	key: "greedyMatch",
+        // 	label: "Greedy Match",
+        // 	get: () => _diffOptions.greedyMatch,
+        // 	set: (value: boolean) => (_diffOptions.greedyMatch = value),
+        // 	disabled: () => _diffOptions.algorithm === "lcs",
+        // 	options: [false, true].map((v) => ({ label: v ? "On" : "Off", value: v })),
+        // },
+        // {
+        // 	side: "right",
+        // 	key: "useLengthBias",
+        // 	label: "Length Bias",
+        // 	get: () => _diffOptions.useLengthBias,
+        // 	set: (value: boolean) => (_diffOptions.useLengthBias = value),
+        // 	disabled: () => _diffOptions.algorithm === "histogram",
+        // 	options: [false, true].map((v) => ({ label: v ? "On" : "Off", value: v })),
+        // },
+        // {
+        // 	side: "right",
+        // 	key: "maxGram",
+        // 	label: "Max Gram",
+        // 	get: () => _diffOptions.maxGram,
+        // 	set: (value: number) => (_diffOptions.maxGram = value),
+        // 	disabled: () => _diffOptions.algorithm === "histogram",
+        // 	options: [1, 2, 3, 4, 5, 6, 7].reverse().map((v) => ({ label: v.toString(), value: v })),
+        // },
+        {
+            side: "right",
+            key: "diffs",
+            label: "!=",
+            get: () => {
+                if (_diffResult === null) {
+                    return "...";
+                }
+                return `${_diffResult.diffs.length}`;
+            },
+        },
+        {
+            side: "right",
+            key: "tokenCount",
+            label: "#",
+            get: () => {
+                if (_diffResult === null) {
+                    return "...";
+                }
+                return `${_diffResult.leftTokenCount} / ${_diffResult.rightTokenCount}`;
+            },
+        },
+        {
+            side: "right",
+            key: "processTime",
+            label: "⏱",
+            get: () => {
+                if (_diffResult === null) {
+                    return "...";
+                }
+                return `${Math.ceil(_diffResult.processTime)}ms`;
+            },
+        },
+    ]);
     const body = document.querySelector("body");
     const diffList = document.getElementById("diffList");
     const highlightStyle = document.getElementById("highlightStyle");
@@ -143,9 +359,7 @@ const DiffSeek = (function () {
                 clearTimeout(computeDiffTimeoutId);
             }
             computeDiffTimeoutId = setTimeout(() => {
-                _diffs = null;
-                _anchors = null;
-                _mappings = null;
+                _diffResult = null;
                 _currentDiffIndex = -1;
                 _alignedDirty = true;
                 // 토큰화를 UI 쓰레드에서도 해봤지만 텍스트 수정 시에 살짝 거슬리는 느낌.
@@ -172,12 +386,14 @@ const DiffSeek = (function () {
                 };
                 // console.debug("diff request:", request.options);
                 worker.postMessage(request);
+                statusBar.update();
             }, COMPUTE_DEBOUNCE_TIME);
         }
         worker.onmessage = function (e) {
             const data = e.data;
-            if (data.type === "diffs") {
+            if (data.type === "diff") {
                 if (data.reqId === reqId) {
+                    console.debug("diff response:", data);
                     document.querySelector("body").classList.remove("computing");
                     onDiffComputed(data);
                 }
@@ -188,13 +404,12 @@ const DiffSeek = (function () {
         };
         function onDiffComputed(data) {
             // console.log("onDiffComputed", data);
-            const { diffs, anchors } = data;
-            _diffs = diffs;
-            _anchors = anchors;
+            _diffResult = data;
             _alignedDirty = true;
-            leftEditor.update({ diffs, anchors });
-            rightEditor.update({ diffs, anchors });
+            leftEditor.update(data);
+            rightEditor.update(data);
             updateDiffList();
+            statusBar.update();
         }
         return { computeDiff };
     })();
@@ -212,7 +427,6 @@ const DiffSeek = (function () {
             }
             else {
             }
-            console.log("currentEditor", currentEditor, firstVisibleLine, firstVisibleLineTop);
             _alignedMode = true;
             leftEditor.mirror.tabIndex = 100;
             rightEditor.mirror.tabIndex = 101;
@@ -231,6 +445,7 @@ const DiffSeek = (function () {
             }
             //_preventScrollSync = true;
             requestAnimationFrame(() => {
+                // 레이아웃이 끝난 후 미리 찾아뒀던 줄 위치로 스크롤.
                 let lineNum = Number(firstVisibleLine?.dataset?.lineNum) || 1;
                 let distance = firstVisibleLineTop || 0;
                 currentEditor.scrollToLine(lineNum, distance);
@@ -279,23 +494,25 @@ const DiffSeek = (function () {
         if (!_alignedDirty) {
             return;
         }
-        const anchors = _anchors;
-        if (!anchors) {
+        if (!_diffResult) {
             return;
         }
+        const { anchors } = _diffResult;
         // 얘네들은 스스로 쑥쑥 자라게 auto로
         leftEditor.mirror.style.height = "auto";
         rightEditor.mirror.style.height = "auto";
         // 기존 스타일 한번에 날려버리기
         alignmentStyleElement.textContent = "";
-        const leftAnchorEls = leftEditor.anchorElements, rightAnchorEls = rightEditor.anchorElements, leftTops = [], rightTops = [], leftHeights = [], rightHeights = [];
+        const leftAnchorEls = leftEditor.anchorElements, rightAnchorEls = rightEditor.anchorElements, leftTops = new Array(anchors.length), rightTops = new Array(anchors.length), leftHeights = new Array(anchors.length), rightHeights = new Array(anchors.length);
         // 레이아웃을 변경하기 전에 필요한 모든 값을 가져와서 캐시해서 reflow 최소화
         // 캐시된 offsetTop은 최신 값이 아니므로(먼저 나오는 앵커의 높이가 변경되거나 ...) 추가로 계산이 필요함
         for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
             leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
             rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
-            leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
-            rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
+            if (anchors[anchorIndex].type === "after") {
+                leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
+                rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
+            }
         }
         let styleText = "";
         let leftDelta = 0, rightDelta = 0;
@@ -310,8 +527,7 @@ const DiffSeek = (function () {
                 delta = leftY - rightY;
             }
             else if (anchor.type === "after") {
-                const leftH = leftHeights[anchorIndex], rightH = rightHeights[anchorIndex];
-                const leftB = leftY + leftH, rightB = rightY + rightH;
+                const leftB = leftY + leftHeights[anchorIndex], rightB = rightY + rightHeights[anchorIndex];
                 delta = leftB - rightB;
             }
             else {
@@ -319,12 +535,10 @@ const DiffSeek = (function () {
                 continue;
             }
             if (delta > 0) {
-                // 오른쪽에 패딩 추가
                 styleText += `.aligned #rightAnchor${anchorIndex} { display:block; height:${delta}px; }\n`;
                 rightDelta += delta;
             }
             else {
-                // 왼쪽에 패딩 추가
                 styleText += `.aligned #leftAnchor${anchorIndex} { display:block; height:${-delta}px; }\n`;
                 leftDelta += -delta;
             }
@@ -332,55 +546,12 @@ const DiffSeek = (function () {
         alignmentStyleElement.textContent = styleText;
         _alignedDirty = false;
         requestAnimationFrame(() => {
+            // 레이아웃이 끝난 후 mirror 높이 조정
             const height = Math.max(leftEditor.mirror.offsetHeight, rightEditor.mirror.offsetHeight);
             leftEditor.mirror.style.height = `${height}px`;
             rightEditor.mirror.style.height = `${height}px`;
         });
     }
-    // delta = 왼쪽 위치 - 오른쪽 위치
-    //
-    // function alignAnchor(leftAnchor: HTMLElement, rightAnchor: HTMLElement, type: AnchorType, accumulatedDelta = 0) {
-    // 	if (type === "before") {
-    // 		const leftTop = leftAnchor.offsetTop;
-    // 		const rightTop = rightAnchor.offsetTop;
-    // 		let topDiff = leftTop - rightTop;
-    // 		let shortSide, longSide;
-    // 		if (topDiff < 0) {
-    // 			shortSide = leftAnchor;
-    // 			longSide = rightAnchor;
-    // 			topDiff = -topDiff;
-    // 			accumulatedDelta += topDiff;
-    // 		} else if (topDiff > 0) {
-    // 			shortSide = rightAnchor;
-    // 			longSide = leftAnchor;
-    // 			accumulatedDelta += topDiff;
-    // 		}
-    // 		if (shortSide) {
-    // 			shortSide.style.height = `${topDiff}px`;
-    // 			shortSide.className = "expanded";
-    // 		}
-    // 	} else {
-    // 		const leftBottom = leftAnchor.offsetTop + leftAnchor.offsetHeight;
-    // 		const rightBottom = rightAnchor.offsetTop + rightAnchor.offsetHeight;
-    // 		let bottomDiff = leftBottom - rightBottom;
-    // 		let shortSide, longSide;
-    // 		if (bottomDiff < 0) {
-    // 			shortSide = leftAnchor;
-    // 			longSide = rightAnchor;
-    // 			bottomDiff = -bottomDiff;
-    // 			accumulatedDelta += bottomDiff;
-    // 		} else if (bottomDiff > 0) {
-    // 			shortSide = rightAnchor;
-    // 			longSide = leftAnchor;
-    // 			accumulatedDelta += bottomDiff;
-    // 		}
-    // 		if (shortSide) {
-    // 			shortSide.style.height = `${bottomDiff}px`;
-    // 			shortSide.className = "expanded";
-    // 		}
-    // 	}
-    // 	return accumulatedDelta;
-    // }
     function restoreSelectionRange({ editor, startOffset, endOffset }) {
         if (editor) {
             editor.selectTextRange(startOffset, endOffset);
@@ -473,9 +644,8 @@ animation: highlightAnimation 0.3s linear 3;
         _syncEditor = !_syncEditor;
         updateButtons();
     }
+    // 이제는 버튼을 다 지워버리고 scroll sync 아이콘 하나만 남았지만...
     function updateButtons() {
-        //syncScrollToggle.setAttribute("aria-pressed", _syncEditor);
-        // alignedModeToggle.setAttribute("aria-pressed", _alignedMode);
         if (_syncEditor && !_alignedMode) {
             scrollSyncIndicator.style.display = "block";
         }
@@ -484,14 +654,15 @@ animation: highlightAnimation 0.3s linear 3;
         }
     }
     function updateDiffList() {
-        if (!_diffs) {
+        if (!_diffResult) {
             return;
         }
+        const diffs = _diffResult.diffs;
         const leftWholeText = leftEditor.text;
         const rightWholeText = rightEditor.text;
         const fragment = document.createDocumentFragment();
-        for (let i = 0; i < _diffs.length; i++) {
-            const diff = _diffs[i];
+        for (let i = 0; i < diffs.length; i++) {
+            const diff = diffs[i];
             const li = document.createElement("LI");
             const button = document.createElement("MARK");
             button.draggable = true;
@@ -515,10 +686,7 @@ animation: highlightAnimation 0.3s linear 3;
     }
     document.addEventListener("keydown", (e) => {
         // 어느 단축키를 써야 잘썼다고 소문나냐?
-        if (e.key === "F2" ||
-            (e.key === "Enter" && e.ctrlKey)
-        // || e.key === "Escape"
-        ) {
+        if (e.key === "F2") {
             e.preventDefault();
             if (e.shiftKey) {
                 toggleSyncScroll();
@@ -533,7 +701,7 @@ animation: highlightAnimation 0.3s linear 3;
             return;
         }
         // 기본적으로 브라우저의 첫번째 탭, 두번째 탭을 선택하는 단축키이긴 한데...
-        // 아몰랑.
+        // 사용자의 의도를 무시해버릴 수 있는 아주 나쁜 단축키지만... 인터넷도 안되는 컴에서 누가 엣지에 탭을 여러개 열어놓고 쓸까 싶다.
         if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
             // TODO focus가 양쪽을 왔다갔다 할때 caret cursor 위치가 초기화됨.
             // 포커스를 잃을때 위치를 저장하고 포커스를 받은 뒤 딱히 위치를 정할 수 없을 때 저장된 위치 복구??
@@ -549,23 +717,20 @@ animation: highlightAnimation 0.3s linear 3;
         // aligned 모드에서 후딱 단어 하나를 삭제하거나 등등등 정말 단순한 수정을 바로 할 수 있게
         if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
             disableAlignedMode();
-            // 위험. 텍스트가 변경이 되고 mirror는 아직 업데이트 되지 않은 상태임.
-            // requestAnimationFrame(() => {
-            // 	enableAlignedMode();
-            // });
             return;
         }
         // diff cycling
         if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
             e.preventDefault();
-            if (!_diffs || _diffs.length === 0) {
+            const diffs = _diffResult?.diffs;
+            if (!diffs || diffs.length === 0) {
                 return;
             }
             _currentDiffIndex += e.key === "ArrowUp" ? -1 : 1;
             if (_currentDiffIndex < 0) {
-                _currentDiffIndex = _diffs.length - 1;
+                _currentDiffIndex = diffs.length - 1;
             }
-            if (_currentDiffIndex >= _diffs.length) {
+            if (_currentDiffIndex >= diffs.length) {
                 _currentDiffIndex = 0;
             }
             _preventScrollSync = true;
@@ -591,6 +756,9 @@ animation: highlightAnimation 0.3s linear 3;
         }
     });
     for (const editor of [leftEditor, rightEditor]) {
+        // 텍스트를 선택해서 메모장으로 끌어다놨을 때 양쪽 대비 텍스트를 "형식"에 맞게 붙여넣기를 하려고 했으나
+        // 구현은 어렵지 않지만 단어 하나짜리 diff를 그대로 붙여넣기 해줄지 적당량의 텍스트를 앞 뒤로 붙여줄지...?
+        // diff가 몇십줄이 되는 경우에는 어떻게 처리할지...?
         // editor.editor.addEventListener("dragstart", (e) => {
         // 	console.log("dragstart", {
         // 		e,
@@ -700,7 +868,7 @@ animation: highlightAnimation 0.3s linear 3;
                 syncScrollPosition(editor);
             }
             else if (e.ctrlKey && e.key === "ArrowUp") {
-                // 이정도 스크롤은 기본적으로 되어되는거 아니야?
+                // 이정도 스크롤은 기본적으로 되어되는거 아니야?? 이 기능 나만 쓰나?
                 editor.wrapper.scrollTop -= LINE_HEIGHT * 2;
                 e.preventDefault();
             }
@@ -721,6 +889,8 @@ animation: highlightAnimation 0.3s linear 3;
             }
         });
         // 그냥 써도 괜찮을 것 같은데?
+        // 의도. aligned모드에서 간단한 편집(붙여넣기, 잘라내기 등)을 시도할 때 잽싸게 편집 모드로 전환해서
+        // 해당 편집이 실행되게 함.
         editor.mirror.addEventListener("paste", (e) => {
             disableAlignedMode();
         });
@@ -764,38 +934,7 @@ animation: highlightAnimation 0.3s linear 3;
     disableAlignedMode();
     leftEditor.updateText();
     rightEditor.updateText();
-    function findTokenMapping(leftIndex, rightIndex) {
-        if (leftIndex !== undefined || rightIndex !== undefined) {
-            const key = leftIndex !== undefined ? "left" : "right";
-            let sideIndex = leftIndex !== undefined ? leftIndex : rightIndex;
-            let lo = 0;
-            let hi = _mappings.length - 1;
-            let mid = 0;
-            let entry = null;
-            let side;
-            while (lo <= hi) {
-                mid = (lo + hi) >>> 1;
-                entry = _mappings[mid];
-                side = key === "left" ? entry.left : entry.right;
-                if (side.pos >= sideIndex && side.pos + side.len > sideIndex) {
-                    if (key === "left") {
-                        return [entry.right.pos + entry.right.len];
-                    }
-                    else {
-                        return [entry.left.pos + entry.left.len];
-                    }
-                }
-                else if (side.pos + side.len <= sideIndex) {
-                    lo = mid + 1;
-                }
-                else {
-                    //if (side.pos > sideIndex!) {
-                    hi = mid - 1;
-                }
-            }
-        }
-        return [null, null];
-    }
+    statusBar.update();
     return {
         get alignedMode() {
             return _alignedMode;
@@ -809,79 +948,18 @@ animation: highlightAnimation 0.3s linear 3;
             }
         },
         get dump() {
+            // 디버깅 할 때...
             return {
-                diffs: _diffs,
-                anchors: _anchors,
-                mappings: _mappings,
+                diffResult: _diffResult,
+                diffs: _diffResult?.diffs,
+                anchors: _diffResult?.anchors,
+                diffOptions: _diffOptions,
                 leftEditor,
                 rightEditor,
             };
         },
         compute: computeDiff,
-        diffOptions: {
-            get algorithm() {
-                return _diffOptions.algorithm;
-            },
-            set algorithm(value) {
-                if (_diffOptions.algorithm === value) {
-                    return;
-                }
-                _diffOptions.algorithm = value;
-                computeDiff();
-            },
-            get tokenization() {
-                return _diffOptions.tokenization;
-            },
-            set tokenization(value) {
-                if (_diffOptions.tokenization === value) {
-                    return;
-                }
-                _diffOptions.tokenization = value;
-                computeDiff();
-            },
-            get whitespace() {
-                return _diffOptions.whitespace;
-            },
-            set whitespace(value) {
-                if (_diffOptions.whitespace === value) {
-                    return;
-                }
-                _diffOptions.whitespace = value;
-                computeDiff();
-            },
-            get greedyMatch() {
-                return !!_diffOptions.greedyMatch;
-            },
-            set greedyMatch(value) {
-                value = !!value;
-                if (!!_diffOptions.greedyMatch === value) {
-                    return;
-                }
-                _diffOptions.greedyMatch = value;
-                computeDiff();
-            },
-            get useLengthBias() {
-                return !!_diffOptions.useLengthBias;
-            },
-            set useLengthBias(value) {
-                value = !!value;
-                if (!!_diffOptions.useLengthBias === value) {
-                    return;
-                }
-                _diffOptions.useLengthBias = value;
-                computeDiff();
-            },
-            get maxGram() {
-                return _diffOptions.maxGram;
-            },
-            set maxGram(value) {
-                if (_diffOptions.maxGram === value) {
-                    return;
-                }
-                _diffOptions.maxGram = value;
-                computeDiff();
-            },
-        },
+        diffOptions: _diffOptions,
     };
 })();
 //# sourceMappingURL=main.js.map

@@ -11,7 +11,7 @@ function createEditor(container, editorName, callbacks) {
     let _savedCaret = null;
     let _observingAnchors = false;
     let _editMode = false;
-    let _textruns = []; // 변경된 부분만 업데이트 가능하게?
+    let _textruns = []; // 변경된 부분만 업데이트 가능하게 이전 textruns 보관???
     const wrapper = document.createElement("div");
     wrapper.id = editorName + "EditorWrapper";
     wrapper.classList.add("editor-wrapper");
@@ -124,17 +124,17 @@ function createEditor(container, editorName, callbacks) {
         else {
             y = rect.top;
         }
-        let nearestAnchor = null;
+        let closestAnchor = null;
         let minDistance = Number.MAX_SAFE_INTEGER;
         for (const anchor of _visibleAnchors) {
             const rect = anchor.getBoundingClientRect();
             const distance = Math.abs(rect.top - y);
             if (distance < minDistance) {
                 minDistance = distance;
-                nearestAnchor = anchor;
+                closestAnchor = anchor;
             }
         }
-        return nearestAnchor;
+        return closestAnchor;
     }
     function getFirstVisibleLineElement() {
         const lineEls = _lineElements;
@@ -179,6 +179,7 @@ function createEditor(container, editorName, callbacks) {
         }
         if (_renderId === Number.MAX_SAFE_INTEGER) {
             // 그런일은... 절대로... 없을거라...
+            // 솔직히 절대 없음
             _renderId = 0;
         }
         const startTime = performance.now();
@@ -224,9 +225,9 @@ function createEditor(container, editorName, callbacks) {
         let currentContainer;
         const containerStack = [];
         function appendAnchor(pos, anchorIndex) {
-            // 앵커는 diff 범위 안에 오지 않는다. 왜냐.. 내가 그렇게 만들었음!
             // diff 범위 안 anchor를 허용하면 코드가 복잡해짐. diff를 닫고 lineEl이 currentContainer가 될때까지 pop한 후
-            // anchor 넣고 다시 이전 container를 새로 만들어줘야함.
+            // anchor 넣고 다시 이전 container 스택을 새로 만들어줘야함.
+            // 회사에서 사용하면서 이 메시지를 눈여겨 보고 발견 시 바로 해결할 것.
             console.assert(currentContainer === lineEl, "currentContainer should be lineEl when appending anchor");
             const anchor = anchors[anchorIndex];
             let anchorEl;
@@ -249,6 +250,8 @@ function createEditor(container, editorName, callbacks) {
             else {
                 delete anchorEl.dataset.diff;
             }
+            // push가 아닌 index로 넣는 이유는 textruns을 만들 때 앵커가 스킵될 수 있기 때문.
+            // diff 계산 때 앵커위치를 잘못 잡은 경우인데 그쪽 코드를 찬찬히 뜯어볼 필요가 있다.
             _anchorElements[anchorIndex] = anchorEl;
         }
         function appendChars(chars) {
@@ -262,8 +265,10 @@ function createEditor(container, editorName, callbacks) {
                 el = nextInlineNode;
                 nextInlineNode = el.nextSibling;
             }
-            el.textContent = chars;
-            el.className = textProps.color || "";
+            if (el.textContent !== chars) {
+                el.textContent = chars;
+            }
+            //el.className = textProps.color || "";
         }
         // lineEl = view.firstElementChild as HTMLElement;
         // if (lineEl === null) {
@@ -416,12 +421,15 @@ function createEditor(container, editorName, callbacks) {
             lineNum++;
             textPos = textrun.pos + textrun.len;
             if (textrun.type === "LINEBREAK") {
+                //
             }
             else {
                 // 안해도 textrunIndex === textruns.length가 되서 while문이 끝나긴 하지만... 나를 못믿겠어.
                 break;
             }
         }
+        // 남은 줄들은 모조리 제거
+        // 생각해보기: elements들을 완전히 버리지말고 배열에 계속 저장해두고 lineNum-1로 재사용??
         while (lineEl) {
             const nextnext = lineEl.nextElementSibling;
             lineEl.remove();
@@ -566,8 +574,8 @@ function createEditor(container, editorName, callbacks) {
         let startOffset = Number.NaN;
         let endOffset = Number.NaN;
         if (_editMode) {
-            // 딱히 방법이 없다.
-            // 내부가 하나의 큰 textNode일 수도 있고 여러개의 textNode일 수도 있다.(붙여넣기 한 경우 하나의 통 textNode가 들어감)
+            // edit 모드에서 contenteditable은 그냥 textNode 집합임. textNode 하나가 한 줄일 수도 있고
+            // 하나의 textNode에 여러줄이 들어가 있을 수도 있다. 고로 그냥 글자 수를 새어보는 수 밖에 없음.
             const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
             let currentNode;
             let pos = 0;
@@ -583,15 +591,16 @@ function createEditor(container, editorName, callbacks) {
             }
         }
         else {
+            // aligned mode.
             // 이 경우 조금 최적화가 가능. 실제로 이게 얼마나 효율적인지는 테스트해 볼 필요가 있겠지만...
             // 몇 천 라인의 텍스트에 diff, anchor가 많은 경우 당연히 시작줄, 끝줄을 먼저 찾고 그 줄에 대해서만
             // offset을 계산하는 것이 더 빠르겠지!
-            // 주의: startContainer, endContainer가 text노드가 아닐 수도 있음.
-            let startLineEl = range.startContainer; //사실 텍스트노드일 수도 있음.
+            let startLineEl = range.startContainer; //사실 textNode일 수도 있는데 그런 경우 가까운 부모 엘러먼트로 교체
             if (startLineEl.nodeType === 3) {
                 startLineEl = startLineEl.parentElement.closest("div[data-pos]");
             }
             else {
+                // startLineEl = startLineEl.closest("div[data-pos]") as HTMLElement;
                 startOffset = Number(startLineEl.dataset.pos);
             }
             let endLineEl = range.endContainer;
@@ -599,6 +608,7 @@ function createEditor(container, editorName, callbacks) {
                 endLineEl = endLineEl.parentElement.closest("div[data-pos]");
             }
             else {
+                // endLineEl = endLineEl.closest("div[data-pos]") as HTMLElement;
                 endOffset = Number(endLineEl.dataset.pos) + endLineEl.textContent.length;
             }
             if (isNaN(startOffset) || isNaN(endOffset)) {
@@ -654,8 +664,8 @@ function createEditor(container, editorName, callbacks) {
         // saveCaret,
         // restoreCaret,
         getVisibleAnchors,
-        trackVisibleAnchors: trackIntersections,
-        untrackVisibleAnchors: untrackIntersections,
+        trackIntersections,
+        untrackIntersections,
         getFirstVisibleAnchor,
         scrollToLine,
         getFirstVisibleLineElement,
@@ -663,6 +673,7 @@ function createEditor(container, editorName, callbacks) {
         setEditMode,
         getTextSelectionRange,
         selectTextRange,
+        // 그냥 states 객체를 하나 만들어서 리턴할까...
         get text() {
             return _text;
         },

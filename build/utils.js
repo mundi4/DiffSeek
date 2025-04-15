@@ -1,4 +1,8 @@
 "use strict";
+/*
+지금은 딱히 사용되지 않는 utility 함수들.
+편집기에 약간의 html을 허용할 때 사용.
+*/
 const colorCache = new Map();
 function isReddish(color) {
     const rgb = parseColorFast(color);
@@ -18,9 +22,9 @@ function parseColorFast(color) {
     }
     if (!_ctx)
         return null;
-    _ctx.clearRect(0, 0, 1, 1); // ← 깨끗이 초기화
+    _ctx.clearRect(0, 0, 1, 1);
     _ctx.fillStyle = color;
-    _ctx.fillRect(0, 0, 1, 1); // ← 실제 픽셀 채우기
+    _ctx.fillRect(0, 0, 1, 1);
     const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
     const rgb = [r, g, b];
     colorCache.set(color, rgb);

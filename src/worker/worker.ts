@@ -1499,15 +1499,15 @@ function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Toke
 					rightAfterAnchorPos = rightPos + rightLen;
 					// 줄바꿈 문자 위치까지 스킵
 
-					if (leftText[leftBeforeAnchorPos] !== "\n") {
+					if (leftText[leftAfterAnchorPos] !== "\n") {
 						do {
-							leftBeforeAnchorPos++;
-						} while (leftBeforeAnchorPos < leftText.length && leftText[leftBeforeAnchorPos] !== "\n");
+							leftAfterAnchorPos++;
+						} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
 					}
-					if (rightText[rightBeforeAnchorPos] !== "\n") {
+					if (rightText[rightAfterAnchorPos] !== "\n") {
 						do {
-							rightBeforeAnchorPos++;
-						} while (rightBeforeAnchorPos < rightText.length && rightText[rightBeforeAnchorPos] !== "\n");
+							rightAfterAnchorPos++;
+						} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
 					}
 
 					// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {

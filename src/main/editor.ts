@@ -11,6 +11,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	const _anchorElements: HTMLElement[] = [];
 	const _visibleAnchors = new Set<HTMLElement>();
 	const _visibleDiffIndices = new Set<number>();
+	
+	// 편집기 내에 약간의 html을 허용할지 말지.
+	// 일단 금지. browser에서 계산하는 텍스트와 내가 만드는 텍스트를 완전히 일치시키기 힘들다. 한글자한글자 문자 인덱스까지 완전히 일치시켜야 됨...
+	// 게다가 contenteditable 내에 브라우저가 뜸금없이 넣는 style(스타일 클래스가 지정된 텍스트를 지우고 바로 이어서 텍스트를 입력할 경우)이나 <br> 등등도 처리를 해줘야 하고
+	// 여하튼 신경 쓸게 많음
+	const _allowHTML = false; 
+
 	let _text: string = "";
 	let _textProps: TextProperties[] = [];
 	let _savedCaret = null;
@@ -42,16 +49,18 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	container.appendChild(wrapper);
 
 	function updateText() {
+		// if (_allowHTML) {
+		// 	/// 약간의 html을 포함해서 style="color:..."와 sup, sub 태그를 가져오려는 게 목적인데
+		// 	/// contentEditable에 html을 넣으면 브라우저가 종종 스타일과 태그를 살짝 바꿔버린다
+		// 	/// 예를 들어 <sup>주)</sup>가 있을때 이 부분을 삭제하는 경우 브라우저는 무슨 심보인지 font-size를 style를 추가해버린다(커서가 해당 부분을 빠져나오면 추가 안됨)
+		// 	/// mutationObserver로 style attr이 붙는 경우 도로 삭제해버리면 되지만 mutationObserver는 이제 보기만 해도 짜증난다.
+		// 	const [_, text, props] = flattenHTML(editor.innerHTML);
+		// 	_text = text;
+		// 	_textProps = props;
+		// } else {
+		// }
+		
 		_text = editor.textContent || "";
-
-		///// 약간의 html을 포함해서 style="color:..."와 sup, sub 태그를 가져오려는 게 목적인데
-		///// contentEditable에 html을 넣으면 브라우저가 종종 스타일과 태그를 살짝 바꿔버린다
-		///// 예를 들어 <sup>주)</sup>가 있을때 이 부분을 삭제하는 경우 브라우저는 무슨 심보인지 font-size를 style를 추가해버린다(커서가 해당 부분을 빠져나오면 추가 안됨)
-		///// mutationObserver로 style attr이 붙는 경우 도로 삭제해버리면 되지만 mutationObserver는 이제 보기만 해도 짜증난다.
-		// const [_, text, props] = flattenHTML(editor.innerHTML);
-		// _text = text;
-		// _textProps = props;
-
 		if (_text.length === 0 || _text[_text.length - 1] !== "\n") {
 			_text += "\n"; // 텍스트의 끝은 항상 \n으로 끝나야 인생이 편해진다.
 		}
@@ -60,27 +69,23 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 	editor.addEventListener("input", updateText);
 
-	// editor.addEventListener("paste", (e) => {
-	// 	const html = e.clipboardData?.getData("text/html");
-	// 	// const plain = e.clipboardData?.getData("text/plain");
+	// if (_allowHTML) {
+	// 	editor.addEventListener("paste", (e) => {
+	// 		const html = e.clipboardData?.getData("text/html");
+	// 		if (!html) return;
+	// 		e.preventDefault();
 
-	// 	if (!html) return; // html 복붙이 아닌 경우는 무시
-	// 	const now = performance.now();
-	// 	// (e.target as HTMLElement).contentEditable = "true";
+	// 		const [cleanedHTML, text, textProps] = flattenHTML(html);
+	// 		_text = text;
+	// 		_textProps = textProps;
+	// 		// 현재 커서 위치에 삽입
+	// 		insertHTMLAtCursor(cleanedHTML);
 
-	// 	e.clipboardData?.setData("text/html", "hello");
-	// 	e.preventDefault(); // 브라우저 붙여넣기는 막고...
-
-	// 	const [cleanedHTML, text, textProps] = flattenHTML(html);
-	// 	_text = text;
-	// 	_textProps = textProps;
-	// 	// 현재 커서 위치에 삽입
-	// 	insertHTMLAtCursor(cleanedHTML);
-
-	// 	// console.log("paste", performance.now() - now, cleanedHTML);
-	// 	// (e.target as HTMLElement).contentEditable = "plaintext-only";
-	// 	updateText();
-	// });
+	// 		// console.log("paste", performance.now() - now, cleanedHTML);
+	// 		// (e.target as HTMLElement).contentEditable = "plaintext-only";
+	// 		updateText();
+	// 	});
+	// }
 
 	const intersectionObserver = new IntersectionObserver(
 		(entries) => {
@@ -107,25 +112,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 		{ threshold: 1, root: wrapper }
 	);
-
-	// function saveCaret() {
-	// 	const sel = window.getSelection();
-	// 	if (sel.rangeCount > 0) {
-	// 		const range = sel.getRangeAt(0);
-	// 		if (editor.contains(range.commonAncestorContainer)) {
-	// 			_savedCaret = range.cloneRange();
-	// 		}
-	// 	}
-	// }
-
-	// function restoreCaret() {
-	// 	if (_savedCaret && editor.contains(_savedCaret.commonAncestorContainer)) {
-	// 		const sel = window.getSelection();
-	// 		sel.removeAllRanges();
-	// 		sel.addRange(_savedCaret);
-	// 	}
-	// 	_savedCaret = null;
-	// }
 
 	function getVisibleAnchors() {
 		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
@@ -163,7 +149,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return closestAnchor;
 	}
 
-	function getFirstVisibleLineElement(): [HTMLElement | null, number | null] {
+	function getFirstVisibleLineElement(): [HTMLElement, number] | [null, null] {
 		const lineEls = _lineElements;
 		let low = 0;
 		let high = lineEls.length - 1;
@@ -181,7 +167,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				low = mid + 1;
 			}
 		}
-		return [lineEl, distance];
+		return [lineEl!, distance!]; //null일 수도 있지만 의도적으로 느낌표 때려박음
 	}
 
 	function scrollToDiff(diffIndex: number) {
@@ -249,12 +235,14 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		let idleDeadline: IdleDeadline = yield;
 
 		const textruns = getTextRuns(editorName, _text, _textProps, diffs, anchors);
+		console.debug(editorName, "textruns", textruns);
 		const text = _text;
 		const view = mirror;
 		let lineEl: HTMLElement = null!;
 		let nextInlineNode: ChildNode | null = null;
 
 		let currentDiffIndex: number | null = null;
+		let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null };
 		let lineNum: number;
 		let textPos: number;
 		let textProps: TextProperties = { pos: 0, color: null, supsub: null };
@@ -292,7 +280,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 		function appendChars(chars: string) {
 			let el: HTMLElement;
-			const nodeName = textProps.supsub ?? "SPAN";
+			const nodeName = currentTextProps.supsub ?? "SPAN";
 			if (!nextInlineNode || nextInlineNode.nodeName !== nodeName) {
 				el = document.createElement(nodeName);
 				currentContainer!.insertBefore(el, nextInlineNode);
@@ -303,7 +291,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			if (el.textContent !== chars) {
 				el.textContent = chars;
 			}
-			//el.className = textProps.color || "";
+			// el.className = currentTextProps.color || "";
 		}
 
 		// lineEl = view.firstElementChild as HTMLElement;
@@ -445,6 +433,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 						appendAnchor(textrun.pos, textrun.anchorIndex!);
 					} else if (type === "MODIFIER") {
 						// not implemented yet
+						currentTextProps = textrun.props!;
 					} else if (type === "DIFF") {
 						currentDiffIndex = textrun.diffIndex!;
 						openDiff(currentDiffIndex);
@@ -558,6 +547,16 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	// selectTextRange, getTextSelectionRange 이 둘은 다음날 보면 다시 깜깜해진다.
 	// 손대려면 정말 각 잡고 해야함.
 	function selectTextRange(startOffset: number, endOffset: number) {
+		if (startOffset >= _text.length) {
+			startOffset = _text.length - 1;
+		}
+		if (endOffset >= _text.length) {
+			endOffset = _text.length - 1;
+		}
+		if (startOffset > endOffset) {
+			[startOffset, endOffset] = [endOffset, startOffset];
+		}
+
 		const range = document.createRange();
 		let startSet = false;
 		let endSet = false;

@@ -1,15 +1,10 @@
-// 너무나도 센스 넘쳐버리는 이름
-// 이것저것 넣고 빼다보니 덩치 산만해지고 더러워짐.
+// 이것저것 이어붙이는 코드 집합
 const DiffSeek = (function () {
-	// let _diffs: DiffEntry[] | null = [];
-	// let _anchors: Anchor[] | null = [];
-	// let _mappings: DiffEntry[] | null = [];
 	let _alignedMode = false;
 	let _alignedDirty = false;
 	let _activeEditor: Editor | null = null;
 	let _lastFocusedEditor: Editor | null = null;
 	let _lastScrolledEditor: Editor | null = null;
-	let _mousedOverEditor: Editor | null = null;
 	let _currentlyScrollingEditor: Editor | null = null;
 	let _preventScrollSync = false;
 	let _currentDiffIndex = -1;
@@ -17,12 +12,7 @@ const DiffSeek = (function () {
 	let _resetCurrentlyScrollingEditorId: number | null = null;
 	let _diffResult: DiffResponse | null = null;
 
-	// let _leftTokenCount: number | null = null;
-	// let _rightTokenCount: number | null = null;
-
-	// let _leftTokens: Token[] = [];
-	// let _rightTokens: Token[] = [];
-
+	// devtools 콘솔에서 설정 값을 바꿨을때 바로 업데이트 시키기 위해...
 	const _diffOptions = (function (defaultValues: DiffOptions) {
 		let _diffOptions = { ...defaultValues };
 
@@ -161,7 +151,21 @@ const DiffSeek = (function () {
 	leftEditor.wrapper.tabIndex = 100;
 	rightEditor.wrapper.tabIndex = 101;
 
+	// 지저분의 끝
 	const statusBar = InitializeStatusBar([
+		{
+			side: "center",
+			key: "mode",
+			label: "",
+			get: () => (_alignedMode ? "📖" : "✏️"),
+			toggle: () => {
+				if (_alignedMode) {
+					disableAlignedMode();
+				} else {
+					enableAlignedMode();
+				}
+			},
+		},
 		{
 			side: "left",
 			key: "tokenization",
@@ -229,7 +233,7 @@ const DiffSeek = (function () {
 		{
 			side: "right",
 			key: "diffs",
-			label: "!=",
+			label: "≠",
 			get: () => {
 				if (_diffResult === null) {
 					return "...";
@@ -266,6 +270,8 @@ const DiffSeek = (function () {
 	const progress = document.getElementById("progress") as HTMLElement;
 	const scrollSyncIndicator = document.getElementById("scrollSyncIndicator") as HTMLElement;
 
+	// aligned mode용 style 컨테이너. 필요한 경우 한번에 기존의 모든 스타일을 날려버리기 위해 요소마다 style값을 직접 지정하지 않고
+	// .alinged #rightAnchor32 { height: 200px; } 이런식으로 스타일 추가함.
 	const alignmentStyleElement = document.createElement("style");
 	document.head.appendChild(alignmentStyleElement);
 
@@ -323,7 +329,7 @@ const DiffSeek = (function () {
 	}
 
 	function createWorker() {
-		// 회사pc 보안 설정 상 new Worker("worker.js")는 실행 안됨.
+		// 보안 상 new Worker("worker.js")는 실행 안됨.
 		let workerURL;
 		const scriptElement = document.getElementById("worker.js") as HTMLScriptElement;
 		const workerCode = scriptElement.textContent;
@@ -388,11 +394,13 @@ const DiffSeek = (function () {
 				// _rightTokens = tokenize(rightEditor.text, _diffOptions.tokenization);
 
 				progress.textContent = "...";
-				// 복붙이 제대로 되었는지(ctrl-c를 믿을 수 없음) 확인하기 위해...
+				// 좌우 텍스트가 완전히 똑.같.은. 경우 쌍둥이 이모지 표시 ㅋ
+				// 나만 그런가? ctrl-c는 믿을 수 없어서 3-4번씩 눌러줘야한다. 쌍둥이가 보여질 경우 복붙이 제대로 안되었다는 경고의 뜻으로 받아들이기.
 				body.classList.toggle("identical", leftEditor.text === rightEditor.text);
 				body.classList.add("computing");
 
 				if (reqId === Number.MAX_SAFE_INTEGER) {
+					// 여기까지 왔다면 지구가 멸망함.
 					reqId = 1;
 				} else {
 					reqId++;
@@ -403,14 +411,11 @@ const DiffSeek = (function () {
 					reqId: reqId,
 					leftText: leftEditor.text,
 					rightText: rightEditor.text,
-					// leftTokens: _leftTokens,
-					// rightTokens: _rightTokens,
 					options: _diffOptions,
 				};
 
-				// console.debug("diff request:", request.options);
 				worker.postMessage(request);
-				statusBar.update();
+				updateButtons();
 			}, COMPUTE_DEBOUNCE_TIME);
 		}
 
@@ -428,15 +433,12 @@ const DiffSeek = (function () {
 		};
 
 		function onDiffComputed(data: DiffResponse) {
-			// console.log("onDiffComputed", data);
-
 			_diffResult = data;
 			_alignedDirty = true;
-
 			leftEditor.update(data);
 			rightEditor.update(data);
 			updateDiffList();
-			statusBar.update();
+			updateButtons();
 		}
 
 		return { computeDiff };
@@ -450,13 +452,8 @@ const DiffSeek = (function () {
 
 		if (!_alignedMode) {
 			const currentSelectionRange = getSelectionRange();
-			const currentEditor = _activeEditor || _mousedOverEditor || _lastFocusedEditor || rightEditor;
-			let firstVisibleLine = null,
-				firstVisibleLineTop: number | null;
-			if (currentEditor) {
-				[firstVisibleLine, firstVisibleLineTop] = currentEditor.getFirstVisibleLineElement();
-			} else {
-			}
+			const currentEditor = _activeEditor || _lastFocusedEditor || rightEditor;
+			const [firstVisibleLineEl, firstVisibleLineDistance] = currentEditor.getFirstVisibleLineElement();
 
 			_alignedMode = true;
 			leftEditor.mirror.tabIndex = 100;
@@ -465,7 +462,6 @@ const DiffSeek = (function () {
 				leftEditor.mirror.contentEditable = "plaintext-only";
 				rightEditor.mirror.contentEditable = "plaintext-only";
 			}
-			updateButtons();
 			leftEditor.setEditMode(false);
 			rightEditor.setEditMode(false);
 			body.classList.toggle("aligned", true);
@@ -476,18 +472,19 @@ const DiffSeek = (function () {
 				restoreSelectionRange(currentSelectionRange);
 			}
 
-			//_preventScrollSync = true;
+			updateButtons();
+
 			requestAnimationFrame(() => {
 				// 레이아웃이 끝난 후 미리 찾아뒀던 줄 위치로 스크롤.
-
-				let lineNum = Number(firstVisibleLine?.dataset?.lineNum) || 1;
-				let distance = firstVisibleLineTop || 0;
+				let lineNum = Number(firstVisibleLineEl?.dataset?.lineNum) || 1;
+				let distance = firstVisibleLineDistance || 0;
 				currentEditor.scrollToLine(lineNum, distance);
-
 				const theOtherEditor = currentEditor === leftEditor ? rightEditor : leftEditor;
 				theOtherEditor.wrapper.scrollTop = currentEditor.wrapper.scrollTop;
-				//_preventScrollSync = false;
-				//container.scrollTop = top;
+
+				// 포커스를 가져야 aligned mode 진입 후 바로 키보드로 스크롤 할 수 있음.
+				// 스크롤이 동기화되니 사실 어느쪽이 포커스를 가지든 상관 무.
+				currentEditor.mirror.focus();
 			});
 		}
 	}
@@ -495,11 +492,9 @@ const DiffSeek = (function () {
 	function disableAlignedMode() {
 		const currentSelectionRange = getSelectionRange();
 
-		// 일단 editmode로 가기 전에 스크롤 위치를 복원할 수 있게 화면 상 첫줄을 보존해두고...
+		// 일단 editmode로 가기 전에 현재 화면 상 첫줄을 보존
 		const [leftFirstLine, leftFirstLineDistance] = leftEditor.getFirstVisibleLineElement();
 		const [rightFirstLine, rightFirstLineDistance] = rightEditor.getFirstVisibleLineElement();
-
-		const activeEditor = _activeEditor;
 
 		_alignedMode = false;
 		leftEditor.setEditMode(true);
@@ -515,12 +510,14 @@ const DiffSeek = (function () {
 		_preventScrollSync = true;
 		requestAnimationFrame(() => {
 			if (leftFirstLine) {
-				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance!);
+				leftEditor.scrollToLine(Number(leftFirstLine.dataset.lineNum), leftFirstLineDistance);
 			}
 			if (rightFirstLine) {
-				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance!);
+				rightEditor.scrollToLine(Number(rightFirstLine.dataset.lineNum), rightFirstLineDistance);
 			}
-			_preventScrollSync = false;
+			requestAnimationFrame(() => {
+				_preventScrollSync = false;
+			});
 		});
 
 		if (currentSelectionRange) {
@@ -528,10 +525,6 @@ const DiffSeek = (function () {
 		}
 	}
 
-	// 최적화의 여지가 있다.
-	// 엘러먼트 별로 스타일과 클래스를 지정할 게 아니라 css텍스트(예: #leftAnchor17 { height: 60px; } ...)를 만들어서 style요소에다 한번에 집어넣어버리면
-	// reset이 간단하고 브라우저도 한번만 일을 하면 되니 더 낫지 않을까...? offsetHeight 같은 속성을 사용하면 브라우저가 매번 계산을 다시 해야한다.
-	// 위에서부터 왼쪽/오른쪽 누적 패딩을 계산하면서 내려오면 될 것 같은데...?
 	function recalculateAlignmentPaddingAndPositions() {
 		if (!_alignedDirty) {
 			return;
@@ -541,7 +534,7 @@ const DiffSeek = (function () {
 		}
 		const { anchors } = _diffResult;
 
-		// 얘네들은 스스로 쑥쑥 자라게 auto로
+		// 얘네들은 알아서 스스로 쑥쑥 자라게 auto로
 		leftEditor.mirror.style.height = "auto";
 		rightEditor.mirror.style.height = "auto";
 
@@ -555,8 +548,6 @@ const DiffSeek = (function () {
 			leftHeights: number[] = new Array<number>(anchors.length),
 			rightHeights: number[] = new Array<number>(anchors.length);
 
-		// 레이아웃을 변경하기 전에 필요한 모든 값을 가져와서 캐시해서 reflow 최소화
-		// 캐시된 offsetTop은 최신 값이 아니므로(먼저 나오는 앵커의 높이가 변경되거나 ...) 추가로 계산이 필요함
 		for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
 			leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
 			rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
@@ -645,7 +636,7 @@ const DiffSeek = (function () {
 		}
 
 		if (!sourceEditor) {
-			sourceEditor = _currentlyScrollingEditor || _activeEditor || _mousedOverEditor || _lastFocusedEditor;
+			sourceEditor = _currentlyScrollingEditor || _activeEditor ||  _lastFocusedEditor;
 			if (!sourceEditor) {
 				return;
 			}
@@ -715,13 +706,13 @@ animation: highlightAnimation 0.3s linear 3;
 		updateButtons();
 	}
 
-	// 이제는 버튼을 다 지워버리고 scroll sync 아이콘 하나만 남았지만...
 	function updateButtons() {
 		if (_syncEditor && !_alignedMode) {
 			scrollSyncIndicator.style.display = "block";
 		} else {
 			scrollSyncIndicator.style.display = "none";
 		}
+		statusBar.update();
 	}
 
 	function updateDiffList() {
@@ -763,9 +754,7 @@ animation: highlightAnimation 0.3s linear 3;
 
 	document.addEventListener("keydown", (e) => {
 		// 어느 단축키를 써야 잘썼다고 소문나냐?
-		if (
-			e.key === "F2"
-		) {
+		if (e.key === "F2") {
 			e.preventDefault();
 
 			if (e.shiftKey) {
@@ -782,11 +771,10 @@ animation: highlightAnimation 0.3s linear 3;
 			return;
 		}
 
-		// 기본적으로 브라우저의 첫번째 탭, 두번째 탭을 선택하는 단축키이긴 한데...
+		// 기본적으로 브라우저의 첫번째 탭, 두번째 탭을 선택하는 단축키인데...
+		// 브라우저에서 기본적으로 사용되는 단축키를 덮어쓰는 건 정말 못된 짓이긴 한데...
 		// 사용자의 의도를 무시해버릴 수 있는 아주 나쁜 단축키지만... 인터넷도 안되는 컴에서 누가 엣지에 탭을 여러개 열어놓고 쓸까 싶다.
 		if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
-			// TODO focus가 양쪽을 왔다갔다 할때 caret cursor 위치가 초기화됨.
-			// 포커스를 잃을때 위치를 저장하고 포커스를 받은 뒤 딱히 위치를 정할 수 없을 때 저장된 위치 복구??
 			e.preventDefault();
 			if (_alignedMode) {
 				disableAlignedMode();
@@ -796,12 +784,11 @@ animation: highlightAnimation 0.3s linear 3;
 			return;
 		}
 
-		// 주의 요망
-		// aligned 모드에서 후딱 단어 하나를 삭제하거나 등등등 정말 단순한 수정을 바로 할 수 있게
-		if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
-			disableAlignedMode();
-			return;
-		}
+		// mirror로 이벤트핸들러 옮김. 테스트 해봐야함함
+		// if ((_alignedMode && !e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
+		// 	disableAlignedMode();
+		// 	return;
+		// }
 
 		// diff cycling
 		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -818,13 +805,8 @@ animation: highlightAnimation 0.3s linear 3;
 			if (_currentDiffIndex >= diffs.length) {
 				_currentDiffIndex = 0;
 			}
-			_preventScrollSync = true;
-			leftEditor.scrollToDiff(_currentDiffIndex);
-			rightEditor.scrollToDiff(_currentDiffIndex);
+			scrollToDiff(_currentDiffIndex);
 			highlightDiff(_currentDiffIndex);
-			requestAnimationFrame(() => {
-				_preventScrollSync = false;
-			});
 			return;
 		}
 	});
@@ -833,87 +815,20 @@ animation: highlightAnimation 0.3s linear 3;
 		const diffIndex = Number((e.target as HTMLElement).dataset.diff);
 		if (!isNaN(diffIndex)) {
 			_currentDiffIndex = diffIndex;
-			_preventScrollSync = true;
-			leftEditor.scrollToDiff(diffIndex);
-			rightEditor.scrollToDiff(diffIndex);
-			requestAnimationFrame(() => {
-				_preventScrollSync = false;
-			});
+			scrollToDiff(diffIndex);
 		}
 	});
 
+	function scrollToDiff(diffIndex: number) {
+		_preventScrollSync = true;
+		leftEditor.scrollToDiff(diffIndex);
+		rightEditor.scrollToDiff(diffIndex);
+		requestAnimationFrame(() => {
+			_preventScrollSync = false;
+		});
+	}
+
 	for (const editor of [leftEditor, rightEditor]) {
-		// 텍스트를 선택해서 메모장으로 끌어다놨을 때 양쪽 대비 텍스트를 "형식"에 맞게 붙여넣기를 하려고 했으나
-		// 구현은 어렵지 않지만 단어 하나짜리 diff를 그대로 붙여넣기 해줄지 적당량의 텍스트를 앞 뒤로 붙여줄지...?
-		// diff가 몇십줄이 되는 경우에는 어떻게 처리할지...?
-		// editor.editor.addEventListener("dragstart", (e) => {
-		// 	console.log("dragstart", {
-		// 		e,
-		// 		dt: e.dataTransfer,
-		// 		items: Array.from(e.dataTransfer!.items),
-		// 	});
-
-		// 	const [startOffset, endOffset] = editor.getTextSelectionRange();
-		// 	if (startOffset) {
-		// 		// find matching token
-		// 		const [tokens, theOtherTokens] = editor === leftEditor ? [_leftTokens, _rightTokens] : [_rightTokens, _leftTokens];
-		// 		const startIndex = findTokenAt(tokens, startOffset);
-		// 		const startToken = tokens[startIndex];
-		// 		if (startToken) {
-		// 			const endIndex = findTokenAt(tokens, endOffset!, startIndex);
-		// 			const endToken = tokens[endIndex];
-		// 			if (endToken) {
-		// 				const [otherStartIndex] = findTokenMapping(
-		// 					editor === leftEditor ? startIndex : undefined,
-		// 					editor === rightEditor ? startIndex : undefined
-		// 				);
-		// 				const [otherEndIndex, otherEndCount] = findTokenMapping(
-		// 					editor === leftEditor ? endIndex : undefined,
-		// 					editor === rightEditor ? endIndex : undefined
-		// 				);
-		// 				if (otherStartIndex === null || otherEndIndex === null || otherEndCount === null) {
-		// 					return;
-		// 				}
-
-		// 				const theOtherText = editor === leftEditor ? rightEditor.text : leftEditor.text;
-
-		// 				const otherStartToken = theOtherTokens[otherStartIndex];
-		// 				const otherEndToken = theOtherTokens[otherEndIndex + otherEndCount];
-
-		// 				let resultText = editor.text.substring(startToken.pos, endToken.pos + endToken.len) + "\r\n" + "\r\n";
-		// 				resultText += theOtherText.substring(otherStartToken.pos, otherEndToken.pos + otherEndToken.len) + "\r\n" + "\r\n";
-
-		// 				e.dataTransfer!.setData("text/plain", resultText);
-		// 			}
-		// 		}
-		// 		console.log("dragstart", { startOffset, endOffset, startIndex, startToken });
-		// 	}
-		// });
-		// editor.mirror.addEventListener("dragstart", (e) => {
-		// 	console.log("dragstart", {
-		// 		e,
-		// 		dt: e.dataTransfer,
-		// 		items: Array.from(e.dataTransfer!.items),
-		// 	});
-
-		// 	const [startOffset, endOffset] = editor.getTextSelectionRange();
-		// 	if (startOffset) {
-		// 		// find matching token
-		// 		const tokens = editor === leftEditor ? _leftTokens : _rightTokens;
-		// 		const startIndex = findTokenAt(tokens, startOffset);
-		// 		const startToken = tokens[startIndex];
-		// 		if (startToken) {
-		// 			const endIndex = findTokenAt(tokens, endOffset!, startIndex);
-		// 			const endToken = tokens[endIndex];
-		// 			if (endToken) {
-		// 				const text = editor.text.substring(startToken.pos, endToken.pos + endToken.len) + "\r\n";
-		// 				console.log("text:", text);
-		// 			}
-		// 		}
-		// 		console.log("dragstart", { startOffset, endOffset, startIndex, startToken });
-		// 	}
-		// });
-
 		editor.wrapper.addEventListener("scroll", (e) => {
 			if (_currentlyScrollingEditor !== null || _preventScrollSync) {
 				return;
@@ -922,7 +837,7 @@ animation: highlightAnimation 0.3s linear 3;
 			_lastScrolledEditor = _currentlyScrollingEditor = editor;
 			if (_alignedMode) {
 				// aligned mode일 때는 양쪽 에디터의 높이가 같게 유지되니 둘 다 overflow:visible로 해두고
-				// 부모에서 스크롤하면 둘 다 스크롤이 되지만 그렇게 하면 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
+				// 부모에서 스크롤하면 둘 다 스크롤이 되지만(딜레이 전혀 없이 완전 자연스럽게!) 그렇게 만들면 스크롤바가 하나만 보이는게 생각보다 어색하고 불편하다.
 				// 그래서 그냥 강제로 스크롤 동기화 시킴.
 				if (editor === leftEditor) {
 					rightEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
@@ -941,14 +856,6 @@ animation: highlightAnimation 0.3s linear 3;
 			});
 		});
 
-		editor.wrapper.addEventListener("mouseenter", () => {
-			_mousedOverEditor = editor;
-		});
-
-		editor.wrapper.addEventListener("mouseleave", () => {
-			_mousedOverEditor = null;
-		});
-
 		function onFocus() {
 			_activeEditor = _lastFocusedEditor = editor;
 		}
@@ -963,15 +870,43 @@ animation: highlightAnimation 0.3s linear 3;
 
 		editor.editor.addEventListener("keydown", (e) => {
 			if (e.key === " " && e.ctrlKey) {
-				// 에디터에서 컨트롤-스페이스바로 현재 줄위치 동기화
+				// 에디터에서 편집 중 반대쪽 에디터의 스크롤 위치를 현재 에디터의 내용에 맞추...려고 시도만 해 봄.
 				syncScrollPosition(editor);
-			} else if (e.ctrlKey && e.key === "ArrowUp") {
+				return;
+			}
+
+			if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 				// 이정도 스크롤은 기본적으로 되어되는거 아니야?? 이 기능 나만 쓰나?
-				editor.wrapper.scrollTop -= LINE_HEIGHT * 2;
+				// 스크롤 영역 밖의 딱 한두줄! 딱 그정도만 보면 된다 싶을 때?
+				// 텍스트커서가 중앙 부분에 위치하지 않으면 마음이 놓이지 않아서 지금 당장 위아래로 조금 스크롤 해야만 할 때!!!!
+				const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2;
+				editor.wrapper.scrollTop += delta;
 				e.preventDefault();
-			} else if (e.ctrlKey && e.key === "ArrowDown") {
-				editor.wrapper.scrollTop += LINE_HEIGHT * 2;
+			}
+		});
+
+		editor.mirror.addEventListener("paste", (e) => {
+			disableAlignedMode();
+		});
+
+		editor.mirror.addEventListener("cut", (e) => {
+			disableAlignedMode();
+		});
+
+		editor.mirror.addEventListener("keydown", (e) => {
+			// aligned 모드에서 간단한 편집을 시도할 때 잽싸게 aligned 모드에서 나가기!
+			// aligned 모드에서 나갈때 mirror에서 선택되어있던 텍스트 영역이 contenteditable 내에서 복원이 되므로
+			// 그 이후는 복원된 텍스트 영역을 브라우저가 key에 맞게 처리해줌. 조금 얍삽?
+			if ((!e.ctrlKey && e.key.length === 1) || e.key === "Backspace" || e.key === "Delete" || e.key === "Enter") {
+				disableAlignedMode();
+				return;
+			}
+
+			// mirror에서 전체 텍스트 선택 시에 창 전체의 텍스트가 아닌 현재 에디터의 텍스트만 선택되도록.
+			if (e.ctrlKey && (e.key === "A" || e.key === "a")) {
 				e.preventDefault();
+				editor.selectTextRange(0, editor.text.length);
+				return;
 			}
 		});
 
@@ -986,17 +921,6 @@ animation: highlightAnimation 0.3s linear 3;
 				_activeEditor = editor;
 				disableAlignedMode();
 			}
-		});
-
-		// 그냥 써도 괜찮을 것 같은데?
-		// 의도. aligned모드에서 간단한 편집(붙여넣기, 잘라내기 등)을 시도할 때 잽싸게 편집 모드로 전환해서
-		// 해당 편집이 실행되게 함.
-		editor.mirror.addEventListener("paste", (e) => {
-			disableAlignedMode();
-		});
-
-		editor.mirror.addEventListener("cut", (e) => {
-			disableAlignedMode();
 		});
 
 		if (useEditableMirror) {
@@ -1015,26 +939,6 @@ animation: highlightAnimation 0.3s linear 3;
 			editor.mirror.addEventListener("drop", (e) => {
 				e.preventDefault();
 			});
-
-			// aligned mode에서도 텍스트 커서가 깜빡이면서 보였으면 좋겠고 단순한 편집은 모드 토글 없이 바로 수행할 수 있게?
-			// 수정을 시도하는 순간:
-			// 1. editor로 포커스를 옮기고
-			// 2. mirror의 커서위치와 텍스트선택 범위롤 editor에서 복원
-			// 3. 나머지는 브라우저가 하게 내비둔다.
-			// 불안하지만 일단 써보면서 문제가 있으면 지워버리지 뭐
-			// => 결론: 쓰지마. 한글을 입력할 때 가끔씩 아무 조건에도 안걸리고 뚫려서 입력이 된다. ㅋㅋ
-			// editor.mirror.addEventListener("keydown", (e) => {
-			// 	if (
-			// 		_alignedMode &&
-			// 		!e.ctrlKey &&
-			// 		//e.key.length === 1 ||
-			// 		(e.key === "Backspace" || e.key === "Delete" || e.key === "Enter")
-			// 	) {
-			// 		disableAlignedMode();
-			// 		return;
-			// 	}
-			// 	e.preventDefault();
-			// });
 		}
 	}
 
@@ -1065,6 +969,7 @@ animation: highlightAnimation 0.3s linear 3;
 				diffOptions: _diffOptions,
 				leftEditor,
 				rightEditor,
+				activeEditor: _activeEditor,
 			};
 		},
 

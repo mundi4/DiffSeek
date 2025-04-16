@@ -121,7 +121,8 @@ html {
 }
 
 .mirror {
-	background-color: hsl(0 0% 80% / 0.3);
+	background: hsl(0 0% 80% / 0.3);
+	transition: background 0.3s ease, color 0.3s ease;
 	z-index: -1;
 	position: absolute;
 	top: 0;
@@ -141,13 +142,12 @@ html {
 }
 
 .aligned .mirror {
-	pointer-events: auto;
+	background: transparent;
 	position: static;
 	color: inherit;
-	background-color: transparent;
 	cursor: text;
-	caret-color: white; /* 커서 유지 */
-	/* cursor: default; */
+	pointer-events: auto;
+	caret-color: white;
 }
 
 .edit .mirror {
@@ -502,16 +502,32 @@ body.aligned {
 }
 
 .status-bar-left,
-.status-bar-right {
+.status-bar-right,
+.status-bar-center {
 	display: flex;
 	align-items: center;
 }
 
+.status-bar-left {
+	justify-content: flex-start;
+}
+
+.status-bar-right {
+	justify-content: flex-end;
+}
+
+.status-bar-center {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	flex-grow: 1;
+	text-align: center;
+}
+
 .status-item {
 	margin: 0 10px;
-	
 }
-.status-item.status-item.clickable{
+.status-item.status-item.clickable {
 	cursor: pointer;
 }
 
@@ -522,14 +538,6 @@ body.aligned {
 
 .status-item span {
 	font-weight: bold;
-}
-
-.status-bar-left {
-	justify-content: flex-start;
-}
-
-.status-bar-right {
-	justify-content: flex-end;
 }
 
 #settingsPopup {

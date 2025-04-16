@@ -52,6 +52,23 @@ function insertHTMLAtCursor(html) {
     // 커서 맨 뒤로 이동
     selection.collapseToEnd();
 }
+const LINEBREAK_ELEMENTS = {
+    P: true,
+    DIV: true,
+    H1: true,
+    H2: true,
+    H3: true,
+    H4: true,
+    H5: true,
+    H6: true,
+    UL: true,
+    OL: true,
+    LI: true,
+    BLOCKQUOTE: true,
+    TR: true,
+    BR: true,
+    HR: true,
+};
 function flattenHTML(rawHTML) {
     const START_TAG = "<!--StartFragment-->";
     const END_TAG = "<!--EndFragment-->";
@@ -155,6 +172,10 @@ function flattenHTML(rawHTML) {
             else if (spanAppended) {
                 finalHTML += "</span>";
             }
+            if (LINEBREAK_ELEMENTS[el.nodeName]) {
+                finalHTML += "<br>";
+                finalText += "\n";
+            }
             if (newTextProps) {
                 textPropsStack.pop();
                 console.assert(textPropsStack.length > 0, "textPropsStack is empty!");
@@ -165,7 +186,7 @@ function flattenHTML(rawHTML) {
     }
     extractFlattenedHTML(body);
     // flatten된 HTML 생성
-    // console.log("flattened", finalHTML, finalText, textProps);
+    console.log("flattened", { finalHTML, finalText, textProps });
     return [finalHTML, finalText, textProps];
 }
 function debounce(func, delay) {

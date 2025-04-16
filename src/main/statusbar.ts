@@ -4,11 +4,12 @@ type Option<TValue> = {
 };
 
 type StatusItem<TValue> = {
-	side: "left" | "right";
+	side: "left" | "right" | "center";
 	key: string;
 	label: string;
 	get: () => TValue;
 	set?: (value: TValue) => void;
+	toggle?: () => void;
 	visible?: () => boolean;
 	options?: Option<TValue>[];
 };
@@ -33,6 +34,10 @@ function InitializeStatusBar(items: StatusItem<any>[]) {
 	leftContainer.classList.add("status-bar-left");
 	statusBarElement.appendChild(leftContainer);
 
+	const centerContainer = document.createElement("div");
+	centerContainer.classList.add("status-bar-center");
+	statusBarElement.appendChild(centerContainer);
+	
 	const rightContainer = document.createElement("div");
 	rightContainer.classList.add("status-bar-right");
 	statusBarElement.appendChild(rightContainer);
@@ -47,18 +52,29 @@ function InitializeStatusBar(items: StatusItem<any>[]) {
 		statusItem.setAttribute("data-popup", item.key);
 		if (item.options) {
 			statusItem.classList.add("clickable");
-			statusItem.innerHTML = `${item.label}: <span></span> ▼`;
+			statusItem.innerHTML = `${item.label} <span></span> ▼`;
 			statusItem.addEventListener("click", () => {
 				togglePopup(item.key, statusItem, item);
 			});
+		} else if (item.toggle) {
+			statusItem.classList.add("clickable");
+			statusItem.innerHTML = `${item.label} <span></span>`;
+			statusItem.addEventListener("click", () => {
+				item.toggle!();
+			});
 		} else {
-			statusItem.innerHTML = `${item.label}: <span></span>`;
+			statusItem.innerHTML = `${item.label} <span></span>`;
 		}
 
 		if (item.side === "left") {
 			leftContainer.appendChild(statusItem);
-		} else {
+		} else if (item.side === "right") {
 			rightContainer.appendChild(statusItem);
+		} else if (item.side === "center") {
+			centerContainer.appendChild(statusItem);
+		} else {
+			console.error(`Unknown side: ${item.side}`);
+			return;
 		}
 	}
 

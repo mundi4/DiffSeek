@@ -87,7 +87,7 @@ declare type TokenMatchEntry = {
 declare type TextProperties = {
 	pos: number;
 	color: string | null;
-	supsub: "SUP" | "SUB" | null; // not implemented yet
+	//supsub: "SUP" | "SUB" | null; // not implemented yet
 	flags: number; // not implemented yet
 };
 

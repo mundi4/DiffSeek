@@ -176,18 +176,18 @@ const DiffSeek = (function () {
                 { label: "줄", value: "line" },
             ],
         },
-        {
-            side: "left",
-            key: "algorithm",
-            label: "알고리즘",
-            get: () => _diffOptions.algorithm,
-            set: (value) => (_diffOptions.algorithm = value),
-            options: [
-                { label: "Histogram", value: "histogram" },
-                { label: "⚠️ Myers ❌", value: "myers" },
-                { label: "LCS DP", value: "lcs" },
-            ],
-        },
+        // {
+        // 	side: "left",
+        // 	key: "algorithm",
+        // 	label: "알고리즘",
+        // 	get: () => _diffOptions.algorithm,
+        // 	set: (value: DiffAlgorithm) => (_diffOptions.algorithm = value),
+        // 	options: [
+        // 		{ label: "Histogram", value: "histogram" },
+        // 		{ label: "⚠️ Myers ❌", value: "myers" },
+        // 		{ label: "LCS DP", value: "lcs" },
+        // 	],
+        // },
         {
             side: "left",
             key: "whitespace",
@@ -266,8 +266,6 @@ const DiffSeek = (function () {
     const highlightStyle = document.getElementById("highlightStyle");
     const progress = document.getElementById("progress");
     const scrollSyncIndicator = document.getElementById("scrollSyncIndicator");
-    // aligned mode용 style 컨테이너. 필요한 경우 한번에 기존의 모든 스타일을 날려버리기 위해 요소마다 style값을 직접 지정하지 않고
-    // .alinged #rightAnchor32 { height: 200px; } 이런식으로 스타일 추가함.
     const alignmentStyleElement = document.createElement("style");
     document.head.appendChild(alignmentStyleElement);
     const resizeObserver = new ResizeObserver(() => {
@@ -281,6 +279,7 @@ const DiffSeek = (function () {
             // 1. 포커스를 가진 에디터?...
             // 2. 마우스커서가 올려진 에디터?...
             // 3. 최근에 스크롤된 에디터?...
+            // 4. 귀찮다.
         }
     });
     resizeObserver.observe(container);
@@ -331,39 +330,6 @@ const DiffSeek = (function () {
             workerURL = URL.createObjectURL(blob);
         }
         const worker = new Worker(workerURL);
-        function htmlEntityToChar(entity) {
-            const doc = new DOMParser().parseFromString(entity, "text/html");
-            const char = doc.body.textContent;
-            if (char.length !== 1) {
-                throw new Error("htmlEntityToChar: not a single character entity: " + entity);
-            }
-            return char;
-        }
-        // TODO
-        // 그냥 { type: "init? config?", normalizeChars: {...}, ... } 이런 식으로 보내는게 더 나을듯.
-        for (var entry of NORMALIZE_CHARS) {
-            // entry[0] = encoder.encode(entry[0]);
-            let chars = "";
-            for (var i = 0; i < entry.length; i++) {
-                const char = entry[i];
-                if (char.length === 1) {
-                    chars += char;
-                }
-                else if (typeof char === "number") {
-                    chars += String.fromCharCode(char);
-                }
-                else if (char[0] === "&") {
-                    chars += htmlEntityToChar(char);
-                }
-                else {
-                    throw new Error("normalizeChars: not a single character: " + char);
-                }
-            }
-            worker.postMessage({
-                type: "normalizeChars",
-                chars: chars,
-            });
-        }
         return worker;
     }
     const { computeDiff } = (function () {

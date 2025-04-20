@@ -30,8 +30,7 @@ const FORCE_RENDER_TIMEOUT = 300; // ms
 // &로 시작하면 html 엔티티
 // TODO: 각종 화살표 특수문자들...
 const NORMALIZE_CHARS = [
-	['"', "“", "”"],
-	["'", "‘", "’"],
+	['"', "“", "”", "'", "‘", "’"],
 	["-", "–", "—"],
 	[".", "․"],
 	["⋅", "·", "•"], // &middot;과 &bullet;(&bull;)은 다른 걸로 여겨야하지 않을까? middot대신 bullet을 쓰면 점이 너무 왕점이라 보기 흉한데...
@@ -74,15 +73,3 @@ const PROCESSING_MESSAGES = [
 	"99... 98... 97...",
 	"퇴근 준비 중...",
 ] as const;
-
-const DIFF_ALGORITHM = {
-	myers: "myers",
-	lcs: "lcs",
-} as const;
-
-const TOKENIZATION = {
-	char: 1,
-	word: 2,
-	line: 3,
-} as const;
-

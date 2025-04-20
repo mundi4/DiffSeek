@@ -50,8 +50,8 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	container.appendChild(wrapper);
 
 	// 복붙한 스타일이 들어있는 부분을 수정할 때(정확히는 스타일이 입혀진 텍스트를 지우고 바로 입력할 때)
-	// 브라우저가 친절하게도 비슷한 지워지기 전의 비슷한 스타일을 친히 넣어주신다!
-	// 분에 넘치게 황공하오니 잽싸게 reject.
+	// 브라우저가 지워지기 전과 비슷한 스타일(font, span태그에 style을 입혀서)을 친히 넣어주신다!
+	// 분에 넘치게 황공하오니 잽싸게 삭제해드려야함함.
 	const { observeEditor, unobserveEditor } = (() => {
 		const mutationObserver = new MutationObserver((mutations) => {
 			for (const mutation of mutations) {
@@ -173,137 +173,11 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		updateText();
 	});
 
-	// mirror.addEventListener("dragstart", (e) => {
-	// 	console.log("dragstart", e);
-	// 	const selection = window.getSelection();
-
-	// 	if (!selection || selection.isCollapsed) {
-	// 		return;
-	// 	}
-
-	// 	const range = selection.getRangeAt(0);
-	// 	if (!mirror.contains(range.commonAncestorContainer)) {
-	// 		return;
-	// 	}
-
-	// 	const startPos = getTextOffsetFromMirrorNodeAndOffset(range.startContainer, range.startOffset);
-	// 	const endPos = getTextOffsetFromMirrorNodeAndOffset(range.endContainer, range.endOffset);
-	// });
-
-	function getTextOffsetFromMirrorNodeAndOffset(node: Node, offset: number) {
-		let lineEl: HTMLElement = node as HTMLElement;
-		while (lineEl && lineEl.parentNode !== mirror) {
-			lineEl = lineEl.parentNode as HTMLElement;
-		}
-		if (!lineEl) {
-			return NaN;
-		}
-		let pos = Number(lineEl.dataset.pos);
-		let offsetInLine = getTextOffsetFromRoot(lineEl, node, offset);
-		if (offsetInLine !== null) {
-			return pos + offsetInLine;
-		} else {
-			return NaN;
-		}
-	}
-
-	function getTextOffsetFromRoot(root: HTMLElement, textNode: Node, textNodeOffset: number) {
-		let offset = 0;
-		const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-		while (walker.nextNode()) {
-			if (walker.currentNode === textNode) {
-				return offset + textNodeOffset;
-			}
-			// 텍스트노드의 nodeValue는 항상 null이 아닌 문자열임!!!
-			offset += walker.currentNode.nodeValue!.length;
-		}
-		return NaN;
-	}
-
-	function getVisibleAnchors() {
-		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
-	}
-
-	// caret(텍스트커서 '|')가 있는 위치에 가장 가까운 앵커를 가져옴.
-	// edit 모드가 아닌 경우에는 null 리턴
-	function getClosestAnchorToCaret() {
-		if (!_editMode) {
-			return null;
-		}
-
-		const selection = window.getSelection();
-		if (!selection || selection.rangeCount === 0) {
-			return null;
-		}
-
-		let range = selection.getRangeAt(0);
-		if (!editor.contains(range.startContainer)) {
-			return null;
-		}
-
-		let rect = range.getBoundingClientRect();
-		let y;
-		if (rect.left === 0 && rect.top === 0) {
-			y = EDITOR_PADDING + TOPBAR_HEIGHT;
-		} else {
-			y = rect.top;
-		}
-
-		let closestAnchor = null;
-		let minDistance = Number.MAX_SAFE_INTEGER;
-		for (const anchor of _visibleAnchors) {
-			const rect = anchor.getBoundingClientRect();
-			const distance = Math.abs(rect.top - y);
-			if (distance < minDistance) {
-				minDistance = distance;
-				closestAnchor = anchor;
-			}
-		}
-		return closestAnchor;
-	}
-
-	function getFirstVisibleLineElement(): [HTMLElement, number] | [null, null] {
-		const lineEls = _lineElements;
-		let low = 0;
-		let high = lineEls.length - 1;
-		let mid;
-		let lineEl = null;
-		let distance = null;
-		while (low <= high) {
-			mid = (low + high) >>> 1;
-			const thisDistance = lineEls[mid].getBoundingClientRect().top - TOPBAR_HEIGHT;
-			if (thisDistance >= -LINE_HEIGHT) {
-				lineEl = lineEls[mid];
-				distance = thisDistance;
-				high = mid - 1;
-			} else {
-				low = mid + 1;
-			}
-		}
-		return [lineEl!, distance!]; //null일 수도 있지만 의도적으로 느낌표 때려박음
-	}
-
-	function scrollToDiff(diffIndex: number) {
-		const offsetTop = _diffElements[diffIndex][0].offsetTop - wrapper.clientTop;
-		wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
-	}
-
-	// 내가 머리가 나쁘다는 걸 확실하게 알게 해주는 함수
-	function scrollToLine(lineNum: number, margin = 0) {
-		const lineEl = _lineElements[lineNum - 1];
-		if (lineEl) {
-			const scrollTop = lineEl.offsetTop - margin;
-			wrapper.scrollTop = scrollTop;
-		}
-	}
-
 	const { update } = (() => {
 		let _renderId = 0;
 		let _cancelRenderId: number | null = null;
 
 		function update({ diffs, anchors }: { diffs: DiffEntry[]; anchors: Anchor[] }) {
-			const FORCE_RENDER_TIMEOUT = 500;
-
 			if (_cancelRenderId) {
 				cancelIdleCallback(_cancelRenderId);
 				_cancelRenderId = null;
@@ -340,9 +214,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				return;
 			}
 
-			// const startTime = performance.now();
-			console.debug("update", editorName, { renderId, diffs, anchors });
-
 			untrackIntersections();
 			_lineElements.length = 0;
 			_lineHints.length = 0;
@@ -353,15 +224,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			let idleDeadline: IdleDeadline = yield;
 
 			const textruns = getTextRuns(editorName, _text, _textProps, diffs, anchors);
-			console.debug(editorName, "textruns", textruns);
-
 			const text = _text;
 			const view = mirror;
 			let lineEl: HTMLElement = null!;
 			let nextInlineNode: ChildNode | null = null;
 
 			let currentDiffIndex: number | null = null;
-			let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null, flags: 0 };
+			let currentTextProps: TextProperties = { pos: 0, color: null, flags: 0 };
 			let lineNum: number;
 			let lineIsEmpty = true;
 			let numConsecutiveBlankLines = 0;
@@ -571,6 +440,84 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return { update };
 	})();
 
+	
+	function getVisibleAnchors() {
+		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
+	}
+
+	// caret(텍스트커서 '|')가 있는 위치에 가장 가까운 앵커를 가져옴.
+	// edit 모드가 아닌 경우에는 null 리턴
+	function getClosestAnchorToCaret() {
+		if (!_editMode) {
+			return null;
+		}
+
+		const selection = window.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return null;
+		}
+
+		let range = selection.getRangeAt(0);
+		if (!editor.contains(range.startContainer)) {
+			return null;
+		}
+
+		let rect = range.getBoundingClientRect();
+		let y;
+		if (rect.left === 0 && rect.top === 0) {
+			y = EDITOR_PADDING + TOPBAR_HEIGHT;
+		} else {
+			y = rect.top;
+		}
+
+		let closestAnchor = null;
+		let minDistance = Number.MAX_SAFE_INTEGER;
+		for (const anchor of _visibleAnchors) {
+			const rect = anchor.getBoundingClientRect();
+			const distance = Math.abs(rect.top - y);
+			if (distance < minDistance) {
+				minDistance = distance;
+				closestAnchor = anchor;
+			}
+		}
+		return closestAnchor;
+	}
+
+	function getFirstVisibleLineElement(): [HTMLElement, number] | [null, null] {
+		const lineEls = _lineElements;
+		let low = 0;
+		let high = lineEls.length - 1;
+		let mid;
+		let lineEl = null;
+		let distance = null;
+		while (low <= high) {
+			mid = (low + high) >>> 1;
+			const thisDistance = lineEls[mid].getBoundingClientRect().top - TOPBAR_HEIGHT;
+			if (thisDistance >= -LINE_HEIGHT) {
+				lineEl = lineEls[mid];
+				distance = thisDistance;
+				high = mid - 1;
+			} else {
+				low = mid + 1;
+			}
+		}
+		return [lineEl!, distance!]; //null일 수도 있지만 의도적으로 느낌표 때려박음
+	}
+
+	function scrollToDiff(diffIndex: number) {
+		const offsetTop = _diffElements[diffIndex][0].offsetTop - wrapper.clientTop;
+		wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
+	}
+
+	// 내가 머리가 나쁘다는 걸 확실하게 알게 해주는 함수
+	function scrollToLine(lineNum: number, margin = 0) {
+		const lineEl = _lineElements[lineNum - 1];
+		if (lineEl) {
+			const scrollTop = lineEl.offsetTop - margin;
+			wrapper.scrollTop = scrollTop;
+		}
+	}
+
 	function getFirstVisibleAnchor() {
 		let firstAnchor: HTMLElement | null = null;
 		let firstPos: number | null = null;
@@ -662,7 +609,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		} else {
 			let startLineIndex = findLineIndexByPos(startOffset);
 			let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
-			console.log("startLineIndex", startLineIndex, "endLineIndex", endLineIndex);
 			let currentNode;
 			let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null);
 			let pos = Number(_lineElements[startLineIndex].dataset.pos);
@@ -678,14 +624,12 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 			walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null);
 			pos = Number(_lineElements[endLineIndex].dataset.pos);
-			console.log("line pos:", pos);
 			if (pos === endOffset) {
 				range.setEndBefore(_lineElements[endLineIndex]);
 				endSet = true;
 			} else {
 				while ((currentNode = walker.nextNode())) {
 					const nodeLen = currentNode.nodeValue!.length;
-					console.log("pos + nodeLen", pos + nodeLen);
 					if (pos + nodeLen >= endOffset) {
 						range.setEnd(currentNode, endOffset - pos);
 						endSet = true;
@@ -700,8 +644,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			const sel = window.getSelection()!;
 			sel.removeAllRanges();
 			sel.addRange(range);
-		} else {
-			console.log("startSet", startSet, "endSet", endSet, "startOffset", startOffset, "endOffset", endOffset);
 		}
 	}
 

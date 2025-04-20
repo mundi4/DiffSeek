@@ -10,6 +10,38 @@ const MANUAL_ANCHOR = 128; // @@@, ### 등등
 
 const normalizeChars: { [ch: string]: string } = {};
 
+// TODO
+// 그냥 { type: "init? config?", normalizeChars: {...}, ... } 이런 식으로 보내는게 더 나을듯.
+for (var entry of NORMALIZE_CHARS) {
+	// entry[0] = encoder.encode(entry[0]);
+	const norm = entry[0];
+	normalizeChars[norm] = norm;
+	for (var i = 0; i < entry.length; i++) {
+		const char = entry[i];
+		if (char.length === 1) {
+			normalizeChars[char] = norm;
+		} else if (typeof char === "number") {
+			normalizeChars[String.fromCharCode(char)] = norm;
+		} else if (char[0] === "&") {
+			normalizeChars[htmlEntityToChar(char)] = norm;
+		} else {
+			throw new Error("normalizeChars: not a single character: " + char);
+		}
+	}
+
+}
+
+console.log("normalizeChars: ", normalizeChars);
+
+function htmlEntityToChar(entity: string) {
+	const doc = new DOMParser().parseFromString(entity, "text/html");
+	const char = doc.body.textContent!;
+	if (char.length !== 1) {
+		throw new Error("htmlEntityToChar: not a single character entity: " + entity);
+	}
+	return char;
+}
+
 const SPACE_CHARS: { [char: string]: boolean } = {
 	" ": true,
 	"\t": true,

@@ -2,22 +2,7 @@
 const STYLE_NONE = 0;
 const STYLE_COLOR_DEFAULT = 1 << 0;
 const STYLE_COLOR_RED = 1 << 1;
-const STYLE_ELEMENT_SUP = 1 << 2;
-const STYLE_ELEMENT_SUB = 1 << 3;
-const STYLE_ELEMENT_BOLD = 1 << 4;
-const STYLE_ELEMENT_ITALIC = 1 << 5;
 const STYLE_MASK_COLOR = STYLE_COLOR_DEFAULT | STYLE_COLOR_RED;
-const STYLE_MASK_ELEMENT = STYLE_ELEMENT_SUP | STYLE_ELEMENT_SUB | STYLE_ELEMENT_BOLD | STYLE_ELEMENT_ITALIC;
-// textrun과 그에 따른 렌더링이 쉬운게 아니다.
-// 특히 영역이 오버랩 되는 경우 기존 엘러먼트를 닫고 순서에 맞춰서 새로 열고...
-const ELEMENT_STYLES = {
-// STRONG: STYLE_ELEMENT_BOLD,
-// B: STYLE_ELEMENT_BOLD,
-// EM: STYLE_ELEMENT_ITALIC,
-// I: STYLE_ELEMENT_ITALIC,
-// SUP: STYLE_ELEMENT_SUP,
-// SUB: STYLE_ELEMENT_SUB,
-};
 const reddishCache = new Map([
     ["red", true],
     ["#ff0000", true],
@@ -35,9 +20,9 @@ const reddishCache = new Map([
     ["windowtext", false],
     // 기타 등등?
 ]);
-// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
-// 정규식은 사람이 쓰는건 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡겨야함.
 let _ctx = null;
+// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
+// 정규식은 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡기고고 디버깅 시도조차 하지 말 것.
 function getRGB(color) {
     // #rrggbb
     const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
@@ -85,9 +70,6 @@ function isReddish(color) {
     reddishCache.set(color, isRed);
     return isRed;
 }
-// function escapeHTML(str: string): string {
-// 	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-// }
 const BLOCK_ELEMENTS = {
     DD: true,
     DT: true,
@@ -222,15 +204,7 @@ function sanitizeHTML(rawHTML) {
                 }
                 newFlags = (currentFlags & ~STYLE_MASK_COLOR) | colorStyle;
             }
-            let tagName = null;
-            const elementStyle = ELEMENT_STYLES[el.nodeName];
-            if (elementStyle && (currentFlags & STYLE_MASK_ELEMENT) !== elementStyle) {
-                newFlags = (currentFlags & ~STYLE_MASK_ELEMENT) | elementStyle;
-                tagName = el.nodeName;
-            }
-            if (!tagName && color !== null) {
-                tagName = "SPAN";
-            }
+            let tagName = color !== null ? "SPAN" : null;
             if (tagName && color) {
                 finalHTML += `<${tagName} class="${color}">`;
             }
@@ -263,7 +237,7 @@ function sanitizeHTML(rawHTML) {
 function flattenHTML(rootNode) {
     console.log("flattenHTML", rootNode);
     const textProps = [];
-    let currentTextProps = { pos: 0, color: null, supsub: null, flags: 0 };
+    let currentTextProps = { pos: 0, color: null, flags: 0 };
     let textPropsStack = [];
     textProps.push(currentTextProps);
     textPropsStack.push(currentTextProps);
@@ -289,16 +263,6 @@ function flattenHTML(rootNode) {
                     textPropsStack.push(currentTextProps);
                 }
                 newTextProps.color = color;
-            }
-            if (el.nodeName === "SUP" || el.nodeName === "SUB") {
-                if (currentTextProps.supsub !== el.nodeName) {
-                    if (!newTextProps) {
-                        currentTextProps = newTextProps = { ...currentTextProps, pos: finalText.length };
-                        textProps.push(newTextProps);
-                        textPropsStack.push(currentTextProps);
-                    }
-                    newTextProps.supsub = el.nodeName;
-                }
             }
             for (const child of el.childNodes) {
                 extractFlattenedHTML(child);
@@ -364,7 +328,6 @@ function getSelectedTokenRange(tokens, startOffset, endOffset) {
             const token = tokens[mid];
             const tokenEnd = token.pos + token.len;
             if (isStart) {
-                // 이전 토큰의 끝부터 현재 토큰의 끝까지 포함
                 const prevEnd = mid > 0 ? tokens[mid - 1].pos + tokens[mid - 1].len : 0;
                 if (offset > prevEnd && offset < tokenEnd) {
                     return mid;
@@ -374,7 +337,6 @@ function getSelectedTokenRange(tokens, startOffset, endOffset) {
                 }
             }
             else {
-                // 현재 토큰의 시작부터 다음 토큰의 시작까지 포함
                 const nextStart = mid + 1 < tokens.length ? tokens[mid + 1].pos : Infinity;
                 if (offset >= token.pos && offset < nextStart) {
                     return mid;
@@ -480,7 +442,6 @@ function buildOutputPlainTextFromRuns(text, textRuns, options) {
     const format = options.textFormat ?? 0;
     let result = "";
     let inDiff = false;
-    // 강조 마크 선택
     let markStart;
     let markEnd;
     if (format === 1) {

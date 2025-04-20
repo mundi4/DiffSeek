@@ -165,10 +165,15 @@ html {
 }
 
 mark {
-	line-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
+	background-color: inherit;
 	color: inherit;
 }
+
+mark {
+	line-height: var(--line-height);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+}
+
 mark:not(:empty) {
 	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
 	outline-offset: 0px;
@@ -569,3 +574,4 @@ body.aligned {
 	color: #fff;
 	font-weight: bold;
 }
+

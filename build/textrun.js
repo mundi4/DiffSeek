@@ -7,9 +7,9 @@
 // 이후에 텍스트가 변경되면 그에 따라 범위의 pos,len값도 조정되어야하니 결국 원본 텍스트 자체에 색상정보가 포함되어야 한다.
 // 그럼 원본텍스트를 html로 저장하고 변경될 때마다 매번 parsing? 미쳤다.
 // 원본 텍스트에 marker문자(zero-width space 등)를 넣고 그걸로 빨간색 범위 파악? nope!
-function getTextRuns(textKey, text, textProps, diffs, anchors) {
-    let pos = 0;
-    let textLen = text.length;
+function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos) {
+    anchors ??= [];
+    textProps ??= [];
     let nextPropsPos = null;
     let nextProps = null;
     let nextDiffPos = null;
@@ -24,6 +24,41 @@ function getTextRuns(textKey, text, textProps, diffs, anchors) {
     let anchorIndex = -1;
     let lastSupSubPos = null;
     const textruns = [];
+    const textLen = endPos ?? text.length;
+    let pos = startPos ?? 0;
+    if (pos > 0) {
+        for (let i = 0; i < diffs.length; i++) {
+            const d = diffs[i][textKey];
+            if (d.pos >= pos) {
+                diffIndex = i - 1;
+                break;
+            }
+        }
+        for (let i = 0; i < anchors.length; i++) {
+            const a = anchors[i];
+            if (a[textKey] >= pos) {
+                anchorIndex = i - 1;
+                break;
+            }
+        }
+        for (let i = 0; i < textProps.length; i++) {
+            const p = textProps[i];
+            if (p.pos >= pos) {
+                textPropsIndex = i - 1;
+                if (textPropsIndex >= 0) {
+                    textruns.push({
+                        type: "MODIFIER",
+                        pos: pos,
+                        len: 0,
+                        diffIndex: null,
+                        anchorIndex: null,
+                        props: textProps[textPropsIndex],
+                    });
+                }
+                break;
+            }
+        }
+    }
     // let counter = 0;
     // pos < textLen 조건을 쓰면 text의 끝에 위치한 이벤트가 무시될 수 있음.
     while (true) {
@@ -107,7 +142,7 @@ function getTextRuns(textKey, text, textProps, diffs, anchors) {
         }
         if (nextNewLinePos === null) {
             nextNewLinePos = text.indexOf("\n", pos);
-            if (nextNewLinePos === -1) {
+            if (nextNewLinePos === -1 || nextNewLinePos >= textLen) {
                 nextNewLinePos = textLen;
                 nextNewLineIsEndOfString = true;
             }
@@ -221,6 +256,17 @@ function getTextRuns(textKey, text, textProps, diffs, anchors) {
                 continue;
             }
         }
+    }
+    // 닫히지 않은 diff. endPos를 넣어서 호출한 경우 diff가 끝나기 전에 endPos에 도달할 수 있음.
+    if (nextDiffPos === Number.MAX_SAFE_INTEGER && nextDiffEndPos !== Number.MAX_SAFE_INTEGER) {
+        textruns.push({
+            type: "DIFF_END",
+            pos: textLen ?? nextDiffEndPos,
+            len: 0,
+            diffIndex: diffIndex,
+            anchorIndex: null,
+            props: null,
+        });
     }
     textruns.push({
         type: "END_OF_STRING",

@@ -328,7 +328,7 @@ function tokenizeByWord(input: string): Token[] {
 		if (SPACE_CHARS[char]) {
 			if (currentStart !== -1) {
 				flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
-				const text = flags & NORMALIZE ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i);
+				const text = flags & NORMALIZE ? normalize(input.slice(currentStart, i)) : input.slice(currentStart, i);
 				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
 					flags |= MANUAL_ANCHOR;
 				}
@@ -367,7 +367,7 @@ function tokenizeByWord(input: string): Token[] {
 					if (currentStart !== -1) {
 						flags |= tokens.length === 0 && checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
 						tokens.push({
-							text: input.substring(currentStart, i),
+							text: input.slice(currentStart, i),
 							pos: currentStart,
 							len: i - currentStart,
 							lineNum: lineNum,
@@ -416,7 +416,7 @@ function tokenizeByWord(input: string): Token[] {
 	}
 
 	if (currentStart !== -1) {
-		const text = flags & NORMALIZE ? normalize(input.substring(currentStart)) : input.substring(currentStart);
+		const text = flags & NORMALIZE ? normalize(input.slice(currentStart)) : input.slice(currentStart);
 		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
 			flags |= MANUAL_ANCHOR;
 		}
@@ -483,7 +483,7 @@ function tokenizeByLine(input: string): Token[] {
 			}
 		} else {
 			if (currentStart !== -1) {
-				const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
+				const text = input.slice(currentStart, currentEnd).replace(/\s+/g, " ");
 				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
 					flags |= MANUAL_ANCHOR;
 				}
@@ -502,7 +502,7 @@ function tokenizeByLine(input: string): Token[] {
 	}
 
 	if (currentStart !== -1) {
-		const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
+		const text = input.slice(currentStart, currentEnd).replace(/\s+/g, " ");
 		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
 			flags |= MANUAL_ANCHOR;
 		}

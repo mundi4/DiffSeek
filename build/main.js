@@ -13,6 +13,12 @@ const DiffSeek = (function () {
     let _resetCurrentlyScrollingEditorId = null;
     // let _diffResult: DiffResponse | null = null;
     let _diffContext = { done: false, reqId: 0 };
+    let _outputOptions = {
+        leftLabel: "Left",
+        rightLabel: "Right",
+        htmlFormat: "div",
+        textFormat: 0,
+    };
     // devtools 콘솔에서 설정 값을 바꿨을때 바로 업데이트 시키기 위해...
     const _diffOptions = (function (defaultValues) {
         let _diffOptions = { ...defaultValues };
@@ -232,17 +238,17 @@ const DiffSeek = (function () {
                 return `${_diffContext.diffs.length}`;
             },
         },
-        // {
-        // 	side: "right",
-        // 	key: "tokenCount",
-        // 	label: "#",
-        // 	get: () => {
-        // 		if (_diffResult === null) {
-        // 			return "...";
-        // 		}
-        // 		return `${_diffResult.leftTokenCount} / ${_diffResult.rightTokenCount}`;
-        // 	},
-        // },
+        {
+            side: "right",
+            key: "tokenCount",
+            label: "#",
+            get: () => {
+                if (!_diffContext.leftTokens || !_diffContext.rightTokens) {
+                    return "...";
+                }
+                return `${_diffContext.leftTokens.length} / ${_diffContext.rightTokens.length}`;
+            },
+        },
         {
             side: "right",
             key: "processTime",
@@ -381,8 +387,8 @@ const DiffSeek = (function () {
                 leftTokens: ctx.leftTokens,
                 rightTokens: ctx.rightTokens,
             };
-            console.log("postingMessage", request);
             worker.postMessage(request);
+            console.log("postMessage", request);
             updateButtons();
         }
         function computeDiff() {
@@ -403,6 +409,7 @@ const DiffSeek = (function () {
                 rightText: rightText,
                 diffOptions: { ..._diffOptions },
                 done: false,
+                processTime: 0,
             });
             const generator = computeDiffGenerator(ctx);
             const step = (idleDeadline) => {
@@ -421,9 +428,10 @@ const DiffSeek = (function () {
                 if (data.reqId === reqId) {
                     console.debug("diff response:", data);
                     document.querySelector("body").classList.remove("computing");
-                    _diffContext.rawDiffs = data.diffs;
+                    _diffContext.rawEntries = data.diffs;
                     postProcess(_diffContext);
                     _diffContext.done = true;
+                    _diffContext.processTime = data.processTime;
                     onDiffComputed(_diffContext);
                 }
             }
@@ -522,18 +530,6 @@ const DiffSeek = (function () {
         // 기존 스타일 한번에 날려버리기
         alignmentStyleElement.textContent = "";
         const leftAnchorEls = leftEditor.anchorElements, rightAnchorEls = rightEditor.anchorElements;
-        // leftTops: number[] = new Array<number>(anchors.length),
-        // rightTops: number[] = new Array<number>(anchors.length),
-        // leftHeights: number[] = new Array<number>(anchors.length),
-        // rightHeights: number[] = new Array<number>(anchors.length);
-        // for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
-        // 	leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
-        // 	rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
-        // 	if (anchors[anchorIndex].type === "after") {
-        // 		leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
-        // 		rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
-        // 	}
-        // }
         let styleText = "";
         let leftDelta = 0, rightDelta = 0;
         for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
@@ -548,11 +544,12 @@ const DiffSeek = (function () {
             if (anchor.type === "before") {
                 delta = leftY - rightY;
                 if (delta > LINE_HEIGHT) {
-                    const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
+                    const anchorLineIndex = anchor.leftLine - 1;
+                    // const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
                     if (anchorLineIndex > 0) {
                         const lastBlankLineIndex = anchorLineIndex - 1;
                         const hint = lhsLineHints[lastBlankLineIndex];
-                        const collapseLimit = hint.numConsecutiveBlankLines - 1; // 마지막 한 줄은 남긴다
+                        const collapseLimit = hint.numConsecutiveBlankLines - 1;
                         let collapsedLines = 0;
                         while (collapsedLines < collapseLimit) {
                             const lineIndex = lastBlankLineIndex - collapsedLines;
@@ -565,6 +562,27 @@ const DiffSeek = (function () {
                             collapsedLines++;
                             const lineNum = lineIndex + 1;
                             styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+                        }
+                    }
+                }
+                else if (delta < -LINE_HEIGHT) {
+                    const anchorLineIndex = anchor.rightLine - 1;
+                    if (anchorLineIndex > 0) {
+                        const lastBlankLineIndex = anchorLineIndex - 1;
+                        const hint = rhsLineHints[lastBlankLineIndex];
+                        const collapseLimit = hint.numConsecutiveBlankLines - 1;
+                        let collapsedLines = 0;
+                        while (collapsedLines < collapseLimit) {
+                            const lineIndex = lastBlankLineIndex - collapsedLines;
+                            const lineEl = rhsLines[lineIndex];
+                            const lineHeight = lineEl.offsetHeight;
+                            if (-delta < lineHeight)
+                                break;
+                            delta += lineHeight;
+                            leftDelta += lineHeight;
+                            collapsedLines++;
+                            const lineNum = lineIndex + 1;
+                            styleText += `.aligned #rightMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
                         }
                     }
                 }
@@ -713,12 +731,12 @@ animation: highlightAnimation 0.3s linear 3;
             button.dataset.diff = i.toString();
             button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
             li.appendChild(button);
-            const leftText = leftWholeText.substring(diff.left.pos, diff.left.pos + diff.left.len);
+            const leftText = leftWholeText.slice(diff.left.pos, diff.left.pos + diff.left.len);
             const leftSpan = document.createElement("SPAN");
             leftSpan.textContent = leftText;
             leftSpan.classList.add("left");
             button.appendChild(leftSpan);
-            const rightText = rightWholeText.substring(diff.right.pos, diff.right.pos + diff.right.len);
+            const rightText = rightWholeText.slice(diff.right.pos, diff.right.pos + diff.right.len);
             const rightSpan = document.createElement("SPAN");
             rightSpan.textContent = rightText;
             rightSpan.classList.add("right");
@@ -880,6 +898,46 @@ animation: highlightAnimation 0.3s linear 3;
                 disableAlignedMode();
             }
         });
+        editor.mirror.addEventListener("dragstart", (e) => {
+            console.log("[dragstart] fired");
+            const sideKey = editor === leftEditor ? "left" : "right";
+            const otherSideKey = sideKey === "left" ? "right" : "left";
+            const tokens = sideKey === "left" ? _diffContext.leftTokens : _diffContext.rightTokens;
+            const otherTokens = sideKey === "left" ? _diffContext.rightTokens : _diffContext.leftTokens;
+            const text = sideKey === "left" ? leftEditor.text : rightEditor.text;
+            const otherText = sideKey === "left" ? rightEditor.text : leftEditor.text;
+            const rawEntries = _diffContext.rawEntries;
+            const diffs = _diffContext.diffs;
+            const selection = window.getSelection();
+            if (!tokens || !otherTokens || !selection || selection.isCollapsed)
+                return;
+            const range = selection.getRangeAt(0);
+            if (!editor.mirror.contains(range.commonAncestorContainer))
+                return;
+            const [startOffset, endOffset] = editor.getTextSelectionRange();
+            if (startOffset === null || endOffset === null)
+                return;
+            console.log("text from range", text.slice(startOffset, endOffset));
+            const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
+            const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
+            console.log("startIndex, endIndex", startIndex, endIndex);
+            const startToken = tokens[startIndex];
+            const endToken = tokens[endIndex - 1];
+            const otherStartToken = otherTokens[mappedStartIndex];
+            const otherEndToken = otherTokens[mappedEndIndex - 1];
+            const startPos = startToken?.pos ?? 0;
+            const endPos = endToken ? endToken.pos + endToken.len : startPos;
+            const otherStartPos = otherStartToken?.pos ?? 0;
+            const otherEndPos = otherEndToken ? otherEndToken.pos + otherEndToken.len : otherStartPos;
+            console.log("thistext:", text.slice(startPos, endPos));
+            console.log("othertxt:", otherText.slice(otherStartPos, otherEndPos));
+            const leftRuns = getTextRuns("left", leftEditor.text, [], diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
+            const rightRuns = getTextRuns("right", rightEditor.text, [], diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
+            const html = buildOutputHTML(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            const plain = buildOutputPlainText(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            e.dataTransfer.setData("text/html", html);
+            e.dataTransfer.setData("text/plain", plain);
+        });
         if (useEditableMirror) {
             // editor.mirror.addEventListener("paste", (e) => {
             // 	disableAlignedMode();
@@ -902,7 +960,7 @@ animation: highlightAnimation 0.3s linear 3;
         const rightText = diffContext.rightText;
         const leftTokens = diffContext.leftTokens;
         const rightTokens = diffContext.rightTokens;
-        const rawEntries = diffContext.rawDiffs;
+        const rawEntries = diffContext.rawEntries;
         const diffs = [];
         const anchors = [];
         const MAX_ANCHOR_SKIP = 5;
@@ -1009,6 +1067,7 @@ animation: highlightAnimation 0.3s linear 3;
             let leftBeforeAnchorPos, leftBeforeAnchorLine, rightBeforeAnchorPos, rightBeforeAnchorLine, leftAfterAnchorPos, leftAfterAnchorLine, rightAfterAnchorPos, rightAfterAnchorLine;
             let leftEmpty, rightEmpty;
             let type;
+            let asBlock = false;
             // 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
             if (leftCount > 0 && rightCount > 0) {
                 type = 3;
@@ -1035,6 +1094,7 @@ animation: highlightAnimation 0.3s linear 3;
                     }
                     // addAnchor("before", leftAnchorPos, rightAnchorPos, null);
                     if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
+                        asBlock = true;
                         leftAfterAnchorPos = leftPos + leftLen;
                         rightAfterAnchorPos = rightPos + rightLen;
                         if (leftText[leftAfterAnchorPos] !== "\n") {
@@ -1128,7 +1188,10 @@ animation: highlightAnimation 0.3s linear 3;
                         longSideBeforeAnchorLine = longSideTokenStart.lineNum;
                         shortSideBeforeAnchorPos = shortSidePos;
                         shortSideBeforeAnchorLine = (shortSideBeforeToken ? shortSideBeforeToken.lineNum : 1) + (shortSidePushedToNextLine ? 1 : 0);
-                        if (longSideIsLastWord) {
+                        if (longSideIsLastWord
+                        // && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
+                        ) {
+                            asBlock = true;
                             longSideAfterAnchorPos = longSidePos + longSideLen;
                             longSideAfterAnchorLine = longSideTokenEnd.lineNum;
                             shortSideAfterAnchorPos = shortSidePos;
@@ -1185,6 +1248,7 @@ animation: highlightAnimation 0.3s linear 3;
                     len: rightLen,
                     empty: rightEmpty,
                 },
+                asBlock,
             };
             diffs.push(newEntry);
         }
@@ -1229,6 +1293,9 @@ animation: highlightAnimation 0.3s linear 3;
         },
         compute: computeDiff,
         diffOptions: _diffOptions,
+        get outputOptions() {
+            return _outputOptions;
+        },
     };
 })();
 //# sourceMappingURL=main.js.map

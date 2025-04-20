@@ -18,6 +18,7 @@ declare type DiffEntry = {
 	type: DiffType;
 	left: DiffEntrySide;
 	right: DiffEntrySide;
+	asBlock?: boolean;
 };
 
 declare type AnchorType = "before" | "after";
@@ -106,7 +107,7 @@ declare type DiffContext = {
 	diffOptions: DiffOptions;
 	leftTokens?: Token[];
 	rightTokens?: Token[];
-	rawDiffs?: DiffEntry[];
+	rawEntries?: DiffEntry[];
 	diffs?: DiffEntry[];
 	anchors?: Anchor[];
 	done: boolean;
@@ -118,4 +119,11 @@ type LineHint = {
 	len: number;
 	empty: boolean;
 	numConsecutiveBlankLines: number;
+};
+
+type OutputOptions = {
+	leftLabel?: string;
+	rightLabel?: string;
+	htmlFormat?: "div" | "table" | "dl";
+	textFormat?: 0 | 1 | 2 | 3;
 };

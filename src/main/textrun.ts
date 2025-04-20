@@ -7,9 +7,18 @@
 // 그럼 원본텍스트를 html로 저장하고 변경될 때마다 매번 parsing? 미쳤다.
 // 원본 텍스트에 marker문자(zero-width space 등)를 넣고 그걸로 빨간색 범위 파악? nope!
 
-function getTextRuns(textKey: "left" | "right", text: string, textProps: TextProperties[], diffs: DiffEntry[], anchors: Anchor[]): TextRun[] {
-	let pos = 0;
-	let textLen = text.length;
+function getTextRuns(
+	textKey: "left" | "right",
+	text: string,
+	textProps: TextProperties[],
+	diffs: DiffEntry[],
+	anchors: Anchor[],
+	startPos?: number,
+	endPos?: number
+): TextRun[] {
+	anchors ??= [];
+	textProps ??= [];
+
 	let nextPropsPos: number | null = null;
 	let nextProps: TextProperties | null = null;
 	let nextDiffPos: number | null = null;
@@ -24,6 +33,44 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 	let anchorIndex = -1;
 	let lastSupSubPos = null;
 	const textruns: TextRun[] = [];
+
+	const textLen = endPos ?? text.length;
+	let pos = startPos ?? 0;
+	if (pos > 0) {
+		for (let i = 0; i < diffs.length; i++) {
+			const d = diffs[i][textKey];
+			if (d.pos >= pos) {
+				diffIndex = i - 1;
+				break;
+			}
+		}
+
+		for (let i = 0; i < anchors.length; i++) {
+			const a = anchors[i];
+			if (a[textKey] >= pos) {
+				anchorIndex = i - 1;
+				break;
+			}
+		}
+
+		for (let i = 0; i < textProps.length; i++) {
+			const p = textProps[i];
+			if (p.pos >= pos) {
+				textPropsIndex = i - 1;
+				if (textPropsIndex >= 0) {
+					textruns.push({
+						type: "MODIFIER",
+						pos: pos,
+						len: 0,
+						diffIndex: null,
+						anchorIndex: null,
+						props: textProps[textPropsIndex],
+					});
+				}
+				break;
+			}
+		}
+	}
 
 	// let counter = 0;
 	// pos < textLen 조건을 쓰면 text의 끝에 위치한 이벤트가 무시될 수 있음.
@@ -111,7 +158,7 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 
 		if (nextNewLinePos === null) {
 			nextNewLinePos = text.indexOf("\n", pos);
-			if (nextNewLinePos === -1) {
+			if (nextNewLinePos === -1 || nextNewLinePos >= textLen) {
 				nextNewLinePos = textLen;
 				nextNewLineIsEndOfString = true;
 			}
@@ -231,6 +278,18 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 				continue;
 			}
 		}
+	}
+
+	// 닫히지 않은 diff. endPos를 넣어서 호출한 경우 diff가 끝나기 전에 endPos에 도달할 수 있음.
+	if (nextDiffPos === Number.MAX_SAFE_INTEGER && nextDiffEndPos !== Number.MAX_SAFE_INTEGER) {
+		textruns.push({
+			type: "DIFF_END",
+			pos: textLen ?? nextDiffEndPos,
+			len: 0,
+			diffIndex: diffIndex,
+			anchorIndex: null,
+			props: null,
+		});
 	}
 
 	textruns.push({

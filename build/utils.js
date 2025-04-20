@@ -85,9 +85,9 @@ function isReddish(color) {
     reddishCache.set(color, isRed);
     return isRed;
 }
-function escapeHTML(str) {
-    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
+// function escapeHTML(str: string): string {
+// 	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+// }
 const BLOCK_ELEMENTS = {
     DD: true,
     DT: true,
@@ -152,10 +152,10 @@ function sanitizeHTML(rawHTML) {
     if (startIndex >= 0) {
         const endIndex = rawHTML.lastIndexOf(END_TAG);
         if (endIndex >= 0) {
-            rawHTML = rawHTML.substring(startIndex + START_TAG.length, endIndex);
+            rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
         }
         else {
-            rawHTML = rawHTML.substring(startIndex + START_TAG.length);
+            rawHTML = rawHTML.slice(startIndex + START_TAG.length);
         }
     }
     const parser = new DOMParser();
@@ -346,5 +346,226 @@ function findIndexByPos(arr, pos) {
         }
     }
     return ~low;
+}
+function getSelectedTokenRange(tokens, startOffset, endOffset) {
+    function findTokenIndex(offset, low) {
+        let isStart;
+        if (low === undefined) {
+            isStart = true;
+            low = 0;
+        }
+        else {
+            isStart = false;
+        }
+        let high = tokens.length - 1;
+        let result = isStart ? tokens.length : -1;
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            const token = tokens[mid];
+            const tokenEnd = token.pos + token.len;
+            if (isStart) {
+                // 이전 토큰의 끝부터 현재 토큰의 끝까지 포함
+                const prevEnd = mid > 0 ? tokens[mid - 1].pos + tokens[mid - 1].len : 0;
+                if (offset > prevEnd && offset < tokenEnd) {
+                    return mid;
+                }
+                if (mid === 0 && offset >= token.pos && offset < tokenEnd) {
+                    return 0;
+                }
+            }
+            else {
+                // 현재 토큰의 시작부터 다음 토큰의 시작까지 포함
+                const nextStart = mid + 1 < tokens.length ? tokens[mid + 1].pos : Infinity;
+                if (offset >= token.pos && offset < nextStart) {
+                    return mid;
+                }
+            }
+            if (isStart) {
+                if (token.pos >= offset) {
+                    result = mid;
+                    high = mid - 1;
+                }
+                else {
+                    low = mid + 1;
+                }
+            }
+            else {
+                if (tokenEnd < offset) {
+                    result = mid;
+                    low = mid + 1;
+                }
+                else {
+                    high = mid - 1;
+                }
+            }
+        }
+        return result;
+    }
+    const startIndex = findTokenIndex(startOffset);
+    const endIndex = findTokenIndex(endOffset, startIndex);
+    return [startIndex, endIndex + 1]; // [inclusive, exclusive]
+}
+function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
+    const otherSide = side === "left" ? "right" : "left";
+    let low = 0;
+    let high = rawEntries.length - 1;
+    let mappedStart = 0;
+    let mappedEnd = 0;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const s = rawEntries[mid][side];
+        if (startIndex < s.pos) {
+            high = mid - 1;
+        }
+        else if (startIndex >= s.pos + s.len) {
+            low = mid + 1;
+        }
+        else {
+            mappedStart = rawEntries[mid][otherSide].pos;
+            low = mid; // reuse for mappedEnd search
+            break;
+        }
+    }
+    high = rawEntries.length - 1;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const s = rawEntries[mid][side];
+        if (endIndex - 1 < s.pos) {
+            high = mid - 1;
+        }
+        else if (endIndex - 1 >= s.pos + s.len) {
+            low = mid + 1;
+        }
+        else {
+            mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+            break;
+        }
+    }
+    return [mappedStart, mappedEnd];
+}
+function buildOutputHTMLFromRuns(text, textRuns, options) {
+    let result = "<pre>";
+    let inMark = false;
+    for (const run of textRuns) {
+        if (run.type === "DIFF") {
+            result += "<mark>";
+            inMark = true;
+        }
+        else if (run.type === "DIFF_END") {
+            if (inMark) {
+                result += "</mark>";
+                inMark = false;
+            }
+        }
+        else if (run.type === "CHARS") {
+            result += escapeHTML(text.slice(run.pos, run.pos + run.len));
+        }
+        else if (run.type === "LINEBREAK") {
+            result += "\n";
+        }
+    }
+    if (inMark)
+        result += "</mark>";
+    result += "\n\n</pre>";
+    return result;
+}
+function buildOutputPlainText(leftText, leftRuns, rightText, rightRuns, options = {}) {
+    const leftLabel = options.leftLabel ?? "Left";
+    const rightLabel = options.rightLabel ?? "Right";
+    const leftBody = buildOutputPlainTextFromRuns(leftText, leftRuns, options);
+    const rightBody = buildOutputPlainTextFromRuns(rightText, rightRuns, options);
+    return `${leftLabel}: ${leftBody}\n${rightLabel}: ${rightBody}\n`;
+}
+function buildOutputPlainTextFromRuns(text, textRuns, options) {
+    const format = options.textFormat ?? 0;
+    let result = "";
+    let inDiff = false;
+    // 강조 마크 선택
+    let markStart;
+    let markEnd;
+    if (format === 1) {
+        markStart = "**";
+        markEnd = "**";
+    }
+    else if (format === 2) {
+        markStart = "[[ ";
+        markEnd = " ]]";
+    }
+    else {
+        markStart = "";
+        markEnd = "";
+    }
+    for (const run of textRuns) {
+        if (run.type === "DIFF") {
+            if (format !== 0 && !inDiff) {
+                result += markStart;
+                inDiff = true;
+            }
+        }
+        else if (run.type === "DIFF_END") {
+            if (format !== 0 && inDiff) {
+                result += markEnd;
+                inDiff = false;
+            }
+        }
+        else if (run.type === "CHARS") {
+            result += text.slice(run.pos, run.pos + run.len);
+        }
+        else if (run.type === "LINEBREAK") {
+            result += "\n";
+        }
+    }
+    if (inDiff && format !== 0)
+        result += markEnd;
+    return result;
+}
+function buildOutputHTML(leftText, leftRuns, rightText, rightRuns, options = {}) {
+    const leftLabel = options.leftLabel ?? "Left";
+    const rightLabel = options.rightLabel ?? "Right";
+    const htmlFormat = options.htmlFormat ?? "dl";
+    if (htmlFormat === "table") {
+        // Default: table format
+        return `<table border="1" cellpadding="8" cellspacing="0">
+  <thead>
+    <tr><th>${escapeHTML(leftLabel)}</th><th>${escapeHTML(rightLabel)}</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></td>
+      <td><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></td>
+    </tr>
+  </tbody>
+</table>`.trim();
+    }
+    if (htmlFormat === "dl") {
+        return `<dl>
+  <dt>${escapeHTML(leftLabel)}</dt>
+  <dd><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></dd>
+  <dt>${escapeHTML(rightLabel)}</dt>
+  <dd><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></dd>
+</dl>`.trim();
+    }
+    return `<div>
+<div><strong>${escapeHTML(leftLabel)}:</strong> ${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</div>
+<div><strong>${escapeHTML(rightLabel)}:</strong> ${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</div>
+</div>`.trim();
+}
+function escapeHTML(str) {
+    return str.replace(/[&<>"]|'/g, (char) => {
+        switch (char) {
+            case "&":
+                return "&amp;";
+            case "<":
+                return "&lt;";
+            case ">":
+                return "&gt;";
+            case '"':
+                return "&quot;";
+            case "'":
+                return "&#039;";
+            default:
+                return char;
+        }
+    });
 }
 //# sourceMappingURL=utils.js.map

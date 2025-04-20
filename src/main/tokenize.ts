@@ -48,7 +48,7 @@ WildcardTrie.insert("(생략)", WILD_CARD);
 WildcardTrie.insert("(현행과같음)", WILD_CARD);
 
 const TrieRoot = WildcardTrie.root;
-const WildcardTrieNode = WildcardTrie.root.next("(");
+const WildcardTrieNode = WildcardTrie.root.next("(")!;
 
 const SectionHeadingTrie = createTrie(false);
 for (let i = 1; i < 40; i++) {
@@ -67,11 +67,13 @@ for (let i = 0; i < syllables.length; i++) {
 	SectionHeadingTrie.insert(`${String.fromCharCode(syllables.charCodeAt(i) + 112)}) `);
 }
 const SectionHeadingTrieNode = SectionHeadingTrie.root;
+const SECTION_HEADING_START = extractStartCharsFromTrie(SectionHeadingTrieNode);
 
 const ManualAnchorTrie = createTrie(false);
 ManualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
 ManualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
 const ManualAnchorTrieNode = ManualAnchorTrie.root;
+const MANUAL_ANCHOR_START = extractStartCharsFromTrie(ManualAnchorTrieNode);
 
 // ============================================================
 // Tokenization
@@ -84,93 +86,78 @@ function tokenizeByChar(input: string): Token[] {
 	const tokens: Token[] = [];
 	let lineNum = 1;
 	let flags = FIRST_OF_LINE;
-	let node: TrieNode | null = null;
-	const inputPos = 0;
 	const inputEnd = input.length;
 
-	for (let i = inputPos; i < inputEnd; i++) {
-		let char = input[i];
-		if (!SPACE_CHARS[char]) {
-			if (char === "(") {
-				let p = i + 1;
-				let found = null;
-				for (node = WildcardTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
-					if (node.word !== null) {
-						found = node;
-						break;
+	for (let i = 0; i < inputEnd; i++) {
+		const ch = input[i];
+
+		if (!SPACE_CHARS[ch]) {
+			if (ch === "(") {
+				const result = findInTrie(WildcardTrieNode, input, i + 1);
+				if (result) {
+					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
+						flags |= FIRST_OF_LINE;
 					}
-				}
-				if (found) {
-					flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
 					tokens.push({
-						text: found.word!,
+						text: result.word,
 						pos: i,
-						len: p - i,
-						lineNum: lineNum,
-						flags: flags | (found.flags || 0),
+						len: result.end - i,
+						lineNum,
+						flags: flags | result.flags,
 					});
 					flags = 0;
-					i = p - 1;
-					continue;
-				}
-			}
-			if ((node = ManualAnchorTrieNode.next(char))) {
-				let p = i + 1;
-				let found = null;
-				for (; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
-					if (node.word !== null) {
-						found = node;
-						break;
-					}
-				}
-				if (found) {
-					flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
-					tokens.push({
-						text: found.word!,
-						pos: i,
-						len: p - i,
-						lineNum: lineNum,
-						flags: flags | (found.flags || 0),
-					});
-					flags = 0;
-					i = p - 1;
+					i = result.end - 1;
 					continue;
 				}
 			}
 
-			flags |= tokens.length === 0 && checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+			if (MANUAL_ANCHOR_START[ch]) {
+				const nextNode = ManualAnchorTrieNode.next(ch)!;
+				const result = findInTrie(nextNode, input, i + 1);
+				if (result) {
+					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
+						flags |= FIRST_OF_LINE;
+					}
+					tokens.push({
+						text: result.word,
+						pos: i,
+						len: result.end - i,
+						lineNum,
+						flags: flags | result.flags,
+					});
+					flags = 0;
+					i = result.end - 1;
+					continue;
+				}
+			}
+
+			if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
+				flags |= FIRST_OF_LINE;
+			}
+			const normalized = normalizeChars[ch] || ch;
 			tokens.push({
-				text: normalizeChars[char] || char,
+				text: normalized,
 				pos: i,
 				len: 1,
-				lineNum: lineNum,
+				lineNum,
 				flags,
 			});
 			flags = 0;
 		}
-		if (char === "\n") {
+
+		if (ch === "\n") {
 			lineNum++;
 			flags = FIRST_OF_LINE;
-			if (tokens.length > 0) {
+			if (tokens.length) {
 				tokens[tokens.length - 1].flags |= LAST_OF_LINE;
 			}
 		}
 	}
 
-	if (tokens.length > 0) {
-		let p = inputEnd;
-		while (p <= input.length) {
-			if (p === input.length || input[p] === "\n") {
-				tokens[tokens.length - 1].flags |= LAST_OF_LINE;
-				break;
-			} else if (!SPACE_CHARS[input[p]]) {
-				break;
-			}
-			p++;
-		}
+	if (tokens.length) {
+		tokens[tokens.length - 1].flags |= LAST_OF_LINE;
 	}
 
-	//console.debug("tokenizeByChar", tokens);
 	return tokens;
 }
 
@@ -180,204 +167,144 @@ function tokenizeByWord(input: string): Token[] {
 	let lineNum = 1;
 	let flags = FIRST_OF_LINE;
 	let shouldNormalize = false;
-	const inputPos = 0;
 	const inputEnd = input.length;
 
-	for (let i = inputPos; i < inputEnd; i++) {
-		let char = input[i];
-		// 문장부호를 별개로 단어로 분리하는 방법도 생각해볼 필요가 있음.
-		// 문제는 (hello)와 (world)에서 '('만 매치되면 눈이 피곤해진다. 괄호안의 문자들이 여러줄이면 더더욱..
-		if (SPACE_CHARS[char]) {
-			if (currentStart !== -1) {
-				flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
-				const text = shouldNormalize ? normalize(input.substring(currentStart, i)) : input.substring(currentStart, i);
-				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
-					flags |= MANUAL_ANCHOR;
-				}
-				tokens.push({
-					text: text,
-					pos: currentStart,
-					len: i - currentStart,
-					lineNum: lineNum,
-					flags,
-				});
-				flags = 0;
-				shouldNormalize = false;
-				currentStart = -1;
-			}
-			if (char === "\n") {
-				lineNum++;
-				flags = FIRST_OF_LINE;
-				if (tokens.length > 0) {
-					tokens[tokens.length - 1].flags |= LAST_OF_LINE;
-				}
-			}
-		} else {
-			if (normalizeChars[char]) {
-				shouldNormalize = true;
-				char = normalizeChars[char];
-			}
-			if (char === "(") {
-				let p = i + 1;
-				let found = null;
-				for (let node = WildcardTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
-					if (node.word !== null) {
-						found = node;
-						break;
-					}
-				}
-				if (found) {
-					if (currentStart !== -1) {
-						flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
-						tokens.push({
-							text: input.substring(currentStart, i),
-							pos: currentStart,
-							len: i - currentStart,
-							lineNum: lineNum,
-							flags,
-						});
-						flags = 0;
-						currentStart = -1;
-					}
+	function emitToken(end: number) {
+		const raw = input.slice(currentStart, end);
+		const normalized = shouldNormalize ? normalize(raw) : raw;
 
-					flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
-					tokens.push({
-						text: found.word!,
-						pos: i,
-						len: p - i,
-						lineNum: lineNum,
-						flags: flags | (found.flags || 0),
-					});
-					flags = 0;
-					i = p - 1;
-					continue;
-				}
-			}
-			if (flags & FIRST_OF_LINE) {
-				let p = i;
-				let found = null;
-				for (let node: TrieNode | null = SectionHeadingTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
-					if (node.word !== null) {
-						found = node;
-						break;
-					}
-				}
-				if (found) {
-					while (p < inputEnd && SPACE_CHARS[input[p]]) {
-						p++;
-					}
-					if (p < inputEnd) {
-						flags |= SECTION_HEADING;
-					}
-				}
-			}
-
-			if (currentStart === -1) {
-				currentStart = i;
-			}
-		}
-	}
-
-	if (currentStart !== -1) {
-		const text = shouldNormalize ? normalize(input.substring(currentStart)) : input.substring(currentStart);
-		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+		flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+		if (normalized === MANUAL_ANCHOR1 || normalized === MANUAL_ANCHOR2) {
 			flags |= MANUAL_ANCHOR;
 		}
-		flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+
 		tokens.push({
-			text: text,
+			text: normalized,
 			pos: currentStart,
-			len: inputEnd - currentStart,
-			lineNum: lineNum,
-			flags: flags,
+			len: end - currentStart,
+			lineNum,
+			flags,
 		});
+
+		currentStart = -1;
+		flags = 0;
+		shouldNormalize = false;
 	}
 
-	if (tokens.length > 0) {
-		let p = inputEnd;
-		while (p <= input.length) {
-			if (p === input.length || input[p] === "\n") {
-				tokens[tokens.length - 1].flags |= LAST_OF_LINE;
-				break;
-			} else if (!SPACE_CHARS[input[p]]) {
-				break;
+	for (let i = 0; i < inputEnd; i++) {
+		let ch = input[i];
+
+		if (SPACE_CHARS[ch]) {
+			if (currentStart !== -1) emitToken(i);
+			if (ch === "\n") {
+				lineNum++;
+				flags = FIRST_OF_LINE;
+				if (tokens.length) tokens[tokens.length - 1].flags |= LAST_OF_LINE;
 			}
-			p++;
+			continue;
 		}
+
+		if (normalizeChars[ch]) {
+			shouldNormalize = true;
+			ch = normalizeChars[ch];
+		}
+
+		if (ch === "(") {
+			const result = findInTrie(WildcardTrieNode, input, i);
+			if (result) {
+				if (currentStart !== -1) emitToken(i);
+
+				flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+
+				tokens.push({
+					text: result.word,
+					pos: i,
+					len: result.end - i,
+					lineNum,
+					flags: flags | result.flags,
+				});
+				flags = 0;
+				currentStart = -1;
+				i = result.end - 1;
+				continue;
+			}
+		}
+
+		if (flags & FIRST_OF_LINE && SECTION_HEADING_START[ch]) {
+			const result = findInTrie(SectionHeadingTrieNode, input, i);
+			if (result) {
+				let p = result.end;
+				while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
+				if (p < inputEnd) flags |= SECTION_HEADING;
+			}
+		}
+
+		if (currentStart === -1) currentStart = i;
 	}
 
-	//console.debug("tokenizeByWord", tokens);
+	if (currentStart !== -1) emitToken(inputEnd);
+
+	if (tokens.length) {
+		tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+	}
+
 	return tokens;
 }
 
 function tokenizeByLine(input: string): Token[] {
 	const tokens: Token[] = [];
-	let currentStart = -1;
-	let currentEnd = -1;
 	let lineNum = 1;
 	let flags = FIRST_OF_LINE | LAST_OF_LINE;
-	const inputPos = 0;
 	const inputEnd = input.length;
 
-	for (let i = inputPos; i < inputEnd; i++) {
-		const char = input[i];
-		if (char !== "\n") {
-			if (!SPACE_CHARS[char]) {
-				if (currentStart === -1) {
-					currentStart = i;
-					let p = i;
-					let found = null;
-					for (let node: TrieNode | null = SectionHeadingTrieNode; p < inputEnd && (node = node!.next(input[p++])) !== null; ) {
-						if (node.word !== null) {
-							found = node;
-							break;
-						}
-					}
-					if (found) {
-						while (p < inputEnd && SPACE_CHARS[input[p]]) {
-							p++;
-						}
-						if (p < inputEnd) {
-							flags |= SECTION_HEADING;
-						}
+	let buffer = "";
+	let started = false;
+	let inSpace = false;
+	let pos = -1;
+
+	for (let i = 0; i < inputEnd; i++) {
+		const ch = input[i];
+
+		if (ch !== "\n") {
+			if (!SPACE_CHARS[ch]) {
+				if (!started) {
+					pos = i;
+					started = true;
+
+					const result = findInTrie(SectionHeadingTrieNode, input, i);
+					if (result) {
+						let p = result.end;
+						while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
+						if (p < inputEnd) flags |= SECTION_HEADING;
 					}
 				}
-				currentEnd = i + 1;
+				if (inSpace && buffer.length > 0) buffer += " ";
+				buffer += ch;
+				inSpace = false;
+			} else {
+				inSpace = started;
 			}
 		} else {
-			if (currentStart !== -1) {
-				const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
-				if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
+			if (started) {
+				if (buffer === MANUAL_ANCHOR1 || buffer === MANUAL_ANCHOR2) {
 					flags |= MANUAL_ANCHOR;
 				}
 				tokens.push({
-					text: text,
-					pos: currentStart,
-					len: i - currentStart,
-					lineNum: lineNum,
-					flags: flags,
+					text: buffer,
+					pos,
+					len: i - pos,
+					lineNum,
+					flags,
 				});
+				buffer = "";
+				started = false;
+				inSpace = false;
 				flags = FIRST_OF_LINE | LAST_OF_LINE;
-				currentStart = currentEnd = -1;
 			}
 			lineNum++;
 		}
 	}
 
-	if (currentStart !== -1) {
-		const text = input.substring(currentStart, currentEnd).replace(/\s+/g, " ");
-		if (text === MANUAL_ANCHOR1 || text === MANUAL_ANCHOR2) {
-			flags |= MANUAL_ANCHOR;
-		}
-		tokens.push({
-			text: text,
-			pos: currentStart,
-			len: currentEnd - currentStart,
-			lineNum: lineNum,
-			flags: flags,
-		});
-	}
-	//console.debug("tokenizeByLine", tokens);
 	return tokens;
 }
 
@@ -453,39 +380,65 @@ function checkIfFirstOfLine(input: string, pos: number) {
 }
 
 type TrieNode = {
-	next: (char: string | number) => TrieNode | null;
-	addChild: (char: string | number) => TrieNode;
+	next: (char: string) => TrieNode | null;
+	addChild: (char: string) => TrieNode;
 	word: string | null;
-	flags: number | null;
+	flags: number;
+	children: Record<string, TrieNode>;
 };
-
-function createTrieNode(ignoreSpaces: boolean): TrieNode {
-	const children: { [ch: string]: TrieNode } = {};
-
-	function next(this: TrieNode, char: string | number): TrieNode | null {
-		return ignoreSpaces && char === " " ? this : children[char] || null;
-	}
-
-	function addChild(char: string | number): TrieNode {
-		if (!children[char]) {
-			children[char] = createTrieNode(ignoreSpaces);
-		}
-		return children[char];
-	}
-	return { next, addChild, word: null, flags: null };
-}
 
 function createTrie(ignoreSpaces = false) {
 	const root = createTrieNode(ignoreSpaces);
 
 	function insert(word: string, flags = 0) {
 		let node = root;
-		for (const char of word) {
-			node = node.addChild(char);
+		for (let i = 0; i < word.length; i++) {
+			node = node.addChild(word[i]);
 		}
 		node.word = word;
 		node.flags = flags;
 	}
 
 	return { insert, root };
+}
+
+function createTrieNode(ignoreSpaces: boolean): TrieNode {
+	const children: Record<string, TrieNode> = {};
+
+	const node: TrieNode = {
+		children,
+		word: null,
+		flags: 0,
+		next(char: string) {
+			if (ignoreSpaces && char === " ") return node;
+			return children[char] || null;
+		},
+		addChild(char: string) {
+			return children[char] ?? (children[char] = createTrieNode(ignoreSpaces));
+		},
+	};
+
+	return node;
+}
+
+function findInTrie(trie: TrieNode, input: string, start: number) {
+	let node: TrieNode | null = trie;
+	let i = start;
+	while (i < input.length) {
+		const ch = input[i++];
+		node = node!.next(ch);
+		if (!node) break;
+		if (node.word) {
+			return { word: node.word, flags: node.flags, end: i };
+		}
+	}
+	return null;
+}
+
+function extractStartCharsFromTrie(trie: TrieNode): Record<string, 1> {
+	const table: Record<string, 1> = {};
+	for (const ch in trie.children) {
+		table[ch] = 1;
+	}
+	return table;
 }

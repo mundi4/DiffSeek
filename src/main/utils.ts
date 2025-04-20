@@ -1,72 +1,108 @@
-/*
-지금은 딱히 사용되지 않는 utility 함수들.
-편집기에 약간의 html을 허용할 때 사용.
-*/
-const colorCache = new Map<string, [number, number, number]>();
+const STYLE_NONE = 0;
+const STYLE_COLOR_DEFAULT = 1 << 0;
+const STYLE_COLOR_RED = 1 << 1;
+const STYLE_ELEMENT_SUP = 1 << 2;
+const STYLE_ELEMENT_SUB = 1 << 3;
+const STYLE_ELEMENT_BOLD = 1 << 4;
+const STYLE_ELEMENT_ITALIC = 1 << 5;
+const STYLE_MASK_COLOR = STYLE_COLOR_DEFAULT | STYLE_COLOR_RED;
+const STYLE_MASK_ELEMENT = STYLE_ELEMENT_SUP | STYLE_ELEMENT_SUB | STYLE_ELEMENT_BOLD | STYLE_ELEMENT_ITALIC;
 
-function isReddish(color: string): boolean {
-	const rgb = parseColorFast(color);
-	if (!rgb) return false;
+// textrun과 그에 따른 렌더링이 쉬운게 아니다.
+// 특히 영역이 오버랩 되는 경우 기존 엘러먼트를 닫고 순서에 맞춰서 새로 열고...
 
-	const [r, g, b] = rgb;
-	return r > 150 && r - (g > b ? g : b) >= 60;
-}
+const ELEMENT_STYLES: Record<string, number> = {
+	// STRONG: STYLE_ELEMENT_BOLD,
+	// B: STYLE_ELEMENT_BOLD,
+	// EM: STYLE_ELEMENT_ITALIC,
+	// I: STYLE_ELEMENT_ITALIC,
+	// SUP: STYLE_ELEMENT_SUP,
+	// SUB: STYLE_ELEMENT_SUB,
+};
 
+const reddishCache = new Map<string, boolean>([
+	["red", true],
+	["#ff0000", true],
+	["#e60000", true],
+	["#c00000", true],
+	["rgb(255,0,0)", true],
+	["rgb(230,0,0)", true],
+	["#000000", false],
+	["#333333", false],
+	["#ffffff", false],
+	["black", false],
+	["blue", false],
+	["white", false],
+	["window", false],
+	["windowtext", false],
+	// 기타 등등?
+]);
+
+// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
+// 정규식은 사람이 쓰는건 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡겨야함.
 let _ctx: CanvasRenderingContext2D | null = null;
 
-function parseColorFast(color: string): [number, number, number] | null {
-	if (colorCache.has(color)) return colorCache.get(color)!;
+function getRGB(color: string): [number, number, number] | null {
+	// #rrggbb
+	const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
+	if (hex6) {
+		const n = parseInt(hex6[1], 16);
+		return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+	}
 
+	// #rgb
+	const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
+	if (hex3) {
+		const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
+		return [r, g, b];
+	}
+
+	// rgb(...) / rgba(...)
+	const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
+	if (rgb) {
+		const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
+		if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
+	}
+
+	// 최후..의 fallback: canvas
 	if (!_ctx) {
 		const canvas = document.createElement("canvas");
 		canvas.width = canvas.height = 1;
-		_ctx = canvas.getContext("2d");
+		_ctx = canvas.getContext("2d")!;
 	}
 
-	if (!_ctx) return null;
+	try {
+		_ctx.clearRect(0, 0, 1, 1);
+		_ctx.fillStyle = color;
+		_ctx.fillRect(0, 0, 1, 1);
+		const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
+		return [r, g, b];
+	} catch {
+		return null;
+	}
+}
 
-	_ctx.clearRect(0, 0, 1, 1);
-	_ctx.fillStyle = color;
-	_ctx.fillRect(0, 0, 1, 1);
+function isReddish(color: string): boolean {
+	let isRed = reddishCache.get(color);
+	if (isRed !== undefined) return isRed;
 
-	const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
-	const rgb: [number, number, number] = [r, g, b];
-	colorCache.set(color, rgb);
+	console.log("no cache hit", color);
+	const rgb = getRGB(color);
+	isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
 
-	// _ctx.fillStyle = "#000";
-	// _ctx.fillStyle = color;
-
-	// const computed = _ctx.fillStyle;
-	// console.log("computed", computed);
-	// const match = computed.match(/^rgb\((\d+),\s*(\d+),\s*(\d+)\)$/);
-	// if (!match) return null;
-
-	// const rgb: [number, number, number] = [parseInt(match[1]), parseInt(match[2]), parseInt(match[3])];
-
-	// colorCache.set(color, rgb);
-	return rgb;
+	reddishCache.set(color, isRed);
+	return isRed;
 }
 
 function escapeHTML(str: string): string {
 	return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
-function insertHTMLAtCursor(html: string) {
-	const selection = window.getSelection();
-	if (!selection || !selection.rangeCount) return;
 
-	const range = selection.getRangeAt(0);
-	range.deleteContents();
-
-	const fragment = range.createContextualFragment(html);
-	range.insertNode(fragment);
-
-	// 커서 맨 뒤로 이동
-	selection.collapseToEnd();
-}
-
-const LINEBREAK_ELEMENTS: Record<string, boolean> = {
-	P: true,
+const BLOCK_ELEMENTS: Record<string, boolean> = {
+	DD: true,
+	DT: true,
 	DIV: true,
+	P: true,
 	H1: true,
 	H2: true,
 	H3: true,
@@ -77,12 +113,51 @@ const LINEBREAK_ELEMENTS: Record<string, boolean> = {
 	OL: true,
 	LI: true,
 	BLOCKQUOTE: true,
-	TR: true,
-	BR: true,
+	FORM: true,
+	HEADER: true,
+	FOOTER: true,
+	ARTICLE: true,
+	SECTION: true,
+	ASIDE: true,
+	NAV: true,
+	ADDRESS: true,
+	FIGURE: true,
+	FIGCAPTION: true,
 	HR: true,
+	BR: true, // BLOCK요소가 아니긴 한데...
 };
 
-function flattenHTML(rawHTML: string): [html: string, text: string, TextProperties[]] {
+const TEXTLESS_ELEMENTS: Record<string, boolean> = {
+	HR: true,
+	BR: true,
+	IMG: true,
+	VIDEO: true,
+	AUDIO: true,
+	EMBED: true,
+	OBJECT: true,
+	CANVAS: true,
+	SVG: true,
+	TABLE: true,
+	THEAD: true,
+	TBODY: true,
+	TFOOT: true,
+	TR: true,
+	OL: true,
+	UL: true,
+	DL: true,
+	STYLE: true,
+	HEAD: true,
+	TITLE: true,
+	SCRIPT: true,
+	LINK: true,
+	META: true,
+	BASE: true,
+	AREA: true,
+};
+
+// paste 이벤트 때 붙여넣기될 html을 정리함
+// 거~의~ 모든 html을 제거하고 지금으로써는 redish한 색상(개정되는 부분 강조색색)만 남겨둠
+function sanitizeHTML(rawHTML: string): string {
 	const START_TAG = "<!--StartFragment-->";
 	const END_TAG = "<!--EndFragment-->";
 
@@ -98,23 +173,132 @@ function flattenHTML(rawHTML: string): [html: string, text: string, TextProperti
 
 	const parser = new DOMParser();
 	const doc = parser.parseFromString(rawHTML, "text/html");
-
 	const body = doc.body;
-	// console.log("body", body.innerHTML);
+	// const textProps: TextProperties[] = [];
 
+	// let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null, flags: STYLE_NONE };
+	// let textPropsStack: TextProperties[] = [];
+	// textProps.push(currentTextProps);
+	// textPropsStack.push(currentTextProps);
+
+	let finalHTML = "";
+	let currentFlags = STYLE_COLOR_DEFAULT;
+	let styleStack: number[] = [];
+	function extractFlattenedHTML(node: Node) {
+		if (node.nodeType === Node.TEXT_NODE) {
+			if (TEXTLESS_ELEMENTS[node.parentElement!.nodeName]) {
+				return;
+			}
+			let text = node.nodeValue!;
+			if (BLOCK_ELEMENTS[node.parentElement!.nodeName]) {
+				text = text.replace(/[\r\n]/g, "");
+			}
+			finalHTML += escapeHTML(text);
+			return;
+		}
+
+		if (node.nodeType === Node.ELEMENT_NODE) {
+			const el = node as HTMLElement;
+
+			if (el.nodeName === "BR") {
+				finalHTML += "\n";
+				return;
+			}
+
+			if (el.nodeName === "IMG") {
+				finalHTML += "🖼️";
+				return;
+			}
+
+			// let newTextProps: TextProperties | null = null;
+			// let prevTextProps = currentTextProps;
+			// let spanAppended = false;
+			let color: "red" | "default" | null = null; // null: color style은 있지만 빨간계통 색이 아닌 경우
+			// let pushed = false;
+			let colorStyle: number | null = null;
+			let pushed = false;
+
+			let newFlags = currentFlags;
+			if (el.classList.contains("red")) {
+				colorStyle = STYLE_COLOR_RED;
+			} else if (el.style?.color) {
+				if (isReddish(el.style.color)) {
+					colorStyle = STYLE_COLOR_RED;
+				} else {
+					colorStyle = STYLE_COLOR_DEFAULT;
+				}
+			} else {
+				colorStyle = currentFlags & STYLE_MASK_COLOR;
+			}
+
+			if (colorStyle !== null && (currentFlags & STYLE_MASK_COLOR) !== colorStyle) {
+				if (colorStyle === STYLE_COLOR_RED) {
+					color = "red";
+				} else {
+					color = "default";
+				}
+				newFlags = (currentFlags & ~STYLE_MASK_COLOR) | colorStyle;
+			}
+
+			let tagName: string | null = null;
+			const elementStyle = ELEMENT_STYLES[el.nodeName];
+			if (elementStyle && (currentFlags & STYLE_MASK_ELEMENT) !== elementStyle) {
+				newFlags = (currentFlags & ~STYLE_MASK_ELEMENT) | elementStyle;
+				tagName = el.nodeName;
+			}
+
+			if (!tagName && color !== null) {
+				tagName = "SPAN";
+			}
+
+			if (tagName && color) {
+				finalHTML += `<${tagName} class="${color}">`;
+			} else if (tagName) {
+				finalHTML += `<${tagName}>`;
+			}
+
+			if (currentFlags !== newFlags) {
+				styleStack.push(currentFlags);
+				currentFlags = newFlags;
+				pushed = true;
+			}
+
+			for (const child of el.childNodes) {
+				extractFlattenedHTML(child);
+			}
+
+			if (tagName) {
+				finalHTML += `</${tagName}>`;
+			}
+
+			if (BLOCK_ELEMENTS[el.nodeName]) {
+				finalHTML += "\n";
+			}
+
+			if (pushed) {
+				currentFlags = styleStack.pop()!;
+			}
+		}
+	}
+
+	extractFlattenedHTML(body);
+	console.log("sanitized", { rawHTML, finalHTML });
+	return finalHTML;
+}
+
+function flattenHTML(rootNode: HTMLElement): [text: string, TextProperties[]] {
+	console.log("flattenHTML", rootNode);
 	const textProps: TextProperties[] = [];
-
-	let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null };
+	let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null, flags: 0 };
 	let textPropsStack: TextProperties[] = [];
 	textProps.push(currentTextProps);
 	textPropsStack.push(currentTextProps);
 
-	let finalHTML = "";
 	let finalText = "";
 	function extractFlattenedHTML(node: Node) {
+		// console.log("extractFlattenedHTML", node)
 		if (node.nodeType === Node.TEXT_NODE) {
 			const text = (node as Text).nodeValue || "";
-			finalHTML += escapeHTML(text);
 			finalText += text;
 			return;
 		}
@@ -122,25 +306,13 @@ function flattenHTML(rawHTML: string): [html: string, text: string, TextProperti
 		if (node.nodeType === Node.ELEMENT_NODE) {
 			const el = node as HTMLElement;
 			let newTextProps: TextProperties | null = null;
-			let prevTextProps = currentTextProps;
-			let spanAppended = false;
 
 			let color: string | null = null;
-			let colorChanged = false;
 
 			if (el.classList.contains("red")) {
 				color = "red";
-				colorChanged = true;
-			} else if (el.style?.color) {
-				color = el.style?.color || null;
-				if (color && isReddish(color)) {
-					color = "red";
-				} else {
-					color = null;
-				}
-				colorChanged = true;
 			}
-			if (colorChanged && currentTextProps.color !== color) {
+			if (currentTextProps.color !== color) {
 				if (!newTextProps) {
 					currentTextProps = newTextProps = { ...currentTextProps, pos: finalText.length };
 					textProps.push(newTextProps);
@@ -148,23 +320,6 @@ function flattenHTML(rawHTML: string): [html: string, text: string, TextProperti
 				}
 				newTextProps.color = color;
 			}
-			// if (el.style?.color) {
-			// 	console.log(el.style.color, isColorRedLike(el.style.color));
-			// 	let color = el.style?.color || null;
-			// 	if (color && isColorRedLike(color)) {
-			// 		color = "red";
-			// 	} else {
-			// 		color = null;
-			// 	}
-			// 	if (currentTextProps.color !== color) {
-			// 		if (!newTextProps) {
-			// 			currentTextProps = newTextProps = { ...currentTextProps, pos: finalText.length };
-			// 			textProps.push(newTextProps);
-			// 			textPropsStack.push(currentTextProps);
-			// 		}
-			// 		newTextProps.color = color;
-			// 	}
-			// }
 
 			if (el.nodeName === "SUP" || el.nodeName === "SUB") {
 				if (currentTextProps.supsub !== el.nodeName) {
@@ -175,43 +330,28 @@ function flattenHTML(rawHTML: string): [html: string, text: string, TextProperti
 					}
 					newTextProps.supsub = el.nodeName;
 				}
-				finalHTML += `<${el.nodeName} class="${currentTextProps.color || ""}">`;
-			} else if (prevTextProps.color !== currentTextProps.color) {
-				if (currentTextProps.color) {
-					finalHTML += `<span class="${currentTextProps.color}">`;
-					spanAppended = true;
-				}
 			}
 
 			for (const child of el.childNodes) {
 				extractFlattenedHTML(child);
 			}
 
-			if (el.nodeName === "SUP" || el.nodeName === "SUB") {
-				finalHTML += `</${el.nodeName}>`;
-			} else if (spanAppended) {
-				finalHTML += "</span>";
-			}
-
-			if (LINEBREAK_ELEMENTS[el.nodeName]) {
-				finalHTML += "<br>";
+			if (BLOCK_ELEMENTS[el.nodeName]) {
 				finalText += "\n";
 			}
 
 			if (newTextProps) {
 				textPropsStack.pop();
-				console.assert(textPropsStack.length > 0, "textPropsStack is empty!");
 				currentTextProps = { ...textPropsStack[textPropsStack.length - 1], pos: finalText.length };
 				textProps.push(currentTextProps);
 			}
 		}
 	}
 
-	extractFlattenedHTML(body);
+	extractFlattenedHTML(rootNode);
 
-	// flatten된 HTML 생성
-	console.log("flattened", {finalHTML, finalText, textProps});
-	return [finalHTML, finalText, textProps];
+	//console.log("flattened", { rootNode, finalText, textProps });
+	return [finalText, textProps];
 }
 
 function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
@@ -223,4 +363,24 @@ function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
 			func.apply(context, args);
 		}, delay);
 	};
+}
+
+function findIndexByPos(arr: { pos: number; len: number }[], pos: number): number {
+	// binary search
+	let low = 0;
+	let high = arr.length - 1;
+	while (low <= high) {
+		const mid = (low + high) >>> 1;
+		const item = arr[mid];
+		const start = item.pos,
+			end = item.pos + item.len;
+		if (start <= pos && pos < end) {
+			return mid;
+		} else if (start > pos) {
+			high = mid - 1;
+		} else if (end <= pos) {
+			low = mid + 1;
+		}
+	}
+	return ~low;
 }

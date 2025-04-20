@@ -9,6 +9,7 @@
     <title>DiffSeek</title>
     <script src="./build/constants.js" inline></script>
     <script src="./build/utils.js" inline></script>
+    <script src="./build/tokenize.js" inline></script>
     <script src="./build/textrun.js" inline></script>
     <script src="./build/editor.js" inline></script>
     <script src="./build/statusbar.js" inline></script>
@@ -33,6 +34,9 @@
     <div id="progress"></div>
     <div id="settingsPopup" class="popup hidden"></div>
 
+    <div data-line-num="1">
+        <a class="anchor" href="#1">1</a>
+    </div>
     <script>
         const style = document.createElement("style");
         let cssText = ":root {\n";

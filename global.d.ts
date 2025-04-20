@@ -27,6 +27,8 @@ declare type Anchor = {
 	left: number;
 	right: number;
 	diffIndex: number | null;
+	leftLine: number;
+	rightLine: number;
 };
 
 declare type WhitespaceHandling = "ignore" | "normalize";
@@ -57,10 +59,10 @@ declare type DiffOptions = {
 declare type DiffRequest = {
 	type: "diff";
 	reqId: number;
-	leftText: string;
-	rightText: string;
-	// leftTokens: Token[];
-	// rightTokens: Token[];
+	// leftText: string;
+	// rightText: string;
+	leftTokens: Token[];
+	rightTokens: Token[];
 	options: DiffOptions;
 };
 
@@ -68,9 +70,9 @@ declare type DiffResponse = {
 	type: "diff";
 	reqId: number;
 	diffs: DiffEntry[];
-	anchors: Anchor[];
-	leftTokenCount: number;
-	rightTokenCount: number;
+	// anchors: Anchor[];
+	// leftTokenCount: number;
+	// rightTokenCount: number;
 	processTime: number;
 };
 
@@ -85,6 +87,7 @@ declare type TextProperties = {
 	pos: number;
 	color: string | null;
 	supsub: "SUP" | "SUB" | null; // not implemented yet
+	flags: number; // not implemented yet
 };
 
 type TextRun = {
@@ -94,4 +97,25 @@ type TextRun = {
 	diffIndex: number | null;
 	anchorIndex: number | null;
 	props: TextProperties | null;
+};
+
+declare type DiffContext = {
+	reqId: number;
+	leftText: string;
+	rightText: string;
+	diffOptions: DiffOptions;
+	leftTokens?: Token[];
+	rightTokens?: Token[];
+	rawDiffs?: DiffEntry[];
+	diffs?: DiffEntry[];
+	anchors?: Anchor[];
+	done: boolean;
+	processTime?: number;
+};
+
+type LineHint = {
+	pos: number;
+	len: number;
+	empty: boolean;
+	numConsecutiveBlankLines: number;
 };

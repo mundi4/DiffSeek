@@ -4,14 +4,16 @@ function createEditor(container, editorName, callbacks) {
     const _lineElements = [];
     const _diffElements = [];
     const _anchorElements = [];
+    const _lineHints = [];
     const _visibleAnchors = new Set();
     const _visibleDiffIndices = new Set();
     // 편집기 내에 약간의 html을 허용할지 말지.
     // 일단 금지. browser에서 계산하는 텍스트와 내가 만드는 텍스트를 완전히 일치시키기 힘들다. 한글자한글자 문자 인덱스까지 완전히 일치시켜야 됨...
     // 게다가 contenteditable 내에 브라우저가 뜸금없이 넣는 style(스타일 클래스가 지정된 텍스트를 지우고 바로 이어서 텍스트를 입력할 경우)이나 <br> 등등도 처리를 해줘야 하고
     // 여하튼 신경 쓸게 많음
-    const _allowHTML = false;
+    const _allowHTML = true;
     let _text = "";
+    let _hasHTML = false;
     let _textProps = [];
     let _savedCaret = null;
     let _observingAnchors = false;
@@ -36,39 +38,128 @@ function createEditor(container, editorName, callbacks) {
     wrapper.appendChild(mirror);
     wrapper.appendChild(editor);
     container.appendChild(wrapper);
+    const { observeEditor, unobserveEditor } = (() => {
+        const mutationObserver = new MutationObserver((mutations) => {
+            console.debug("mutations", mutations);
+            for (const mutation of mutations) {
+                if (mutation.type === "childList") {
+                    for (const node of mutation.addedNodes) {
+                        if (node.nodeName === "SPAN" || node.nodeName === "FONT") {
+                            if (node.childNodes.length === 1 && node.firstChild?.nodeType === 3) {
+                                node.parentNode?.replaceChild(node.firstChild, node);
+                            }
+                        }
+                    }
+                }
+                if (mutation.type === "attributes" && mutation.attributeName === "style") {
+                    mutation.target.removeAttribute("style");
+                }
+                if (mutation.type === "characterData") {
+                    console.log("characterData", mutation.target, mutation.oldValue, mutation.target.textContent);
+                }
+            }
+        });
+        function observeEditor() {
+            mutationObserver.observe(editor, {
+                childList: true,
+                subtree: true,
+                attributes: true,
+                characterData: true,
+            });
+        }
+        function unobserveEditor() {
+            mutationObserver.disconnect();
+        }
+        // document.addEventListener("selectionchange", (e) => {
+        // 	console.log(0);
+        // 	const selection = window.getSelection();
+        // 	if (!selection?.rangeCount || !selection.isCollapsed) return;
+        // 	console.log(1);
+        // 	const range = selection!.getRangeAt(0);
+        // 	let container = range.commonAncestorContainer as HTMLElement;
+        // 	if (editor.contains(container)) {
+        // 		if (container.nodeType === 3) {
+        // 			container = container.parentElement!;
+        // 		}
+        // 		console.log("container:", container);
+        // 		if (container.nodeName === "SPAN" && (container as HTMLElement).className === "img") {
+        // 			console.log("INSIDE IMG", range);
+        // 			const newRange = document.createRange();
+        // 			newRange.setStartAfter(container);
+        // 			newRange.setEndAfter(container);
+        // 			selection.removeAllRanges();
+        // 			selection.addRange(newRange);
+        // 			console.log("newRange", newRange, selection.rangeCount);
+        // 		}
+        // 	}
+        // });
+        return { observeEditor, unobserveEditor };
+    })();
+    // const mutationObserver = new MutationObserver((mutations) => {
+    // 	for (const mutation of mutations) {
+    // 		if (mutation.type === "childList") {
+    // 			mutation.addedNodes.forEach((node) => {
+    // 				if (node.nodeName === "FONT") {
+    // 					if (node.childNodes.length === 1 && node.firstChild?.nodeType === 3) {
+    // 						node.parentNode?.replaceChild(node.firstChild, node);
+    // 					}
+    // 				}
+    // 			});
+    // 		}
+    // 		if (mutation.type === "attributes" && mutation.attributeName === "style") {
+    // 			(mutation.target as HTMLElement).removeAttribute("style");
+    // 		}
+    // 	}
+    // });
+    // function observeEditor() {
+    // 	mutationObserver.observe(editor, {
+    // 		childList: true,
+    // 		subtree: true,
+    // 		attributes: true,
+    // 	});
+    // }
+    // function unobserveEditor() {
+    // 	mutationObserver.disconnect();
+    // }
     function updateText() {
-        // if (_allowHTML) {
-        // 	/// 약간의 html을 포함해서 style="color:..."와 sup, sub 태그를 가져오려는 게 목적인데
-        // 	/// contentEditable에 html을 넣으면 브라우저가 종종 스타일과 태그를 살짝 바꿔버린다
-        // 	/// 예를 들어 <sup>주)</sup>가 있을때 이 부분을 삭제하는 경우 브라우저는 무슨 심보인지 font-size를 style를 추가해버린다(커서가 해당 부분을 빠져나오면 추가 안됨)
-        // 	/// mutationObserver로 style attr이 붙는 경우 도로 삭제해버리면 되지만 mutationObserver는 이제 보기만 해도 짜증난다.
-        // 	const [_, text, props] = flattenHTML(editor.innerHTML);
-        // 	_text = text;
-        // 	_textProps = props;
-        // } else {
-        // }
-        _text = editor.textContent || "";
+        if (_hasHTML) {
+            const now = performance.now();
+            const [text, textProps] = flattenHTML(editor);
+            _text = text;
+            _textProps = textProps;
+            if (textProps.length <= 1) {
+                _hasHTML = false;
+            }
+            console.debug("flattenHTML took", performance.now() - now, "ms");
+        }
+        else {
+            _text = editor.textContent || "";
+        }
         if (_text.length === 0 || _text[_text.length - 1] !== "\n") {
             _text += "\n"; // 텍스트의 끝은 항상 \n으로 끝나야 인생이 편해진다.
         }
         onTextChanged(_text);
+        console.log("update text done");
     }
     editor.addEventListener("input", updateText);
-    // if (_allowHTML) {
-    // 	editor.addEventListener("paste", (e) => {
-    // 		const html = e.clipboardData?.getData("text/html");
-    // 		if (!html) return;
-    // 		e.preventDefault();
-    // 		const [cleanedHTML, text, textProps] = flattenHTML(html);
-    // 		_text = text;
-    // 		_textProps = textProps;
-    // 		// 현재 커서 위치에 삽입
-    // 		insertHTMLAtCursor(cleanedHTML);
-    // 		// console.log("paste", performance.now() - now, cleanedHTML);
-    // 		// (e.target as HTMLElement).contentEditable = "plaintext-only";
-    // 		updateText();
-    // 	});
-    // }
+    if (_allowHTML) {
+        editor.addEventListener("paste", (e) => {
+            const html = e.clipboardData?.getData("text/html");
+            if (!html)
+                return;
+            _hasHTML = _hasHTML || true;
+            e.preventDefault();
+            unobserveEditor();
+            const cleanedHTML = sanitizeHTML(html);
+            editor.contentEditable = "true";
+            // deprecated된 함수. 자존심 상하지만 직접 html을 삽입하는 경우 undo/redo가 안됨.
+            document.execCommand("insertHTML", false, cleanedHTML);
+            editor.contentEditable = "plaintext-only";
+            updateText();
+            observeEditor();
+            console.log("paste done");
+        });
+    }
     const intersectionObserver = new IntersectionObserver((entries) => {
         for (const entry of entries) {
             if (entry.isIntersecting) {
@@ -195,9 +286,10 @@ function createEditor(container, editorName, callbacks) {
             return;
         }
         // const startTime = performance.now();
-        // console.debug("update");
+        console.debug("update", editorName, { renderId, diffs, anchors });
         untrackIntersections();
         _lineElements.length = 0;
+        _lineHints.length = 0;
         _diffElements.length = 0;
         _anchorElements.length = 0; // anchors.length; 혹시 모르니 그냥 0으로 초기화 해서 기존 요소들을 지워버리는게 속편함.
         // 여기서 일단 한번 yield 해줘야 idleDeadline을 받을 수 있음.
@@ -209,10 +301,11 @@ function createEditor(container, editorName, callbacks) {
         let lineEl = null;
         let nextInlineNode = null;
         let currentDiffIndex = null;
-        let currentTextProps = { pos: 0, color: null, supsub: null };
+        let currentTextProps = { pos: 0, color: null, supsub: null, flags: 0 };
         let lineNum;
+        let lineIsEmpty = true;
+        let numConsecutiveBlankLines = 0;
         let textPos;
-        let textProps = { pos: 0, color: null, supsub: null };
         let currentContainer;
         const containerStack = [];
         function appendAnchor(pos, anchorIndex) {
@@ -256,10 +349,18 @@ function createEditor(container, editorName, callbacks) {
                 el = nextInlineNode;
                 nextInlineNode = el.nextSibling;
             }
+            if (lineIsEmpty) {
+                for (const ch of chars) {
+                    if (!SPACE_CHARS[ch]) {
+                        lineIsEmpty = false;
+                        break;
+                    }
+                }
+            }
             if (el.textContent !== chars) {
                 el.textContent = chars;
             }
-            // el.className = currentTextProps.color || "";
+            el.className = currentTextProps.color || "";
         }
         // lineEl = view.firstElementChild as HTMLElement;
         // if (lineEl === null) {
@@ -368,6 +469,8 @@ function createEditor(container, editorName, callbacks) {
                 }
             }
             let textrun;
+            const lineStartPos = textPos;
+            lineIsEmpty = true;
             if (lineEl === null) {
                 lineEl = document.createElement(LINE_TAG);
                 view.appendChild(lineEl);
@@ -410,8 +513,15 @@ function createEditor(container, editorName, callbacks) {
                 textrun = textrunBuffer[textrunBuffer.length - 1];
             }
             lineEl = lineEl.nextElementSibling;
-            lineNum++;
             textPos = textrun.pos + textrun.len;
+            if (lineIsEmpty) {
+                numConsecutiveBlankLines++;
+            }
+            else {
+                numConsecutiveBlankLines = 0;
+            }
+            _lineHints[lineNum - 1] = { pos: lineStartPos, len: textPos - lineStartPos, empty: false, numConsecutiveBlankLines };
+            lineNum++;
             if (textrun.type === "LINEBREAK") {
                 //
             }
@@ -693,6 +803,9 @@ function createEditor(container, editorName, callbacks) {
         get visibleDiffIndices() {
             return _visibleDiffIndices;
         },
+        get lineHints() {
+            return _lineHints;
+        }
     };
 }
 //# sourceMappingURL=editor.js.map

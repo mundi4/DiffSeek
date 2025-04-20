@@ -19,6 +19,7 @@ const SPACE_CHARS: { [char: string]: boolean } = {
 	"\r": true, // 글쎄...
 	"\f": true, // 이것들은...
 	"\v": true, // 볼일이 없을것...
+	"\u00A0": true, // &nbsp; ??
 };
 
 const normalizeChars: { [ch: string]: string } = {};
@@ -29,10 +30,10 @@ let _currentCtx: WorkContext | null = null;
 type WorkContext = {
 	reqId: number;
 	cancel: boolean;
-	leftText: string;
-	rightText: string;
-	// leftTokens: Token[];
-	// rightTokens: Token[];
+	// leftText: string;
+	// rightText: string;
+	leftTokens: Token[];
+	rightTokens: Token[];
 	start: number;
 	finish: number;
 	lastYield: number;
@@ -41,7 +42,7 @@ type WorkContext = {
 	states: Record<string, any>;
 };
 
-type PostProcessResult = ReturnType<typeof postProcess>;
+// type PostProcessResult = ReturnType<typeof postProcess>;
 
 function registerNormalizeChar(chars: string) {
 	const norm = chars[0];
@@ -180,7 +181,7 @@ async function runDiff(ctx: WorkContext) {
 			start: ctx.start,
 		});
 
-		let result: PostProcessResult;
+		let result: DiffEntry[];
 		if (ctx.options.algorithm === "histogram") {
 			result = await runHistogramDiff(ctx);
 		} else if (ctx.options.algorithm === "myers") {
@@ -197,7 +198,7 @@ async function runDiff(ctx: WorkContext) {
 			reqId: ctx.reqId,
 			type: "diff",
 			processTime: ctx.finish - ctx.start,
-			...result,
+			diffs: result,
 		} as DiffResponse);
 	} catch (e) {
 		if (e instanceof Error && e.message === "cancelled") {
@@ -532,6 +533,7 @@ function tokenize(input: string, mode: TokenizationMode, noCache: boolean = fals
 		}
 	}
 
+	const now = performance.now();
 	let tokens: Token[];
 	switch (mode) {
 		case "char":
@@ -546,6 +548,7 @@ function tokenize(input: string, mode: TokenizationMode, noCache: boolean = fals
 		default:
 			throw new Error("Unknown tokenization mode: " + mode);
 	}
+	console.log("tokenize took %d ms", performance.now() - now);
 	// tokens.push({
 	// 	text: "",
 	// 	pos: input.length,
@@ -591,11 +594,12 @@ function checkIfFirstOfLine(input: string, pos: number) {
 // LCS Algorithm
 // =============================================================
 
-async function runLcsDiff(ctx: WorkContext): Promise<PostProcessResult> {
-	const lhrTokens = tokenize(ctx.leftText, ctx.options.tokenization);
-	const rhsTokens = tokenize(ctx.rightText, ctx.options.tokenization);
-	const rawResult = await computeDiff(lhrTokens, rhsTokens, !!ctx.options.greedyMatch, ctx);
-	return postProcess(ctx, rawResult, lhrTokens, rhsTokens);
+async function runLcsDiff(ctx: WorkContext): Promise<DiffEntry[]> {
+	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
+	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
+	const rawResult = await computeDiff(lhsTokens, rhsTokens, !!ctx.options.greedyMatch, ctx);
+	// return postProcess(ctx, rawResult, lhsTokens, rhsTokens);
+	return rawResult;
 }
 
 async function computeLCS(leftTokens: Token[], rightTokens: Token[], ctx?: WorkContext) {
@@ -781,16 +785,18 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 // ============================================================
 
 // not fully working yet! 생각보다 이해가 안되는 알고리즘...
-async function runMyersDiff(ctx: WorkContext): Promise<PostProcessResult> {
-	const lhsTokens = tokenize(ctx.leftText, ctx.options.tokenization, false);
-	const rhsTokens = tokenize(ctx.rightText, ctx.options.tokenization, false);
+async function runMyersDiff(ctx: WorkContext): Promise<DiffEntry[]> {
+	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
+	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
+
 	const vectorSize = (lhsTokens.length + rhsTokens.length + 1) * 2;
 	const vectorDown = new Array(vectorSize);
 	const vectorUp = new Array(vectorSize);
 	ctx.states.vectorDown = vectorDown;
 	ctx.states.vectorUp = vectorUp;
 	const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rhsTokens, 0, rhsTokens.length, findMiddleSnake);
-	return postProcess(ctx, rawEntries, lhsTokens, rhsTokens);
+	// return postProcess(ctx, rawEntries, lhsTokens, rhsTokens);
+	return rawEntries;
 }
 
 // 알쏭달쏭.
@@ -938,13 +944,13 @@ function findMiddleSnake(
 // 일단 지금은 이놈이 디폴트
 // ============================================================
 
-async function runHistogramDiff(ctx: WorkContext): Promise<PostProcessResult> {
-	const lhsTokens = tokenize(ctx.leftText, ctx.options.tokenization, false);
-	const rightTokens = tokenize(ctx.rightText, ctx.options.tokenization, false);
-
+async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
+	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
+	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
 	ctx.states.entries = [] as DiffEntry[];
-	const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rightTokens, 0, rightTokens.length, findBestHistogramAnchor);
-	return postProcess(ctx, rawEntries, lhsTokens, rightTokens);
+	const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rhsTokens, 0, rhsTokens.length, findBestHistogramAnchor);
+	// return postProcess(ctx, rawEntries, lhsTokens, rhsTokens);
+	return rawEntries;
 }
 
 // histogram diff에서 가장 중요한 함수
@@ -1424,289 +1430,290 @@ type FindAnchorFunc = (
 ) => { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number } | null;
 
 // 무식하게 긴 함수지만 괜히 여러 함수로 쪼개서 오버헤드를 추가하고 싶진 않아서 그런거임. 귀찮은거 아님.
-function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Token[], rightTokens: Token[]) {
-	//console.log("postProcess", "raw entries:", Array.from(rawEntries), leftTokens, rightTokens);
-	const leftText = ctx.leftText;
-	const rightText = ctx.rightText;
-	let prevEntry: DiffEntry | null = null;
+// function postProcess(ctx: WorkContext, rawEntries: DiffEntry[], leftTokens: Token[], rightTokens: Token[]) {
+// 	//console.log("postProcess", "raw entries:", Array.from(rawEntries), leftTokens, rightTokens);
+// 	const leftText = ctx.leftText;
+// 	const rightText = ctx.rightText;
+// 	let prevEntry: DiffEntry | null = null;
 
-	const diffs: DiffEntry[] = [];
-	const anchors: Anchor[] = [];
-	// const mappings: DiffEntry[] = [];
+// 	const diffs: DiffEntry[] = [];
+// 	const anchors: Anchor[] = [];
+// 	// const mappings: DiffEntry[] = [];
 
-	for (let i = 0; i < rawEntries.length; i++) {
-		const entry = rawEntries[i];
-		if (entry.type) {
-			if (prevEntry) {
-				console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos, prevEntry, entry);
-				console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos, prevEntry, entry);
-				prevEntry.type |= entry.type;
-				prevEntry.left.len += entry.left.len;
-				prevEntry.right.len += entry.right.len;
-			} else {
-				prevEntry = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
-				//prevEntry = entry;
-			}
-		} else {
-			if (prevEntry) {
-				addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
-				// mappings.push(prevEntry);
-			}
-			prevEntry = null;
+// 	for (let i = 0; i < rawEntries.length; i++) {
+// 		const entry = rawEntries[i];
+// 		if (entry.type) {
+// 			if (prevEntry) {
+// 				console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos, prevEntry, entry);
+// 				console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos, prevEntry, entry);
+// 				prevEntry.type |= entry.type;
+// 				prevEntry.left.len += entry.left.len;
+// 				prevEntry.right.len += entry.right.len;
+// 			} else {
+// 				prevEntry = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
+// 				//prevEntry = entry;
+// 			}
+// 		} else {
+// 			if (prevEntry) {
+// 				addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+// 				// mappings.push(prevEntry);
+// 			}
+// 			prevEntry = null;
 
-			const leftToken = leftTokens[entry.left.pos];
-			const rightToken = rightTokens[entry.right.pos];
-			if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
-				// 앵커 추가
-				addAnchor("before", leftToken.pos, rightToken.pos, null);
-			}
-			// mappings.push(entry);
-		}
-	}
+// 			const leftToken = leftTokens[entry.left.pos];
+// 			const rightToken = rightTokens[entry.right.pos];
+// 			if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
+// 				// 앵커 추가
+// 				addAnchor("before", leftToken.pos, rightToken.pos, null);
+// 			}
+// 			// mappings.push(entry);
+// 		}
+// 	}
+// 	addAnchor("before", leftText.length, rightText.length, null);
 
-	if (prevEntry) {
-		addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
-		// mappings.push(prevEntry);
-	}
+// 	if (prevEntry) {
+// 		addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+// 		// mappings.push(prevEntry);
+// 	}
 
-	function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
-		if (leftPos === undefined || rightPos === undefined) {
-			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
-		}
+// 	function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
+// 		if (leftPos === undefined || rightPos === undefined) {
+// 			console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
+// 		}
 
-		if (type === "before") {
-			// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
-			while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
-				leftPos--;
-			}
-			while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
-				rightPos--;
-			}
-		} else if (type === "after") {
-			// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
-			// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
-			let p;
-			p = leftPos;
-			while (p < leftText.length) {
-				const ch = leftText[p++];
-				if (ch === "\n") {
-					leftPos = p - 1;
-					break;
-				} else if (!SPACE_CHARS[ch]) {
-					break;
-				}
-			}
-			p = rightPos;
-			while (p < rightText.length) {
-				const ch = rightText[p++];
-				if (ch === "\n") {
-					rightPos = p - 1;
-					break;
-				} else if (!SPACE_CHARS[ch]) {
-					break;
-				}
-			}
-		}
+// 		if (type === "before") {
+// 			// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
+// 			while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
+// 				leftPos--;
+// 			}
+// 			while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
+// 				rightPos--;
+// 			}
+// 		} else if (type === "after") {
+// 			// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
+// 			// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
+// 			let p;
+// 			p = leftPos;
+// 			while (p < leftText.length) {
+// 				const ch = leftText[p++];
+// 				if (ch === "\n") {
+// 					leftPos = p - 1;
+// 					break;
+// 				} else if (!SPACE_CHARS[ch]) {
+// 					break;
+// 				}
+// 			}
+// 			p = rightPos;
+// 			while (p < rightText.length) {
+// 				const ch = rightText[p++];
+// 				if (ch === "\n") {
+// 					rightPos = p - 1;
+// 					break;
+// 				} else if (!SPACE_CHARS[ch]) {
+// 					break;
+// 				}
+// 			}
+// 		}
 
-		if (anchors.length > 0) {
-			let lastAnchor = anchors[anchors.length - 1];
-			if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
-				return;
-			}
-			if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
-				if (type === lastAnchor.type || type === "before") {
-					return;
-				}
-			}
-		}
-		anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
-	}
+// 		if (anchors.length > 0) {
+// 			let lastAnchor = anchors[anchors.length - 1];
+// 			if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
+// 				return;
+// 			}
+// 			if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
+// 				if (type === lastAnchor.type || type === "before") {
+// 					return;
+// 				}
+// 			}
+// 		}
+// 		anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
+// 	}
 
-	function addDiff(leftIndex: number, leftCount: number, rightIndex: number, rightCount: number) {
-		let leftPos, leftLen, rightPos, rightLen;
-		let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos;
-		let leftEmpty, rightEmpty;
-		let type: DiffType;
+// 	function addDiff(leftIndex: number, leftCount: number, rightIndex: number, rightCount: number) {
+// 		let leftPos, leftLen, rightPos, rightLen;
+// 		let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos;
+// 		let leftEmpty, rightEmpty;
+// 		let type: DiffType;
 
-		// 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
-		if (leftCount > 0 && rightCount > 0) {
-			type = 3;
-			let leftTokenStart = leftTokens[leftIndex];
-			let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
-			let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
-			let rightTokenStart = rightTokens[rightIndex];
+// 		// 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
+// 		if (leftCount > 0 && rightCount > 0) {
+// 			type = 3;
+// 			let leftTokenStart = leftTokens[leftIndex];
+// 			let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
+// 			let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
+// 			let rightTokenStart = rightTokens[rightIndex];
 
-			leftPos = leftTokenStart.pos;
-			leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
-			leftEmpty = false;
-			rightPos = rightTokenStart.pos;
-			rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
-			rightEmpty = false;
+// 			leftPos = leftTokenStart.pos;
+// 			leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
+// 			leftEmpty = false;
+// 			rightPos = rightTokenStart.pos;
+// 			rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
+// 			rightEmpty = false;
 
-			// 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
-			// 좌우 정렬을 할 수 있을 것 같기도 한데...
-			if (leftTokenStart.flags & rightTokenStart.flags & FIRST_OF_LINE) {
-				leftBeforeAnchorPos = leftPos;
-				rightBeforeAnchorPos = rightPos;
+// 			// 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
+// 			// 좌우 정렬을 할 수 있을 것 같기도 한데...
+// 			if (leftTokenStart.flags & rightTokenStart.flags & FIRST_OF_LINE) {
+// 				leftBeforeAnchorPos = leftPos;
+// 				rightBeforeAnchorPos = rightPos;
 
-				while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
-					leftBeforeAnchorPos--;
-				}
+// 				while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
+// 					leftBeforeAnchorPos--;
+// 				}
 
-				while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
-					rightBeforeAnchorPos--;
-				}
-				// addAnchor("before", leftAnchorPos, rightAnchorPos, null);
+// 				while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
+// 					rightBeforeAnchorPos--;
+// 				}
+// 				// addAnchor("before", leftAnchorPos, rightAnchorPos, null);
 
-				if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
-					leftAfterAnchorPos = leftPos + leftLen;
-					rightAfterAnchorPos = rightPos + rightLen;
-					if (leftText[leftAfterAnchorPos] !== "\n") {
-						do {
-							leftAfterAnchorPos++;
-						} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
-					}
-					if (rightText[rightAfterAnchorPos] !== "\n") {
-						do {
-							rightAfterAnchorPos++;
-						} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
-					}
+// 				if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
+// 					leftAfterAnchorPos = leftPos + leftLen;
+// 					rightAfterAnchorPos = rightPos + rightLen;
+// 					if (leftText[leftAfterAnchorPos] !== "\n") {
+// 						do {
+// 							leftAfterAnchorPos++;
+// 						} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
+// 					}
+// 					if (rightText[rightAfterAnchorPos] !== "\n") {
+// 						do {
+// 							rightAfterAnchorPos++;
+// 						} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
+// 					}
 
-					// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
-					// 	leftAnchorPos++;
-					// }
-					// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
-					// 	rightAnchorPos++;
-					// }
-					// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
-				}
-			}
-		} else {
-			// 한쪽이 비어있음.
-			// 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
-			// 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
-			let longSideText, shortSideText;
-			let longSideIndex, longSideCount, longSideTokens;
-			let shortSideIndex, shortSideTokens;
-			let longSidePos, longSideLen;
-			let shortSidePos, shortSideLen;
-			let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
-			let longSideAfterAnchorPos, shortSideAfterAnchorPos;
-			let longSideTokenStart, longSideTokenEnd;
-			let shortSideBeforeToken, shortSideAfterToken;
+// 					// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
+// 					// 	leftAnchorPos++;
+// 					// }
+// 					// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
+// 					// 	rightAnchorPos++;
+// 					// }
+// 					// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
+// 				}
+// 			}
+// 		} else {
+// 			// 한쪽이 비어있음.
+// 			// 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
+// 			// 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
+// 			let longSideText, shortSideText;
+// 			let longSideIndex, longSideCount, longSideTokens;
+// 			let shortSideIndex, shortSideTokens;
+// 			let longSidePos, longSideLen;
+// 			let shortSidePos, shortSideLen;
+// 			let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
+// 			let longSideAfterAnchorPos, shortSideAfterAnchorPos;
+// 			let longSideTokenStart, longSideTokenEnd;
+// 			let shortSideBeforeToken, shortSideAfterToken;
 
-			if (leftCount > 0) {
-				type = 1; // 1: left
-				longSideText = leftText;
-				longSideTokens = leftTokens;
-				longSideIndex = leftIndex;
-				longSideCount = leftCount;
-				shortSideText = rightText;
-				shortSideTokens = rightTokens;
-				shortSideIndex = rightIndex;
-				leftEmpty = false;
-				rightEmpty = true;
-			} else {
-				type = 2; // 2: right
-				longSideText = rightText;
-				longSideTokens = rightTokens;
-				longSideIndex = rightIndex;
-				longSideCount = rightCount;
-				shortSideText = leftText;
-				shortSideTokens = leftTokens;
-				shortSideIndex = leftIndex;
-				leftEmpty = true;
-				rightEmpty = false;
-			}
-			longSideTokenStart = longSideTokens[longSideIndex];
-			longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
-			shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
-			shortSideAfterToken = shortSideTokens[shortSideIndex];
+// 			if (leftCount > 0) {
+// 				type = 1; // 1: left
+// 				longSideText = leftText;
+// 				longSideTokens = leftTokens;
+// 				longSideIndex = leftIndex;
+// 				longSideCount = leftCount;
+// 				shortSideText = rightText;
+// 				shortSideTokens = rightTokens;
+// 				shortSideIndex = rightIndex;
+// 				leftEmpty = false;
+// 				rightEmpty = true;
+// 			} else {
+// 				type = 2; // 2: right
+// 				longSideText = rightText;
+// 				longSideTokens = rightTokens;
+// 				longSideIndex = rightIndex;
+// 				longSideCount = rightCount;
+// 				shortSideText = leftText;
+// 				shortSideTokens = leftTokens;
+// 				shortSideIndex = leftIndex;
+// 				leftEmpty = true;
+// 				rightEmpty = false;
+// 			}
+// 			longSideTokenStart = longSideTokens[longSideIndex];
+// 			longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
+// 			shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
+// 			shortSideAfterToken = shortSideTokens[shortSideIndex];
 
-			longSidePos = longSideTokenStart.pos;
-			longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
-			shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
-			shortSideLen = 0;
+// 			longSidePos = longSideTokenStart.pos;
+// 			longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
+// 			shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
+// 			shortSideLen = 0;
 
-			const longSideIsFirstWord = longSideTokenStart.flags & FIRST_OF_LINE;
-			const longSideIsLastWord = longSideTokenEnd.flags & LAST_OF_LINE;
-			const shortSideIsOnLineEdge =
-				shortSideTokens.length === 0 ||
-				(shortSideBeforeToken && shortSideBeforeToken.flags & LAST_OF_LINE) ||
-				(shortSideAfterToken && shortSideAfterToken.flags & FIRST_OF_LINE);
+// 			const longSideIsFirstWord = longSideTokenStart.flags & FIRST_OF_LINE;
+// 			const longSideIsLastWord = longSideTokenEnd.flags & LAST_OF_LINE;
+// 			const shortSideIsOnLineEdge =
+// 				shortSideTokens.length === 0 ||
+// 				(shortSideBeforeToken && shortSideBeforeToken.flags & LAST_OF_LINE) ||
+// 				(shortSideAfterToken && shortSideAfterToken.flags & FIRST_OF_LINE);
 
-			// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
-			if (shortSideIsOnLineEdge) {
-				// 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
-				if (longSideIsFirstWord) {
-					if (shortSidePos !== 0) {
-						// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
-						// 주의: 현재 위치 이후에 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함.
-						// 잊지말고 꼭 원본텍스트의 끝에 줄바꿈 하나 붙일 것.
-						// const maxPos = shortSideAfterToken ? shortSideAfterToken.pos - 1 : shortSideText.length - 1;
-						// while (shortSidePos < maxPos && shortSideText[shortSidePos++] !== "\n");
-						while (shortSideText[shortSidePos++] !== "\n");
-					}
+// 			// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
+// 			if (shortSideIsOnLineEdge) {
+// 				// 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
+// 				if (longSideIsFirstWord) {
+// 					if (shortSidePos !== 0) {
+// 						// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
+// 						// 주의: 현재 위치 이후에 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함.
+// 						// 잊지말고 꼭 원본텍스트의 끝에 줄바꿈 하나 붙일 것.
+// 						// const maxPos = shortSideAfterToken ? shortSideAfterToken.pos - 1 : shortSideText.length - 1;
+// 						// while (shortSidePos < maxPos && shortSideText[shortSidePos++] !== "\n");
+// 						while (shortSideText[shortSidePos++] !== "\n");
+// 					}
 
-					// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
-					// 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
-					longSideBeforeAnchorPos = longSidePos;
-					shortSideBeforeAnchorPos = shortSidePos;
-					if (longSideIsLastWord) {
-						longSideAfterAnchorPos = longSidePos + longSideLen;
-						shortSideAfterAnchorPos = shortSidePos;
-					}
-				}
-			}
+// 					// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
+// 					// 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
+// 					longSideBeforeAnchorPos = longSidePos;
+// 					shortSideBeforeAnchorPos = shortSidePos;
+// 					if (longSideIsLastWord) {
+// 						longSideAfterAnchorPos = longSidePos + longSideLen;
+// 						shortSideAfterAnchorPos = shortSidePos;
+// 					}
+// 				}
+// 			}
 
-			if (leftCount > 0) {
-				leftPos = longSidePos;
-				leftLen = longSideLen;
-				leftEmpty = false;
-				leftBeforeAnchorPos = longSideBeforeAnchorPos;
-				leftAfterAnchorPos = longSideAfterAnchorPos;
-				rightPos = shortSidePos;
-				rightLen = shortSideLen;
-				rightEmpty = true;
-				rightBeforeAnchorPos = shortSideBeforeAnchorPos;
-				rightAfterAnchorPos = shortSideAfterAnchorPos;
-			} else {
-				leftPos = shortSidePos;
-				leftLen = shortSideLen;
-				leftEmpty = true;
-				leftBeforeAnchorPos = shortSideBeforeAnchorPos;
-				leftAfterAnchorPos = shortSideAfterAnchorPos;
-				rightPos = longSidePos;
-				rightLen = longSideLen;
-				rightEmpty = false;
-				rightBeforeAnchorPos = longSideBeforeAnchorPos;
-				rightAfterAnchorPos = longSideAfterAnchorPos;
-			}
-		}
+// 			if (leftCount > 0) {
+// 				leftPos = longSidePos;
+// 				leftLen = longSideLen;
+// 				leftEmpty = false;
+// 				leftBeforeAnchorPos = longSideBeforeAnchorPos;
+// 				leftAfterAnchorPos = longSideAfterAnchorPos;
+// 				rightPos = shortSidePos;
+// 				rightLen = shortSideLen;
+// 				rightEmpty = true;
+// 				rightBeforeAnchorPos = shortSideBeforeAnchorPos;
+// 				rightAfterAnchorPos = shortSideAfterAnchorPos;
+// 			} else {
+// 				leftPos = shortSidePos;
+// 				leftLen = shortSideLen;
+// 				leftEmpty = true;
+// 				leftBeforeAnchorPos = shortSideBeforeAnchorPos;
+// 				leftAfterAnchorPos = shortSideAfterAnchorPos;
+// 				rightPos = longSidePos;
+// 				rightLen = longSideLen;
+// 				rightEmpty = false;
+// 				rightBeforeAnchorPos = longSideBeforeAnchorPos;
+// 				rightAfterAnchorPos = longSideAfterAnchorPos;
+// 			}
+// 		}
 
-		if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
-			addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
-		}
-		if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
-			addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
-		}
+// 		if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
+// 			addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
+// 		}
+// 		if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
+// 			addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
+// 		}
 
-		const newEntry: DiffEntry = {
-			type: type,
-			left: {
-				pos: leftPos,
-				len: leftLen,
-				empty: leftEmpty,
-			},
-			right: {
-				pos: rightPos,
-				len: rightLen,
-				empty: rightEmpty,
-			},
-		};
-		diffs.push(newEntry);
-	}
+// 		const newEntry: DiffEntry = {
+// 			type: type,
+// 			left: {
+// 				pos: leftPos,
+// 				len: leftLen,
+// 				empty: leftEmpty,
+// 			},
+// 			right: {
+// 				pos: rightPos,
+// 				len: rightLen,
+// 				empty: rightEmpty,
+// 			},
+// 		};
+// 		diffs.push(newEntry);
+// 	}
 
-	// console.log("postProcess", "final diffs:", diffs, anchors);
-	return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length };
-}
+// 	// console.log("postProcess", "final diffs:", diffs, anchors);
+// 	return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length };
+// }

@@ -10,7 +10,8 @@ const DiffSeek = (function () {
 	let _currentDiffIndex = -1;
 	let _syncEditor = false;
 	let _resetCurrentlyScrollingEditorId: number | null = null;
-	let _diffResult: DiffResponse | null = null;
+	// let _diffResult: DiffResponse | null = null;
+	let _diffContext: DiffContext = { done: false, reqId: 0 } as DiffContext;
 
 	// devtools 콘솔에서 설정 값을 바꿨을때 바로 업데이트 시키기 위해...
 	const _diffOptions = (function (defaultValues: DiffOptions) {
@@ -235,32 +236,32 @@ const DiffSeek = (function () {
 			key: "diffs",
 			label: "≠",
 			get: () => {
-				if (_diffResult === null) {
+				if (!_diffContext.done) {
 					return "...";
 				}
-				return `${_diffResult.diffs.length}`;
+				return `${_diffContext.diffs!.length}`;
 			},
 		},
-		{
-			side: "right",
-			key: "tokenCount",
-			label: "#",
-			get: () => {
-				if (_diffResult === null) {
-					return "...";
-				}
-				return `${_diffResult.leftTokenCount} / ${_diffResult.rightTokenCount}`;
-			},
-		},
+		// {
+		// 	side: "right",
+		// 	key: "tokenCount",
+		// 	label: "#",
+		// 	get: () => {
+		// 		if (_diffResult === null) {
+		// 			return "...";
+		// 		}
+		// 		return `${_diffResult.leftTokenCount} / ${_diffResult.rightTokenCount}`;
+		// 	},
+		// },
 		{
 			side: "right",
 			key: "processTime",
 			label: "⏱",
 			get: () => {
-				if (_diffResult === null) {
+				if (!_diffContext.done) {
 					return "...";
 				}
-				return `${Math.ceil(_diffResult.processTime)}ms`;
+				return `${Math.ceil(_diffContext.processTime!)}ms`;
 			},
 		},
 	]);
@@ -379,64 +380,88 @@ const DiffSeek = (function () {
 		const worker = createWorker();
 		let reqId = 0;
 		let computeDiffTimeoutId: number | null = null;
-		function computeDiff() {
-			if (computeDiffTimeoutId) {
-				clearTimeout(computeDiffTimeoutId);
+
+		function* computeDiffGenerator(ctx: DiffContext) {
+			let idleDeadline: IdleDeadline = yield ctx;
+			ctx.leftTokens = tokenize(ctx.leftText, _diffOptions.tokenization);
+			if (idleDeadline.timeRemaining() < 1) {
+				idleDeadline = yield;
 			}
 
-			computeDiffTimeoutId = setTimeout(() => {
-				_diffResult = null;
-				_currentDiffIndex = -1;
-				_alignedDirty = true;
+			ctx.rightTokens = tokenize(ctx.rightText, _diffOptions.tokenization);
+			if (idleDeadline.timeRemaining() < 1) {
+				idleDeadline = yield;
+			}
 
-				// 토큰화를 UI 쓰레드에서도 해봤지만 텍스트 수정 시에 살짝 거슬리는 느낌.
-				// _leftTokens = tokenize(leftEditor.text, _diffOptions.tokenization);
-				// _rightTokens = tokenize(rightEditor.text, _diffOptions.tokenization);
+			const request: DiffRequest = {
+				type: "diff",
+				reqId: ctx.reqId,
+				options: ctx.diffOptions,
+				leftTokens: ctx.leftTokens!,
+				rightTokens: ctx.rightTokens!,
+			};
 
-				progress.textContent = "...";
-				// 좌우 텍스트가 완전히 똑.같.은. 경우 쌍둥이 이모지 표시 ㅋ
-				// 나만 그런가? ctrl-c는 믿을 수 없어서 3-4번씩 눌러줘야한다. 쌍둥이가 보여질 경우 복붙이 제대로 안되었다는 경고의 뜻으로 받아들이기.
-				body.classList.toggle("identical", leftEditor.text === rightEditor.text);
-				body.classList.add("computing");
+			console.log("postingMessage", request);
+			worker.postMessage(request);
+			updateButtons();
+		}
 
-				if (reqId === Number.MAX_SAFE_INTEGER) {
-					// 여기까지 왔다면 지구가 멸망함.
-					reqId = 1;
-				} else {
-					reqId++;
+		function computeDiff() {
+			if (computeDiffTimeoutId) {
+				cancelIdleCallback(computeDiffTimeoutId);
+				//clearTimeout(computeDiffTimeoutId);
+			}
+
+			_currentDiffIndex = -1;
+			_alignedDirty = true;
+
+			const leftText = leftEditor.text;
+			const rightText = rightEditor.text;
+
+			body.classList.add("computing");
+			progress.textContent = "...";
+			body.classList.toggle("identical", leftText === rightText);
+
+			const ctx = (_diffContext = {
+				reqId: ++reqId, //overflow 되는 순간 지구 멸망
+				leftText: leftText,
+				rightText: rightText,
+				diffOptions: { ..._diffOptions },
+				done: false,
+			});
+
+			const generator = computeDiffGenerator(ctx);
+
+			const step = (idleDeadline: IdleDeadline) => {
+				computeDiffTimeoutId = null;
+				const { done } = generator.next(idleDeadline);
+				if (!done && ctx === _diffContext) {
+					computeDiffTimeoutId = requestIdleCallback(step, { timeout: 200 });
 				}
-
-				const request: DiffRequest = {
-					type: "diff",
-					reqId: reqId,
-					leftText: leftEditor.text,
-					rightText: rightEditor.text,
-					options: _diffOptions,
-				};
-
-				worker.postMessage(request);
-				updateButtons();
-			}, COMPUTE_DEBOUNCE_TIME);
+			};
+			computeDiffTimeoutId = requestIdleCallback(step);
 		}
 
 		worker.onmessage = function (e) {
+			console.log("worker message", e);
 			const data = e.data;
 			if (data.type === "diff") {
 				if (data.reqId === reqId) {
 					console.debug("diff response:", data);
 					document.querySelector("body")!.classList.remove("computing");
-					onDiffComputed(data);
+					_diffContext.rawDiffs = data.diffs;
+					postProcess(_diffContext);
+					_diffContext.done = true;
+					onDiffComputed(_diffContext);
 				}
 			} else if (data.type === "start") {
 				progress.textContent = PROCESSING_MESSAGES[Math.floor(Math.random() * PROCESSING_MESSAGES.length)];
 			}
 		};
 
-		function onDiffComputed(data: DiffResponse) {
-			_diffResult = data;
-			_alignedDirty = true;
-			leftEditor.update(data);
-			rightEditor.update(data);
+		function onDiffComputed(diffContext: DiffContext) {
+			leftEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors! });
+			rightEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors! });
 			updateDiffList();
 			updateButtons();
 		}
@@ -529,10 +554,16 @@ const DiffSeek = (function () {
 		if (!_alignedDirty) {
 			return;
 		}
-		if (!_diffResult) {
+		if (!_diffContext.done) {
 			return;
 		}
-		const { anchors } = _diffResult;
+		const anchors = _diffContext.anchors!,
+			lhsTokens = _diffContext.leftTokens!,
+			rhsTokens = _diffContext.rightTokens!,
+			lhsLines = leftEditor.lineElements,
+			rhsLines = rightEditor.lineElements,
+			lhsLineHints = leftEditor.lineHints,
+			rhsLineHints = rightEditor.lineHints;
 
 		// 얘네들은 알아서 스스로 쑥쑥 자라게 auto로
 		leftEditor.mirror.style.height = "auto";
@@ -542,20 +573,20 @@ const DiffSeek = (function () {
 		alignmentStyleElement.textContent = "";
 
 		const leftAnchorEls = leftEditor.anchorElements,
-			rightAnchorEls = rightEditor.anchorElements,
-			leftTops: number[] = new Array<number>(anchors.length),
-			rightTops: number[] = new Array<number>(anchors.length),
-			leftHeights: number[] = new Array<number>(anchors.length),
-			rightHeights: number[] = new Array<number>(anchors.length);
+			rightAnchorEls = rightEditor.anchorElements;
+		// leftTops: number[] = new Array<number>(anchors.length),
+		// rightTops: number[] = new Array<number>(anchors.length),
+		// leftHeights: number[] = new Array<number>(anchors.length),
+		// rightHeights: number[] = new Array<number>(anchors.length);
 
-		for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
-			leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
-			rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
-			if (anchors[anchorIndex].type === "after") {
-				leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
-				rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
-			}
-		}
+		// for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
+		// 	leftTops[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetTop;
+		// 	rightTops[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetTop;
+		// 	if (anchors[anchorIndex].type === "after") {
+		// 		leftHeights[anchorIndex] = leftAnchorEls[anchorIndex]?.offsetHeight;
+		// 		rightHeights[anchorIndex] = rightAnchorEls[anchorIndex]?.offsetHeight;
+		// 	}
+		// }
 
 		let styleText = "";
 		let leftDelta = 0,
@@ -563,18 +594,50 @@ const DiffSeek = (function () {
 
 		for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
 			const anchor = anchors[anchorIndex];
-			if (leftTops[anchorIndex] === undefined || rightTops[anchorIndex] === undefined) {
+			const leftAnchorEl = leftAnchorEls[anchorIndex],
+				rightAnchorEl = rightAnchorEls[anchorIndex];
+			if (!leftAnchorEl || !rightAnchorEl) {
 				continue;
 			}
-			const leftY = leftTops[anchorIndex] + leftDelta,
-				rightY = rightTops[anchorIndex] + rightDelta;
+			const leftTop = leftAnchorEl.offsetTop,
+				rightTop = rightAnchorEl.offsetTop;
+
+			const leftY = leftTop + leftDelta,
+				rightY = rightTop + rightDelta;
 
 			let delta;
 			if (anchor.type === "before") {
 				delta = leftY - rightY;
+				if (delta > LINE_HEIGHT) {
+					const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
+					if (anchorLineIndex > 0) {
+						const lastBlankLineIndex = anchorLineIndex - 1;
+						const hint = lhsLineHints[lastBlankLineIndex];
+						const collapseLimit = hint.numConsecutiveBlankLines - 1; // 마지막 한 줄은 남긴다
+
+						let collapsedLines = 0;
+						while (collapsedLines < collapseLimit) {
+							const lineIndex = lastBlankLineIndex - collapsedLines;
+							const lineEl = lhsLines[lineIndex];
+							const lineHeight = lineEl.offsetHeight;
+
+							if (lineHeight > delta) break;
+
+							delta -= lineHeight;
+							rightDelta += lineHeight;
+							collapsedLines++;
+
+							const lineNum = lineIndex + 1;
+							styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+						}
+					}
+				}
 			} else if (anchor.type === "after") {
-				const leftB = leftY + leftHeights[anchorIndex],
-					rightB = rightY + rightHeights[anchorIndex];
+				const leftHeight = leftAnchorEl.offsetHeight,
+					rightHeight = rightAnchorEl.offsetHeight;
+
+				const leftB = leftY + leftHeight,
+					rightB = rightY + rightHeight;
 				delta = leftB - rightB;
 			} else {
 				console.warn("unknown anchor type", anchor.type);
@@ -636,7 +699,7 @@ const DiffSeek = (function () {
 		}
 
 		if (!sourceEditor) {
-			sourceEditor = _currentlyScrollingEditor || _activeEditor ||  _lastFocusedEditor;
+			sourceEditor = _currentlyScrollingEditor || _activeEditor || _lastFocusedEditor;
 			if (!sourceEditor) {
 				return;
 			}
@@ -716,11 +779,11 @@ animation: highlightAnimation 0.3s linear 3;
 	}
 
 	function updateDiffList() {
-		if (!_diffResult) {
+		if (!_diffContext.done) {
 			return;
 		}
 
-		const diffs = _diffResult.diffs;
+		const diffs = _diffContext.diffs!;
 		const leftWholeText = leftEditor.text;
 		const rightWholeText = rightEditor.text;
 		const fragment = document.createDocumentFragment();
@@ -793,21 +856,22 @@ animation: highlightAnimation 0.3s linear 3;
 		// diff cycling
 		if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 			e.preventDefault();
-			const diffs = _diffResult?.diffs;
-			if (!diffs || diffs.length === 0) {
-				return;
-			}
+			if (_diffContext.done) {
+				const diffs = _diffContext.diffs!;
+				if (!diffs || diffs.length === 0) {
+					return;
+				}
 
-			_currentDiffIndex += e.key === "ArrowUp" ? -1 : 1;
-			if (_currentDiffIndex < 0) {
-				_currentDiffIndex = diffs.length - 1;
+				_currentDiffIndex += e.key === "ArrowUp" ? -1 : 1;
+				if (_currentDiffIndex < 0) {
+					_currentDiffIndex = diffs.length - 1;
+				}
+				if (_currentDiffIndex >= diffs.length) {
+					_currentDiffIndex = 0;
+				}
+				scrollToDiff(_currentDiffIndex);
+				highlightDiff(_currentDiffIndex);
 			}
-			if (_currentDiffIndex >= diffs.length) {
-				_currentDiffIndex = 0;
-			}
-			scrollToDiff(_currentDiffIndex);
-			highlightDiff(_currentDiffIndex);
-			return;
 		}
 	});
 
@@ -942,11 +1006,341 @@ animation: highlightAnimation 0.3s linear 3;
 		}
 	}
 
-	disableAlignedMode();
+	//type PostProcessResult = ReturnType<typeof postProcess>;
+	function postProcess(diffContext: DiffContext) {
+		let prevEntry: DiffEntry | null = null;
+		const leftText = diffContext.leftText!;
+		const rightText = diffContext.rightText!;
+		const leftTokens = diffContext.leftTokens!;
+		const rightTokens = diffContext.rightTokens!;
+		const rawEntries = diffContext.rawDiffs!;
 
+		const diffs: DiffEntry[] = [];
+		const anchors: Anchor[] = [];
+
+		const MAX_ANCHOR_SKIP = 5;
+		let anchorSkipCount = 0;
+
+		for (let i = 0; i < rawEntries.length; i++) {
+			const entry = rawEntries[i];
+			if (entry.type) {
+				if (prevEntry) {
+					console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos, prevEntry, entry);
+					console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos, prevEntry, entry);
+					prevEntry.type |= entry.type;
+					prevEntry.left.len += entry.left.len;
+					prevEntry.right.len += entry.right.len;
+				} else {
+					prevEntry = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
+					//prevEntry = entry;
+				}
+			} else {
+				if (prevEntry) {
+					addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+					// mappings.push(prevEntry);
+				}
+				prevEntry = null;
+
+				const leftToken = leftTokens[entry.left.pos];
+				const rightToken = rightTokens[entry.right.pos];
+				if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
+					// 앵커 추가
+					addAnchor("before", leftToken.pos, leftToken.lineNum, rightToken.pos, rightToken.lineNum, null);
+				}
+				// mappings.push(entry);
+			}
+		}
+		addAnchor("before", leftText.length, -1, rightText.length, -1, null);
+
+		if (prevEntry) {
+			addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+			// mappings.push(prevEntry);
+		}
+
+		function addAnchor(type: "before" | "after", leftPos: number, leftLine: number, rightPos: number, rightLine: number, diffIndex: number | null) {
+			if (leftPos === undefined || rightPos === undefined) {
+				console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
+			}
+
+			// 앵커가 너무 많아지는 걸 방지!
+			if (diffIndex === null && anchorSkipCount < MAX_ANCHOR_SKIP && anchors.length > 0) {
+				const lastAnchor = anchors[anchors.length - 1];
+				if (lastAnchor.type === type && lastAnchor.diffIndex === null && leftLine - lastAnchor.leftLine <= 1 && rightLine - lastAnchor.rightLine <= 1) {
+					anchorSkipCount++;
+					return;
+				}
+			}
+			anchorSkipCount = 0;
+
+			if (type === "before") {
+				// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
+				while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
+					leftPos--;
+				}
+				while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
+					rightPos--;
+				}
+			} else if (type === "after") {
+				// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
+				// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
+				let p;
+				p = leftPos;
+				while (p < leftText.length) {
+					const ch = leftText[p++];
+					if (ch === "\n") {
+						leftPos = p - 1;
+						break;
+					} else if (!SPACE_CHARS[ch]) {
+						break;
+					}
+				}
+				p = rightPos;
+				while (p < rightText.length) {
+					const ch = rightText[p++];
+					if (ch === "\n") {
+						rightPos = p - 1;
+						break;
+					} else if (!SPACE_CHARS[ch]) {
+						break;
+					}
+				}
+			}
+
+			if (anchors.length > 0) {
+				let lastAnchor = anchors[anchors.length - 1];
+				if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
+					return;
+				}
+				if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
+					if (type === lastAnchor.type || type === "before") {
+						return;
+					}
+				}
+			}
+			
+			anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
+		}
+
+		function addDiff(leftIndex: number, leftCount: number, rightIndex: number, rightCount: number) {
+			let leftPos, leftLen, rightPos, rightLen;
+			let leftBeforeAnchorPos,
+				leftBeforeAnchorLine,
+				rightBeforeAnchorPos,
+				rightBeforeAnchorLine,
+				leftAfterAnchorPos,
+				leftAfterAnchorLine,
+				rightAfterAnchorPos,
+				rightAfterAnchorLine;
+			let leftEmpty, rightEmpty;
+			let type: DiffType;
+
+			// 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
+			if (leftCount > 0 && rightCount > 0) {
+				type = 3;
+				let leftTokenStart = leftTokens[leftIndex];
+				let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
+				let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
+				let rightTokenStart = rightTokens[rightIndex];
+
+				leftPos = leftTokenStart.pos;
+				leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
+				leftEmpty = false;
+				rightPos = rightTokenStart.pos;
+				rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
+				rightEmpty = false;
+
+				// 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
+				// 좌우 정렬을 할 수 있을 것 같기도 한데...
+				if (leftTokenStart.flags & rightTokenStart.flags & FIRST_OF_LINE) {
+					leftBeforeAnchorPos = leftPos;
+					rightBeforeAnchorPos = rightPos;
+
+					while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
+						leftBeforeAnchorPos--;
+					}
+
+					while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
+						rightBeforeAnchorPos--;
+					}
+					// addAnchor("before", leftAnchorPos, rightAnchorPos, null);
+
+					if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
+						leftAfterAnchorPos = leftPos + leftLen;
+						rightAfterAnchorPos = rightPos + rightLen;
+						if (leftText[leftAfterAnchorPos] !== "\n") {
+							do {
+								leftAfterAnchorPos++;
+							} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
+						}
+						if (rightText[rightAfterAnchorPos] !== "\n") {
+							do {
+								rightAfterAnchorPos++;
+							} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
+						}
+
+						// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
+						// 	leftAnchorPos++;
+						// }
+						// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
+						// 	rightAnchorPos++;
+						// }
+						// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
+					}
+				}
+			} else {
+				// 한쪽이 비어있음.
+				// 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
+				// 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
+				let longSideText, shortSideText;
+				let longSideIndex, longSideCount, longSideTokens;
+				let shortSideIndex, shortSideTokens;
+				let longSidePos, longSideLen;
+				let shortSidePos, shortSideLen;
+				let longSideBeforeAnchorPos, shortSideBeforeAnchorPos, longSideBeforeAnchorLine, shortSideBeforeAnchorLine;
+				let longSideAfterAnchorPos, shortSideAfterAnchorPos, longSideAfterAnchorLine, shortSideAfterAnchorLine;
+				let longSideTokenStart, longSideTokenEnd;
+				let shortSideBeforeToken, shortSideAfterToken;
+
+				if (leftCount > 0) {
+					type = 1; // 1: left
+					longSideText = leftText;
+					longSideTokens = leftTokens;
+					longSideIndex = leftIndex;
+					longSideCount = leftCount;
+					shortSideText = rightText;
+					shortSideTokens = rightTokens;
+					shortSideIndex = rightIndex;
+					leftEmpty = false;
+					rightEmpty = true;
+				} else {
+					type = 2; // 2: right
+					longSideText = rightText;
+					longSideTokens = rightTokens;
+					longSideIndex = rightIndex;
+					longSideCount = rightCount;
+					shortSideText = leftText;
+					shortSideTokens = leftTokens;
+					shortSideIndex = leftIndex;
+					leftEmpty = true;
+					rightEmpty = false;
+				}
+				longSideTokenStart = longSideTokens[longSideIndex];
+				longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
+				shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
+				shortSideAfterToken = shortSideTokens[shortSideIndex];
+
+				longSidePos = longSideTokenStart.pos;
+				longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
+				shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
+				shortSideLen = 0;
+
+				const longSideIsFirstWord = longSideTokenStart.flags & FIRST_OF_LINE;
+				const longSideIsLastWord = longSideTokenEnd.flags & LAST_OF_LINE;
+				const shortSideIsOnLineEdge =
+					shortSideTokens.length === 0 ||
+					(shortSideBeforeToken && shortSideBeforeToken.flags & LAST_OF_LINE) ||
+					(shortSideAfterToken && shortSideAfterToken.flags & FIRST_OF_LINE);
+
+				let shortSidePushedToNextLine = false;
+				// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
+				if (shortSideIsOnLineEdge) {
+					// 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
+					if (longSideIsFirstWord) {
+						if (shortSidePos !== 0) {
+							// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
+							// 주의: 현재 위치 이후에 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함.
+							// 잊지말고 꼭 원본텍스트의 끝에 줄바꿈 하나 붙일 것.
+							// const maxPos = shortSideAfterToken ? shortSideAfterToken.pos - 1 : shortSideText.length - 1;
+							// while (shortSidePos < maxPos && shortSideText[shortSidePos++] !== "\n");
+							while (shortSideText[shortSidePos++] !== "\n");
+							shortSidePushedToNextLine = true;
+						}
+
+						// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
+						// 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
+						longSideBeforeAnchorPos = longSidePos;
+						longSideBeforeAnchorLine = longSideTokenStart.lineNum;
+						shortSideBeforeAnchorPos = shortSidePos;
+						shortSideBeforeAnchorLine = (shortSideBeforeToken ? shortSideBeforeToken.lineNum : 1) + (shortSidePushedToNextLine ? 1 : 0);
+						if (longSideIsLastWord) {
+							longSideAfterAnchorPos = longSidePos + longSideLen;
+							longSideAfterAnchorLine = longSideTokenEnd.lineNum;
+							shortSideAfterAnchorPos = shortSidePos;
+							shortSideAfterAnchorLine = shortSideBeforeAnchorLine;
+						}
+					}
+				}
+
+				if (leftCount > 0) {
+					leftPos = longSidePos;
+					leftLen = longSideLen;
+					leftEmpty = false;
+					leftBeforeAnchorPos = longSideBeforeAnchorPos;
+					leftBeforeAnchorLine = longSideBeforeAnchorLine;
+					leftAfterAnchorPos = longSideAfterAnchorPos;
+					leftAfterAnchorLine = longSideAfterAnchorLine;
+					rightPos = shortSidePos;
+					rightLen = shortSideLen;
+					rightEmpty = true;
+					rightBeforeAnchorPos = shortSideBeforeAnchorPos;
+					rightBeforeAnchorLine = shortSideBeforeAnchorLine;
+					rightAfterAnchorPos = shortSideAfterAnchorPos;
+					rightAfterAnchorLine = shortSideAfterAnchorLine;
+				} else {
+					leftPos = shortSidePos;
+					leftLen = shortSideLen;
+					leftEmpty = true;
+					leftBeforeAnchorPos = shortSideBeforeAnchorPos;
+					leftAfterAnchorPos = shortSideAfterAnchorPos;
+					rightPos = longSidePos;
+					rightLen = longSideLen;
+					rightEmpty = false;
+					rightBeforeAnchorPos = longSideBeforeAnchorPos;
+					rightBeforeAnchorLine = longSideBeforeAnchorLine;
+					rightAfterAnchorPos = longSideAfterAnchorPos;
+					rightAfterAnchorLine = longSideAfterAnchorLine;
+				}
+			}
+
+			if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
+				addAnchor("before", leftBeforeAnchorPos, leftBeforeAnchorLine!, rightBeforeAnchorPos, rightBeforeAnchorLine!, diffs.length);
+			}
+			if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
+				addAnchor("after", leftAfterAnchorPos, leftAfterAnchorLine!, rightAfterAnchorPos, rightAfterAnchorLine!, diffs.length);
+			}
+
+			const newEntry: DiffEntry = {
+				type: type,
+				left: {
+					pos: leftPos,
+					len: leftLen,
+					empty: leftEmpty,
+				},
+				right: {
+					pos: rightPos,
+					len: rightLen,
+					empty: rightEmpty,
+				},
+			};
+			diffs.push(newEntry);
+		}
+
+		diffContext.diffs = diffs;
+		diffContext.anchors = anchors;
+		return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length };
+	}
+
+	disableAlignedMode();
 	leftEditor.updateText();
 	rightEditor.updateText();
-	statusBar.update();
+	_diffContext = {
+		reqId: 0,
+		leftText: leftEditor.text,
+		rightText: rightEditor.text,
+		diffOptions: { ..._diffOptions },
+		done: false,
+	};
+	computeDiff();
 
 	return {
 		get alignedMode() {
@@ -963,9 +1357,9 @@ animation: highlightAnimation 0.3s linear 3;
 		get dump() {
 			// 디버깅 할 때...
 			return {
-				diffResult: _diffResult,
-				diffs: _diffResult?.diffs,
-				anchors: _diffResult?.anchors,
+				_diffContext: _diffContext,
+				// diffs: _diffResult?.diffs,
+				// anchors: _diffResult?.anchors,
 				diffOptions: _diffOptions,
 				leftEditor,
 				rightEditor,

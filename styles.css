@@ -432,7 +432,6 @@ sub,
 
 .aligned .red {
 	color: hsl(0 100% 40%) !important;
-	font-weight: bold;
 }
 
 :root {

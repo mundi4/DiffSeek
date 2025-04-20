@@ -48,27 +48,24 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 		// }
 		let nextEventPos = textLen;
 
-		// 빨간글자색(개정대비표)나 <sup> <sub> 같은 속성을 렌더링
-		// 거의 다 만들었고 지금 다듬으면 되는데 살짝 귀찮다. 사용할 경우 editor에 mutationObserver 설치(?)해서
-		// 원치 않는 style태그가 붙는 경우 잽싸게 제거해 줄 필요가 있음.
-		// if (nextPropsPos === null) {
-		// 	textPropsIndex++;
-		// 	if (textPropsIndex < textProps.length) {
-		// 		nextProps = textProps[textPropsIndex];
-		// 		nextPropsPos = nextProps.pos;
-		// 		if (nextPropsPos < pos) {
-		// 			// skipped text property. this should not happen.
-		// 			console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
-		// 			nextPropsPos = nextProps = null;
-		// 		}
-		// 	} else {
-		// 		nextPropsPos = Number.MAX_SAFE_INTEGER;
-		// 	}
-		// }
+		if (nextPropsPos === null) {
+			textPropsIndex++;
+			if (textPropsIndex < textProps.length) {
+				nextProps = textProps[textPropsIndex];
+				nextPropsPos = nextProps.pos;
+				if (nextPropsPos < pos) {
+					// skipped text property. this should not happen.
+					console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
+					nextPropsPos = nextProps = null;
+				}
+			} else {
+				nextPropsPos = Number.MAX_SAFE_INTEGER;
+			}
+		}
 
-		// if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
-		// 	nextEventPos = nextPropsPos;
-		// }
+		if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
+			nextEventPos = nextPropsPos;
+		}
 
 		if (nextAnchorPos === null) {
 			anchorIndex++;
@@ -76,7 +73,7 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 				nextAnchor = anchors[anchorIndex];
 				nextAnchorPos = nextAnchor[textKey];
 				if (nextAnchorPos < pos) {
-					// anchor 위치를 조절할 때 문제가 생긴 경우인데... 앵커를 못 박으면 줄맞춤 정렬이 깨진다. 딱 그뿐... 
+					// anchor 위치를 조절할 때 문제가 생긴 경우인데... 앵커를 못 박으면 줄맞춤 정렬이 깨진다. 딱 그뿐...
 					console.warn("Skipped anchor", { anchor: nextAnchor, anchorIndex: anchorIndex, pos: pos, anchorPos: nextAnchorPos });
 					nextAnchorPos = nextAnchor = null;
 					// continue;
@@ -148,20 +145,20 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 			lastSupSubPos = null;
 		}
 
-		// if (nextEventPos === nextPropsPos) {
-		// 	textruns.push({
-		// 		type: "MODIFIER",
-		// 		pos: nextPropsPos,
-		// 		len: 0,
-		// 		diffIndex: null,
-		// 		anchorIndex: null,
-		// 		props: nextProps,
-		// 	});
+		if (nextEventPos === nextPropsPos) {
+			textruns.push({
+				type: "MODIFIER",
+				pos: nextPropsPos,
+				len: 0,
+				diffIndex: null,
+				anchorIndex: null,
+				props: nextProps,
+			});
 
-		// 	lastSupSubPos = !!nextProps?.supsub ? nextPropsPos : null;
-		// 	nextPropsPos = null;
-		// 	continue;
-		// }
+			lastSupSubPos = !!nextProps?.supsub ? nextPropsPos : null;
+			nextPropsPos = null;
+			continue;
+		}
 
 		// 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
 		if (nextEventPos === nextAnchorPos && nextAnchor!.type === "before") {
@@ -245,5 +242,6 @@ function getTextRuns(textKey: "left" | "right", text: string, textProps: TextPro
 		props: null,
 	});
 
+	console.log("textruns", textruns);
 	return textruns;
 }

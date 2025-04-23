@@ -440,7 +440,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return { update };
 	})();
 
-	
 	function getVisibleAnchors() {
 		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
 	}
@@ -652,6 +651,20 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return walker.nextNode() as Text | null;
 	}
 
+	function findFirstTextNodeAfter(root: Node, after: Node): Text | null {
+		let current: Node | null = after;
+		while (current && current !== root) {
+			if (current.nextSibling) {
+				const found = getFirstTextNode(current.nextSibling);
+				if (found) return found;
+				current = current.nextSibling;
+			} else {
+				current = current.parentNode;
+			}
+		}
+		return null;
+	}
+
 	function getTextSelectionRange(): [startOffset: number, endOffset: number] | [null, null] {
 		const selection = window.getSelection();
 		if (!selection || !selection.rangeCount) {
@@ -659,60 +672,74 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		}
 
 		const range = selection.getRangeAt(0);
-		if (!wrapper.contains(range.commonAncestorContainer)) {
+		const root = editor.contains(range.commonAncestorContainer) ? editor : mirror.contains(range.commonAncestorContainer) ? mirror : null;
+		if (!root) {
 			return [null, null];
 		}
 
 		let startOffset = Number.NaN;
 		let endOffset = Number.NaN;
 
-		let startNode: ChildNode | null = range.startContainer as ChildNode;
-		let endNode: ChildNode | null = range.endContainer as ChildNode;
-		let nodeStartOffset = range.startOffset;
-		let nodeEndOffset = range.endOffset;
-		if (startNode.nodeType !== 3) {
-			startNode = getFirstTextNode(startNode.childNodes[nodeStartOffset]);
-			nodeStartOffset = 0;
-		}
-		if (endNode.nodeType !== 3) {
-			endNode = getFirstTextNode(endNode.childNodes[nodeEndOffset]);
-			nodeEndOffset = 0;
+		let startTextNode: ChildNode | null = range.startContainer as ChildNode;
+		let endTextNode: ChildNode | null = range.endContainer as ChildNode;
+		let startTextOffset = range.startOffset;
+		let endTextOffset = range.endOffset;
+
+		if (startTextNode.nodeType === 1) {
+			if (startTextOffset === startTextNode.childNodes.length) {
+				// startOffset이 startContainer의 childNodes.length와 같은 경우가 있다.
+				// 이 경우 범위의 시작은 startContainer는 끝부분에 있다는 의미이므로 startContainer의 다음 요소의 첫부분에 있다고 생각할 수도 있다(아마도?)
+				// 그래서 startContainer 이후(형제노드, 없으면 부모를 거슬러 올라가서 부모의 형제노드) 첫 텍스트노드를 찾아옴
+				startTextNode = findFirstTextNodeAfter(root, startTextNode);
+			} else {
+				startTextNode = getFirstTextNode(startTextNode.childNodes[startTextOffset]);
+			}
+			// 어찌됐건 startContainer가 element타입이면 글자 오프셋은 무조건 0임
+			startTextOffset = 0;
 		}
 
-		if (!startNode || !endNode) {
+		// 마찬가지
+		if (endTextNode.nodeType === 1) {
+			if (endTextOffset === endTextNode.childNodes.length) {
+				endTextNode = findFirstTextNodeAfter(root, endTextNode);
+			} else {
+				endTextNode = getFirstTextNode(endTextNode.childNodes[endTextOffset]);
+			}
+			endTextOffset = 0;
+		}
+
+		if (!startTextNode || !endTextNode || startTextNode.nodeType !== 3 || endTextNode.nodeType !== 3) {
 			return [null, null];
 		}
 
-		if (_editMode) {
-			// edit 모드에서 contenteditable은 그냥 textNode 집합임. textNode 하나가 한 줄일 수도 있고
-			// 하나의 textNode에 여러줄이 들어가 있을 수도 있다. 고로 그냥 글자 수를 새어보는 수 밖에 없음.
+		if (root === editor) {
 			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
 			let currentNode;
 			let pos = 0;
 			while ((currentNode = walker.nextNode())) {
-				if (currentNode === startNode) {
-					startOffset = pos + nodeStartOffset;
+				if (currentNode === startTextNode) {
+					startOffset = pos + startTextOffset;
 				}
-				if (currentNode === endNode) {
-					endOffset = pos + nodeEndOffset;
+				if (currentNode === endTextNode) {
+					endOffset = pos + endTextOffset;
 					break;
 				}
 				pos += currentNode.nodeValue!.length;
 			}
 		} else {
-			// aligned mode.
-			// 이 경우 조금 최적화가 가능. 실제로 이게 얼마나 효율적인지는 테스트해 볼 필요가 있겠지만...
-			// 몇 천 라인의 텍스트에 diff, anchor가 많은 경우 당연히 시작줄, 끝줄을 먼저 찾고 그 줄에 대해서만
-			// offset을 계산하는 것이 더 빠르겠지!
-			let startLineEl: HTMLElement = startNode.parentElement?.closest("div[data-pos]")!;
-			let endLineEl: HTMLElement = endNode.parentElement?.closest("div[data-pos]")!;
+			let startLineEl: HTMLElement = startTextNode.parentElement?.closest("div[data-pos]")!;
+			let endLineEl: HTMLElement = endTextNode.parentElement?.closest("div[data-pos]")!;
+			if (!startLineEl || !endLineEl) {
+				return [null, null];
+			}
+
 			if (startLineEl && endLineEl) {
 				let walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null);
 				let pos = Number(startLineEl.dataset.pos);
 				let currentNode;
 				while ((currentNode = walker.nextNode())) {
-					if (currentNode === startNode) {
-						startOffset = pos + nodeStartOffset;
+					if (currentNode === startTextNode) {
+						startOffset = pos + startTextOffset;
 						break;
 					}
 					pos += currentNode.nodeValue!.length;
@@ -720,8 +747,8 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				walker = document.createTreeWalker(endLineEl, NodeFilter.SHOW_TEXT, null);
 				pos = Number(endLineEl.dataset.pos);
 				while ((currentNode = walker.nextNode())) {
-					if (currentNode === endNode) {
-						endOffset = pos + nodeEndOffset;
+					if (currentNode === endTextNode) {
+						endOffset = pos + endTextOffset;
 						break;
 					}
 					pos += currentNode.nodeValue!.length;

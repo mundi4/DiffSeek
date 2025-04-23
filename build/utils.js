@@ -70,6 +70,7 @@ function isReddish(color) {
     reddishCache.set(color, isRed);
     return isRed;
 }
+// 블럭 요소뿐만 아니라 SANITIZE시에 \n을 붙일 요소들 포함함!
 const BLOCK_ELEMENTS = {
     DD: true,
     DT: true,
@@ -95,8 +96,11 @@ const BLOCK_ELEMENTS = {
     ADDRESS: true,
     FIGURE: true,
     FIGCAPTION: true,
+    TABLE: true,
+    CAPTION: true,
+    TR: true,
     HR: true,
-    BR: true, // BLOCK요소가 아니긴 한데...
+    BR: true, // BLOCK 요소가 아니긴 한데...
 };
 const TEXTLESS_ELEMENTS = {
     HR: true,
@@ -158,7 +162,7 @@ function sanitizeHTML(rawHTML) {
             }
             let text = node.nodeValue;
             if (BLOCK_ELEMENTS[node.parentElement.nodeName]) {
-                text = text.replace(/[\r\n]/g, "");
+                text = text.trim().replaceAll("\r", "").replaceAll("\n", "");
             }
             finalHTML += escapeHTML(text);
             return;
@@ -231,7 +235,6 @@ function sanitizeHTML(rawHTML) {
         }
     }
     extractFlattenedHTML(body);
-    console.log("sanitized", { rawHTML, finalHTML });
     return finalHTML;
 }
 function flattenHTML(rootNode) {

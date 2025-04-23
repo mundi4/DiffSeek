@@ -1,289 +1,4 @@
 "use strict";
-const STYLE_NONE = 0;
-const STYLE_COLOR_DEFAULT = 1 << 0;
-const STYLE_COLOR_RED = 1 << 1;
-const STYLE_MASK_COLOR = STYLE_COLOR_DEFAULT | STYLE_COLOR_RED;
-const reddishCache = new Map([
-    ["red", true],
-    ["#ff0000", true],
-    ["#e60000", true],
-    ["#c00000", true],
-    ["rgb(255,0,0)", true],
-    ["rgb(230,0,0)", true],
-    ["#000000", false],
-    ["#333333", false],
-    ["#ffffff", false],
-    ["black", false],
-    ["blue", false],
-    ["white", false],
-    ["window", false],
-    ["windowtext", false],
-    // 기타 등등?
-]);
-let _ctx = null;
-// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
-// 정규식은 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡기고고 디버깅 시도조차 하지 말 것.
-function getRGB(color) {
-    // #rrggbb
-    const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
-    if (hex6) {
-        const n = parseInt(hex6[1], 16);
-        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-    }
-    // #rgb
-    const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
-    if (hex3) {
-        const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
-        return [r, g, b];
-    }
-    // rgb(...) / rgba(...)
-    const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
-    if (rgb) {
-        const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
-        if (parts.length >= 3)
-            return [parts[0], parts[1], parts[2]];
-    }
-    // 최후..의 fallback: canvas
-    if (!_ctx) {
-        const canvas = document.createElement("canvas");
-        canvas.width = canvas.height = 1;
-        _ctx = canvas.getContext("2d");
-    }
-    try {
-        _ctx.clearRect(0, 0, 1, 1);
-        _ctx.fillStyle = color;
-        _ctx.fillRect(0, 0, 1, 1);
-        const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
-        return [r, g, b];
-    }
-    catch {
-        return null;
-    }
-}
-function isReddish(color) {
-    let isRed = reddishCache.get(color);
-    if (isRed !== undefined)
-        return isRed;
-    console.log("no cache hit", color);
-    const rgb = getRGB(color);
-    isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
-    reddishCache.set(color, isRed);
-    return isRed;
-}
-// 블럭 요소뿐만 아니라 SANITIZE시에 \n을 붙일 요소들 포함함!
-const BLOCK_ELEMENTS = {
-    DD: true,
-    DT: true,
-    DIV: true,
-    P: true,
-    H1: true,
-    H2: true,
-    H3: true,
-    H4: true,
-    H5: true,
-    H6: true,
-    UL: true,
-    OL: true,
-    LI: true,
-    BLOCKQUOTE: true,
-    FORM: true,
-    HEADER: true,
-    FOOTER: true,
-    ARTICLE: true,
-    SECTION: true,
-    ASIDE: true,
-    NAV: true,
-    ADDRESS: true,
-    FIGURE: true,
-    FIGCAPTION: true,
-    TABLE: true,
-    CAPTION: true,
-    TR: true,
-    HR: true,
-    BR: true, // BLOCK 요소가 아니긴 한데...
-};
-const TEXTLESS_ELEMENTS = {
-    HR: true,
-    BR: true,
-    IMG: true,
-    VIDEO: true,
-    AUDIO: true,
-    EMBED: true,
-    OBJECT: true,
-    CANVAS: true,
-    SVG: true,
-    TABLE: true,
-    THEAD: true,
-    TBODY: true,
-    TFOOT: true,
-    TR: true,
-    OL: true,
-    UL: true,
-    DL: true,
-    STYLE: true,
-    HEAD: true,
-    TITLE: true,
-    SCRIPT: true,
-    LINK: true,
-    META: true,
-    BASE: true,
-    AREA: true,
-};
-// paste 이벤트 때 붙여넣기될 html을 정리함
-// 거~의~ 모든 html을 제거하고 지금으로써는 redish한 색상(개정되는 부분 강조색색)만 남겨둠
-function sanitizeHTML(rawHTML) {
-    const START_TAG = "<!--StartFragment-->";
-    const END_TAG = "<!--EndFragment-->";
-    const startIndex = rawHTML.indexOf(START_TAG);
-    if (startIndex >= 0) {
-        const endIndex = rawHTML.lastIndexOf(END_TAG);
-        if (endIndex >= 0) {
-            rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-        }
-        else {
-            rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-        }
-    }
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(rawHTML, "text/html");
-    const body = doc.body;
-    // const textProps: TextProperties[] = [];
-    // let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null, flags: STYLE_NONE };
-    // let textPropsStack: TextProperties[] = [];
-    // textProps.push(currentTextProps);
-    // textPropsStack.push(currentTextProps);
-    let finalHTML = "";
-    let currentFlags = STYLE_COLOR_DEFAULT;
-    let styleStack = [];
-    function extractFlattenedHTML(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-            if (TEXTLESS_ELEMENTS[node.parentElement.nodeName]) {
-                return;
-            }
-            let text = node.nodeValue;
-            if (BLOCK_ELEMENTS[node.parentElement.nodeName]) {
-                text = text.trim().replaceAll("\r", "").replaceAll("\n", "");
-            }
-            finalHTML += escapeHTML(text);
-            return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node;
-            if (el.nodeName === "BR") {
-                finalHTML += "\n";
-                return;
-            }
-            if (el.nodeName === "IMG") {
-                finalHTML += "🖼️";
-                return;
-            }
-            // let newTextProps: TextProperties | null = null;
-            // let prevTextProps = currentTextProps;
-            // let spanAppended = false;
-            let color = null; // null: color style은 있지만 빨간계통 색이 아닌 경우
-            // let pushed = false;
-            let colorStyle = null;
-            let pushed = false;
-            let newFlags = currentFlags;
-            if (el.classList.contains("red")) {
-                colorStyle = STYLE_COLOR_RED;
-            }
-            else if (el.style?.color) {
-                if (isReddish(el.style.color)) {
-                    colorStyle = STYLE_COLOR_RED;
-                }
-                else {
-                    colorStyle = STYLE_COLOR_DEFAULT;
-                }
-            }
-            else {
-                colorStyle = currentFlags & STYLE_MASK_COLOR;
-            }
-            if (colorStyle !== null && (currentFlags & STYLE_MASK_COLOR) !== colorStyle) {
-                if (colorStyle === STYLE_COLOR_RED) {
-                    color = "red";
-                }
-                else {
-                    color = "default";
-                }
-                newFlags = (currentFlags & ~STYLE_MASK_COLOR) | colorStyle;
-            }
-            let tagName = color !== null ? "SPAN" : null;
-            if (tagName && color) {
-                finalHTML += `<${tagName} class="${color}">`;
-            }
-            else if (tagName) {
-                finalHTML += `<${tagName}>`;
-            }
-            if (currentFlags !== newFlags) {
-                styleStack.push(currentFlags);
-                currentFlags = newFlags;
-                pushed = true;
-            }
-            for (const child of el.childNodes) {
-                extractFlattenedHTML(child);
-            }
-            if (tagName) {
-                finalHTML += `</${tagName}>`;
-            }
-            if (BLOCK_ELEMENTS[el.nodeName]) {
-                finalHTML += "\n";
-            }
-            if (pushed) {
-                currentFlags = styleStack.pop();
-            }
-        }
-    }
-    extractFlattenedHTML(body);
-    return finalHTML;
-}
-function flattenHTML(rootNode) {
-    console.log("flattenHTML", rootNode);
-    const textProps = [];
-    let currentTextProps = { pos: 0, color: null, flags: 0 };
-    let textPropsStack = [];
-    textProps.push(currentTextProps);
-    textPropsStack.push(currentTextProps);
-    let finalText = "";
-    function extractFlattenedHTML(node) {
-        // console.log("extractFlattenedHTML", node)
-        if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.nodeValue || "";
-            finalText += text;
-            return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node;
-            let newTextProps = null;
-            let color = null;
-            if (el.classList.contains("red")) {
-                color = "red";
-            }
-            if (currentTextProps.color !== color) {
-                if (!newTextProps) {
-                    currentTextProps = newTextProps = { ...currentTextProps, pos: finalText.length };
-                    textProps.push(newTextProps);
-                    textPropsStack.push(currentTextProps);
-                }
-                newTextProps.color = color;
-            }
-            for (const child of el.childNodes) {
-                extractFlattenedHTML(child);
-            }
-            if (BLOCK_ELEMENTS[el.nodeName]) {
-                finalText += "\n";
-            }
-            if (newTextProps) {
-                textPropsStack.pop();
-                currentTextProps = { ...textPropsStack[textPropsStack.length - 1], pos: finalText.length };
-                textProps.push(currentTextProps);
-            }
-        }
-    }
-    extractFlattenedHTML(rootNode);
-    //console.log("flattened", { rootNode, finalText, textProps });
-    return [finalText, textProps];
-}
 function debounce(func, delay) {
     let timeoutId;
     return function (...args) {
@@ -367,7 +82,7 @@ function getSelectedTokenRange(tokens, startOffset, endOffset) {
         return result;
     }
     const startIndex = findTokenIndex(startOffset);
-    const endIndex = findTokenIndex(endOffset, startIndex);
+    const endIndex = findTokenIndex(endOffset - 1, startIndex);
     return [startIndex, endIndex + 1]; // [inclusive, exclusive]
 }
 function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
@@ -409,17 +124,21 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     return [mappedStart, mappedEnd];
 }
 function buildOutputHTMLFromRuns(text, textRuns, options) {
-    let result = "<pre>";
-    let inMark = false;
+    let inDiff = false;
+    let result = options.htmlPre ? "<pre>" : "";
     for (const run of textRuns) {
         if (run.type === "DIFF") {
-            result += "<mark>";
-            inMark = true;
+            const diffIndex = run.diffIndex;
+            // result += "<mark>";
+            const color = DIFF_COLOR_HUES[diffIndex % DIFF_COLOR_HUES.length];
+            result += `<mark style="background-color: hsl(${color}, 100%, 80%);">`;
+            inDiff = true;
         }
         else if (run.type === "DIFF_END") {
-            if (inMark) {
+            if (inDiff) {
+                // result += "</mark>";
                 result += "</mark>";
-                inMark = false;
+                inDiff = false;
             }
         }
         else if (run.type === "CHARS") {
@@ -429,9 +148,11 @@ function buildOutputHTMLFromRuns(text, textRuns, options) {
             result += "\n";
         }
     }
-    if (inMark)
+    if (inDiff)
         result += "</mark>";
-    result += "\n\n</pre>";
+    if (options.htmlPre)
+        result += "</pre>";
+    result += "\n\n";
     return result;
 }
 function buildOutputPlainText(leftText, leftRuns, rightText, rightRuns, options = {}) {

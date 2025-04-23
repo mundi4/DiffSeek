@@ -19,6 +19,7 @@ const DiffSeek = (function () {
         htmlFormat: "div",
         textFormat: 0,
     };
+    let _copyMode = "raw";
     // devtools 콘솔에서 설정 값을 바꿨을때 바로 업데이트 시키기 위해...
     const _diffOptions = (function (defaultValues) {
         let _diffOptions = { ...defaultValues };
@@ -135,7 +136,7 @@ const DiffSeek = (function () {
         whitespace: "ignore",
         greedyMatch: false,
         useLengthBias: true,
-        maxGram: 5,
+        maxGram: 3,
         lengthBiasFactor: 0.7,
         sectionHeadingMultiplier: 1 / 0.75,
         lineStartMultiplier: 1 / 0.85,
@@ -162,6 +163,26 @@ const DiffSeek = (function () {
                 else {
                     enableAlignedMode();
                 }
+            },
+        },
+        {
+            //📋
+            side: "center",
+            key: "copyMode",
+            //label: "📋",
+            label: "",
+            get: () => (_copyMode === "raw" ? "📄" : _copyMode === "formatted" ? "🖍️" : "↔️"),
+            toggle: () => {
+                if (_copyMode === "raw") {
+                    _copyMode = "formatted";
+                }
+                else if (_copyMode === "formatted") {
+                    _copyMode = "compare";
+                }
+                else {
+                    _copyMode = "raw";
+                }
+                updateButtons();
             },
         },
         {
@@ -354,7 +375,6 @@ const DiffSeek = (function () {
                 rightTokens: ctx.rightTokens,
             };
             worker.postMessage(request);
-            console.log("postMessage", request);
             updateButtons();
         }
         function computeDiff() {
@@ -388,7 +408,6 @@ const DiffSeek = (function () {
             computeDiffTimeoutId = requestIdleCallback(step);
         }
         worker.onmessage = function (e) {
-            console.log("worker message", e);
             const data = e.data;
             if (data.type === "diff") {
                 if (data.reqId === reqId) {
@@ -712,6 +731,67 @@ animation: highlightAnimation 0.3s linear 3;
         diffList.innerHTML = "";
         diffList.appendChild(fragment);
     }
+    document.addEventListener("copy", (e) => {
+        if (_copyMode === "raw") {
+            return;
+        }
+        if (_diffContext.done === false) {
+            return;
+        }
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed)
+            return;
+        const range = selection.getRangeAt(0);
+        const editor = leftEditor.wrapper.contains(range.commonAncestorContainer)
+            ? leftEditor
+            : rightEditor.wrapper.contains(range.commonAncestorContainer)
+                ? rightEditor
+                : null;
+        if (editor === null) {
+            return;
+        }
+        const [startOffset, endOffset] = editor.getTextSelectionRange();
+        if (startOffset === null || endOffset === null)
+            return;
+        e.preventDefault();
+        const text = editor.text;
+        const tokens = editor === leftEditor ? _diffContext.leftTokens : _diffContext.rightTokens;
+        const otherTokens = editor === leftEditor ? _diffContext.rightTokens : _diffContext.leftTokens;
+        const rawEntries = _diffContext.rawEntries;
+        const sideKey = editor === leftEditor ? "left" : "right";
+        const otherSideKey = sideKey === "left" ? "right" : "left";
+        const diffs = _diffContext.diffs;
+        if (_copyMode === "compare") {
+            const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
+            const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
+            const startToken = tokens[startIndex];
+            const endToken = tokens[endIndex - 1];
+            const otherStartToken = otherTokens[mappedStartIndex];
+            const otherEndToken = otherTokens[mappedEndIndex - 1];
+            const startPos = startToken?.pos ?? 0;
+            const endPos = endToken ? endToken.pos + endToken.len : startPos;
+            const otherStartPos = otherStartToken?.pos ?? 0;
+            const otherEndPos = otherEndToken ? otherEndToken.pos + otherEndToken.len : otherStartPos;
+            const leftRuns = getTextRuns("left", leftEditor.text, diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
+            const rightRuns = getTextRuns("right", rightEditor.text, diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
+            const html = buildOutputHTML(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            const plain = buildOutputPlainText(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            e.clipboardData?.setData("text/html", html);
+            e.clipboardData?.setData("text/plain", plain);
+        }
+        else {
+            const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
+            const startToken = tokens[startIndex];
+            const endToken = tokens[endIndex - 1];
+            const startPos = startToken?.pos ?? 0;
+            const endPos = endToken ? endToken.pos + endToken.len : startPos;
+            const textRuns = getTextRuns(sideKey, leftEditor.text, diffs, [], startPos, endPos);
+            const html = buildOutputHTMLFromRuns(text, textRuns, _outputOptions);
+            const plain = buildOutputPlainTextFromRuns(text, textRuns, _outputOptions);
+            e.clipboardData?.setData("text/html", html);
+            e.clipboardData?.setData("text/plain", plain);
+        }
+    });
     document.addEventListener("keydown", (e) => {
         // 어느 단축키를 써야 잘썼다고 소문나냐?
         if (e.key === "F2") {
@@ -883,10 +963,8 @@ animation: highlightAnimation 0.3s linear 3;
             const [startOffset, endOffset] = editor.getTextSelectionRange();
             if (startOffset === null || endOffset === null)
                 return;
-            console.log("text from range", text.slice(startOffset, endOffset));
             const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
             const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
-            console.log("startIndex, endIndex", startIndex, endIndex);
             const startToken = tokens[startIndex];
             const endToken = tokens[endIndex - 1];
             const otherStartToken = otherTokens[mappedStartIndex];
@@ -895,10 +973,8 @@ animation: highlightAnimation 0.3s linear 3;
             const endPos = endToken ? endToken.pos + endToken.len : startPos;
             const otherStartPos = otherStartToken?.pos ?? 0;
             const otherEndPos = otherEndToken ? otherEndToken.pos + otherEndToken.len : otherStartPos;
-            console.log("thistext:", text.slice(startPos, endPos));
-            console.log("othertxt:", otherText.slice(otherStartPos, otherEndPos));
-            const leftRuns = getTextRuns("left", leftEditor.text, [], diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
-            const rightRuns = getTextRuns("right", rightEditor.text, [], diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
+            const leftRuns = getTextRuns("left", leftEditor.text, diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
+            const rightRuns = getTextRuns("right", rightEditor.text, diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
             const html = buildOutputHTML(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
             const plain = buildOutputPlainText(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
             e.dataTransfer.setData("text/html", html);

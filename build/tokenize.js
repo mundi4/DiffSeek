@@ -30,7 +30,6 @@ for (var entry of NORMALIZE_CHARS) {
         }
     }
 }
-console.log("normalizeChars: ", normalizeChars);
 function htmlEntityToChar(entity) {
     const doc = new DOMParser().parseFromString(entity, "text/html");
     const char = doc.body.textContent;
@@ -335,7 +334,7 @@ function tokenize(input, mode, noCache = false) {
         default:
             throw new Error("Unknown tokenization mode: " + mode);
     }
-    console.log("tokenize took %d ms", performance.now() - now);
+    console.debug("tokenize took %d ms", performance.now() - now);
     // tokens.push({
     // 	text: "",
     // 	pos: input.length,

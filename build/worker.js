@@ -413,13 +413,14 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
     const UNIQUE_BONUS = 1 / (diffOptions.uniqueMultiplier || 1 / 0.5);
     const LINE_START_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.85);
     const LINE_END_BONUS = 1 / (diffOptions.lineEndMultiplier || 1 / 0.9);
-    const SECTION_HEADING_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.75);
+    const SECTION_HEADING_BONUS = 1 / (diffOptions.sectionHeadingMultiplier || 1 / 0.75);
     //const FULL_LINE_BONUS = 0.85; n그램을 사용시 여러단어가 매치되는 경우 오히려 마지막 단어가 다음 줄로 넘어가서 보너스를 못 받을 수가 있다
     const useLengthBias = !!ctx.options.useLengthBias;
     const maxGram = ctx.options.maxGram || 1;
     const useMatchPrefix = ctx.options.whitespace === "ignore";
     const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
     const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
+    const entries = [];
     const freq = {};
     for (let n = 1; n <= maxLen; n++) {
         for (let i = lhsLower; i <= lhsUpper - n; i++) {
@@ -478,7 +479,7 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
                     nGrams++;
                     continue;
                 }
-                if (useMatchPrefix && ltext1.length !== rtext1.length && ltext[0] === rtext[0]) {
+                if (useMatchPrefix && ltext.length !== rtext.length && ltext[0] === rtext[0]) {
                     const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper);
                     if (match) {
                         const matchedGrams = Math.min(match[0], match[1]);
@@ -596,20 +597,21 @@ async function diffCore(ctx, leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
         anchor.lhsIndex + anchor.lhsLength <= lhsUpper &&
         anchor.rhsIndex >= rhsLower &&
         anchor.rhsIndex + anchor.rhsLength <= rhsUpper) {
-        console.debug("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
+        // console.debug("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
         await diffCore(ctx, leftTokens, lhsLower, anchor.lhsIndex, rightTokens, rhsLower, anchor.rhsIndex, findAnchor);
-        // 앵커는 common sequence임!
-        entries.push({
-            type: 0,
-            left: {
-                pos: anchor.lhsIndex,
-                len: anchor.lhsLength,
-            },
-            right: {
-                pos: anchor.rhsIndex,
-                len: anchor.rhsLength,
-            },
-        });
+        // 앵커는 common sequence임!!
+        appendEqualEntriesFromAnchor(leftTokens, anchor.lhsIndex, anchor.lhsLength, rightTokens, anchor.rhsIndex, anchor.rhsLength, ctx.options.whitespace, entries);
+        // entries.push({
+        // 	type: 0,
+        // 	left: {
+        // 		pos: anchor.lhsIndex,
+        // 		len: anchor.lhsLength,
+        // 	},
+        // 	right: {
+        // 		pos: anchor.rhsIndex,
+        // 		len: anchor.rhsLength,
+        // 	},
+        // });
         await diffCore(ctx, leftTokens, anchor.lhsIndex + anchor.lhsLength, lhsUpper, rightTokens, anchor.rhsIndex + anchor.rhsLength, rhsUpper, findAnchor);
     }
     else {
@@ -635,6 +637,39 @@ async function diffCore(ctx, leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
     }
     entries.push(...skippedTail);
     return entries;
+}
+function appendEqualEntriesFromAnchor(leftTokens, lhsIndex, lhsLength, rightTokens, rhsIndex, rhsLength, whitespace = "ignore", entries) {
+    let li = lhsIndex;
+    let ri = rhsIndex;
+    while (li < lhsIndex + lhsLength && ri < rhsIndex + rhsLength) {
+        const lt = leftTokens[li];
+        const rt = rightTokens[ri];
+        if (lt.text === rt.text) {
+            entries.push({
+                type: 0,
+                left: { pos: li, len: 1 },
+                right: { pos: ri, len: 1 },
+            });
+            li++;
+            ri++;
+        }
+        else if (whitespace === "ignore" && lt.text.length !== rt.text.length && lt.text[0] === rt.text[0]) {
+            // 1:N, N:1 or N:M → custom matching (e.g. matchPrefixTokens)
+            const match = matchPrefixTokens(leftTokens, li, lhsIndex + lhsLength, rightTokens, ri, rhsIndex + rhsLength);
+            if (!match)
+                break;
+            entries.push({
+                type: 0,
+                left: { pos: li, len: match[0] },
+                right: { pos: ri, len: match[1] },
+            });
+            li += match[0];
+            ri += match[1];
+        }
+        else {
+            break;
+        }
+    }
 }
 // 공백을 완전히 무시하는 경우 "안녕 하세요" vs "안녕하세요"는 같다고 처리해야하지만
 // 단어단위 토큰인 경우 토큰 대 토큰 비교는 실패할 수 밖에 없다.

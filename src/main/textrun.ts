@@ -1,17 +1,14 @@
 function getTextRuns(
 	textKey: "left" | "right",
 	text: string,
-	textProps: TextProperties[],
 	diffs: DiffEntry[],
 	anchors: Anchor[],
 	startPos?: number,
 	endPos?: number
 ): TextRun[] {
 	anchors ??= [];
-	textProps ??= [];
 
 	let nextPropsPos: number | null = null;
-	let nextProps: TextProperties | null = null;
 	let nextDiffPos: number | null = null;
 	let nextDiffEndPos: number | null = null;
 	let nextDiff: DiffEntrySide | null = null;
@@ -19,10 +16,8 @@ function getTextRuns(
 	let nextAnchor: Anchor | null = null;
 	let nextNewLinePos: number | null = null;
 	let nextNewLineIsEndOfString = false;
-	let textPropsIndex = -1;
 	let diffIndex = -1;
 	let anchorIndex = -1;
-	let lastSupSubPos = null;
 	const textruns: TextRun[] = [];
 
 	const textLen = endPos ?? text.length;
@@ -40,24 +35,6 @@ function getTextRuns(
 			const a = anchors[i];
 			if (a[textKey] >= pos) {
 				anchorIndex = i - 1;
-				break;
-			}
-		}
-
-		for (let i = 0; i < textProps.length; i++) {
-			const p = textProps[i];
-			if (p.pos >= pos) {
-				textPropsIndex = i - 1;
-				if (textPropsIndex >= 0) {
-					textruns.push({
-						type: "MODIFIER",
-						pos: pos,
-						len: 0,
-						diffIndex: null,
-						anchorIndex: null,
-						props: textProps[textPropsIndex],
-					});
-				}
 				break;
 			}
 		}
@@ -85,21 +62,6 @@ function getTextRuns(
 		// 	throw new Error("Infinite loop detected");
 		// }
 		let nextEventPos = textLen;
-
-		if (nextPropsPos === null) {
-			textPropsIndex++;
-			if (textPropsIndex < textProps.length) {
-				nextProps = textProps[textPropsIndex];
-				nextPropsPos = nextProps.pos;
-				if (nextPropsPos < pos) {
-					// skipped text property. this should not happen.
-					console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
-					nextPropsPos = nextProps = null;
-				}
-			} else {
-				nextPropsPos = Number.MAX_SAFE_INTEGER;
-			}
-		}
 
 		if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
 			nextEventPos = nextPropsPos;
@@ -166,22 +128,8 @@ function getTextRuns(
 				len: nextEventPos - pos,
 				diffIndex: null,
 				anchorIndex: null,
-				props: null,
 			});
 			pos = nextEventPos;
-		}
-
-		if (nextEventPos === nextPropsPos) {
-			textruns.push({
-				type: "MODIFIER",
-				pos: nextPropsPos,
-				len: 0,
-				diffIndex: null,
-				anchorIndex: null,
-				props: nextProps,
-			});
-			nextPropsPos = null;
-			continue;
 		}
 
 		// 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
@@ -192,7 +140,6 @@ function getTextRuns(
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: anchorIndex,
-				props: null,
 			});
 			nextAnchorPos = nextAnchor = null;
 			continue;
@@ -205,7 +152,6 @@ function getTextRuns(
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: null,
-				props: null,
 			});
 			nextDiffPos = Number.MAX_SAFE_INTEGER;
 			continue;
@@ -219,7 +165,6 @@ function getTextRuns(
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: null,
-				props: null,
 			});
 			nextDiffPos = nextDiffEndPos = nextDiff = null;
 			continue;
@@ -232,7 +177,6 @@ function getTextRuns(
 				len: 0,
 				diffIndex: diffIndex,
 				anchorIndex: anchorIndex,
-				props: null,
 			});
 			nextAnchorPos = null;
 			continue;
@@ -248,7 +192,6 @@ function getTextRuns(
 					len: 1,
 					diffIndex: null,
 					anchorIndex: null,
-					props: null,
 				});
 				pos = nextEventPos + 1;
 				nextNewLinePos = null;
@@ -265,7 +208,6 @@ function getTextRuns(
 			len: 0,
 			diffIndex: diffIndex,
 			anchorIndex: null,
-			props: null,
 		});
 	}
 
@@ -275,9 +217,8 @@ function getTextRuns(
 		len: 0,
 		diffIndex: null,
 		anchorIndex: null,
-		props: null,
 	});
 
-	console.log("textruns", textruns);
+	// console.log("textruns", textruns);
 	return textruns;
 }

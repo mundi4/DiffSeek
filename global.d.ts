@@ -84,20 +84,12 @@ declare type TokenMatchEntry = {
 	rightCount: number;
 };
 
-declare type TextProperties = {
-	pos: number;
-	color: string | null;
-	//supsub: "SUP" | "SUB" | null; // not implemented yet
-	flags: number; // not implemented yet
-};
-
 type TextRun = {
-	type: "CHARS" | "MODIFIER" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
+	type: "CHARS" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
 	pos: number;
 	len: number;
 	diffIndex: number | null;
 	anchorIndex: number | null;
-	props: TextProperties | null;
 };
 
 declare type DiffContext = {
@@ -126,4 +118,7 @@ type OutputOptions = {
 	rightLabel?: string;
 	htmlFormat?: "div" | "table" | "dl";
 	textFormat?: 0 | 1 | 2 | 3;
+	htmlPre?: boolean;
 };
+
+type CopyMode = "raw" | "formatted" | "compare";

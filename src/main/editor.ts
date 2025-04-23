@@ -13,17 +13,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	const _visibleAnchors = new Set<HTMLElement>();
 	const _visibleDiffIndices = new Set<number>();
 
-	// 편집기 내에 약간의 html을 허용할지 말지.
-	// 일단 금지. browser에서 계산하는 텍스트와 내가 만드는 텍스트를 완전히 일치시키기 힘들다. 한글자한글자 문자 인덱스까지 완전히 일치시켜야 됨...
-	// 게다가 contenteditable 내에 브라우저가 뜸금없이 넣는 style(스타일 클래스가 지정된 텍스트를 지우고 바로 이어서 텍스트를 입력할 경우)이나 <br> 등등도 처리를 해줘야 하고
-	// 여하튼 신경 쓸게 많음
-	const _allowHTML = true;
-
 	let _text: string = "";
-	let _hasHTML = false;
-	let _textProps: TextProperties[] = [];
-	let _savedCaret = null;
-
 	let _editMode = false;
 
 	const wrapper = document.createElement("div");
@@ -135,43 +125,12 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	})();
 
 	function updateText() {
-		if (_hasHTML) {
-			const [text, textProps] = flattenHTML(editor);
-			_text = text;
-			_textProps = textProps;
-			if (textProps.length <= 1) {
-				// 일단 현재로써는 1개의 textProps은 반드시 들어있다.
-				_hasHTML = false;
-			}
-		} else {
-			_text = editor.textContent || "";
-			_textProps = [];
-		}
-
-		// if (_text.length === 0 || _text[_text.length - 1] !== "\n") {
-		// }
-		_text += "\n"; // 텍스트의 끝은 항상 \n으로 끝나야 인생이 편해진다.
-
+		_text = editor.textContent || "";
+		_text += "\n";
 		onTextChanged(_text);
 	}
+
 	editor.addEventListener("input", updateText);
-
-	editor.addEventListener("paste", (e) => {
-		if (!_allowHTML) return;
-		const html = e.clipboardData?.getData("text/html");
-		if (!html) return;
-		e.preventDefault();
-
-		_hasHTML = true;
-		const cleanedHTML = sanitizeHTML(html);
-		editor.contentEditable = "true";
-		unobserveEditor();
-		// deprecated된 함수... 자존심 상하지만 직접 html을 삽입하는 경우 undo/redo가 안됨.
-		document.execCommand("insertHTML", false, cleanedHTML);
-		observeEditor();
-		editor.contentEditable = "plaintext-only";
-		updateText();
-	});
 
 	const { update } = (() => {
 		let _renderId = 0;
@@ -193,7 +152,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			const generator = updateGenerator({ renderId, diffs, anchors });
 
 			// 일단 start!
-			console.debug("[%s] update(#%d) started", editorName, renderId);
 			generator.next();
 			const step = (idleDeadline: IdleDeadline) => {
 				_cancelRenderId = null;
@@ -223,14 +181,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			// 여기서 일단 한번 yield 해줘야 idleDeadline을 받을 수 있음.
 			let idleDeadline: IdleDeadline = yield;
 
-			const textruns = getTextRuns(editorName, _text, _textProps, diffs, anchors);
+			const textruns = getTextRuns(editorName, _text, diffs, anchors);
 			const text = _text;
 			const view = mirror;
 			let lineEl: HTMLElement = null!;
 			let nextInlineNode: ChildNode | null = null;
 
 			let currentDiffIndex: number | null = null;
-			let currentTextProps: TextProperties = { pos: 0, color: null, flags: 0 };
 			let lineNum: number;
 			let lineIsEmpty = true;
 			let numConsecutiveBlankLines = 0;
@@ -285,7 +242,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				if (el.textContent !== chars) {
 					el.textContent = chars;
 				}
-				el.className = currentTextProps.color || "";
 			}
 
 			function openDiff(diffIndex: number) {
@@ -393,9 +349,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 						appendChars(text.slice(pos, pos + len));
 					} else if (type === "ANCHOR") {
 						appendAnchor(textrun.pos, textrun.anchorIndex!);
-					} else if (type === "MODIFIER") {
-						// not implemented yet
-						currentTextProps = textrun.props!;
 					} else if (type === "DIFF") {
 						currentDiffIndex = textrun.diffIndex!;
 						openDiff(currentDiffIndex);
@@ -685,6 +638,15 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		let startTextOffset = range.startOffset;
 		let endTextOffset = range.endOffset;
 
+		// console.log("range:", {
+		// 	range,
+		// 	startContainer: range.startContainer,
+		// 	startOffset: range.startOffset,
+		// 	endContainer: range.endContainer,
+		// 	endOffset: range.endOffset,
+		// 	commonAncestorContainer: range.commonAncestorContainer,
+		// })
+
 		if (startTextNode.nodeType === 1) {
 			if (startTextOffset === startTextNode.childNodes.length) {
 				// startOffset이 startContainer의 childNodes.length와 같은 경우가 있다.
@@ -771,6 +733,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			[startOffset, endOffset] = [endOffset, startOffset];
 		}
 
+		console.log("startOffset, endOffset",startOffset, endOffset	)
 		return [startOffset, endOffset];
 	}
 

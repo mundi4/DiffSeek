@@ -152,288 +152,6 @@ const PROCESSING_MESSAGES = [
 //# sourceMappingURL=constants.js.map
 </script>
 <script>"use strict";
-const STYLE_NONE = 0;
-const STYLE_COLOR_DEFAULT = 1 << 0;
-const STYLE_COLOR_RED = 1 << 1;
-const STYLE_MASK_COLOR = STYLE_COLOR_DEFAULT | STYLE_COLOR_RED;
-const reddishCache = new Map([
-    ["red", true],
-    ["#ff0000", true],
-    ["#e60000", true],
-    ["#c00000", true],
-    ["rgb(255,0,0)", true],
-    ["rgb(230,0,0)", true],
-    ["#000000", false],
-    ["#333333", false],
-    ["#ffffff", false],
-    ["black", false],
-    ["blue", false],
-    ["white", false],
-    ["window", false],
-    ["windowtext", false],
-    // 기타 등등?
-]);
-let _ctx = null;
-// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
-// 정규식은 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡기고고 디버깅 시도조차 하지 말 것.
-function getRGB(color) {
-    // #rrggbb
-    const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
-    if (hex6) {
-        const n = parseInt(hex6[1], 16);
-        return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-    }
-    // #rgb
-    const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
-    if (hex3) {
-        const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
-        return [r, g, b];
-    }
-    // rgb(...) / rgba(...)
-    const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
-    if (rgb) {
-        const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
-        if (parts.length >= 3)
-            return [parts[0], parts[1], parts[2]];
-    }
-    // 최후..의 fallback: canvas
-    if (!_ctx) {
-        const canvas = document.createElement("canvas");
-        canvas.width = canvas.height = 1;
-        _ctx = canvas.getContext("2d");
-    }
-    try {
-        _ctx.clearRect(0, 0, 1, 1);
-        _ctx.fillStyle = color;
-        _ctx.fillRect(0, 0, 1, 1);
-        const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
-        return [r, g, b];
-    }
-    catch {
-        return null;
-    }
-}
-function isReddish(color) {
-    let isRed = reddishCache.get(color);
-    if (isRed !== undefined)
-        return isRed;
-    console.log("no cache hit", color);
-    const rgb = getRGB(color);
-    isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
-    reddishCache.set(color, isRed);
-    return isRed;
-}
-const BLOCK_ELEMENTS = {
-    DD: true,
-    DT: true,
-    DIV: true,
-    P: true,
-    H1: true,
-    H2: true,
-    H3: true,
-    H4: true,
-    H5: true,
-    H6: true,
-    UL: true,
-    OL: true,
-    LI: true,
-    BLOCKQUOTE: true,
-    FORM: true,
-    HEADER: true,
-    FOOTER: true,
-    ARTICLE: true,
-    SECTION: true,
-    ASIDE: true,
-    NAV: true,
-    ADDRESS: true,
-    FIGURE: true,
-    FIGCAPTION: true,
-    HR: true,
-    BR: true, // BLOCK요소가 아니긴 한데...
-};
-const TEXTLESS_ELEMENTS = {
-    HR: true,
-    BR: true,
-    IMG: true,
-    VIDEO: true,
-    AUDIO: true,
-    EMBED: true,
-    OBJECT: true,
-    CANVAS: true,
-    SVG: true,
-    TABLE: true,
-    THEAD: true,
-    TBODY: true,
-    TFOOT: true,
-    TR: true,
-    OL: true,
-    UL: true,
-    DL: true,
-    STYLE: true,
-    HEAD: true,
-    TITLE: true,
-    SCRIPT: true,
-    LINK: true,
-    META: true,
-    BASE: true,
-    AREA: true,
-};
-// paste 이벤트 때 붙여넣기될 html을 정리함
-// 거~의~ 모든 html을 제거하고 지금으로써는 redish한 색상(개정되는 부분 강조색색)만 남겨둠
-function sanitizeHTML(rawHTML) {
-    const START_TAG = "<!--StartFragment-->";
-    const END_TAG = "<!--EndFragment-->";
-    const startIndex = rawHTML.indexOf(START_TAG);
-    if (startIndex >= 0) {
-        const endIndex = rawHTML.lastIndexOf(END_TAG);
-        if (endIndex >= 0) {
-            rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-        }
-        else {
-            rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-        }
-    }
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(rawHTML, "text/html");
-    const body = doc.body;
-    // const textProps: TextProperties[] = [];
-    // let currentTextProps: TextProperties = { pos: 0, color: null, supsub: null, flags: STYLE_NONE };
-    // let textPropsStack: TextProperties[] = [];
-    // textProps.push(currentTextProps);
-    // textPropsStack.push(currentTextProps);
-    let finalHTML = "";
-    let currentFlags = STYLE_COLOR_DEFAULT;
-    let styleStack = [];
-    function extractFlattenedHTML(node) {
-        if (node.nodeType === Node.TEXT_NODE) {
-            if (TEXTLESS_ELEMENTS[node.parentElement.nodeName]) {
-                return;
-            }
-            let text = node.nodeValue;
-            if (BLOCK_ELEMENTS[node.parentElement.nodeName]) {
-                text = text.replace(/[\r\n]/g, "");
-            }
-            finalHTML += escapeHTML(text);
-            return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node;
-            if (el.nodeName === "BR") {
-                finalHTML += "\n";
-                return;
-            }
-            if (el.nodeName === "IMG") {
-                finalHTML += "🖼️";
-                return;
-            }
-            // let newTextProps: TextProperties | null = null;
-            // let prevTextProps = currentTextProps;
-            // let spanAppended = false;
-            let color = null; // null: color style은 있지만 빨간계통 색이 아닌 경우
-            // let pushed = false;
-            let colorStyle = null;
-            let pushed = false;
-            let newFlags = currentFlags;
-            if (el.classList.contains("red")) {
-                colorStyle = STYLE_COLOR_RED;
-            }
-            else if (el.style?.color) {
-                if (isReddish(el.style.color)) {
-                    colorStyle = STYLE_COLOR_RED;
-                }
-                else {
-                    colorStyle = STYLE_COLOR_DEFAULT;
-                }
-            }
-            else {
-                colorStyle = currentFlags & STYLE_MASK_COLOR;
-            }
-            if (colorStyle !== null && (currentFlags & STYLE_MASK_COLOR) !== colorStyle) {
-                if (colorStyle === STYLE_COLOR_RED) {
-                    color = "red";
-                }
-                else {
-                    color = "default";
-                }
-                newFlags = (currentFlags & ~STYLE_MASK_COLOR) | colorStyle;
-            }
-            let tagName = color !== null ? "SPAN" : null;
-            if (tagName && color) {
-                finalHTML += `<${tagName} class="${color}">`;
-            }
-            else if (tagName) {
-                finalHTML += `<${tagName}>`;
-            }
-            if (currentFlags !== newFlags) {
-                styleStack.push(currentFlags);
-                currentFlags = newFlags;
-                pushed = true;
-            }
-            for (const child of el.childNodes) {
-                extractFlattenedHTML(child);
-            }
-            if (tagName) {
-                finalHTML += `</${tagName}>`;
-            }
-            if (BLOCK_ELEMENTS[el.nodeName]) {
-                finalHTML += "\n";
-            }
-            if (pushed) {
-                currentFlags = styleStack.pop();
-            }
-        }
-    }
-    extractFlattenedHTML(body);
-    console.log("sanitized", { rawHTML, finalHTML });
-    return finalHTML;
-}
-function flattenHTML(rootNode) {
-    console.log("flattenHTML", rootNode);
-    const textProps = [];
-    let currentTextProps = { pos: 0, color: null, flags: 0 };
-    let textPropsStack = [];
-    textProps.push(currentTextProps);
-    textPropsStack.push(currentTextProps);
-    let finalText = "";
-    function extractFlattenedHTML(node) {
-        // console.log("extractFlattenedHTML", node)
-        if (node.nodeType === Node.TEXT_NODE) {
-            const text = node.nodeValue || "";
-            finalText += text;
-            return;
-        }
-        if (node.nodeType === Node.ELEMENT_NODE) {
-            const el = node;
-            let newTextProps = null;
-            let color = null;
-            if (el.classList.contains("red")) {
-                color = "red";
-            }
-            if (currentTextProps.color !== color) {
-                if (!newTextProps) {
-                    currentTextProps = newTextProps = { ...currentTextProps, pos: finalText.length };
-                    textProps.push(newTextProps);
-                    textPropsStack.push(currentTextProps);
-                }
-                newTextProps.color = color;
-            }
-            for (const child of el.childNodes) {
-                extractFlattenedHTML(child);
-            }
-            if (BLOCK_ELEMENTS[el.nodeName]) {
-                finalText += "\n";
-            }
-            if (newTextProps) {
-                textPropsStack.pop();
-                currentTextProps = { ...textPropsStack[textPropsStack.length - 1], pos: finalText.length };
-                textProps.push(currentTextProps);
-            }
-        }
-    }
-    extractFlattenedHTML(rootNode);
-    //console.log("flattened", { rootNode, finalText, textProps });
-    return [finalText, textProps];
-}
 function debounce(func, delay) {
     let timeoutId;
     return function (...args) {
@@ -559,17 +277,21 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     return [mappedStart, mappedEnd];
 }
 function buildOutputHTMLFromRuns(text, textRuns, options) {
-    let result = "<pre>";
-    let inMark = false;
+    let inDiff = false;
+    let result = options.htmlPre ? "<pre>" : "";
     for (const run of textRuns) {
         if (run.type === "DIFF") {
-            result += "<mark>";
-            inMark = true;
+            const diffIndex = run.diffIndex;
+            // result += "<mark>";
+            const color = DIFF_COLOR_HUES[diffIndex % DIFF_COLOR_HUES.length];
+            result += `<mark style="background-color: hsl(${color}, 100%, 80%);">`;
+            inDiff = true;
         }
         else if (run.type === "DIFF_END") {
-            if (inMark) {
+            if (inDiff) {
+                // result += "</mark>";
                 result += "</mark>";
-                inMark = false;
+                inDiff = false;
             }
         }
         else if (run.type === "CHARS") {
@@ -579,9 +301,11 @@ function buildOutputHTMLFromRuns(text, textRuns, options) {
             result += "\n";
         }
     }
-    if (inMark)
+    if (inDiff)
         result += "</mark>";
-    result += "\n\n</pre>";
+    if (options.htmlPre)
+        result += "</pre>";
+    result += "\n\n";
     return result;
 }
 function buildOutputPlainText(leftText, leftRuns, rightText, rightRuns, options = {}) {
@@ -716,7 +440,6 @@ for (var entry of NORMALIZE_CHARS) {
         }
     }
 }
-console.log("normalizeChars: ", normalizeChars);
 function htmlEntityToChar(entity) {
     const doc = new DOMParser().parseFromString(entity, "text/html");
     const char = doc.body.textContent;
@@ -1111,11 +834,9 @@ function extractStartCharsFromTrie(trie) {
 //# sourceMappingURL=tokenize.js.map
 </script>
 <script>"use strict";
-function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos) {
+function getTextRuns(textKey, text, diffs, anchors, startPos, endPos) {
     anchors ??= [];
-    textProps ??= [];
     let nextPropsPos = null;
-    let nextProps = null;
     let nextDiffPos = null;
     let nextDiffEndPos = null;
     let nextDiff = null;
@@ -1123,10 +844,8 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
     let nextAnchor = null;
     let nextNewLinePos = null;
     let nextNewLineIsEndOfString = false;
-    let textPropsIndex = -1;
     let diffIndex = -1;
     let anchorIndex = -1;
-    let lastSupSubPos = null;
     const textruns = [];
     const textLen = endPos ?? text.length;
     let pos = startPos ?? 0;
@@ -1142,23 +861,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
             const a = anchors[i];
             if (a[textKey] >= pos) {
                 anchorIndex = i - 1;
-                break;
-            }
-        }
-        for (let i = 0; i < textProps.length; i++) {
-            const p = textProps[i];
-            if (p.pos >= pos) {
-                textPropsIndex = i - 1;
-                if (textPropsIndex >= 0) {
-                    textruns.push({
-                        type: "MODIFIER",
-                        pos: pos,
-                        len: 0,
-                        diffIndex: null,
-                        anchorIndex: null,
-                        props: textProps[textPropsIndex],
-                    });
-                }
                 break;
             }
         }
@@ -1185,21 +887,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
         // 	throw new Error("Infinite loop detected");
         // }
         let nextEventPos = textLen;
-        if (nextPropsPos === null) {
-            textPropsIndex++;
-            if (textPropsIndex < textProps.length) {
-                nextProps = textProps[textPropsIndex];
-                nextPropsPos = nextProps.pos;
-                if (nextPropsPos < pos) {
-                    // skipped text property. this should not happen.
-                    console.warn("Skipped text property", { textProps: nextProps, textPropsIndex: textPropsIndex, pos: pos, propsPos: nextPropsPos });
-                    nextPropsPos = nextProps = null;
-                }
-            }
-            else {
-                nextPropsPos = Number.MAX_SAFE_INTEGER;
-            }
-        }
         if (nextPropsPos !== null && nextPropsPos < nextEventPos) {
             nextEventPos = nextPropsPos;
         }
@@ -1262,21 +949,8 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                 len: nextEventPos - pos,
                 diffIndex: null,
                 anchorIndex: null,
-                props: null,
             });
             pos = nextEventPos;
-        }
-        if (nextEventPos === nextPropsPos) {
-            textruns.push({
-                type: "MODIFIER",
-                pos: nextPropsPos,
-                len: 0,
-                diffIndex: null,
-                anchorIndex: null,
-                props: nextProps,
-            });
-            nextPropsPos = null;
-            continue;
         }
         // 이벤트 처리 후 반드시 continue로 다음 반복으로 넘어가야 함. (혹은 else if else if else if...)
         if (nextEventPos === nextAnchorPos && nextAnchor.type === "before") {
@@ -1286,7 +960,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: anchorIndex,
-                props: null,
             });
             nextAnchorPos = nextAnchor = null;
             continue;
@@ -1298,7 +971,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: null,
-                props: null,
             });
             nextDiffPos = Number.MAX_SAFE_INTEGER;
             continue;
@@ -1311,7 +983,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: null,
-                props: null,
             });
             nextDiffPos = nextDiffEndPos = nextDiff = null;
             continue;
@@ -1323,7 +994,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                 len: 0,
                 diffIndex: diffIndex,
                 anchorIndex: anchorIndex,
-                props: null,
             });
             nextAnchorPos = null;
             continue;
@@ -1339,7 +1009,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
                     len: 1,
                     diffIndex: null,
                     anchorIndex: null,
-                    props: null,
                 });
                 pos = nextEventPos + 1;
                 nextNewLinePos = null;
@@ -1355,7 +1024,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
             len: 0,
             diffIndex: diffIndex,
             anchorIndex: null,
-            props: null,
         });
     }
     textruns.push({
@@ -1364,7 +1032,6 @@ function getTextRuns(textKey, text, textProps, diffs, anchors, startPos, endPos)
         len: 0,
         diffIndex: null,
         anchorIndex: null,
-        props: null,
     });
     console.log("textruns", textruns);
     return textruns;
@@ -1380,15 +1047,7 @@ function createEditor(container, editorName, callbacks) {
     const _lineHints = [];
     const _visibleAnchors = new Set();
     const _visibleDiffIndices = new Set();
-    // 편집기 내에 약간의 html을 허용할지 말지.
-    // 일단 금지. browser에서 계산하는 텍스트와 내가 만드는 텍스트를 완전히 일치시키기 힘들다. 한글자한글자 문자 인덱스까지 완전히 일치시켜야 됨...
-    // 게다가 contenteditable 내에 브라우저가 뜸금없이 넣는 style(스타일 클래스가 지정된 텍스트를 지우고 바로 이어서 텍스트를 입력할 경우)이나 <br> 등등도 처리를 해줘야 하고
-    // 여하튼 신경 쓸게 많음
-    const _allowHTML = true;
     let _text = "";
-    let _hasHTML = false;
-    let _textProps = [];
-    let _savedCaret = null;
     let _editMode = false;
     const wrapper = document.createElement("div");
     wrapper.id = editorName + "EditorWrapper";
@@ -1487,42 +1146,11 @@ function createEditor(container, editorName, callbacks) {
         return { trackIntersections, untrackIntersections };
     })();
     function updateText() {
-        if (_hasHTML) {
-            const [text, textProps] = flattenHTML(editor);
-            _text = text;
-            _textProps = textProps;
-            if (textProps.length <= 1) {
-                // 일단 현재로써는 1개의 textProps은 반드시 들어있다.
-                _hasHTML = false;
-            }
-        }
-        else {
-            _text = editor.textContent || "";
-            _textProps = [];
-        }
-        // if (_text.length === 0 || _text[_text.length - 1] !== "\n") {
-        // }
-        _text += "\n"; // 텍스트의 끝은 항상 \n으로 끝나야 인생이 편해진다.
+        _text = editor.textContent || "";
+        _text += "\n";
         onTextChanged(_text);
     }
     editor.addEventListener("input", updateText);
-    editor.addEventListener("paste", (e) => {
-        if (!_allowHTML)
-            return;
-        const html = e.clipboardData?.getData("text/html");
-        if (!html)
-            return;
-        e.preventDefault();
-        _hasHTML = true;
-        const cleanedHTML = sanitizeHTML(html);
-        editor.contentEditable = "true";
-        unobserveEditor();
-        // deprecated된 함수... 자존심 상하지만 직접 html을 삽입하는 경우 undo/redo가 안됨.
-        document.execCommand("insertHTML", false, cleanedHTML);
-        observeEditor();
-        editor.contentEditable = "plaintext-only";
-        updateText();
-    });
     const { update } = (() => {
         let _renderId = 0;
         let _cancelRenderId = null;
@@ -1566,13 +1194,12 @@ function createEditor(container, editorName, callbacks) {
             _anchorElements.length = 0;
             // 여기서 일단 한번 yield 해줘야 idleDeadline을 받을 수 있음.
             let idleDeadline = yield;
-            const textruns = getTextRuns(editorName, _text, _textProps, diffs, anchors);
+            const textruns = getTextRuns(editorName, _text, diffs, anchors);
             const text = _text;
             const view = mirror;
             let lineEl = null;
             let nextInlineNode = null;
             let currentDiffIndex = null;
-            let currentTextProps = { pos: 0, color: null, flags: 0 };
             let lineNum;
             let lineIsEmpty = true;
             let numConsecutiveBlankLines = 0;
@@ -1628,7 +1255,6 @@ function createEditor(container, editorName, callbacks) {
                 if (el.textContent !== chars) {
                     el.textContent = chars;
                 }
-                el.className = currentTextProps.color || "";
             }
             function openDiff(diffIndex) {
                 if (nextInlineNode === null || nextInlineNode.nodeName !== DIFF_ELEMENT_NAME) {
@@ -1724,10 +1350,6 @@ function createEditor(container, editorName, callbacks) {
                     }
                     else if (type === "ANCHOR") {
                         appendAnchor(textrun.pos, textrun.anchorIndex);
-                    }
-                    else if (type === "MODIFIER") {
-                        // not implemented yet
-                        currentTextProps = textrun.props;
                     }
                     else if (type === "DIFF") {
                         currentDiffIndex = textrun.diffIndex;
@@ -1969,63 +1591,91 @@ function createEditor(container, editorName, callbacks) {
         const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
         return walker.nextNode();
     }
+    function findFirstTextNodeAfter(root, after) {
+        let current = after;
+        while (current && current !== root) {
+            if (current.nextSibling) {
+                const found = getFirstTextNode(current.nextSibling);
+                if (found)
+                    return found;
+                current = current.nextSibling;
+            }
+            else {
+                current = current.parentNode;
+            }
+        }
+        return null;
+    }
     function getTextSelectionRange() {
         const selection = window.getSelection();
         if (!selection || !selection.rangeCount) {
             return [null, null];
         }
         const range = selection.getRangeAt(0);
-        if (!wrapper.contains(range.commonAncestorContainer)) {
+        const root = editor.contains(range.commonAncestorContainer) ? editor : mirror.contains(range.commonAncestorContainer) ? mirror : null;
+        if (!root) {
             return [null, null];
         }
         let startOffset = Number.NaN;
         let endOffset = Number.NaN;
-        let startNode = range.startContainer;
-        let endNode = range.endContainer;
-        let nodeStartOffset = range.startOffset;
-        let nodeEndOffset = range.endOffset;
-        if (startNode.nodeType !== 3) {
-            startNode = getFirstTextNode(startNode.childNodes[nodeStartOffset]);
-            nodeStartOffset = 0;
+        let startTextNode = range.startContainer;
+        let endTextNode = range.endContainer;
+        let startTextOffset = range.startOffset;
+        let endTextOffset = range.endOffset;
+        if (startTextNode.nodeType === 1) {
+            if (startTextOffset === startTextNode.childNodes.length) {
+                // startOffset이 startContainer의 childNodes.length와 같은 경우가 있다.
+                // 이 경우 범위의 시작은 startContainer는 끝부분에 있다는 의미이므로 startContainer의 다음 요소의 첫부분에 있다고 생각할 수도 있다(아마도?)
+                // 그래서 startContainer 이후(형제노드, 없으면 부모를 거슬러 올라가서 부모의 형제노드) 첫 텍스트노드를 찾아옴
+                startTextNode = findFirstTextNodeAfter(root, startTextNode);
+            }
+            else {
+                startTextNode = getFirstTextNode(startTextNode.childNodes[startTextOffset]);
+            }
+            // 어찌됐건 startContainer가 element타입이면 글자 오프셋은 무조건 0임
+            startTextOffset = 0;
         }
-        if (endNode.nodeType !== 3) {
-            endNode = getFirstTextNode(endNode.childNodes[nodeEndOffset]);
-            nodeEndOffset = 0;
+        // 마찬가지
+        if (endTextNode.nodeType === 1) {
+            if (endTextOffset === endTextNode.childNodes.length) {
+                endTextNode = findFirstTextNodeAfter(root, endTextNode);
+            }
+            else {
+                endTextNode = getFirstTextNode(endTextNode.childNodes[endTextOffset]);
+            }
+            endTextOffset = 0;
         }
-        if (!startNode || !endNode) {
+        if (!startTextNode || !endTextNode || startTextNode.nodeType !== 3 || endTextNode.nodeType !== 3) {
             return [null, null];
         }
-        if (_editMode) {
-            // edit 모드에서 contenteditable은 그냥 textNode 집합임. textNode 하나가 한 줄일 수도 있고
-            // 하나의 textNode에 여러줄이 들어가 있을 수도 있다. 고로 그냥 글자 수를 새어보는 수 밖에 없음.
+        if (root === editor) {
             const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
             let currentNode;
             let pos = 0;
             while ((currentNode = walker.nextNode())) {
-                if (currentNode === startNode) {
-                    startOffset = pos + nodeStartOffset;
+                if (currentNode === startTextNode) {
+                    startOffset = pos + startTextOffset;
                 }
-                if (currentNode === endNode) {
-                    endOffset = pos + nodeEndOffset;
+                if (currentNode === endTextNode) {
+                    endOffset = pos + endTextOffset;
                     break;
                 }
                 pos += currentNode.nodeValue.length;
             }
         }
         else {
-            // aligned mode.
-            // 이 경우 조금 최적화가 가능. 실제로 이게 얼마나 효율적인지는 테스트해 볼 필요가 있겠지만...
-            // 몇 천 라인의 텍스트에 diff, anchor가 많은 경우 당연히 시작줄, 끝줄을 먼저 찾고 그 줄에 대해서만
-            // offset을 계산하는 것이 더 빠르겠지!
-            let startLineEl = startNode.parentElement?.closest("div[data-pos]");
-            let endLineEl = endNode.parentElement?.closest("div[data-pos]");
+            let startLineEl = startTextNode.parentElement?.closest("div[data-pos]");
+            let endLineEl = endTextNode.parentElement?.closest("div[data-pos]");
+            if (!startLineEl || !endLineEl) {
+                return [null, null];
+            }
             if (startLineEl && endLineEl) {
                 let walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null);
                 let pos = Number(startLineEl.dataset.pos);
                 let currentNode;
                 while ((currentNode = walker.nextNode())) {
-                    if (currentNode === startNode) {
-                        startOffset = pos + nodeStartOffset;
+                    if (currentNode === startTextNode) {
+                        startOffset = pos + startTextOffset;
                         break;
                     }
                     pos += currentNode.nodeValue.length;
@@ -2033,8 +1683,8 @@ function createEditor(container, editorName, callbacks) {
                 walker = document.createTreeWalker(endLineEl, NodeFilter.SHOW_TEXT, null);
                 pos = Number(endLineEl.dataset.pos);
                 while ((currentNode = walker.nextNode())) {
-                    if (currentNode === endNode) {
-                        endOffset = pos + nodeEndOffset;
+                    if (currentNode === endTextNode) {
+                        endOffset = pos + endTextOffset;
                         break;
                     }
                     pos += currentNode.nodeValue.length;
@@ -3169,7 +2819,7 @@ html {
 	top: 0;
 	left: 0;
 	pointer-events: none;
-	color: rgba(0, 0, 0, 0.1);
+	color: transparent;
 	/* color: rgba(0, 0, 0, 0.1);
 	background-color: #f8f8f8; */
 }
@@ -3676,6 +3326,7 @@ const DiffSeek = (function () {
         htmlFormat: "div",
         textFormat: 0,
     };
+    let _copyMode = "raw";
     // devtools 콘솔에서 설정 값을 바꿨을때 바로 업데이트 시키기 위해...
     const _diffOptions = (function (defaultValues) {
         let _diffOptions = { ...defaultValues };
@@ -3819,6 +3470,26 @@ const DiffSeek = (function () {
                 else {
                     enableAlignedMode();
                 }
+            },
+        },
+        {
+            //📋
+            side: "center",
+            key: "copyMode",
+            //label: "📋",
+            label: "",
+            get: () => (_copyMode === "raw" ? "📄" : _copyMode === "formatted" ? "🖍️" : "↔️"),
+            toggle: () => {
+                if (_copyMode === "raw") {
+                    _copyMode = "formatted";
+                }
+                else if (_copyMode === "formatted") {
+                    _copyMode = "compare";
+                }
+                else {
+                    _copyMode = "raw";
+                }
+                updateButtons();
             },
         },
         {
@@ -4369,6 +4040,67 @@ animation: highlightAnimation 0.3s linear 3;
         diffList.innerHTML = "";
         diffList.appendChild(fragment);
     }
+    document.addEventListener("copy", (e) => {
+        if (_copyMode === "raw") {
+            return;
+        }
+        if (_diffContext.done === false) {
+            return;
+        }
+        const selection = window.getSelection();
+        if (!selection || selection.isCollapsed)
+            return;
+        const range = selection.getRangeAt(0);
+        const editor = leftEditor.wrapper.contains(range.commonAncestorContainer)
+            ? leftEditor
+            : rightEditor.wrapper.contains(range.commonAncestorContainer)
+                ? rightEditor
+                : null;
+        if (editor === null) {
+            return;
+        }
+        const [startOffset, endOffset] = editor.getTextSelectionRange();
+        if (startOffset === null || endOffset === null)
+            return;
+        e.preventDefault();
+        const text = editor.text;
+        const tokens = editor === leftEditor ? _diffContext.leftTokens : _diffContext.rightTokens;
+        const otherTokens = editor === leftEditor ? _diffContext.rightTokens : _diffContext.leftTokens;
+        const rawEntries = _diffContext.rawEntries;
+        const sideKey = editor === leftEditor ? "left" : "right";
+        const otherSideKey = sideKey === "left" ? "right" : "left";
+        const diffs = _diffContext.diffs;
+        if (_copyMode === "compare") {
+            const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
+            const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
+            const startToken = tokens[startIndex];
+            const endToken = tokens[endIndex - 1];
+            const otherStartToken = otherTokens[mappedStartIndex];
+            const otherEndToken = otherTokens[mappedEndIndex - 1];
+            const startPos = startToken?.pos ?? 0;
+            const endPos = endToken ? endToken.pos + endToken.len : startPos;
+            const otherStartPos = otherStartToken?.pos ?? 0;
+            const otherEndPos = otherEndToken ? otherEndToken.pos + otherEndToken.len : otherStartPos;
+            const leftRuns = getTextRuns("left", leftEditor.text, diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
+            const rightRuns = getTextRuns("right", rightEditor.text, diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
+            const html = buildOutputHTML(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            const plain = buildOutputPlainText(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
+            e.clipboardData?.setData("text/html", html);
+            e.clipboardData?.setData("text/plain", plain);
+        }
+        else {
+            const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
+            const startToken = tokens[startIndex];
+            const endToken = tokens[endIndex - 1];
+            const startPos = startToken?.pos ?? 0;
+            const endPos = endToken ? endToken.pos + endToken.len : startPos;
+            const textRuns = getTextRuns(sideKey, leftEditor.text, diffs, [], startPos, endPos);
+            const html = buildOutputHTMLFromRuns(text, textRuns, _outputOptions);
+            const plain = buildOutputPlainTextFromRuns(text, textRuns, _outputOptions);
+            e.clipboardData?.setData("text/html", html);
+            e.clipboardData?.setData("text/plain", plain);
+        }
+    });
     document.addEventListener("keydown", (e) => {
         // 어느 단축키를 써야 잘썼다고 소문나냐?
         if (e.key === "F2") {
@@ -4554,8 +4286,8 @@ animation: highlightAnimation 0.3s linear 3;
             const otherEndPos = otherEndToken ? otherEndToken.pos + otherEndToken.len : otherStartPos;
             console.log("thistext:", text.slice(startPos, endPos));
             console.log("othertxt:", otherText.slice(otherStartPos, otherEndPos));
-            const leftRuns = getTextRuns("left", leftEditor.text, [], diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
-            const rightRuns = getTextRuns("right", rightEditor.text, [], diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
+            const leftRuns = getTextRuns("left", leftEditor.text, diffs, [], sideKey === "left" ? startPos : otherStartPos, sideKey === "left" ? endPos : otherEndPos);
+            const rightRuns = getTextRuns("right", rightEditor.text, diffs, [], sideKey === "right" ? startPos : otherStartPos, sideKey === "right" ? endPos : otherEndPos);
             const html = buildOutputHTML(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
             const plain = buildOutputPlainText(leftEditor.text, leftRuns, rightEditor.text, rightRuns, _outputOptions);
             e.dataTransfer.setData("text/html", html);

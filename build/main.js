@@ -732,9 +732,6 @@ animation: highlightAnimation 0.3s linear 3;
         diffList.appendChild(fragment);
     }
     document.addEventListener("copy", (e) => {
-        if (_copyMode === "raw") {
-            return;
-        }
         if (_diffContext.done === false) {
             return;
         }
@@ -753,6 +750,9 @@ animation: highlightAnimation 0.3s linear 3;
         const [startOffset, endOffset] = editor.getTextSelectionRange();
         if (startOffset === null || endOffset === null)
             return;
+        if (_copyMode === "raw" && !_alignedMode) {
+            return;
+        }
         e.preventDefault();
         const text = editor.text;
         const tokens = editor === leftEditor ? _diffContext.leftTokens : _diffContext.rightTokens;
@@ -761,7 +761,11 @@ animation: highlightAnimation 0.3s linear 3;
         const sideKey = editor === leftEditor ? "left" : "right";
         const otherSideKey = sideKey === "left" ? "right" : "left";
         const diffs = _diffContext.diffs;
-        if (_copyMode === "compare") {
+        if (_copyMode === "raw") {
+            const plain = editor.text.slice(startOffset, endOffset);
+            e.clipboardData?.setData("text/plain", plain);
+        }
+        else if (_copyMode === "compare") {
             const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
             const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
             const startToken = tokens[startIndex];

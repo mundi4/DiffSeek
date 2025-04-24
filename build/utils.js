@@ -145,14 +145,14 @@ function buildOutputHTMLFromRuns(text, textRuns, options) {
             result += escapeHTML(text.slice(run.pos, run.pos + run.len));
         }
         else if (run.type === "LINEBREAK") {
-            result += "\n";
+            result += "<br/>";
         }
     }
     if (inDiff)
         result += "</mark>";
     if (options.htmlPre)
         result += "</pre>";
-    result += "\n\n";
+    // result += "<br/>";
     return result;
 }
 function buildOutputPlainText(leftText, leftRuns, rightText, rightRuns, options = {}) {
@@ -207,7 +207,7 @@ function buildOutputPlainTextFromRuns(text, textRuns, options) {
 function buildOutputHTML(leftText, leftRuns, rightText, rightRuns, options = {}) {
     const leftLabel = options.leftLabel ?? "Left";
     const rightLabel = options.rightLabel ?? "Right";
-    const htmlFormat = options.htmlFormat ?? "dl";
+    const htmlFormat = options.htmlFormat ?? "div";
     if (htmlFormat === "table") {
         // Default: table format
         return `<table border="1" cellpadding="8" cellspacing="0">

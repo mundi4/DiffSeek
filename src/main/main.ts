@@ -179,7 +179,7 @@ const DiffSeek = (function () {
 			side: "center",
 			key: "copyMode",
 			//label: "📋",
-			label:"",
+			label: "",
 			get: () => (_copyMode === "raw" ? "📄" : _copyMode === "formatted" ? "🖍️" : "↔️"),
 			toggle: () => {
 				if (_copyMode === "raw") {
@@ -818,10 +818,6 @@ animation: highlightAnimation 0.3s linear 3;
 	}
 
 	document.addEventListener("copy", (e) => {
-		if (_copyMode=== "raw") {
-			return;
-		}
-		
 		if (_diffContext.done === false) {
 			return;
 		}
@@ -841,6 +837,9 @@ animation: highlightAnimation 0.3s linear 3;
 
 		const [startOffset, endOffset] = editor.getTextSelectionRange();
 		if (startOffset === null || endOffset === null) return;
+		if (_copyMode === "raw" && !_alignedMode) {
+			return;
+		}
 
 		e.preventDefault();
 
@@ -852,10 +851,12 @@ animation: highlightAnimation 0.3s linear 3;
 		const otherSideKey = sideKey === "left" ? "right" : "left";
 		const diffs = _diffContext.diffs!;
 
-		if (_copyMode === "compare") {
+		if (_copyMode === "raw") {
+			const plain = editor.text.slice(startOffset, endOffset);
+			e.clipboardData?.setData("text/plain", plain);
+		} else if (_copyMode === "compare") {
 			const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
 			const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
-
 			const startToken = tokens[startIndex];
 			const endToken = tokens[endIndex - 1];
 			const otherStartToken = otherTokens[mappedStartIndex];
@@ -894,14 +895,7 @@ animation: highlightAnimation 0.3s linear 3;
 			const endToken = tokens[endIndex - 1];
 			const startPos = startToken?.pos ?? 0;
 			const endPos = endToken ? endToken.pos + endToken.len : startPos;
-			const textRuns = getTextRuns(
-				sideKey,
-				leftEditor.text,
-				diffs,
-				[],
-				startPos,
-				endPos
-			);
+			const textRuns = getTextRuns(sideKey, leftEditor.text, diffs, [], startPos, endPos);
 
 			const html = buildOutputHTMLFromRuns(text, textRuns, _outputOptions);
 			const plain = buildOutputPlainTextFromRuns(text, textRuns, _outputOptions);

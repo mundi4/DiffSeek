@@ -144,13 +144,13 @@ function buildOutputHTMLFromRuns(text: string, textRuns: TextRun[], options: Out
 		} else if (run.type === "CHARS") {
 			result += escapeHTML(text.slice(run.pos, run.pos + run.len));
 		} else if (run.type === "LINEBREAK") {
-			result += "\n";
+			result += "<br/>";
 		}
 	}
 
 	if (inDiff) result += "</mark>";
 	if (options.htmlPre) result += "</pre>";
-	result += "\n\n";
+	// result += "<br/>";
 	return result;
 }
 
@@ -208,7 +208,7 @@ function buildOutputPlainTextFromRuns(text: string, textRuns: TextRun[], options
 function buildOutputHTML(leftText: string, leftRuns: TextRun[], rightText: string, rightRuns: TextRun[], options: OutputOptions = {}): string {
 	const leftLabel = options.leftLabel ?? "Left";
 	const rightLabel = options.rightLabel ?? "Right";
-	const htmlFormat = options.htmlFormat ?? "dl";
+	const htmlFormat = options.htmlFormat ?? "div";
 
 	if (htmlFormat === "table") {
 		// Default: table format

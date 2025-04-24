@@ -651,7 +651,8 @@ async function diffCore(
 	rightTokens: Token[],
 	rhsLower: number,
 	rhsUpper: number,
-	findAnchor: FindAnchorFunc
+	findAnchor: FindAnchorFunc,
+	consumeDirections: 0 | 1 | 2 | 3 = 3
 ): Promise<DiffEntry[]> {
 	if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
 		throw new Error("Invalid range");
@@ -683,7 +684,8 @@ async function diffCore(
 		lhsUpper,
 		rhsLower,
 		rhsUpper,
-		ctx.options.tokenization === "word" ? ctx.options.whitespace : "normalize" // consumeCommonEdges 함수에 글자단위 매치를 시도할지를 가르키는 인자를 추가해야 맞지만 지금은 좀 귀찮네!
+		ctx.options.tokenization === "word" ? ctx.options.whitespace : "normalize",
+		consumeDirections
 	);
 
 	entries.push(...skippedHead);
@@ -701,33 +703,11 @@ async function diffCore(
 		anchor.rhsIndex + anchor.rhsLength <= rhsUpper
 	) {
 		// console.debug("anchor:", anchor, lhsLower, lhsUpper, rhsLower, rhsUpper);
-		await diffCore(ctx, leftTokens, lhsLower, anchor.lhsIndex, rightTokens, rhsLower, anchor.rhsIndex, findAnchor);
+		await diffCore(ctx, leftTokens, lhsLower, anchor.lhsIndex, rightTokens, rhsLower, anchor.rhsIndex, findAnchor, 2);
 
-		// 앵커는 common sequence임!!
-		appendEqualEntriesFromAnchor(
-			leftTokens,
-			anchor.lhsIndex,
-			anchor.lhsLength,
-			rightTokens,
-			anchor.rhsIndex,
-			anchor.rhsLength,
-			ctx.options.whitespace,
-			entries
-		);
-		// entries.push({
-		// 	type: 0,
-		// 	left: {
-		// 		pos: anchor.lhsIndex,
-		// 		len: anchor.lhsLength,
-		// 	},
-
-		// 	right: {
-		// 		pos: anchor.rhsIndex,
-		// 		len: anchor.rhsLength,
-		// 	},
-		// });
-
-		await diffCore(ctx, leftTokens, anchor.lhsIndex + anchor.lhsLength, lhsUpper, rightTokens, anchor.rhsIndex + anchor.rhsLength, rhsUpper, findAnchor);
+		// 의도적으로 앵커 영역까지 포함해서 호출함
+		await diffCore(ctx, leftTokens, anchor.lhsIndex, lhsUpper, rightTokens, anchor.rhsIndex, rhsUpper, findAnchor, 1);
+		// await diffCore(ctx, leftTokens, anchor.lhsIndex + anchor.lhsLength, lhsUpper, rightTokens, anchor.rhsIndex + anchor.rhsLength, rhsUpper, findAnchor, 1);
 	} else {
 		// 유효한 앵커는 못찾았지만 남아있는 토큰들이 있다면 diff로 처리
 		if (lhsLower < lhsUpper || rhsLower < rhsUpper) {
@@ -754,49 +734,49 @@ async function diffCore(
 	return entries;
 }
 
-function appendEqualEntriesFromAnchor(
-	leftTokens: Token[],
-	lhsIndex: number,
-	lhsLength: number,
-	rightTokens: Token[],
-	rhsIndex: number,
-	rhsLength: number,
-	whitespace: WhitespaceHandling = "ignore",
-	entries: DiffEntry[]
-) {
-	let li = lhsIndex;
-	let ri = rhsIndex;
+// function appendEqualEntriesFromAnchor(
+// 	leftTokens: Token[],
+// 	lhsIndex: number,
+// 	lhsLength: number,
+// 	rightTokens: Token[],
+// 	rhsIndex: number,
+// 	rhsLength: number,
+// 	whitespace: WhitespaceHandling = "ignore",
+// 	entries: DiffEntry[]
+// ) {
+// 	let li = lhsIndex;
+// 	let ri = rhsIndex;
 
-	while (li < lhsIndex + lhsLength && ri < rhsIndex + rhsLength) {
-		const lt = leftTokens[li];
-		const rt = rightTokens[ri];
+// 	while (li < lhsIndex + lhsLength && ri < rhsIndex + rhsLength) {
+// 		const lt = leftTokens[li];
+// 		const rt = rightTokens[ri];
 
-		if (lt.text === rt.text) {
-			entries.push({
-				type: 0,
-				left: { pos: li, len: 1 },
-				right: { pos: ri, len: 1 },
-			});
-			li++;
-			ri++;
-		} else if (whitespace === "ignore" && lt.text.length !== rt.text.length && lt.text[0] === rt.text[0]) {
-			// 1:N, N:1 or N:M → custom matching (e.g. matchPrefixTokens)
-			const match = matchPrefixTokens(leftTokens, li, lhsIndex + lhsLength, rightTokens, ri, rhsIndex + rhsLength);
-			if (!match) break;
+// 		if (lt.text === rt.text) {
+// 			entries.push({
+// 				type: 0,
+// 				left: { pos: li, len: 1 },
+// 				right: { pos: ri, len: 1 },
+// 			});
+// 			li++;
+// 			ri++;
+// 		} else if (whitespace === "ignore" && lt.text.length !== rt.text.length && lt.text[0] === rt.text[0]) {
+// 			// 1:N, N:1 or N:M → custom matching (e.g. matchPrefixTokens)
+// 			const match = matchPrefixTokens(leftTokens, li, lhsIndex + lhsLength, rightTokens, ri, rhsIndex + rhsLength);
+// 			if (!match) break;
 
-			entries.push({
-				type: 0,
-				left: { pos: li, len: match[0] },
-				right: { pos: ri, len: match[1] },
-			});
+// 			entries.push({
+// 				type: 0,
+// 				left: { pos: li, len: match[0] },
+// 				right: { pos: ri, len: match[1] },
+// 			});
 
-			li += match[0];
-			ri += match[1];
-		} else {
-			break;
-		}
-	}
-}
+// 			li += match[0];
+// 			ri += match[1];
+// 		} else {
+// 			break;
+// 		}
+// 	}
+// }
 
 // 공백을 완전히 무시하는 경우 "안녕 하세요" vs "안녕하세요"는 같다고 처리해야하지만
 // 단어단위 토큰인 경우 토큰 대 토큰 비교는 실패할 수 밖에 없다.
@@ -809,7 +789,8 @@ function consumeCommonEdges(
 	lhsUpper: number,
 	rhsLower: number,
 	rhsUpper: number,
-	whitespace: WhitespaceHandling = "ignore"
+	whitespace: WhitespaceHandling = "ignore",
+	consumeDirections: 0 | 1 | 2 | 3 = 3
 ): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: DiffEntry[], tail: DiffEntry[]] {
 	const head: DiffEntry[] = [];
 	const tail: DiffEntry[] = [];
@@ -817,73 +798,77 @@ function consumeCommonEdges(
 	let matchedCount;
 
 	// Prefix
-	while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
-		if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
-			head.push({
-				type: 0,
-				left: { pos: lhsLower, len: 1 },
-				right: { pos: rhsLower, len: 1 },
-			});
-			lhsLower++;
-			rhsLower++;
-		} else if (
-			whitespace === "ignore" &&
-			lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
-			lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
-			(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
-		) {
-			head.push({
-				type: 0,
-				left: {
-					pos: lhsLower,
-					len: matchedCount[0],
-				},
-				right: {
-					pos: rhsLower,
-					len: matchedCount[1],
-				},
-			});
-			lhsLower += matchedCount[0];
-			rhsLower += matchedCount[1];
-		} else {
-			break;
+	if (consumeDirections & 1) {
+		while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+			if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
+				head.push({
+					type: 0,
+					left: { pos: lhsLower, len: 1 },
+					right: { pos: rhsLower, len: 1 },
+				});
+				lhsLower++;
+				rhsLower++;
+			} else if (
+				whitespace === "ignore" &&
+				lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
+				lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
+				(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+			) {
+				head.push({
+					type: 0,
+					left: {
+						pos: lhsLower,
+						len: matchedCount[0],
+					},
+					right: {
+						pos: rhsLower,
+						len: matchedCount[1],
+					},
+				});
+				lhsLower += matchedCount[0];
+				rhsLower += matchedCount[1];
+			} else {
+				break;
+			}
 		}
 	}
 
 	// Suffix
-	while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
-		if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
-			tail.push({
-				type: 0,
-				left: { pos: lhsUpper - 1, len: 1 },
-				right: { pos: rhsUpper - 1, len: 1 },
-			});
-			lhsUpper--;
-			rhsUpper--;
-		} else if (
-			whitespace === "ignore" &&
-			lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
-			lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
-			(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
-		) {
-			tail.push({
-				type: 0,
-				left: {
-					pos: lhsUpper - matchedCount[0],
-					len: matchedCount[0],
-				},
-				right: {
-					pos: rhsUpper - matchedCount[1],
-					len: matchedCount[1],
-				},
-			});
-			lhsUpper -= matchedCount[0];
-			rhsUpper -= matchedCount[1];
-		} else {
-			break;
+	if (consumeDirections & 2) {
+		while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
+			if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
+				tail.push({
+					type: 0,
+					left: { pos: lhsUpper - 1, len: 1 },
+					right: { pos: rhsUpper - 1, len: 1 },
+				});
+				lhsUpper--;
+				rhsUpper--;
+			} else if (
+				whitespace === "ignore" &&
+				lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
+				lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
+				(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+			) {
+				tail.push({
+					type: 0,
+					left: {
+						pos: lhsUpper - matchedCount[0],
+						len: matchedCount[0],
+					},
+					right: {
+						pos: rhsUpper - matchedCount[1],
+						len: matchedCount[1],
+					},
+				});
+				lhsUpper -= matchedCount[0];
+				rhsUpper -= matchedCount[1];
+			} else {
+				break;
+			}
 		}
+		tail.reverse();
 	}
-	tail.reverse();
 	return [lhsLower, lhsUpper, rhsLower, rhsUpper, head, tail];
 }
 

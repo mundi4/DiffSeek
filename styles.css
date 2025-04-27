@@ -18,7 +18,8 @@ html {
 	width: 100vw;
 	overflow: hidden;
 	scroll-padding-top: 1rem;
-	font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif;
+	font-family: "돋음"; /*monospace가 필요할 때 '돋음체'를 사용할 수 있기 때문!*/
+	/* font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; */
 }
 
 .container {
@@ -144,7 +145,8 @@ html {
 .aligned .mirror {
 	background: transparent;
 	position: static;
-	color: inherit;
+	color: #ccc;
+	background-color: #000;
 	cursor: text;
 	pointer-events: auto;
 	caret-color: white;
@@ -273,11 +275,6 @@ hr {
 		repeating-linear-gradient(135deg, hsl(0 100% 88% / 0.15) 0px, hsl(0 100% 88% / 0.15) 4px, hsl(0 100% 100% / 0.05) 4px, hsl(0 100% 100% / 0.05) 8px);
 }
 
-.aligned .mirror {
-	color: #fff;
-	background-color: #000;
-}
-
 .aligned .mirror > div:has(mark) {
 	background-color: hsl(0 75% 25% / 0.75);
 }
@@ -329,6 +326,16 @@ scrolling
 	list-style-type: none;
 }
 
+#diffList .heading {
+	font-size: 12px;
+	font-weight: bold;
+	cursor: pointer;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	display: block;
+}
+
 .computing #diffList {
 	opacity: 0.5;
 }
@@ -341,7 +348,7 @@ scrolling
 	content: "👬";
 	font-size: 128px;
 	font-weight: bold;
-	font-family: "Consolas", Courier, monospace;
+	font-family: monospace;
 	text-align: center;
 	display: block;
 }
@@ -387,7 +394,7 @@ scrolling
 	color: white;
 	font-weight: bold;
 
-	font-family: "Consolas", "Courier New", monospace;
+	font-family: monospace;
 	content: "L";
 	margin-right: 4px;
 	opacity: 0.2;
@@ -458,7 +465,7 @@ body.aligned {
 	align-items: center;
 	padding: 0 10px;
 	font-size: 12px;
-	font-family: "Segoe UI", sans-serif;
+
 	background: var(--statusbar-bg);
 	color: var(--statusbar-fg);
 	border-top: 1px solid rgba(0, 0, 0, 0.1);
@@ -575,3 +582,16 @@ body.aligned {
 	font-weight: bold;
 }
 
+.editor-wrapper h6 {
+	all: unset;
+}
+
+.edit .editor-wrapper h6 {
+	all: unset;
+	text-decoration-color: #000;
+}
+
+.aligned .editor-wrapper h6 {
+	color: #fff;
+	font-weight: bold;
+}

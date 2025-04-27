@@ -1,31 +1,35 @@
 function getTextRuns(
 	textKey: "left" | "right",
 	text: string,
-	diffs: DiffEntry[],
-	anchors: Anchor[],
+	{ diffs, anchors, headings }: { diffs?: DiffEntry[]; anchors?: Anchor[]; headings?: SectionHeading[] },
 	startPos?: number,
 	endPos?: number
 ): TextRun[] {
+	diffs ??= [];
 	anchors ??= [];
+	headings ??= [];
 
 	let nextPropsPos: number | null = null;
 	let nextDiffPos: number | null = null;
 	let nextDiffEndPos: number | null = null;
-	let nextDiff: DiffEntrySide | null = null;
+	let nextDiff: EntrySide | null = null;
 	let nextAnchorPos: number | null = null;
 	let nextAnchor: Anchor | null = null;
+	let nextHeadingPos: number | null = null;
+	let nextHeadingEndPos: number | null = null;
+	let nextHeading: EntrySide | null = null;
 	let nextNewLinePos: number | null = null;
 	let nextNewLineIsEndOfString = false;
 	let diffIndex = -1;
 	let anchorIndex = -1;
+	let headingIndex = -1;
 	const textruns: TextRun[] = [];
 
 	const textLen = endPos ?? text.length;
 	let pos = startPos ?? 0;
 	if (pos > 0) {
 		for (let i = 0; i < diffs.length; i++) {
-			const d = diffs[i][textKey];
-			if (d.pos >= pos) {
+			if (diffs[i][textKey].pos >= pos) {
 				diffIndex = i - 1;
 				break;
 			}
@@ -35,6 +39,14 @@ function getTextRuns(
 			const a = anchors[i];
 			if (a[textKey] >= pos) {
 				anchorIndex = i - 1;
+				break;
+			}
+		}
+
+		for (let i = 0; i < headings.length; i++) {
+			const h = headings[i];
+			if (h[textKey].pos >= pos) {
+				headingIndex = i - 1;
 				break;
 			}
 		}
@@ -109,6 +121,28 @@ function getTextRuns(
 			nextEventPos = nextDiffEndPos;
 		}
 
+		if (nextHeadingEndPos === null) {
+			headingIndex++;
+			if (headingIndex < headings.length) {
+				nextHeading = headings[headingIndex][textKey];
+				nextHeadingPos = nextHeading.pos;
+				nextHeadingEndPos = nextHeading.pos + nextHeading.len;
+				if (nextHeadingPos < pos) {
+					console.warn("Skipped heading", { heading: nextHeading, headingIndex: headingIndex, pos: pos, headingPos: nextHeadingPos });
+					nextHeadingPos = nextHeadingEndPos = nextHeading = null;
+				}
+			} else {
+				nextHeadingPos = Number.MAX_SAFE_INTEGER;
+				nextHeadingEndPos = Number.MAX_SAFE_INTEGER;
+			}
+		}
+
+		if (nextHeadingPos !== null && nextHeadingPos < nextEventPos) {
+			nextEventPos = nextHeadingPos;
+		} else if (nextHeadingEndPos !== null && nextHeadingEndPos < nextEventPos) {
+			nextEventPos = nextHeadingEndPos;
+		}
+
 		if (nextNewLinePos === null) {
 			nextNewLinePos = text.indexOf("\n", pos);
 			if (nextNewLinePos === -1 || nextNewLinePos >= textLen) {
@@ -126,8 +160,7 @@ function getTextRuns(
 				type: "CHARS",
 				pos: pos,
 				len: nextEventPos - pos,
-				diffIndex: null,
-				anchorIndex: null,
+				dataIndex: null,
 			});
 			pos = nextEventPos;
 		}
@@ -138,8 +171,7 @@ function getTextRuns(
 				type: "ANCHOR",
 				pos: nextAnchorPos,
 				len: 0,
-				diffIndex: diffIndex,
-				anchorIndex: anchorIndex,
+				dataIndex: anchorIndex,
 			});
 			nextAnchorPos = nextAnchor = null;
 			continue;
@@ -150,8 +182,7 @@ function getTextRuns(
 				type: "DIFF",
 				pos: nextDiffPos,
 				len: 0,
-				diffIndex: diffIndex,
-				anchorIndex: null,
+				dataIndex: diffIndex,
 			});
 			nextDiffPos = Number.MAX_SAFE_INTEGER;
 			continue;
@@ -163,10 +194,31 @@ function getTextRuns(
 				type: "DIFF_END",
 				pos: nextDiffEndPos,
 				len: 0,
-				diffIndex: diffIndex,
-				anchorIndex: null,
+				dataIndex: diffIndex,
 			});
 			nextDiffPos = nextDiffEndPos = nextDiff = null;
+			continue;
+		}
+
+		if (nextEventPos === nextHeadingPos) {
+			textruns.push({
+				type: "HEADING",
+				pos: nextHeadingPos,
+				len: 0,
+				dataIndex: headingIndex,
+			});
+			nextHeadingPos = Number.MAX_SAFE_INTEGER;
+			continue;
+		}
+
+		if (nextEventPos === nextHeadingEndPos) {
+			textruns.push({
+				type: "HEADING_END",
+				pos: nextHeadingEndPos,
+				len: 0,
+				dataIndex: headingIndex,
+			});
+			nextHeadingPos = nextHeadingEndPos = nextHeading = null;
 			continue;
 		}
 
@@ -175,8 +227,7 @@ function getTextRuns(
 				type: "ANCHOR",
 				pos: nextAnchorPos,
 				len: 0,
-				diffIndex: diffIndex,
-				anchorIndex: anchorIndex,
+				dataIndex: anchorIndex,
 			});
 			nextAnchorPos = null;
 			continue;
@@ -190,8 +241,7 @@ function getTextRuns(
 					type: "LINEBREAK",
 					pos: nextNewLinePos,
 					len: 1,
-					diffIndex: null,
-					anchorIndex: null,
+					dataIndex: null,
 				});
 				pos = nextEventPos + 1;
 				nextNewLinePos = null;
@@ -204,10 +254,19 @@ function getTextRuns(
 	if (nextDiffPos === Number.MAX_SAFE_INTEGER && nextDiffEndPos !== Number.MAX_SAFE_INTEGER) {
 		textruns.push({
 			type: "DIFF_END",
-			pos: textLen ?? nextDiffEndPos,
+			pos: textLen,
 			len: 0,
-			diffIndex: diffIndex,
-			anchorIndex: null,
+			dataIndex: diffIndex,
+		});
+	}
+
+	// heading과 diff는 오버랩되지 않으므로 순서는 상관 없음.
+	if (nextHeadingPos === Number.MAX_SAFE_INTEGER && nextHeadingEndPos !== Number.MAX_SAFE_INTEGER) {
+		textruns.push({
+			type: "HEADING_END",
+			pos: textLen,
+			len: 0,
+			dataIndex: headingIndex,
 		});
 	}
 
@@ -215,10 +274,9 @@ function getTextRuns(
 		type: "END_OF_STRING",
 		pos: textLen,
 		len: 0,
-		diffIndex: null,
-		anchorIndex: null,
+		dataIndex: null,
 	});
 
-	// console.log("textruns", textruns);
+	
 	return textruns;
 }

@@ -85,6 +85,44 @@ function getSelectedTokenRange(tokens, startOffset, endOffset) {
     const endIndex = findTokenIndex(endOffset - 1, startIndex);
     return [startIndex, endIndex + 1]; // [inclusive, exclusive]
 }
+function findDiffEntryRangeByPos(entries, side, pos, endPos) {
+    console.log("findDiffEntryRangeByPos", { entries, side, pos, endPos });
+    let low = 0;
+    let high = entries.length - 1;
+    let mappedStart = 0;
+    let mappedEnd = 0;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const s = entries[mid][side];
+        if (pos < s.pos) {
+            high = mid - 1;
+        }
+        else if (pos >= s.pos + s.len) {
+            low = mid + 1;
+        }
+        else {
+            mappedStart = mid;
+            break;
+        }
+    }
+    low = mappedStart;
+    high = entries.length - 1;
+    while (low <= high) {
+        const mid = (low + high) >> 1;
+        const s = entries[mid][side];
+        if (endPos - 1 < s.pos) {
+            high = mid - 1;
+        }
+        else if (endPos - 1 >= s.pos + s.len) {
+            low = mid + 1;
+        }
+        else {
+            mappedEnd = mid + 1;
+            break;
+        }
+    }
+    return [mappedStart, mappedEnd];
+}
 function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     const otherSide = side === "left" ? "right" : "left";
     let low = 0;
@@ -128,7 +166,7 @@ function buildOutputHTMLFromRuns(text, textRuns, options) {
     let result = options.htmlPre ? "<pre>" : "";
     for (const run of textRuns) {
         if (run.type === "DIFF") {
-            const diffIndex = run.diffIndex;
+            const diffIndex = run.dataIndex;
             // result += "<mark>";
             const color = DIFF_COLOR_HUES[diffIndex % DIFF_COLOR_HUES.length];
             result += `<mark style="background-color: hsl(${color}, 100%, 80%);">`;
@@ -252,5 +290,43 @@ function escapeHTML(str) {
                 return char;
         }
     });
+}
+function parseOrdinalNumber(ordinalText) {
+    const norm = ordinalText.replace(/[\(\)\.]/g, "");
+    if (/^\d+$/.test(norm)) {
+        return Number(norm);
+    }
+    const idx = hangulOrder.indexOf(norm);
+    if (idx !== -1) {
+        return idx + 1;
+    }
+    return NaN;
+}
+function findFirstNodeAfter(root, after) {
+    let current = after;
+    while (current && current !== root) {
+        if (current.nextSibling) {
+            return current.nextSibling;
+        }
+        else {
+            current = current.parentNode;
+        }
+    }
+    return null;
+}
+function getTextOffsetOfNode(root, node) {
+    const filter = node.nodeType === 3 ? NodeFilter.SHOW_TEXT : NodeFilter.SHOW_ALL;
+    let walker = document.createTreeWalker(root, filter, null);
+    let pos = 0;
+    let currentNode;
+    while ((currentNode = walker.nextNode())) {
+        if (currentNode === node) {
+            break;
+        }
+        if (currentNode.nodeType === 3) {
+            pos += currentNode.nodeValue.length;
+        }
+    }
+    return pos;
 }
 //# sourceMappingURL=utils.js.map

@@ -1,9 +1,14 @@
 const FIRST_OF_LINE = 1;
 const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
-const NORMALIZE = 32; // &middot;, 따옴표 -, 말머리문자 등등 실제로 문자 코드는 다르지만 같다고 처리해야 할 문자들이 있다.
+const MANUAL_ANCHOR = 32; // @@@, ### 등등
 const SECTION_HEADING = 64;
-const MANUAL_ANCHOR = 128; // @@@, ### 등등
+const SECTION_HEADING_LV2 = 128; // 가.
+const SECTION_HEADING_LV3 = 256; // (1)
+const SECTION_HEADING_LV4 = 384; // (가)
+const SECTION_HEADING_LV5 = 512; // 1)
+const SECTION_HEADING_LV6 = 640; // 가)
+const SECTION_HEADING_LEVEL = SECTION_HEADING_LV2 | SECTION_HEADING_LV3 | SECTION_HEADING_LV4 | SECTION_HEADING_LV5 | SECTION_HEADING_LV6;
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
@@ -57,8 +62,6 @@ async function runDiff(ctx: WorkContext) {
 		let result: DiffEntry[];
 		if (ctx.options.algorithm === "histogram") {
 			result = await runHistogramDiff(ctx);
-		} else if (ctx.options.algorithm === "myers") {
-			result = await runMyersDiff(ctx);
 		} else if (ctx.options.algorithm === "lcs") {
 			result = await runLcsDiff(ctx);
 		} else {
@@ -119,7 +122,7 @@ async function computeLCS(leftTokens: Token[], rightTokens: Token[], ctx?: WorkC
 			// (i+j) % 0x4000 === 0 일 때만 사용하기로. 브라우저 js엔진의 비트연산 속도를 믿어본다 ㅋ
 			if (ctx && ((i + j) & 16383) === 0) {
 				const now = performance.now();
-				if (now - ctx.lastYield > 100) {
+				if (now - ctx.lastYield > 50) {
 					ctx.lastYield = now;
 					await new Promise((resolve) => setTimeout(resolve, 0));
 					if (ctx.cancel) {
@@ -172,7 +175,7 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 			left: {
 				pos: 0,
 				len: leftTokensLength,
-				empty: true,
+				// empty: true,
 			},
 			right: {
 				pos: 0,
@@ -189,7 +192,7 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 			right: {
 				pos: 0,
 				len: rightTokensLength,
-				empty: true,
+				// empty: true,
 			},
 		});
 	} else {
@@ -279,176 +282,93 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 }
 
 // ============================================================
-// Myers Algorithm
+// Histogram Algorithm
+// 일단 지금은 이놈이 디폴트
 // ============================================================
-
-// not fully working yet! 생각보다 이해가 안되는 알고리즘...
-async function runMyersDiff(ctx: WorkContext): Promise<DiffEntry[]> {
+async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
 	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
+	// ctx.entries = [] as DiffEntry[];
 
-	const vectorSize = (lhsTokens.length + rhsTokens.length + 1) * 2;
-	const vectorDown = new Array(vectorSize);
-	const vectorUp = new Array(vectorSize);
-	ctx.states.vectorDown = vectorDown;
-	ctx.states.vectorUp = vectorUp;
-	const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rhsTokens, 0, rhsTokens.length, findMiddleSnake);
-	// return postProcess(ctx, rawEntries, lhsTokens, rhsTokens);
-	return rawEntries;
-}
-
-// 알쏭달쏭.
-function findMiddleSnake(
-	lhsTokens: Token[],
-	lhsLower: number,
-	lhsUpper: number,
-	rhsTokens: Token[],
-	rhsLower: number,
-	rhsUpper: number,
-	ctx: WorkContext
-): { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number } | null {
-	const max = lhsTokens.length + rhsTokens.length + 1;
-	const width = lhsUpper - lhsLower;
-	const height = rhsUpper - rhsLower;
-	const delta = width - height;
-	const kdown = lhsLower - rhsLower;
-	const kup = lhsUpper - rhsUpper;
-	const offset_down = max - kdown;
-	const offset_up = max - kup;
-	const maxD = (lhsUpper - lhsLower + rhsUpper - rhsLower) / 2 + 1;
-	const odd = (delta & 1) != 0;
-	// const ret = { x: 0, y: 0 };
-
-	// console.log("getShortestMiddleSnake", {
-	// 	lhsLower,
-	// 	lhsUpper,
-	// 	rhsLower,
-	// 	rhsUpper,
-	// 	width,
-	// 	height,
-	// 	delta,
-	// 	kDown: kdown,
-	// 	kUp: kup,
-	// 	offsetDown: offset_down,
-	// 	offsetUp: offset_up,
-	// 	maxD,
-	// 	odd,
-	// });
-
-	const { vectorDown, vectorUp } = ctx.states;
-
-	vectorDown[offset_down + kdown + 1] = lhsLower;
-	vectorUp[offset_up + kup - 1] = lhsUpper;
-	// console.log("offsetDown", offset_down, kdown, vectorD[offset_down + kdown + 1]);
-	let d, k, x, y;
-	for (d = 0; d <= maxD; d++) {
-		for (k = kdown - d; k <= kdown + d; k += 2) {
-			if (k === kdown - d) {
-				x = vectorDown[offset_down + k + 1]; //down
-			} else {
-				x = vectorDown[offset_down + k - 1] + 1; //right
-				if (k < kdown + d && vectorDown[offset_down + k + 1] >= x) {
-					x = vectorDown[offset_down + k + 1]; //down
-				}
-			}
-			y = x - k;
-
-			// console.log("BEFORE \\", x, y);
-			while (x < lhsUpper && y < rhsUpper && lhsTokens[x].text === rhsTokens[y].text) {
-				x++;
-				y++;
-			}
-
-			vectorDown[offset_down + k] = x;
-
-			// console.log("FORWARD", {
-			// 	x,
-			// 	y,
-			// 	k,
-			// 	d,
-			// 	kDown: kdown,
-			// 	vectorD,
-			// 	vectorU,
-			// 	"vectorDown[offsetDown + k + 1]": vectorD[offset_down + k + 1],
-			// 	"vectorDown[offsetDown + k - 1]": vectorD[offset_down + k - 1],
-			// });
-
-			if (odd && kup - d < k && k < kup + d) {
-				//if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
-				if (vectorDown[offset_down + k] >= vectorUp[offset_up + k]) {
-					return {
-						lhsIndex: vectorDown[offset_down + k],
-						lhsLength: 1,
-						rhsIndex: vectorDown[offset_down + k] - k,
-						rhsLength: 1,
-					};
-					// ret.x = vectorDown[offset_down + k];
-					// ret.y = vectorDown[offset_down + k] - k;
-					// return ret;
-				}
+	let leftAnchors: number[] = [];
+	let rightAnchors: number[] = [];
+	for (let i = 0; i < lhsTokens.length; i++) {
+		if (lhsTokens[i].flags & MANUAL_ANCHOR) {
+			leftAnchors.push(i);
+		}
+	}
+	if (leftAnchors.length > 0) {
+		for (let i = 0; i < rhsTokens.length; i++) {
+			if (rhsTokens[i].flags & MANUAL_ANCHOR) {
+				rightAnchors.push(i);
 			}
 		}
+	}
 
-		for (k = kup - d; k <= kup + d; k += 2) {
-			// find the only or better starting point
-			if (k === kup + d) {
-				x = vectorUp[offset_up + k - 1]; // up
-			} else {
-				x = vectorUp[offset_up + k + 1] - 1; // left
-				if (k > kup - d && vectorUp[offset_up + k - 1] < x) x = vectorUp[offset_up + k - 1]; // up
-			}
-			y = x - k;
-			while (x > lhsLower && y > rhsLower && lhsTokens[x - 1].text === rhsTokens[y - 1].text) {
-				// diagonal
-				x--;
-				y--;
-			}
-			vectorUp[offset_up + k] = x;
-			// console.log("BACKWARD", {
-			// 	x,
-			// 	y,
-			// 	k,
-			// 	d,
-			// 	kUp: kup,
-			// 	vectorD,
-			// 	vectorU,
-			// 	"vectorD[offset_down + k]": vectorD[offset_down + k],
-			// 	"vectorU[offset_up + k]": vectorU[offset_up + k],
-			// });
+	const matches: { lhsIndex: number; rhsIndex: number }[] = [];
+	if (rightAnchors.length > 0) {
+		let rightPos = 0;
+		for (let l = 0; l < leftAnchors.length; l++) {
+			const leftTokenIndex = leftAnchors[l];
+			for (let r = rightPos; r < rightAnchors.length; r++) {
+				const rightTokenIndex = rightAnchors[r];
 
-			// overlap ?
-			if (!odd && kdown - d <= k && k <= kdown + d) {
-				// if (vectorUp[offset_up + k] <= vectorDown[offset_down + k]) {
-				if (vectorDown[offset_down + k] >= vectorUp[offset_up + k]) {
-					return {
-						lhsIndex: vectorDown[offset_down + k],
-						lhsLength: 1,
-						rhsIndex: vectorDown[offset_down + k] - k,
-						rhsLength: 1,
-					};
+				if (lhsTokens[leftTokenIndex].text === rhsTokens[rightTokenIndex].text) {
+					matches.push({ lhsIndex: leftTokenIndex, rhsIndex: rightTokenIndex });
+					rightPos = r + 1;
+					break;
 				}
 			}
 		}
 	}
 
-	return null;
-	// throw new Error("No middle snake found");
-	// return { x: lhsLower - 1, y: rhsLower - 1 };
-	// return { x: -1, y: -1 }; // No snake found
-}
+	let prevLhs = 0;
+	let prevRhs = 0;
+	for (const match of matches) {
+		const lhsAnchor = match.lhsIndex;
+		const rhsAnchor = match.rhsIndex;
+		if (prevLhs < lhsAnchor || prevRhs < rhsAnchor) {
+			// console.log("diffCore", {
+			// 	lhsTokens,
+			// 	lhsLower: prevLhs,
+			// 	lhsUpper: lhsAnchor,
+			// 	rhsTokens,
+			// 	rhsLower: prevRhs,
+			// 	rhsUpper: rhsAnchor,
+			// });
+			await diffCore(ctx, lhsTokens, prevLhs, lhsAnchor, rhsTokens, prevRhs, rhsAnchor, findBestHistogramAnchor);
+		}
+		ctx.entries.push({
+			type: 0,
+			left: {
+				pos: lhsAnchor,
+				len: 1,
+			},
+			right: {
+				pos: rhsAnchor,
+				len: 1,
+			},
+		});
 
-// ============================================================
-// Histogram Algorithm
-// 일단 지금은 이놈이 디폴트
-// ============================================================
+		prevLhs = lhsAnchor + 1;
+		prevRhs = rhsAnchor + 1;
+	}
 
-async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
-	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
-	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
-	ctx.states.entries = [] as DiffEntry[];
-	const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rhsTokens, 0, rhsTokens.length, findBestHistogramAnchor);
+	if (prevLhs < lhsTokens.length || prevRhs < rhsTokens.length) {
+		// console.log("diffCore", {
+		// 	lhsTokens,
+		// 	lhsLower: prevLhs,
+		// 	lhsUpper: lhsTokens.length,
+		// 	rhsTokens,
+		// 	rhsLower: prevRhs,
+		// 	rhsUpper: rhsTokens.length,
+		// });
+		await diffCore(ctx, lhsTokens, prevLhs, lhsTokens.length, rhsTokens, prevRhs, rhsTokens.length, findBestHistogramAnchor);
+	}
+
+	// const rawEntries = await diffCore(ctx, lhsTokens, 0, lhsTokens.length, rhsTokens, 0, rhsTokens.length, findBestHistogramAnchor);
 	// return postProcess(ctx, rawEntries, lhsTokens, rhsTokens);
-	return rawEntries;
+	return ctx.entries;
 }
 
 // histogram diff에서 가장 중요한 함수
@@ -510,9 +430,10 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 		// 특수 케이스
 		// 강제로 문서의 특정 지점끼리 매칭시킴. 문서 구조가 항상 내 맘 같은 것이 아니야. ㅠ
-		// if (ltext1 === MANUAL_ANCHOR1 || ltext1 === MANUAL_ANCHOR2) {
+		// if (lhsTokens[i].flags & MANUAL_ANCHOR) {
 		// 	for (let j = rhsLower; j < rhsUpper; j++) {
 		// 		if (rhsTokens[j].text === ltext1) {
+		// 			console.log("manual anchor", ltext1, i, j);
 		// 			return {
 		// 				lhsIndex: i,
 		// 				lhsLength: 1,
@@ -524,8 +445,6 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 		// }
 
 		for (let j = rhsLower; j < rhsUpper; j++) {
-			const rtext1 = rhsTokens[j].text;
-
 			let li = i,
 				ri = j;
 			let lhsLen = 0,
@@ -537,14 +456,14 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				const rtext = rhsTokens[ri].text;
 
 				if (ltext === rtext) {
-					if (lhsTokens[li].flags & rhsTokens[ri].flags & MANUAL_ANCHOR) {
-						return {
-							lhsIndex: li,
-							lhsLength: 1,
-							rhsIndex: ri,
-							rhsLength: 1,
-						};
-					}
+					// if (lhsTokens[li].flags & rhsTokens[ri].flags & MANUAL_ANCHOR) {
+					// 	return {
+					// 		lhsIndex: li,
+					// 		lhsLength: 1,
+					// 		rhsIndex: ri,
+					// 		rhsLength: 1,
+					// 	};
+					// }
 					li++;
 					ri++;
 					lhsLen++;
@@ -615,7 +534,11 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				}
 
 				if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING) {
-					score *= SECTION_HEADING_BONUS;
+					if ((lhsTokens[i].flags & SECTION_HEADING_LEVEL) !== 0) {
+						// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
+					} else {
+						score *= SECTION_HEADING_BONUS;
+					}
 				}
 
 				if (!best || score < best.score) {
@@ -688,7 +611,10 @@ async function diffCore(
 		consumeDirections
 	);
 
-	entries.push(...skippedHead);
+	// 	entries.push(...skippedHead); 이렇게 넣으면 폭발함.
+	for (const item of skippedHead) {
+		entries.push(item);
+	}
 
 	// 양쪽 모두 남아있는 영역이 있는 경우 공통 앵커를 찾아본다!
 	let anchor: null | { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number } = null;
@@ -729,7 +655,9 @@ async function diffCore(
 		}
 	}
 
-	entries.push(...skippedTail);
+	for (const item of skippedTail) {
+		entries.push(item);
+	}
 
 	return entries;
 }

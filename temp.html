@@ -6,6 +6,40 @@
     </div>
     <div contenteditable="plaintext-only" style="border:1px solid #aaa; padding:1em;" spellcheck="false">
     </div>
+
+    <script>
+        const chars = [8729,
+            183,
+            8226,
+            8220,
+            8221,
+            61614,
+            12615,
+            12615,
+            9675,
+            34,
+            65341,
+            65339,
+            88,
+            215,
+            43,
+            12685,
+            9642,
+            10108,
+            9702,
+            4510,
+            10003,
+            8592,
+            8594,
+            9745,
+        ];
+        for (const code of chars) {
+            const span = document.createElement("div");
+            span.innerHTML = `${String.fromCharCode(code)} ${code}`;
+            document.body.appendChild(span);
+        }
+
+    </script>
 </body>
 
 </html>

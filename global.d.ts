@@ -6,18 +6,17 @@ declare type Token = {
 	flags: number;
 };
 
-declare type DiffEntrySide = {
+declare type EntrySide = {
 	pos: number;
 	len: number;
-	empty?: boolean;
 };
 
 declare type DiffType = 0 | 1 | 2 | 3;
 
 declare type DiffEntry = {
 	type: DiffType;
-	left: DiffEntrySide;
-	right: DiffEntrySide;
+	left: EntrySide;
+	right: EntrySide;
 	asBlock?: boolean;
 };
 
@@ -34,7 +33,7 @@ declare type Anchor = {
 
 declare type WhitespaceHandling = "ignore" | "normalize";
 
-declare type DiffAlgorithm = "lcs" | "myers" | "histogram";
+declare type DiffAlgorithm = "lcs" | "histogram";
 
 // declare const TOKENIZE_BY_CHAR: 1;
 // declare const TOKENIZE_BY_WORD: 2;
@@ -85,11 +84,10 @@ declare type TokenMatchEntry = {
 };
 
 type TextRun = {
-	type: "CHARS" | "DIFF" | "DIFF_END" | "ANCHOR" | "LINEBREAK" | "END_OF_STRING";
+	type: "CHARS" | "DIFF" | "DIFF_END" | "ANCHOR" | "HEADING" | "HEADING_END" | "LINEBREAK" | "END_OF_STRING";
 	pos: number;
 	len: number;
-	diffIndex: number | null;
-	anchorIndex: number | null;
+	dataIndex: number | null;
 };
 
 declare type DiffContext = {
@@ -102,6 +100,7 @@ declare type DiffContext = {
 	rawEntries?: DiffEntry[];
 	diffs?: DiffEntry[];
 	anchors?: Anchor[];
+	headings?: SectionHeading[];
 	done: boolean;
 	processTime?: number;
 };
@@ -122,3 +121,22 @@ type OutputOptions = {
 };
 
 type CopyMode = "raw" | "formatted" | "compare";
+
+type OutlineEntry = {
+	level: 1 | 2 | 3 | 4 | 5 | 6;
+	title: string;
+	leftPos: number;
+	leftLen: number;
+	rightPos: number;
+	rightLen: number;
+};
+
+type SectionHeading = {
+	ordinalText: string;
+	title: string;
+	left: EntrySide;
+	right: EntrySide;
+	// ordinal: number; // 1,2,3,4,5,...
+	// depth: number; //
+	// type: number; //
+};

@@ -18,7 +18,7 @@ function createEditor(container, editorName, callbacks) {
     const mirror = document.createElement("div");
     mirror.id = editorName + "Mirror";
     mirror.classList.add("mirror");
-    mirror.spellcheck = false;
+    // mirror.spellcheck = false;
     const editor = document.createElement("div");
     editor.id = editorName + "Editor";
     editor.classList.add("editor");
@@ -28,10 +28,12 @@ function createEditor(container, editorName, callbacks) {
     wrapper.appendChild(mirror);
     wrapper.appendChild(editor);
     container.appendChild(wrapper);
-    // 복붙한 스타일이 들어있는 부분을 수정할 때(정확히는 스타일이 입혀진 텍스트를 지우고 바로 입력할 때)
-    // 브라우저가 지워지기 전과 비슷한 스타일(font, span태그에 style을 입혀서)을 친히 넣어주신다!
-    // 분에 넘치게 황공하오니 잽싸게 삭제해드려야함함.
+    // *** HTML 붙여넣기를 허용할 때만 사용할 코드 ***
+    // 지금은 관련 코드를 다 지워버렸고 복구하려면 깃허브에서 이전 코드를 뒤져야함...
     const { observeEditor, unobserveEditor } = (() => {
+        // 복붙한 스타일이 들어있는 부분을 수정할 때(정확히는 스타일이 입혀진 텍스트를 지우고 바로 입력할 때)
+        // 브라우저가 지워지기 전과 비슷한 스타일(font, span태그에 style을 입혀서)을 친히 넣어주신다!
+        // 분에 넘치게 황공하오니 잽싸게 삭제해드려야함.
         const mutationObserver = new MutationObserver((mutations) => {
             for (const mutation of mutations) {
                 if (mutation.type === "childList") {
@@ -88,7 +90,8 @@ function createEditor(container, editorName, callbacks) {
                     }
                 }
             }
-        }, { threshold: 1, root: wrapper });
+        }, { threshold: 0, root: wrapper, rootMargin: "-5px 0px -5px 0px" } // top, bottom, left, right
+        );
         function trackIntersections() {
             for (const anchor of _anchorElements) {
                 if (anchor)
@@ -110,22 +113,28 @@ function createEditor(container, editorName, callbacks) {
         _text += "\n";
         onTextChanged(_text);
     }
+    function setText(text) {
+        _text = editor.textContent = text || "";
+        updateText();
+    }
     editor.addEventListener("input", updateText);
+    // UI쓰레드 블럭을 최대한 피하면서 업데이트 시도함.
+    // 15~20페이지 정도의 큰 업무매뉴얼은 흔하다. 버팀목 업무매뉴얼은 50페이지가 넘는다.
     const { update } = (() => {
         let _renderId = 0;
         let _cancelRenderId = null;
-        function update({ diffs, anchors }) {
+        function update({ diffs, anchors, headings }) {
             if (_cancelRenderId) {
                 cancelIdleCallback(_cancelRenderId);
                 _cancelRenderId = null;
             }
             if (_renderId === Number.MAX_SAFE_INTEGER) {
-                // 그런일은... 절대로... 없을거라...
+                // 그런 일은... 절대로... 없을거라...
                 _renderId = 0;
             }
             const startTime = performance.now();
             const renderId = ++_renderId;
-            const generator = updateGenerator({ renderId, diffs, anchors });
+            const generator = updateGenerator({ renderId, diffs, anchors, headings });
             // 일단 start!
             generator.next();
             const step = (idleDeadline) => {
@@ -142,7 +151,7 @@ function createEditor(container, editorName, callbacks) {
             };
             _cancelRenderId = requestIdleCallback(step, { timeout: FORCE_RENDER_TIMEOUT });
         }
-        function* updateGenerator({ renderId, diffs, anchors }) {
+        function* updateGenerator({ renderId, diffs, anchors, headings, }) {
             if (!diffs) {
                 return;
             }
@@ -153,12 +162,13 @@ function createEditor(container, editorName, callbacks) {
             _anchorElements.length = 0;
             // 여기서 일단 한번 yield 해줘야 idleDeadline을 받을 수 있음.
             let idleDeadline = yield;
-            const textruns = getTextRuns(editorName, _text, diffs, anchors);
+            const textruns = getTextRuns(editorName, _text, { diffs, anchors, headings });
             const text = _text;
             const view = mirror;
             let lineEl = null;
             let nextInlineNode = null;
             let currentDiffIndex = null;
+            let currentHeadingIndex = null;
             let lineNum;
             let lineIsEmpty = true;
             let numConsecutiveBlankLines = 0;
@@ -171,7 +181,7 @@ function createEditor(container, editorName, callbacks) {
                 let anchorEl;
                 if (nextInlineNode === null || nextInlineNode.nodeName !== ANCHOR_TAG) {
                     anchorEl = document.createElement(ANCHOR_TAG);
-                    anchorEl.contentEditable = "false"; // 만약에 mirror를 contentEditable로 만들경우에...
+                    //anchorEl.contentEditable = "false"; // 만약에 mirror를 contentEditable로 만들경우에...
                     currentContainer.insertBefore(anchorEl, nextInlineNode);
                 }
                 else {
@@ -194,7 +204,10 @@ function createEditor(container, editorName, callbacks) {
             }
             function appendChars(chars) {
                 let el;
-                const nodeName = "SPAN";
+                // 지금으로써는 heading은 common sequence 범위에서만 찾는다(diff영역에 걸쳐있으면 무시함)
+                // 만약 diff영역과 오버랩되는 걸 허용하게 되면 이렇게 단순히 태그이름만 바꾸는 걸로는 불가능함.
+                // heading의 목적은 단순히 시각적 강조 그뿐임. 원본문서의 구조가 엉망인 경우가 많기 때문에 이 이상으로 더 많은 걸 하기는 쉽지 않고 정확하지도 않음. 정확한 결과를 못 보여줄거면 안하는게 낫다...
+                const nodeName = currentHeadingIndex !== null ? "H6" : "SPAN";
                 if (!nextInlineNode || nextInlineNode.nodeName !== nodeName) {
                     el = document.createElement(nodeName);
                     currentContainer.insertBefore(el, nextInlineNode);
@@ -202,6 +215,10 @@ function createEditor(container, editorName, callbacks) {
                 else {
                     el = nextInlineNode;
                     nextInlineNode = el.nextSibling;
+                }
+                if (currentHeadingIndex !== null) {
+                    el.id = `${editorName}Heading${currentHeadingIndex}`;
+                    el.dataset.heading = currentHeadingIndex.toString();
                 }
                 if (lineIsEmpty) {
                     for (const ch of chars) {
@@ -242,7 +259,7 @@ function createEditor(container, editorName, callbacks) {
                 }
             }
             function popContainer() {
-                // 현재 container에 남아있는 inline 노드들 제거(이전 업데이트 때 쓰였지만 지금은 안쓰이는 노드들)
+                // 현재 container에 남아있는 노드들 제거(이전 업데이트 때 쓰였지만 지금은 안쓰이는 노드들)
                 while (nextInlineNode) {
                     const nextnext = nextInlineNode.nextSibling;
                     nextInlineNode.remove();
@@ -266,15 +283,16 @@ function createEditor(container, editorName, callbacks) {
             lineEl = view.firstElementChild;
             let textRunIndex = 0;
             // 줄단위로 필요한 부분만 업데이트 할 수 있게 줄에 해당하는 textrun들만 모아두지만
-            // 필요한 부분만 업데이트 하는 코드는 그냥 다 지워버림. 신경쓸게 많고 얻는게 그리 많지 않다 => 지금도 이미 충분히 빠르다.
+            // 필요한 부분만(변경된 부분) 업데이트 하는 코드는 그냥 다 지워버림. 신경쓸 게 많고 얻는 건 그리 많지 않다.
             let textrunBuffer = [];
             while (textRunIndex < textruns.length) {
                 if (renderId !== _renderId) {
                     // 새로운 렌더 요청이 들어옴.
                     return;
                 }
-                // 삐~~ 타임오버.
-                if (idleDeadline && idleDeadline.timeRemaining() <= 3) {
+                // 32줄마다 타임오버 체크함
+                if (idleDeadline && !(lineNum & 31) && idleDeadline.timeRemaining() <= 1) {
+                    // 삐~~
                     idleDeadline = yield;
                 }
                 textrunBuffer.length = 0;
@@ -308,18 +326,24 @@ function createEditor(container, editorName, callbacks) {
                         appendChars(text.slice(pos, pos + len));
                     }
                     else if (type === "ANCHOR") {
-                        appendAnchor(textrun.pos, textrun.anchorIndex);
+                        appendAnchor(textrun.pos, textrun.dataIndex);
                     }
                     else if (type === "DIFF") {
-                        currentDiffIndex = textrun.diffIndex;
+                        currentDiffIndex = textrun.dataIndex;
                         openDiff(currentDiffIndex);
                     }
                     else if (type === "DIFF_END") {
                         closeDiff();
                         currentDiffIndex = null;
                     }
+                    else if (type === "HEADING") {
+                        currentHeadingIndex = textrun.dataIndex;
+                    }
+                    else if (type === "HEADING_END") {
+                        currentHeadingIndex = null;
+                    }
                 }
-                // 남은 container들 pop pop pop
+                // 남은 container들은 모조리리 pop pop pop
                 while (popContainer())
                     ;
                 lineEl = lineEl.nextElementSibling;
@@ -407,11 +431,19 @@ function createEditor(container, editorName, callbacks) {
                 low = mid + 1;
             }
         }
-        return [lineEl, distance]; //null일 수도 있지만 의도적으로 느낌표 때려박음
+        return [lineEl, distance];
     }
     function scrollToDiff(diffIndex) {
         const offsetTop = _diffElements[diffIndex][0].offsetTop - wrapper.clientTop;
         wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
+    }
+    function scrollToHeading(headingIndex) {
+        const id = `${editorName}Heading${headingIndex}`;
+        const el = document.getElementById(id);
+        if (el) {
+            const offsetTop = el.offsetTop - wrapper.clientTop;
+            wrapper.scrollTop = offsetTop - SCROLL_MARGIN;
+        }
     }
     // 내가 머리가 나쁘다는 걸 확실하게 알게 해주는 함수
     function scrollToLine(lineNum, margin = 0) {
@@ -480,11 +512,103 @@ function createEditor(container, editorName, callbacks) {
         // }
         // return high;
     }
-    // selectTextRange, getTextSelectionRange 이 둘은 다음날 보면 다시 깜깜해진다.
-    // 손대려면 정말 각 잡고 해야함.
+    // =============================================================
+    // 텍스트 선택 영역 관련
+    // 지저분하지만.. 섣불리 건들면 한시간 날아간다!
+    // =============================================================
+    // #region
+    function getTextOffset(root, node, offset) {
+        // console.debug(editorName, "getTextOffset", { root, node, offset });
+        let result;
+        if (node.nodeType === 1) {
+            // element 타입일 경우 신경쓸 것이 많다.
+            if (node.childNodes.length === offset) {
+                // offset이 node.childNode 배열 크기를 넘는 경우(정확히는 offset === childNode.length)
+                // 이 경우 범위의 시작(또는 끝)은 node의 끝에 있다는 의미.
+                // 현재 노드의 끝 위치를 계산해도 되지만 다음 노드의 시작 위치를 계산해도 될 것 같음.
+                const nextNode = findFirstNodeAfter(root, node);
+                if (nextNode === null) {
+                    return -1;
+                }
+            }
+            else {
+                // node.childNodes[offset]의 시작부분에 범위의 시작(또는 끝)이 위치함.
+                node = node.childNodes[offset];
+            }
+            let container;
+            let offsetBase;
+            if (root === mirror) {
+                container = node.closest("div[data-pos]");
+                offsetBase = Number(container.dataset.pos);
+                if (container === node) {
+                    return offsetBase;
+                }
+            }
+            else {
+                container = editor;
+                offsetBase = 0;
+            }
+            let pos = getTextOffsetOfNode(container, node);
+            result = offsetBase + pos;
+        }
+        else {
+            console.assert(node.nodeType === 3, "nodeType is not text node");
+            if (root === mirror) {
+                // mirror인 경우 텍스트의 처음부터 계산할 필요 없이 line 엘러먼트를 찾고 거기서부터 누적시작.
+                const container = node.parentElement.closest("div[data-pos]");
+                let offsetBase = Number(container.dataset.pos);
+                let pos = getTextOffsetOfNode(container, node);
+                result = offsetBase + pos + offset;
+            }
+            else {
+                // 맨 처음부터 텍스트노드 길이 누적...
+                result = getTextOffsetOfNode(root, node) + offset;
+            }
+        }
+        return result;
+    }
+    function getTextSelectionRange() {
+        const selection = window.getSelection();
+        if (!selection || !selection.rangeCount) {
+            // console.debug("no selection or range count is 0");
+            return [null, null];
+        }
+        const range = selection.getRangeAt(0);
+        const root = editor.contains(range.commonAncestorContainer) ? editor : mirror.contains(range.commonAncestorContainer) ? mirror : null;
+        if (!root) {
+            //console.debug(editorName, "no root found", { commonAncestorContainer: range.commonAncestorContainer, startContainer: range.startContainer, endContainer: range.endContainer });
+            return [null, null];
+        }
+        // console.debug(editorName, "range", {
+        // 	commonAncestorContainer: range.commonAncestorContainer,
+        // 	startContainer: range.startContainer,
+        // 	endContainer: range.endContainer,
+        // 	startOffset: range.startOffset,
+        // 	endOffset: range.endOffset,
+        // });
+        let startOffset = getTextOffset(root, range.startContainer, range.startOffset);
+        let endOffset = getTextOffset(root, range.endContainer, range.endOffset);
+        // console.debug(editorName, "startOffset, endOffset", { startOffset, endOffset });
+        if (isNaN(startOffset) || isNaN(endOffset)) {
+            //	console.debug(editorName, "no start or end offset found", { startOffset, endOffset });
+            return [null, null];
+        }
+        if (startOffset === -1 || startOffset >= _text.length) {
+            startOffset = _text.length - 1;
+        }
+        if (endOffset === -1 || endOffset >= _text.length) {
+            endOffset = _text.length - 1;
+        }
+        if (startOffset > endOffset) {
+            [startOffset, endOffset] = [endOffset, startOffset];
+        }
+        // console.debug(editorName, "getTextSelectionRange", { startOffset, endOffset });
+        return [startOffset, endOffset];
+    }
     function selectTextRange(startOffset, endOffset) {
-        startOffset = Math.max(0, Math.min(startOffset, _text.length));
-        endOffset = Math.max(0, Math.min(endOffset, _text.length));
+        // console.debug(editorName, "selectTextRange", { startOffset, endOffset });
+        startOffset = Math.max(0, Math.min(startOffset, _text.length - 1));
+        endOffset = Math.max(0, Math.min(endOffset, _text.length - 1));
         if (startOffset > endOffset) {
             [startOffset, endOffset] = [endOffset, startOffset];
         }
@@ -510,25 +634,38 @@ function createEditor(container, editorName, callbacks) {
         else {
             let startLineIndex = findLineIndexByPos(startOffset);
             let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
-            let currentNode;
-            let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null);
-            let pos = Number(_lineElements[startLineIndex].dataset.pos);
-            while ((currentNode = walker.nextNode())) {
-                const nodeLen = currentNode.nodeValue.length;
-                if (pos + nodeLen >= startOffset) {
-                    range.setStart(currentNode, startOffset - pos);
-                    startSet = true;
-                    break;
-                }
-                pos += nodeLen;
+            let basePos = _lineHints[startLineIndex].pos;
+            if (basePos === startOffset) {
+                range.setStartBefore(_lineElements[startLineIndex]);
+                startSet = true;
             }
-            walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null);
-            pos = Number(_lineElements[endLineIndex].dataset.pos);
-            if (pos === endOffset) {
+            else {
+                let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null);
+                let pos = basePos;
+                let currentNode;
+                while ((currentNode = walker.nextNode())) {
+                    const nodeLen = currentNode.nodeValue.length;
+                    if (pos + nodeLen >= startOffset) {
+                        range.setStart(currentNode, startOffset - pos);
+                        startSet = true;
+                        break;
+                    }
+                    pos += nodeLen;
+                }
+                if (!startSet) {
+                    range.setStartAfter(_lineElements[startLineIndex]);
+                    startSet = true;
+                }
+            }
+            basePos = _lineHints[endLineIndex].pos;
+            if (basePos === endOffset) {
                 range.setEndBefore(_lineElements[endLineIndex]);
                 endSet = true;
             }
             else {
+                let walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null);
+                let pos = basePos;
+                let currentNode;
                 while ((currentNode = walker.nextNode())) {
                     const nodeLen = currentNode.nodeValue.length;
                     if (pos + nodeLen >= endOffset) {
@@ -538,6 +675,10 @@ function createEditor(container, editorName, callbacks) {
                     }
                     pos += nodeLen;
                 }
+                if (!endSet) {
+                    range.setEndAfter(_lineElements[endLineIndex]);
+                    endSet = true;
+                }
             }
         }
         if (startSet && endSet) {
@@ -546,141 +687,18 @@ function createEditor(container, editorName, callbacks) {
             sel.addRange(range);
         }
     }
-    function getFirstTextNode(node) {
-        const walker = document.createTreeWalker(node, NodeFilter.SHOW_TEXT);
-        return walker.nextNode();
-    }
-    function findFirstTextNodeAfter(root, after) {
-        let current = after;
-        while (current && current !== root) {
-            if (current.nextSibling) {
-                const found = getFirstTextNode(current.nextSibling);
-                if (found)
-                    return found;
-                current = current.nextSibling;
-            }
-            else {
-                current = current.parentNode;
-            }
-        }
-        return null;
-    }
-    function getTextSelectionRange() {
-        const selection = window.getSelection();
-        if (!selection || !selection.rangeCount) {
-            return [null, null];
-        }
-        const range = selection.getRangeAt(0);
-        const root = editor.contains(range.commonAncestorContainer) ? editor : mirror.contains(range.commonAncestorContainer) ? mirror : null;
-        if (!root) {
-            return [null, null];
-        }
-        let startOffset = Number.NaN;
-        let endOffset = Number.NaN;
-        let startTextNode = range.startContainer;
-        let endTextNode = range.endContainer;
-        let startTextOffset = range.startOffset;
-        let endTextOffset = range.endOffset;
-        // console.log("range:", {
-        // 	range,
-        // 	startContainer: range.startContainer,
-        // 	startOffset: range.startOffset,
-        // 	endContainer: range.endContainer,
-        // 	endOffset: range.endOffset,
-        // 	commonAncestorContainer: range.commonAncestorContainer,
-        // })
-        if (startTextNode.nodeType === 1) {
-            if (startTextOffset === startTextNode.childNodes.length) {
-                // startOffset이 startContainer의 childNodes.length와 같은 경우가 있다.
-                // 이 경우 범위의 시작은 startContainer는 끝부분에 있다는 의미이므로 startContainer의 다음 요소의 첫부분에 있다고 생각할 수도 있다(아마도?)
-                // 그래서 startContainer 이후(형제노드, 없으면 부모를 거슬러 올라가서 부모의 형제노드) 첫 텍스트노드를 찾아옴
-                startTextNode = findFirstTextNodeAfter(root, startTextNode);
-            }
-            else {
-                startTextNode = getFirstTextNode(startTextNode.childNodes[startTextOffset]);
-            }
-            // 어찌됐건 startContainer가 element타입이면 글자 오프셋은 무조건 0임
-            startTextOffset = 0;
-        }
-        // 마찬가지
-        if (endTextNode.nodeType === 1) {
-            if (endTextOffset === endTextNode.childNodes.length) {
-                endTextNode = findFirstTextNodeAfter(root, endTextNode);
-            }
-            else {
-                endTextNode = getFirstTextNode(endTextNode.childNodes[endTextOffset]);
-            }
-            endTextOffset = 0;
-        }
-        if (!startTextNode || !endTextNode || startTextNode.nodeType !== 3 || endTextNode.nodeType !== 3) {
-            return [null, null];
-        }
-        if (root === editor) {
-            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-            let currentNode;
-            let pos = 0;
-            while ((currentNode = walker.nextNode())) {
-                if (currentNode === startTextNode) {
-                    startOffset = pos + startTextOffset;
-                }
-                if (currentNode === endTextNode) {
-                    endOffset = pos + endTextOffset;
-                    break;
-                }
-                pos += currentNode.nodeValue.length;
-            }
-        }
-        else {
-            let startLineEl = startTextNode.parentElement?.closest("div[data-pos]");
-            let endLineEl = endTextNode.parentElement?.closest("div[data-pos]");
-            if (!startLineEl || !endLineEl) {
-                return [null, null];
-            }
-            if (startLineEl && endLineEl) {
-                let walker = document.createTreeWalker(startLineEl, NodeFilter.SHOW_TEXT, null);
-                let pos = Number(startLineEl.dataset.pos);
-                let currentNode;
-                while ((currentNode = walker.nextNode())) {
-                    if (currentNode === startTextNode) {
-                        startOffset = pos + startTextOffset;
-                        break;
-                    }
-                    pos += currentNode.nodeValue.length;
-                }
-                walker = document.createTreeWalker(endLineEl, NodeFilter.SHOW_TEXT, null);
-                pos = Number(endLineEl.dataset.pos);
-                while ((currentNode = walker.nextNode())) {
-                    if (currentNode === endTextNode) {
-                        endOffset = pos + endTextOffset;
-                        break;
-                    }
-                    pos += currentNode.nodeValue.length;
-                }
-            }
-            if (startOffset > _text.length - 1) {
-                startOffset = _text.length - 1;
-            }
-            if (endOffset > _text.length - 1) {
-                endOffset = _text.length - 1;
-            }
-        }
-        if (isNaN(startOffset) || isNaN(endOffset)) {
-            return [null, null];
-        }
-        if (startOffset > endOffset) {
-            [startOffset, endOffset] = [endOffset, startOffset];
-        }
-        console.log("startOffset, endOffset", startOffset, endOffset);
-        return [startOffset, endOffset];
-    }
+    // #endregion
+    // =============================================================
     return {
         name: editorName,
         wrapper,
         editor,
         mirror,
         updateText,
+        setText,
         update,
         scrollToDiff,
+        scrollToHeading,
         // saveCaret,
         // restoreCaret,
         getVisibleAnchors,

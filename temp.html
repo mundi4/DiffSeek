@@ -39,6 +39,54 @@
             document.body.appendChild(span);
         }
 
+
+        const keys = [32, 9, 10, 13, 160]; // 공백 문자 codePoint들
+        const test = [32, 33, 160, 10, 11];
+
+        // 1. 일반 object
+        const obj = {};
+        for (const key of keys) {
+            obj[key] = true;
+        }
+
+        // 2. Object.create(null)
+        const objNull = Object.create(null);
+        for (const key of keys) {
+            objNull[key] = true;
+        }
+
+        // 3. Map
+        const map = new Map();
+        for (const key of keys) {
+            map.set(key, true);
+        }
+
+        console.log("Running benchmark...");
+
+        // 벤치마크
+        console.time("object");
+        for (let i = 0; i < 1e7; i++) {
+            for (const code of test) {
+                if (obj[code]) void 0;
+            }
+        }
+        console.timeEnd("object");
+
+        console.time("Object.create(null)");
+        for (let i = 0; i < 1e7; i++) {
+            for (const code of test) {
+                if (objNull[code]) void 0;
+            }
+        }
+        console.timeEnd("Object.create(null)");
+
+        console.time("Map");
+        for (let i = 0; i < 1e7; i++) {
+            for (const code of test) {
+                if (map.get(code)) void 0;
+            }
+        }
+        console.timeEnd("Map");
     </script>
 </body>
 

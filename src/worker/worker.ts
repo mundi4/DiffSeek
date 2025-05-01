@@ -397,7 +397,6 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
 	const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
 
-	const entries = [] as DiffEntry[];
 	const freq: Record<string, number> = {};
 	for (let n = 1; n <= maxLen; n++) {
 		for (let i = lhsLower; i <= lhsUpper - n; i++) {

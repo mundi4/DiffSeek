@@ -1253,7 +1253,7 @@ const DiffSeek = (function () {
 			const rightToken = rightTokens[entry.right.pos];
 
 			if (leftToken.flags & SECTION_HEADING && rightToken.flags & SECTION_HEADING) {
-				const ordinalText = leftToken.text;
+				const ordinalText = leftText.slice(leftToken.pos, leftToken.pos + leftToken.len);
 
 				// 헤딩 끝 찾기
 				let leftEndPos = entry.left.pos + entry.left.len;

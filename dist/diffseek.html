@@ -2494,7 +2494,6 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
     const useMatchPrefix = ctx.options.whitespace === "ignore";
     const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
     const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
-    const entries = [];
     const freq = {};
     for (let n = 1; n <= maxLen; n++) {
         for (let i = lhsLower; i <= lhsUpper - n; i++) {
@@ -4640,7 +4639,7 @@ const DiffSeek = (function () {
             const leftToken = leftTokens[entry.left.pos];
             const rightToken = rightTokens[entry.right.pos];
             if (leftToken.flags & SECTION_HEADING && rightToken.flags & SECTION_HEADING) {
-                const ordinalText = leftToken.text;
+                const ordinalText = leftText.slice(leftToken.pos, leftToken.pos + leftToken.len);
                 // 헤딩 끝 찾기
                 let leftEndPos = entry.left.pos + entry.left.len;
                 let rightEndPos = entry.right.pos + entry.right.len;

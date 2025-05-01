@@ -136,6 +136,10 @@ type SectionHeading = {
 	title: string;
 	left: EntrySide;
 	right: EntrySide;
+	parent: SectionHeading | null;
+	firstChild: SectionHeading | null;
+	nextSibling: SectionHeading | null;
+	level: number;
 	// ordinal: number; // 1,2,3,4,5,...
 	// depth: number; //
 	// type: number; //

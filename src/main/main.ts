@@ -424,7 +424,7 @@ const DiffSeek = (function () {
 			});
 
 			const generator = computeDiffGenerator(ctx);
-			
+
 			const step = (idleDeadline: IdleDeadline) => {
 				computeDiffTimeoutId = null;
 				const { done } = generator.next(idleDeadline);
@@ -1290,6 +1290,10 @@ const DiffSeek = (function () {
 						pos: rightTokens[entry.right.pos].pos,
 						len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
 					},
+					parent: null,
+					firstChild: null,
+					nextSibling: null,
+					level: 0,
 				});
 			}
 		}

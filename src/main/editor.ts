@@ -209,6 +209,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 			let currentDiffIndex: number | null = null;
 			let currentHeadingIndex: number | null = null;
+			let headingIndexSeen = false;
 			let lineNum: number;
 			let lineIsEmpty = true;
 			let numConsecutiveBlankLines = 0;
@@ -256,12 +257,17 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 					nextInlineNode = el.nextSibling;
 				}
 				if (currentHeadingIndex !== null) {
-					el.id = `${editorName}Heading${currentHeadingIndex}`;
+					if (!headingIndexSeen) {
+						el.id = `${editorName}Heading${currentHeadingIndex}`;
+					} else {
+						el.removeAttribute("id");
+					}
 					el.dataset.heading = currentHeadingIndex.toString();
+					headingIndexSeen = true;
 				}
 				if (lineIsEmpty) {
 					for (const ch of chars) {
-						if (!SPACE_CHARS[ch]) {
+						if (!spaceChars[ch]) {
 							lineIsEmpty = false;
 							break;
 						}
@@ -285,7 +291,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				nextInlineNode = diffEl.firstChild;
 				diffEl.dataset.diff = diffIndex.toString();
 				diffEl.className = `diff-color${(diffIndex % NUM_DIFF_COLORS) + 1}`;
-				diffEl.classList.toggle("asBlock", diffs[diffIndex].asBlock);
+				//diffEl.classList.toggle("asBlock", diffs[diffIndex].asBlock);
 				(_diffElements[diffIndex] ??= []).push(diffEl);
 			}
 
@@ -345,9 +351,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 				}
 
 				textrunBuffer.length = 0;
+				let lineHasBlockDiff = false;
 				for (; textRunIndex < textruns.length; textRunIndex++) {
 					const textrun = textruns[textRunIndex];
 					textrunBuffer.push(textrun);
+					if (!lineHasBlockDiff && textrun.type === "DIFF" && diffs[textrun.dataIndex!].asBlock) {
+						lineHasBlockDiff = true;
+					}
 					if (textrun.type === "LINEBREAK" || textrun.type === "END_OF_STRING") {
 						textRunIndex++;
 						break;
@@ -386,7 +396,10 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 						closeDiff();
 						currentDiffIndex = null;
 					} else if (type === "HEADING") {
-						currentHeadingIndex = textrun.dataIndex!;
+						if (currentDiffIndex !== textrun.dataIndex) {
+							currentHeadingIndex = textrun.dataIndex!;
+							headingIndexSeen = false;
+						}
 					} else if (type === "HEADING_END") {
 						currentHeadingIndex = null;
 					}
@@ -394,6 +407,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 				// 남은 container들은 모조리리 pop pop pop
 				while (popContainer());
+				// lineEl.appendChild(document.createElement("BR"));
 
 				lineEl = lineEl.nextElementSibling as HTMLElement;
 				textPos = textrun!.pos + textrun!.len;
@@ -615,7 +629,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			result = offsetBase + pos;
 		} else {
 			console.assert(node.nodeType === 3, "nodeType is not text node");
-			
+
 			if (root === mirror) {
 				// mirror인 경우 텍스트의 처음부터 계산할 필요 없이 line 엘러먼트를 찾고 거기서부터 누적시작.
 				const container = (node as ChildNode).parentElement!.closest("div[data-pos]")! as HTMLElement;

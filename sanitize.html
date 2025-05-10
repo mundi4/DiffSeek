@@ -1,0 +1,77 @@
+<html>
+
+<head>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            height: 100vh;
+        }
+
+        [contenteditable] {
+            border: 1px solid #000;
+            padding: 10px;
+            overflow-y: scroll;
+            font-family: 'Courier New', Courier, monospace;
+            white-space: pre-wrap;
+            word-break: break-all;
+            overflow-wrap: anywhere;
+        }
+        [contenteditable] table {
+            border-spacing: 0;
+            border-collapse: collapse;
+        }
+
+        [contenteditable] td {
+            border: 1px solid #000;
+            border-collapse: collapse;
+            padding: 0;
+        }
+
+        td, th {
+            vertical-align: top;
+        }
+    </style>
+    <script src="/build/sanitize.js"></script>
+</head>
+
+
+<body>
+    <div class="container">
+        <div id="ce1" contenteditable spellcheck="false"></div>
+        <div id="ce2" contenteditable="plaintext-only" spellcheck="false"></div>
+        <div id="ce3" contenteditable spellcheck="false"></div>
+        <div id="ce4" contenteditable spellcheck="false"></div>
+    </div>
+
+
+    <script>
+        /*
+        목적을 명확히 하자
+        html을 남기려고하는건가?
+        테이블을 남겨? 오히려 더 산만해질텐데? 몇배로 복잡해질텐데?
+
+
+        */
+
+        ce1.addEventListener('paste', function (e) {
+            const rawHTML = e.clipboardData.getData('text/html');
+            if (!rawHTML) return;
+            e.preventDefault();
+            ce4.textContent = rawHTML;
+            const fragment = sanitizeHTML2(rawHTML);
+            ce1.replaceChildren(fragment);
+            // ce1.innerHTML = sanitized;
+            // ce2.textContent = e.clipboardData.getData('text/plain');
+        });
+    </script>
+</body>
+
+</html>

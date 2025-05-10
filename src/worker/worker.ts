@@ -2,13 +2,13 @@ const FIRST_OF_LINE = 1;
 const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING = 64;
-const SECTION_HEADING_LV2 = 128; // 가.
-const SECTION_HEADING_LV3 = 256; // (1)
-const SECTION_HEADING_LV4 = 384; // (가)
-const SECTION_HEADING_LV5 = 512; // 1)
-const SECTION_HEADING_LV6 = 640; // 가)
-const SECTION_HEADING_LEVEL = SECTION_HEADING_LV2 | SECTION_HEADING_LV3 | SECTION_HEADING_LV4 | SECTION_HEADING_LV5 | SECTION_HEADING_LV6;
+const SECTION_HEADING_TYPE1 = 64;
+const SECTION_HEADING_TYPE2 = 128; // 가.
+const SECTION_HEADING_TYPE3 = 256; // (1)
+const SECTION_HEADING_TYPE4 = 384; // (가)
+const SECTION_HEADING_TYPE5 = 512; // 1)
+const SECTION_HEADING_TYPE6 = 640; // 가)
+const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
@@ -532,12 +532,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 					score *= LINE_END_BONUS;
 				}
 
-				if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING) {
-					if ((lhsTokens[i].flags & SECTION_HEADING_LEVEL) !== 0) {
-						// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
-					} else {
-						score *= SECTION_HEADING_BONUS;
-					}
+				if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
+					// if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
+					// 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
+					// } else {
+					// }
+					score *= SECTION_HEADING_BONUS;
 				}
 
 				if (!best || score < best.score) {

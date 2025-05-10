@@ -301,7 +301,7 @@ function parseOrdinalNumber(ordinalText: string): number {
 	if (/^\d+$/.test(norm)) {
 		return Number(norm);
 	}
-	const idx = hangulOrder.indexOf(norm);
+	const idx = HANGUL_ORDER.indexOf(norm);
 	if (idx !== -1) {
 		return idx + 1;
 	}

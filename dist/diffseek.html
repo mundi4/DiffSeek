@@ -133,51 +133,6 @@ const TOPBAR_HEIGHT = 0;
 const SCROLL_MARGIN = LINE_HEIGHT * 4;
 const COMPUTE_DEBOUNCE_TIME = 200; // ms
 const FORCE_RENDER_TIMEOUT = 100; // ms
-const NORMALIZE_CHARS = [
-    ['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
-    ["-", "–", "—", "－"],
-    [".", "․", "．"],
-    [",", "，"],
-    ["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
-    ["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만... 많더라...
-    ["■", "▪", "◼"],
-    ["□", "▫", "◻"],
-    ["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?... 
-    ["…", "⋯"],
-    ["(", "（"],
-    [")", "）"],
-    ["[", "［"],
-    ["]", "］"],
-    ["{", "｛"],
-    ["}", "｝"],
-    ["<", "＜"],
-    [">", "＞"],
-    ["=", "＝"],
-    ["+", "＋"],
-    ["*", "＊", "✱", "×", "∗"],
-    ["/", "／", "÷"],
-    ["\\", "＼", "₩"],
-    ["&", "＆"],
-    ["#", "＃"],
-    ["@", "＠"],
-    ["$", "＄"],
-    ["%", "％"],
-    ["^", "＾"],
-    ["~", "～"],
-    ["`", "｀"],
-    ["|", "｜"],
-    [":", "："],
-    [";", "；"],
-    ["?", "？"],
-    ["!", "！"],
-    ["_", "＿"],
-    ["→", "⇒", "➡", "➔", "➞", "➟"],
-    ["←", "⇐", "⬅", "⟵", "⟸"],
-    ["↑", "⇑", "⬆"],
-    ["↓", "⇓", "⬇"],
-    ["↔", "⇔"],
-    ["↕", "⇕"],
-];
 const PROCESSING_MESSAGES = [
     "한땀한땀 비교 중...",
     "인내심 테스트 중...",
@@ -191,6 +146,7 @@ const PROCESSING_MESSAGES = [
     "99... 98... 97...",
     "퇴근 준비 중...",
 ];
+const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
 //# sourceMappingURL=constants.js.map
 </script>
 <script>"use strict";
@@ -491,7 +447,7 @@ function parseOrdinalNumber(ordinalText) {
     if (/^\d+$/.test(norm)) {
         return Number(norm);
     }
-    const idx = hangulOrder.indexOf(norm);
+    const idx = HANGUL_ORDER.indexOf(norm);
     if (idx !== -1) {
         return idx + 1;
     }
@@ -533,53 +489,15 @@ const FIRST_OF_LINE = 1;
 const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING = 64;
-const SECTION_HEADING_LV2 = 128; // 가.
-const SECTION_HEADING_LV3 = 256; // (1)
-const SECTION_HEADING_LV4 = 384; // (가)
-const SECTION_HEADING_LV5 = 512; // 1)
-const SECTION_HEADING_LV6 = 640; // 가)
-const SECTION_HEADING_LEVEL = SECTION_HEADING_LV2 | SECTION_HEADING_LV3 | SECTION_HEADING_LV4 | SECTION_HEADING_LV5 | SECTION_HEADING_LV6;
-const normalizeChars = {};
-const SPLIT_CHARS = {
-    "(": true,
-    ")": true,
-    "[": true,
-    "]": true,
-    "{": true,
-    "}": true,
-};
-// TODO
-// 그냥 { type: "init? config?", normalizeChars: {...}, ... } 이런 식으로 보내는게 더 나을듯.
-for (var entry of NORMALIZE_CHARS) {
-    // entry[0] = encoder.encode(entry[0]);
-    const norm = entry[0];
-    normalizeChars[norm] = norm;
-    for (var i = 0; i < entry.length; i++) {
-        const char = entry[i];
-        if (char.length === 1) {
-            normalizeChars[char] = norm;
-        }
-        else if (typeof char === "number") {
-            normalizeChars[String.fromCharCode(char)] = norm;
-        }
-        else if (char[0] === "&") {
-            normalizeChars[htmlEntityToChar(char)] = norm;
-        }
-        else {
-            throw new Error("normalizeChars: not a single character: " + char);
-        }
-    }
-}
-function htmlEntityToChar(entity) {
-    const doc = new DOMParser().parseFromString(entity, "text/html");
-    const char = doc.body.textContent;
-    if (char.length !== 1) {
-        throw new Error("htmlEntityToChar: not a single character entity: " + entity);
-    }
-    return char;
-}
-const SPACE_CHARS = {
+const SECTION_HEADING_TYPE1 = 64;
+const SECTION_HEADING_TYPE2 = 128; // 가.
+const SECTION_HEADING_TYPE3 = 256; // (1)
+const SECTION_HEADING_TYPE4 = 384; // (가)
+const SECTION_HEADING_TYPE5 = 512; // 1)
+const SECTION_HEADING_TYPE6 = 640; // 가)
+const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
+// const normalizeChars: { [ch: string]: string } = {};
+const spaceChars = {
     " ": true,
     "\t": true,
     "\n": true,
@@ -588,6 +506,87 @@ const SPACE_CHARS = {
     "\v": true, // 볼일이 없을것...
     "\u00A0": true, // &nbsp; ??
 };
+const splitChars = {
+    "(": true,
+    ")": true,
+    "[": true,
+    "]": true,
+    "{": true,
+    "}": true,
+};
+const normalizedCharMap = ((normChars) => {
+    const result = {};
+    let parser;
+    function htmlEntityToChar(entity) {
+        const doc = (parser = parser || new DOMParser()).parseFromString(entity, "text/html");
+        const char = doc.body.textContent;
+        if (char.length !== 1) {
+            throw new Error("htmlEntityToChar: not a single character entity: " + entity);
+        }
+        return char;
+    }
+    for (const entry of normChars) {
+        const [norm, ...variants] = entry;
+        for (const variant of variants) {
+            if (typeof variant === "number") {
+                result[String.fromCharCode(variant)] = norm;
+            }
+            else if (typeof variant === "string") {
+                if (variant.length === 1 || (variant.length === 2 && variant.charCodeAt(0) >= 0xd800)) {
+                    result[variant] = norm;
+                }
+                else if (variant[0] === "&") {
+                    result[htmlEntityToChar(variant)] = norm;
+                }
+            }
+        }
+    }
+    return result;
+})([
+    ['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
+    ["-", "‐", "‑", "‒", "–", "﹘", "—", "－"],
+    [".", "․", "．"],
+    [",", "，"],
+    ["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
+    ["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만 많더라.
+    ["■", "▪", "◼"],
+    ["□", "▫", "◻", "ㅁ"],
+    ["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?...
+    ["…", "⋯"],
+    ["(", "（"],
+    [")", "）"],
+    ["[", "［"],
+    ["]", "］"],
+    ["{", "｛"],
+    ["}", "｝"],
+    ["<", "＜"],
+    [">", "＞"],
+    ["=", "＝"],
+    ["+", "＋"],
+    ["*", "＊", "✱", "×", "∗"],
+    ["/", "／", "÷"],
+    ["\\", "₩"], // 아마도 원화 기호로 사용했겠지
+    ["&", "＆"],
+    ["#", "＃"],
+    ["@", "＠"],
+    ["$", "＄"],
+    ["%", "％"],
+    ["^", "＾"],
+    ["~", "～"],
+    ["`", "｀"],
+    ["|", "｜"],
+    [":", "："],
+    [";", "；"],
+    ["?", "？"],
+    ["!", "！"],
+    ["_", "＿"],
+    ["→", "⇒", "➡", "➔", "➞", "➟"],
+    ["←", "⇐", "⬅", "⟵", "⟸"],
+    ["↑", "⇑", "⬆"],
+    ["↓", "⇓", "⬇"],
+    ["↔", "⇔"],
+    ["↕", "⇕"],
+]);
 const TOKEN_CACHE_SIZE = 2;
 const tokenCache = {
     ["char"]: [],
@@ -601,45 +600,31 @@ const tokenCache = {
 // 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
 // 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
 // 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
-const WildcardTrie = createTrie(true);
-WildcardTrie.insert("(추가)", WILD_CARD);
-WildcardTrie.insert("(삭제)", WILD_CARD);
-WildcardTrie.insert("(신설)", WILD_CARD);
-WildcardTrie.insert("(생략)", WILD_CARD);
-WildcardTrie.insert("(현행과같음)", WILD_CARD);
-const TrieRoot = WildcardTrie.root;
-const WildcardTrieNode = WildcardTrie.root.next("(");
-const SectionHeadingTrie = createTrie(false);
+const wildcardTrie = createTrie(true);
+wildcardTrie.insert("(추가)", WILD_CARD);
+wildcardTrie.insert("(삭제)", WILD_CARD);
+wildcardTrie.insert("(신설)", WILD_CARD);
+wildcardTrie.insert("(생략)", WILD_CARD);
+wildcardTrie.insert("(현행과같음)", WILD_CARD);
+const wildcardTrieNode = wildcardTrie.root.next("(");
+const sectionHeadingTrie = createTrie(false);
 for (let i = 1; i < 40; i++) {
-    // 1. 제목 ==> 이 패턴은 무시. 보통 이 제목들은 왼쪽 문서 전체 테이블의 맨 왼쪽 컬럼에 들어가 있는데
-    // 많은 문서들이 섹션을 테이블 행으로 분리하지 않고 그냥 엔터키를 열심히 눌러서 분리해두었기 때문에
-    // 이런 경우 복사붙여넣기 하면 1. 제목, 2. 제목2, ...이 모두 문서의 첫 부분에 나와버림. 영구같다!
-    SectionHeadingTrie.insert(`${i}. `, SECTION_HEADING);
-    SectionHeadingTrie.insert(`(${i}) `, SECTION_HEADING | SECTION_HEADING_LV3);
-    SectionHeadingTrie.insert(`${i}) `, SECTION_HEADING | SECTION_HEADING_LV5);
+    sectionHeadingTrie.insert(`${i}.`, SECTION_HEADING_TYPE1);
+    sectionHeadingTrie.insert(`(${i})`, SECTION_HEADING_TYPE3);
+    sectionHeadingTrie.insert(`${i})`, SECTION_HEADING_TYPE5);
 }
-const hangulOrder = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
-for (let i = 0; i < hangulOrder.length; i++) {
-    SectionHeadingTrie.insert(`${hangulOrder[i]}. `, SECTION_HEADING | SECTION_HEADING_LV2);
-    SectionHeadingTrie.insert(`(${hangulOrder[i]}) `, SECTION_HEADING | SECTION_HEADING_LV4);
-    SectionHeadingTrie.insert(`${hangulOrder[i]}) `, SECTION_HEADING | SECTION_HEADING_LV6);
-    // SectionHeadingTrie.insert(`(${String.fromCharCode(syllables.charCodeAt(i) + 112)}) `);
-    // SectionHeadingTrie.insert(`${String.fromCharCode(syllables.charCodeAt(i) + 112)}) `);
+for (let i = 0; i < HANGUL_ORDER.length; i++) {
+    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, SECTION_HEADING_TYPE2);
+    sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE4);
+    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE6);
 }
-const SectionHeadingTrieNode = SectionHeadingTrie.root;
-const SECTION_HEADING_START = extractStartCharsFromTrie(SectionHeadingTrieNode);
-const ManualAnchorTrie = createTrie(false);
-ManualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
-ManualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
-const ManualAnchorTrieNode = ManualAnchorTrie.root;
-const MANUAL_ANCHOR_START = extractStartCharsFromTrie(ManualAnchorTrieNode);
-// ============================================================
-// Tokenization
-// tokenize를 ui쓰레드에서 실행하는 것으로 바꿔봤지만
-// editor에서 물흐르듯 자연스러운 편집이 안되는 느낌. 불쾌함!
-// 그래도 UI쓰레드에서 토큰을 직접 가지고 있으면 편리한 부분이 있긴 있음.
-// ============================================================
-// #region Tokenization
+const SectionHeadingTrieNode = sectionHeadingTrie.root;
+const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
+const manualAnchorTrie = createTrie(false);
+manualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
+manualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
+const manualAnchorTrieNode = manualAnchorTrie.root;
+const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 function tokenizeByChar(input) {
     const tokens = [];
     let lineNum = 1;
@@ -647,9 +632,9 @@ function tokenizeByChar(input) {
     const inputEnd = input.length;
     for (let i = 0; i < inputEnd; i++) {
         const ch = input[i];
-        if (!SPACE_CHARS[ch]) {
+        if (!spaceChars[ch]) {
             if (ch === "(") {
-                const result = findInTrie(WildcardTrieNode, input, i + 1);
+                const result = findInTrie(wildcardTrieNode, input, i + 1);
                 if (result) {
                     if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
                         flags |= FIRST_OF_LINE;
@@ -666,8 +651,8 @@ function tokenizeByChar(input) {
                     continue;
                 }
             }
-            if (MANUAL_ANCHOR_START[ch]) {
-                const nextNode = ManualAnchorTrieNode.next(ch);
+            if (manualAnchorStartChars[ch]) {
+                const nextNode = manualAnchorTrieNode.next(ch);
                 const result = findInTrie(nextNode, input, i + 1);
                 if (result) {
                     if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
@@ -688,7 +673,7 @@ function tokenizeByChar(input) {
             if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
                 flags |= FIRST_OF_LINE;
             }
-            const normalized = normalizeChars[ch] || ch;
+            const normalized = normalizedCharMap[ch] || ch;
             tokens.push({
                 text: normalized,
                 pos: i,
@@ -738,7 +723,7 @@ function tokenizeByWord(input) {
     }
     for (let i = 0; i < inputEnd; i++) {
         let ch = input[i];
-        if (SPACE_CHARS[ch]) {
+        if (spaceChars[ch]) {
             if (currentStart !== -1)
                 emitToken(i);
             if (ch === "\n") {
@@ -749,12 +734,8 @@ function tokenizeByWord(input) {
             }
             continue;
         }
-        if (normalizeChars[ch]) {
-            shouldNormalize = true;
-            ch = normalizeChars[ch];
-        }
         if (ch === "(") {
-            const result = findInTrie(WildcardTrieNode, input, i);
+            const result = findInTrie(wildcardTrieNode, input, i);
             if (result) {
                 if (currentStart !== -1)
                     emitToken(i);
@@ -772,14 +753,16 @@ function tokenizeByWord(input) {
                 continue;
             }
         }
-        if (currentStart === -1 && flags & FIRST_OF_LINE && SECTION_HEADING_START[ch]) {
+        if (currentStart === -1 && flags & FIRST_OF_LINE && sectionHeadingStartChars[ch]) {
             const result = findInTrie(SectionHeadingTrieNode, input, i);
             if (result) {
-                let p = result.end;
-                while (p < inputEnd && SPACE_CHARS[input[p]])
-                    p++;
-                if (p < inputEnd)
-                    flags |= SECTION_HEADING | result.flags;
+                const nextChar = input[result.end];
+                if (nextChar === " " || nextChar === "\t" || nextChar === "\u00A0") {
+                    flags |= result.flags;
+                }
+                // let p = result.end;
+                // while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
+                // if (p < inputEnd) flags |= result.flags;
             }
         }
         // if (SPLIT_CHARS[ch]) {
@@ -796,6 +779,9 @@ function tokenizeByWord(input) {
         // 	currentStart = -1;
         // 	continue;
         // }
+        if (normalizedCharMap[ch]) {
+            shouldNormalize = true;
+        }
         if (currentStart === -1)
             currentStart = i;
     }
@@ -818,17 +804,17 @@ function tokenizeByLine(input) {
     for (let i = 0; i < inputEnd; i++) {
         const ch = input[i];
         if (ch !== "\n") {
-            if (!SPACE_CHARS[ch]) {
+            if (!spaceChars[ch]) {
                 if (!started) {
                     pos = i;
                     started = true;
                     const result = findInTrie(SectionHeadingTrieNode, input, i);
                     if (result) {
                         let p = result.end;
-                        while (p < inputEnd && SPACE_CHARS[input[p]])
+                        while (p < inputEnd && spaceChars[input[p]])
                             p++;
                         if (p < inputEnd)
-                            flags |= SECTION_HEADING;
+                            flags |= result.flags;
                     }
                 }
                 if (inSpace && buffer.length > 0)
@@ -911,7 +897,7 @@ function normalize(text) {
     let result = "";
     for (let i = 0; i < text.length; i++) {
         const char = text[i];
-        result += normalizeChars[char] || char;
+        result += normalizedCharMap[char] || char;
     }
     return result;
 }
@@ -921,7 +907,7 @@ function checkIfFirstOfLine(input, pos) {
         if (input[pos] === "\n") {
             break;
         }
-        else if (!SPACE_CHARS[input[pos]]) {
+        else if (!spaceChars[input[pos]]) {
             return false;
         }
         pos--;
@@ -1410,6 +1396,7 @@ function createEditor(container, editorName, callbacks) {
             let nextInlineNode = null;
             let currentDiffIndex = null;
             let currentHeadingIndex = null;
+            let headingIndexSeen = false;
             let lineNum;
             let lineIsEmpty = true;
             let numConsecutiveBlankLines = 0;
@@ -1458,12 +1445,18 @@ function createEditor(container, editorName, callbacks) {
                     nextInlineNode = el.nextSibling;
                 }
                 if (currentHeadingIndex !== null) {
-                    el.id = `${editorName}Heading${currentHeadingIndex}`;
+                    if (!headingIndexSeen) {
+                        el.id = `${editorName}Heading${currentHeadingIndex}`;
+                    }
+                    else {
+                        el.removeAttribute("id");
+                    }
                     el.dataset.heading = currentHeadingIndex.toString();
+                    headingIndexSeen = true;
                 }
                 if (lineIsEmpty) {
                     for (const ch of chars) {
-                        if (!SPACE_CHARS[ch]) {
+                        if (!spaceChars[ch]) {
                             lineIsEmpty = false;
                             break;
                         }
@@ -1486,7 +1479,7 @@ function createEditor(container, editorName, callbacks) {
                 nextInlineNode = diffEl.firstChild;
                 diffEl.dataset.diff = diffIndex.toString();
                 diffEl.className = `diff-color${(diffIndex % NUM_DIFF_COLORS) + 1}`;
-                diffEl.classList.toggle("asBlock", diffs[diffIndex].asBlock);
+                //diffEl.classList.toggle("asBlock", diffs[diffIndex].asBlock);
                 (_diffElements[diffIndex] ??= []).push(diffEl);
             }
             function closeDiff() {
@@ -1537,9 +1530,13 @@ function createEditor(container, editorName, callbacks) {
                     idleDeadline = yield;
                 }
                 textrunBuffer.length = 0;
+                let lineHasBlockDiff = false;
                 for (; textRunIndex < textruns.length; textRunIndex++) {
                     const textrun = textruns[textRunIndex];
                     textrunBuffer.push(textrun);
+                    if (!lineHasBlockDiff && textrun.type === "DIFF" && diffs[textrun.dataIndex].asBlock) {
+                        lineHasBlockDiff = true;
+                    }
                     if (textrun.type === "LINEBREAK" || textrun.type === "END_OF_STRING") {
                         textRunIndex++;
                         break;
@@ -1578,7 +1575,10 @@ function createEditor(container, editorName, callbacks) {
                         currentDiffIndex = null;
                     }
                     else if (type === "HEADING") {
-                        currentHeadingIndex = textrun.dataIndex;
+                        if (currentDiffIndex !== textrun.dataIndex) {
+                            currentHeadingIndex = textrun.dataIndex;
+                            headingIndexSeen = false;
+                        }
                     }
                     else if (type === "HEADING_END") {
                         currentHeadingIndex = null;
@@ -1587,6 +1587,7 @@ function createEditor(container, editorName, callbacks) {
                 // 남은 container들은 모조리리 pop pop pop
                 while (popContainer())
                     ;
+                // lineEl.appendChild(document.createElement("BR"));
                 lineEl = lineEl.nextElementSibling;
                 textPos = textrun.pos + textrun.len;
                 if (lineIsEmpty) {
@@ -2145,13 +2146,13 @@ const FIRST_OF_LINE = 1;
 const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING = 64;
-const SECTION_HEADING_LV2 = 128; // 가.
-const SECTION_HEADING_LV3 = 256; // (1)
-const SECTION_HEADING_LV4 = 384; // (가)
-const SECTION_HEADING_LV5 = 512; // 1)
-const SECTION_HEADING_LV6 = 640; // 가)
-const SECTION_HEADING_LEVEL = SECTION_HEADING_LV2 | SECTION_HEADING_LV3 | SECTION_HEADING_LV4 | SECTION_HEADING_LV5 | SECTION_HEADING_LV6;
+const SECTION_HEADING_TYPE1 = 64;
+const SECTION_HEADING_TYPE2 = 128; // 가.
+const SECTION_HEADING_TYPE3 = 256; // (1)
+const SECTION_HEADING_TYPE4 = 384; // (가)
+const SECTION_HEADING_TYPE5 = 512; // 1)
+const SECTION_HEADING_TYPE6 = 640; // 가)
+const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
 let _nextCtx = null;
 let _currentCtx = null;
 self.onmessage = (e) => {
@@ -2610,13 +2611,12 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
                 else if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LAST_OF_LINE) {
                     score *= LINE_END_BONUS;
                 }
-                if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING) {
-                    if ((lhsTokens[i].flags & SECTION_HEADING_LEVEL) !== 0) {
-                        // LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
-                    }
-                    else {
-                        score *= SECTION_HEADING_BONUS;
-                    }
+                if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
+                    // if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
+                    // 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
+                    // } else {
+                    // }
+                    score *= SECTION_HEADING_BONUS;
                 }
                 if (!best || score < best.score) {
                     best = {
@@ -3488,6 +3488,17 @@ body.aligned {
 	font-weight: bold;
 }
 
+/* .edit .mirror br {
+	display: none;
+}
+
+.aligned .mirror {
+	white-space: normal;
+}
+
+.aligned .mirror div {
+	display: contents;;
+} */
 </style>
 </head>
 
@@ -4051,49 +4062,46 @@ const DiffSeek = (function () {
             let delta;
             if (anchor.type === "before") {
                 delta = leftY - rightY;
-                if (delta > LINE_HEIGHT) {
-                    const anchorLineIndex = anchor.leftLine - 1;
-                    // const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
-                    if (anchorLineIndex > 0) {
-                        const lastBlankLineIndex = anchorLineIndex - 1;
-                        const hint = lhsLineHints[lastBlankLineIndex];
-                        const collapseLimit = hint.numConsecutiveBlankLines - 1;
-                        let collapsedLines = 0;
-                        while (collapsedLines < collapseLimit) {
-                            const lineIndex = lastBlankLineIndex - collapsedLines;
-                            const lineEl = lhsLines[lineIndex];
-                            const lineHeight = lineEl.offsetHeight;
-                            if (lineHeight > delta)
-                                break;
-                            delta -= lineHeight;
-                            rightDelta += lineHeight;
-                            collapsedLines++;
-                            const lineNum = lineIndex + 1;
-                            styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
-                        }
-                    }
-                }
-                else if (delta < -LINE_HEIGHT) {
-                    const anchorLineIndex = anchor.rightLine - 1;
-                    if (anchorLineIndex > 0) {
-                        const lastBlankLineIndex = anchorLineIndex - 1;
-                        const hint = rhsLineHints[lastBlankLineIndex];
-                        const collapseLimit = hint.numConsecutiveBlankLines - 1;
-                        let collapsedLines = 0;
-                        while (collapsedLines < collapseLimit) {
-                            const lineIndex = lastBlankLineIndex - collapsedLines;
-                            const lineEl = rhsLines[lineIndex];
-                            const lineHeight = lineEl.offsetHeight;
-                            if (-delta < lineHeight)
-                                break;
-                            delta += lineHeight;
-                            leftDelta += lineHeight;
-                            collapsedLines++;
-                            const lineNum = lineIndex + 1;
-                            styleText += `.aligned #rightMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
-                        }
-                    }
-                }
+                // if (delta > LINE_HEIGHT) {
+                // 	const anchorLineIndex = anchor.leftLine - 1;
+                // 	// const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
+                // 	if (anchorLineIndex > 0) {
+                // 		const lastBlankLineIndex = anchorLineIndex - 1;
+                // 		const hint = lhsLineHints[lastBlankLineIndex];
+                // 		const collapseLimit = hint.numConsecutiveBlankLines - 1;
+                // 		let collapsedLines = 0;
+                // 		while (collapsedLines < collapseLimit) {
+                // 			const lineIndex = lastBlankLineIndex - collapsedLines;
+                // 			const lineEl = lhsLines[lineIndex];
+                // 			const lineHeight = lineEl.offsetHeight;
+                // 			if (lineHeight > delta) break;
+                // 			delta -= lineHeight;
+                // 			rightDelta += lineHeight;
+                // 			collapsedLines++;
+                // 			const lineNum = lineIndex + 1;
+                // 			styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+                // 		}
+                // 	}
+                // } else if (delta < -LINE_HEIGHT) {
+                // 	const anchorLineIndex = anchor.rightLine - 1;
+                // 	if (anchorLineIndex > 0) {
+                // 		const lastBlankLineIndex = anchorLineIndex - 1;
+                // 		const hint = rhsLineHints[lastBlankLineIndex];
+                // 		const collapseLimit = hint.numConsecutiveBlankLines - 1;
+                // 		let collapsedLines = 0;
+                // 		while (collapsedLines < collapseLimit) {
+                // 			const lineIndex = lastBlankLineIndex - collapsedLines;
+                // 			const lineEl = rhsLines[lineIndex];
+                // 			const lineHeight = lineEl.offsetHeight;
+                // 			if (-delta < lineHeight) break;
+                // 			delta += lineHeight;
+                // 			leftDelta += lineHeight;
+                // 			collapsedLines++;
+                // 			const lineNum = lineIndex + 1;
+                // 			styleText += `.aligned #rightMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+                // 		}
+                // 	}
+                // }
             }
             else if (anchor.type === "after") {
                 const leftHeight = leftAnchorEl.offsetHeight, rightHeight = rightAnchorEl.offsetHeight;
@@ -4594,6 +4602,7 @@ const DiffSeek = (function () {
         const diffs = [];
         const anchors = [];
         const sectionHeadings = [];
+        const headingStack = [];
         const MAX_ANCHOR_SKIP = 5;
         let anchorSkipCount = 0;
         for (let i = 0; i < rawEntries.length; i++) {
@@ -4621,64 +4630,117 @@ const DiffSeek = (function () {
                 const rightToken = rightTokens[entry.right.pos];
                 if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
                     // 앵커 추가
-                    addAnchor("before", leftToken.pos, leftToken.lineNum, rightToken.pos, rightToken.lineNum, null);
-                    if (leftToken.flags & rightToken.flags & SECTION_HEADING) {
+                    addAnchor("before", leftToken.pos, rightToken.pos, null);
+                    if (leftToken.flags & rightToken.flags & SECTION_HEADING_MASK) {
                         addHeading(i);
                     }
                 }
                 // mappings.push(entry);
             }
         }
-        addAnchor("before", leftText.length, -1, rightText.length, -1, null);
+        //addAnchor("before", leftText.length, -1, rightText.length, -1, null);
         if (prevEntry) {
             addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
             // mappings.push(prevEntry);
         }
         function addHeading(entryIndex) {
             const entry = rawEntries[entryIndex];
+            if (entry.type !== 0) {
+                console.warn("uncommon entry", entry.type, entry);
+                return;
+            }
             const leftToken = leftTokens[entry.left.pos];
             const rightToken = rightTokens[entry.right.pos];
-            if (leftToken.flags & SECTION_HEADING && rightToken.flags & SECTION_HEADING) {
-                const ordinalText = leftText.slice(leftToken.pos, leftToken.pos + leftToken.len);
-                // 헤딩 끝 찾기
-                let leftEndPos = entry.left.pos + entry.left.len;
-                let rightEndPos = entry.right.pos + entry.right.len;
-                for (let j = entryIndex; j < rawEntries.length; j++) {
-                    const entry2 = rawEntries[j];
-                    if (entry2.type !== 0) {
-                        return;
-                    }
-                    const leftLastToken = leftTokens[entry2.left.pos + entry2.left.len - 1];
-                    if (leftLastToken.flags & LAST_OF_LINE) {
-                        leftEndPos = entry2.left.pos + entry2.left.len;
-                        rightEndPos = entry2.right.pos + entry2.right.len;
-                        break;
-                    }
-                }
-                if (leftEndPos - entry.left.pos <= 1) {
-                    return; // 내용 없으면 무시
-                }
-                const headingText = leftText.substring(leftTokens[entry.left.pos].pos, leftTokens[leftEndPos - 1].pos + leftTokens[leftEndPos - 1].len);
-                const title = headingText.slice(ordinalText.length).trim();
-                sectionHeadings.push({
-                    ordinalText,
-                    title,
-                    left: {
-                        pos: leftTokens[entry.left.pos].pos,
-                        len: leftTokens[leftEndPos - 1].pos + leftTokens[leftEndPos - 1].len - leftTokens[entry.left.pos].pos,
-                    },
-                    right: {
-                        pos: rightTokens[entry.right.pos].pos,
-                        len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
-                    },
-                    parent: null,
-                    firstChild: null,
-                    nextSibling: null,
-                    level: 0,
-                });
+            const type = leftToken.flags & SECTION_HEADING_MASK;
+            // console.debug("addHeading", { entryIndex, entry, leftToken, rightToken });
+            // 지금은 일치되는 토큰으로부터 헤딩을 추출하므로 타입도 당연히 같겠지만
+            // 나중에 일치되지 않는 토큰으로부터 헤딩을 추출하게 될 수도 있으니 마음이 편하게 여기서 한번 더 확인.
+            if (!type || (rightToken.flags & SECTION_HEADING_MASK) !== type) {
+                console.warn("type mismatch", entry.type, entry);
+                return;
             }
+            const ordinalText = leftToken.text;
+            const ordinalNum = parseOrdinalNumber(ordinalText);
+            if (Number.isNaN(ordinalNum)) {
+                console.warn("Invalid ordinal number", ordinalText);
+                return;
+            }
+            // 헤딩 줄 끝 찾기
+            // 이 값들은 텍스트 내의 문자위치가 아니라 토큰 배열 안의 토큰 인덱스와 개수임!
+            let hasDiff = false;
+            let leftTokenCount = 0;
+            let rightTokenCount = 0;
+            for (let j = entryIndex; j < rawEntries.length; j++) {
+                const entry2 = rawEntries[j];
+                leftTokenCount += entry2.left.len;
+                if (!hasDiff && entry2.type === 0) {
+                    rightTokenCount += entry2.right.len;
+                }
+                else {
+                    hasDiff = true;
+                }
+                if (leftTokens[entry2.left.pos + entry2.left.len - 1].flags & LAST_OF_LINE) {
+                    break;
+                }
+            }
+            if (leftTokenCount < 2) {
+                console.warn("Invalid heading", leftTokenCount, rightTokenCount, entry);
+                return;
+            }
+            const lefTokenEnd = entry.left.pos + leftTokenCount;
+            const title = leftText.slice(leftTokens[entry.left.pos + 1].pos, leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len);
+            let prevSibling = null;
+            let parent = null;
+            for (let i = headingStack.length - 1; i >= 0; i--) {
+                const candidate = headingStack[i];
+                if (candidate.type === type) {
+                    prevSibling = candidate;
+                    headingStack.length = i;
+                    break;
+                }
+            }
+            if (!prevSibling) {
+                parent = headingStack[headingStack.length - 1] ?? null;
+            }
+            else {
+                parent = prevSibling.parent;
+            }
+            const current = {
+                ordinalText,
+                ordinalNum,
+                title,
+                type,
+                left: {
+                    pos: leftTokens[entry.left.pos].pos,
+                    len: leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len - leftTokens[entry.left.pos].pos,
+                },
+                right: {
+                    pos: rightTokens[entry.right.pos].pos,
+                    len: rightTokens[entry.right.pos + rightTokenCount - 1].pos +
+                        rightTokens[entry.right.pos + rightTokenCount - 1].len -
+                        rightTokens[entry.right.pos].pos,
+                    // len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
+                },
+                parent,
+                firstChild: null,
+                nextSibling: null,
+                level: headingStack.length + 1,
+                outOfOrder: false,
+                hasDiff,
+            };
+            if (prevSibling) {
+                prevSibling.nextSibling = current;
+                if (current.ordinalNum <= prevSibling.ordinalNum) {
+                    current.outOfOrder = true;
+                }
+            }
+            else if (parent) {
+                parent.firstChild = current;
+            }
+            headingStack.push(current);
+            sectionHeadings.push(current);
         }
-        function addAnchor(type, leftPos, leftLine, rightPos, rightLine, diffIndex) {
+        function addAnchor(type, leftPos, rightPos, diffIndex) {
             if (leftPos === undefined || rightPos === undefined) {
                 console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
             }
@@ -4711,7 +4773,7 @@ const DiffSeek = (function () {
                         leftPos = p - 1;
                         break;
                     }
-                    else if (!SPACE_CHARS[ch]) {
+                    else if (!spaceChars[ch]) {
                         break;
                     }
                 }
@@ -4722,7 +4784,7 @@ const DiffSeek = (function () {
                         rightPos = p - 1;
                         break;
                     }
-                    else if (!SPACE_CHARS[ch]) {
+                    else if (!spaceChars[ch]) {
                         break;
                     }
                 }
@@ -4738,12 +4800,12 @@ const DiffSeek = (function () {
                     }
                 }
             }
-            anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
+            // anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
+            anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
         }
         function addDiff(leftIndex, leftCount, rightIndex, rightCount) {
             let leftPos, leftLen, rightPos, rightLen;
-            let leftBeforeAnchorPos, leftBeforeAnchorLine, rightBeforeAnchorPos, rightBeforeAnchorLine, leftAfterAnchorPos, leftAfterAnchorLine, rightAfterAnchorPos, rightAfterAnchorLine;
-            let leftEmpty, rightEmpty;
+            let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos, leftEmpty, rightEmpty;
             let type;
             let asBlock = false;
             // 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
@@ -4804,8 +4866,8 @@ const DiffSeek = (function () {
                 let shortSideIndex, shortSideTokens;
                 let longSidePos, longSideLen;
                 let shortSidePos, shortSideLen;
-                let longSideBeforeAnchorPos, shortSideBeforeAnchorPos, longSideBeforeAnchorLine, shortSideBeforeAnchorLine;
-                let longSideAfterAnchorPos, shortSideAfterAnchorPos, longSideAfterAnchorLine, shortSideAfterAnchorLine;
+                let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
+                let longSideAfterAnchorPos, shortSideAfterAnchorPos;
                 let longSideTokenStart, longSideTokenEnd;
                 let shortSideBeforeToken, shortSideAfterToken;
                 if (leftCount > 0) {
@@ -4863,18 +4925,14 @@ const DiffSeek = (function () {
                         // 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
                         // 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
                         longSideBeforeAnchorPos = longSidePos;
-                        longSideBeforeAnchorLine = longSideTokenStart.lineNum;
                         shortSideBeforeAnchorPos = shortSidePos;
-                        shortSideBeforeAnchorLine = (shortSideBeforeToken ? shortSideBeforeToken.lineNum : 1) + (shortSidePushedToNextLine ? 1 : 0);
-                        if (longSideIsLastWord
-                        // && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
-                        ) {
-                            asBlock = true;
-                            longSideAfterAnchorPos = longSidePos + longSideLen;
-                            longSideAfterAnchorLine = longSideTokenEnd.lineNum;
-                            shortSideAfterAnchorPos = shortSidePos;
-                            shortSideAfterAnchorLine = shortSideBeforeAnchorLine;
-                        }
+                    }
+                    if (longSideIsLastWord
+                    // && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
+                    ) {
+                        asBlock = !!longSideIsFirstWord;
+                        longSideAfterAnchorPos = longSidePos + longSideLen;
+                        shortSideAfterAnchorPos = shortSidePos;
                     }
                 }
                 if (leftCount > 0) {
@@ -4882,16 +4940,12 @@ const DiffSeek = (function () {
                     leftLen = longSideLen;
                     leftEmpty = false;
                     leftBeforeAnchorPos = longSideBeforeAnchorPos;
-                    leftBeforeAnchorLine = longSideBeforeAnchorLine;
                     leftAfterAnchorPos = longSideAfterAnchorPos;
-                    leftAfterAnchorLine = longSideAfterAnchorLine;
                     rightPos = shortSidePos;
                     rightLen = shortSideLen;
                     rightEmpty = true;
                     rightBeforeAnchorPos = shortSideBeforeAnchorPos;
-                    rightBeforeAnchorLine = shortSideBeforeAnchorLine;
                     rightAfterAnchorPos = shortSideAfterAnchorPos;
-                    rightAfterAnchorLine = shortSideAfterAnchorLine;
                 }
                 else {
                     leftPos = shortSidePos;
@@ -4903,16 +4957,14 @@ const DiffSeek = (function () {
                     rightLen = longSideLen;
                     rightEmpty = false;
                     rightBeforeAnchorPos = longSideBeforeAnchorPos;
-                    rightBeforeAnchorLine = longSideBeforeAnchorLine;
                     rightAfterAnchorPos = longSideAfterAnchorPos;
-                    rightAfterAnchorLine = longSideAfterAnchorLine;
                 }
             }
             if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
-                addAnchor("before", leftBeforeAnchorPos, leftBeforeAnchorLine, rightBeforeAnchorPos, rightBeforeAnchorLine, diffs.length);
+                addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
             }
             if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
-                addAnchor("after", leftAfterAnchorPos, leftAfterAnchorLine, rightAfterAnchorPos, rightAfterAnchorLine, diffs.length);
+                addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
             }
             const newEntry = {
                 type: type,
@@ -4936,8 +4988,52 @@ const DiffSeek = (function () {
         // return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length, sectionHeadings };
     }
     disableAlignedMode();
-    leftEditor.updateText();
-    rightEditor.updateText();
+    leftEditor.setText(`1.	총칙
+이 문서는 법령의 적용 원칙을 규정한다.
+
+가.	목적
+이 문서의 목적은 공공의 복리를 증진하는 데 있다.
+
+(1)	적용 범위
+이 문서는 국가 및 지방자치단체에 적용된다.
+
+(가)	😒 법 적용 제외
+다음의 경우에는 본 문서를 적용하지 않는다.
+
+2. 정의
+본 문서에서 사용하는 용어의 정의는 다음과 같다.
+
+나. 용어 정리
+"기관"이란 국가기관 및 공공기관을 말한다.
+
+(1) 용어 A
+"기관"에는 행정부, 입법부, 사법부가 포함된다.
+
+(가) 의미
+기관의 정의는 상황에 따라 달라질 수 있다.`);
+    rightEditor.setText(`1. 총칙
+이 문서는 법령의 기본 원칙을 기술한다.
+
+가. 기본 원칙
+이 문서의 목표는 사회적 정의를 실현하는 것이다.
+
+(1) 적용 범위
+이 문서는 모든 행정기관에 적용된다.
+
+(가) 적용 예외
+다음의 경우에는 이 문서를 적용하지 아니한다.
+
+2. 정의
+이 문서에서 사용하는 용어는 아래와 같다.
+
+나. 용어 설명
+"기관"이란 국가기관, 공공기관 및 준정부기관을 의미한다.
+
+(1) 용어 A
+"기관"에는 행정부와 입법부가 포함된다.
+
+(가) 의미
+기관의 개념은 상황에 따라 달라질 수 있다.`);
     _diffContext = {
         reqId: 0,
         leftText: leftEditor.text,

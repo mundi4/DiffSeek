@@ -12,12 +12,12 @@ function getTextRuns(
 	let nextPropsPos: number | null = null;
 	let nextDiffPos: number | null = null;
 	let nextDiffEndPos: number | null = null;
-	let nextDiff: EntrySide | null = null;
+	let nextDiff: Span | null = null;
 	let nextAnchorPos: number | null = null;
 	let nextAnchor: Anchor | null = null;
 	let nextHeadingPos: number | null = null;
 	let nextHeadingEndPos: number | null = null;
-	let nextHeading: EntrySide | null = null;
+	let nextHeading: Span | null = null;
 	let nextNewLinePos: number | null = null;
 	let nextNewLineIsEndOfString = false;
 	let diffIndex = -1;

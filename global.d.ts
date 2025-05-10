@@ -6,7 +6,7 @@ declare type Token = {
 	flags: number;
 };
 
-declare type EntrySide = {
+declare type Span = {
 	pos: number;
 	len: number;
 };
@@ -15,8 +15,8 @@ declare type DiffType = 0 | 1 | 2 | 3;
 
 declare type DiffEntry = {
 	type: DiffType;
-	left: EntrySide;
-	right: EntrySide;
+	left: Span;
+	right: Span;
 	asBlock?: boolean;
 };
 
@@ -27,8 +27,8 @@ declare type Anchor = {
 	left: number;
 	right: number;
 	diffIndex: number | null;
-	leftLine: number;
-	rightLine: number;
+	// leftLine: number;
+	// rightLine: number;
 };
 
 declare type WhitespaceHandling = "ignore" | "normalize";
@@ -133,13 +133,17 @@ type OutlineEntry = {
 
 type SectionHeading = {
 	ordinalText: string;
+	ordinalNum: number;
 	title: string;
-	left: EntrySide;
-	right: EntrySide;
+	left: Span;
+	right: Span;
 	parent: SectionHeading | null;
 	firstChild: SectionHeading | null;
 	nextSibling: SectionHeading | null;
+	type: number;
 	level: number;
+	hasDiff: boolean;
+	outOfOrder: boolean;
 	// ordinal: number; // 1,2,3,4,5,...
 	// depth: number; //
 	// type: number; //

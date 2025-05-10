@@ -585,54 +585,54 @@ const DiffSeek = (function () {
 			let delta;
 			if (anchor.type === "before") {
 				delta = leftY - rightY;
-				if (delta > LINE_HEIGHT) {
-					const anchorLineIndex = anchor.leftLine - 1;
-					// const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
-					if (anchorLineIndex > 0) {
-						const lastBlankLineIndex = anchorLineIndex - 1;
-						const hint = lhsLineHints[lastBlankLineIndex];
-						const collapseLimit = hint.numConsecutiveBlankLines - 1;
+				// if (delta > LINE_HEIGHT) {
+				// 	const anchorLineIndex = anchor.leftLine - 1;
+				// 	// const anchorLineIndex = findIndexByPos(lhsLineHints, anchor.left);
+				// 	if (anchorLineIndex > 0) {
+				// 		const lastBlankLineIndex = anchorLineIndex - 1;
+				// 		const hint = lhsLineHints[lastBlankLineIndex];
+				// 		const collapseLimit = hint.numConsecutiveBlankLines - 1;
 
-						let collapsedLines = 0;
-						while (collapsedLines < collapseLimit) {
-							const lineIndex = lastBlankLineIndex - collapsedLines;
-							const lineEl = lhsLines[lineIndex];
-							const lineHeight = lineEl.offsetHeight;
+				// 		let collapsedLines = 0;
+				// 		while (collapsedLines < collapseLimit) {
+				// 			const lineIndex = lastBlankLineIndex - collapsedLines;
+				// 			const lineEl = lhsLines[lineIndex];
+				// 			const lineHeight = lineEl.offsetHeight;
 
-							if (lineHeight > delta) break;
+				// 			if (lineHeight > delta) break;
 
-							delta -= lineHeight;
-							rightDelta += lineHeight;
-							collapsedLines++;
+				// 			delta -= lineHeight;
+				// 			rightDelta += lineHeight;
+				// 			collapsedLines++;
 
-							const lineNum = lineIndex + 1;
-							styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
-						}
-					}
-				} else if (delta < -LINE_HEIGHT) {
-					const anchorLineIndex = anchor.rightLine - 1;
-					if (anchorLineIndex > 0) {
-						const lastBlankLineIndex = anchorLineIndex - 1;
-						const hint = rhsLineHints[lastBlankLineIndex];
-						const collapseLimit = hint.numConsecutiveBlankLines - 1;
+				// 			const lineNum = lineIndex + 1;
+				// 			styleText += `.aligned #leftMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+				// 		}
+				// 	}
+				// } else if (delta < -LINE_HEIGHT) {
+				// 	const anchorLineIndex = anchor.rightLine - 1;
+				// 	if (anchorLineIndex > 0) {
+				// 		const lastBlankLineIndex = anchorLineIndex - 1;
+				// 		const hint = rhsLineHints[lastBlankLineIndex];
+				// 		const collapseLimit = hint.numConsecutiveBlankLines - 1;
 
-						let collapsedLines = 0;
-						while (collapsedLines < collapseLimit) {
-							const lineIndex = lastBlankLineIndex - collapsedLines;
-							const lineEl = rhsLines[lineIndex];
-							const lineHeight = lineEl.offsetHeight;
+				// 		let collapsedLines = 0;
+				// 		while (collapsedLines < collapseLimit) {
+				// 			const lineIndex = lastBlankLineIndex - collapsedLines;
+				// 			const lineEl = rhsLines[lineIndex];
+				// 			const lineHeight = lineEl.offsetHeight;
 
-							if (-delta < lineHeight) break;
+				// 			if (-delta < lineHeight) break;
 
-							delta += lineHeight;
-							leftDelta += lineHeight;
-							collapsedLines++;
+				// 			delta += lineHeight;
+				// 			leftDelta += lineHeight;
+				// 			collapsedLines++;
 
-							const lineNum = lineIndex + 1;
-							styleText += `.aligned #rightMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
-						}
-					}
-				}
+				// 			const lineNum = lineIndex + 1;
+				// 			styleText += `.aligned #rightMirror div[data-line-num="${lineNum}"] { display:none; }\n`;
+				// 		}
+				// 	}
+				// }
 			} else if (anchor.type === "after") {
 				const leftHeight = leftAnchorEl.offsetHeight,
 					rightHeight = rightAnchorEl.offsetHeight;
@@ -1204,6 +1204,7 @@ const DiffSeek = (function () {
 		const diffs: DiffEntry[] = [];
 		const anchors: Anchor[] = [];
 		const sectionHeadings: SectionHeading[] = [];
+		const headingStack: SectionHeading[] = [];
 		const MAX_ANCHOR_SKIP = 5;
 		let anchorSkipCount = 0;
 
@@ -1231,16 +1232,16 @@ const DiffSeek = (function () {
 				const rightToken = rightTokens[entry.right.pos];
 				if (leftToken.flags & rightToken.flags & FIRST_OF_LINE) {
 					// 앵커 추가
-					addAnchor("before", leftToken.pos, leftToken.lineNum, rightToken.pos, rightToken.lineNum, null);
+					addAnchor("before", leftToken.pos, rightToken.pos, null);
 
-					if (leftToken.flags & rightToken.flags & SECTION_HEADING) {
+					if (leftToken.flags & rightToken.flags & SECTION_HEADING_MASK) {
 						addHeading(i);
 					}
 				}
 				// mappings.push(entry);
 			}
 		}
-		addAnchor("before", leftText.length, -1, rightText.length, -1, null);
+		//addAnchor("before", leftText.length, -1, rightText.length, -1, null);
 
 		if (prevEntry) {
 			addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
@@ -1249,56 +1250,113 @@ const DiffSeek = (function () {
 
 		function addHeading(entryIndex: number) {
 			const entry = rawEntries[entryIndex];
+			if (entry.type !== 0) {
+				console.warn("uncommon entry", entry.type, entry);
+				return;
+			}
+
 			const leftToken = leftTokens[entry.left.pos];
 			const rightToken = rightTokens[entry.right.pos];
+			const type = leftToken.flags & SECTION_HEADING_MASK;
+			// console.debug("addHeading", { entryIndex, entry, leftToken, rightToken });
 
-			if (leftToken.flags & SECTION_HEADING && rightToken.flags & SECTION_HEADING) {
-				const ordinalText = leftText.slice(leftToken.pos, leftToken.pos + leftToken.len);
-
-				// 헤딩 끝 찾기
-				let leftEndPos = entry.left.pos + entry.left.len;
-				let rightEndPos = entry.right.pos + entry.right.len;
-				for (let j = entryIndex; j < rawEntries.length; j++) {
-					const entry2 = rawEntries[j];
-					if (entry2.type !== 0) {
-						return;
-					}
-					const leftLastToken = leftTokens[entry2.left.pos + entry2.left.len - 1];
-					if (leftLastToken.flags & LAST_OF_LINE) {
-						leftEndPos = entry2.left.pos + entry2.left.len;
-						rightEndPos = entry2.right.pos + entry2.right.len;
-						break;
-					}
-				}
-
-				if (leftEndPos - entry.left.pos <= 1) {
-					return; // 내용 없으면 무시
-				}
-
-				const headingText = leftText.substring(leftTokens[entry.left.pos].pos, leftTokens[leftEndPos - 1].pos + leftTokens[leftEndPos - 1].len);
-
-				const title = headingText.slice(ordinalText.length).trim();
-
-				sectionHeadings.push({
-					ordinalText,
-					title,
-					left: {
-						pos: leftTokens[entry.left.pos].pos,
-						len: leftTokens[leftEndPos - 1].pos + leftTokens[leftEndPos - 1].len - leftTokens[entry.left.pos].pos,
-					},
-					right: {
-						pos: rightTokens[entry.right.pos].pos,
-						len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
-					},
-					parent: null,
-					firstChild: null,
-					nextSibling: null,
-					level: 0,
-				});
+			// 지금은 일치되는 토큰으로부터 헤딩을 추출하므로 타입도 당연히 같겠지만
+			// 나중에 일치되지 않는 토큰으로부터 헤딩을 추출하게 될 수도 있으니 마음이 편하게 여기서 한번 더 확인.
+			if (!type || (rightToken.flags & SECTION_HEADING_MASK) !== type) {
+				console.warn("type mismatch", entry.type, entry);
+				return;
 			}
+
+			const ordinalText = leftToken.text;
+			const ordinalNum = parseOrdinalNumber(ordinalText);
+			if (Number.isNaN(ordinalNum)) {
+				console.warn("Invalid ordinal number", ordinalText);
+				return;
+			}
+
+			// 헤딩 줄 끝 찾기
+			// 이 값들은 텍스트 내의 문자위치가 아니라 토큰 배열 안의 토큰 인덱스와 개수임!
+			let hasDiff = false;
+			let leftTokenCount = 0;
+			let rightTokenCount = 0;
+
+			for (let j = entryIndex; j < rawEntries.length; j++) {
+				const entry2 = rawEntries[j];
+				leftTokenCount += entry2.left.len;
+				if (!hasDiff && entry2.type === 0) {
+					rightTokenCount += entry2.right.len;
+				} else {
+					hasDiff = true;
+				}
+				if (leftTokens[entry2.left.pos + entry2.left.len - 1].flags & LAST_OF_LINE) {
+					break;
+				}
+			}
+
+			if (leftTokenCount < 2) {
+				console.warn("Invalid heading", leftTokenCount, rightTokenCount, entry);
+				return;
+			}
+
+			const lefTokenEnd = entry.left.pos + leftTokenCount;
+			const title = leftText.slice(leftTokens[entry.left.pos + 1].pos, leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len);
+
+			let prevSibling: SectionHeading | null = null;
+			let parent: SectionHeading | null = null;
+			for (let i = headingStack.length - 1; i >= 0; i--) {
+				const candidate = headingStack[i];
+				if (candidate.type === type) {
+					prevSibling = candidate;
+					headingStack.length = i;
+					break;
+				}
+			}
+
+			if (!prevSibling) {
+				parent = headingStack[headingStack.length - 1] ?? null;
+			} else {
+				parent = prevSibling.parent;
+			}
+
+			const current: SectionHeading = {
+				ordinalText,
+				ordinalNum,
+				title,
+				type,
+				left: {
+					pos: leftTokens[entry.left.pos].pos,
+					len: leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len - leftTokens[entry.left.pos].pos,
+				},
+				right: {
+					pos: rightTokens[entry.right.pos].pos,
+					len:
+						rightTokens[entry.right.pos + rightTokenCount - 1].pos +
+						rightTokens[entry.right.pos + rightTokenCount - 1].len -
+						rightTokens[entry.right.pos].pos,
+					// len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
+				},
+				parent,
+				firstChild: null,
+				nextSibling: null,
+				level: headingStack.length + 1,
+				outOfOrder: false,
+				hasDiff,
+			};
+
+			if (prevSibling) {
+				prevSibling.nextSibling = current;
+				if (current.ordinalNum <= prevSibling.ordinalNum) {
+					current.outOfOrder = true;
+				}
+			} else if (parent) {
+				parent.firstChild = current;
+			}
+
+			headingStack.push(current);
+			sectionHeadings.push(current);
 		}
 
-		function addAnchor(type: "before" | "after", leftPos: number, leftLine: number, rightPos: number, rightLine: number, diffIndex: number | null) {
+		function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
 			if (leftPos === undefined || rightPos === undefined) {
 				console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
 			}
@@ -1331,7 +1389,7 @@ const DiffSeek = (function () {
 					if (ch === "\n") {
 						leftPos = p - 1;
 						break;
-					} else if (!SPACE_CHARS[ch]) {
+					} else if (!spaceChars[ch]) {
 						break;
 					}
 				}
@@ -1341,7 +1399,7 @@ const DiffSeek = (function () {
 					if (ch === "\n") {
 						rightPos = p - 1;
 						break;
-					} else if (!SPACE_CHARS[ch]) {
+					} else if (!spaceChars[ch]) {
 						break;
 					}
 				}
@@ -1359,20 +1417,13 @@ const DiffSeek = (function () {
 				}
 			}
 
-			anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
+			// anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
+			anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
 		}
 
 		function addDiff(leftIndex: number, leftCount: number, rightIndex: number, rightCount: number) {
 			let leftPos, leftLen, rightPos, rightLen;
-			let leftBeforeAnchorPos,
-				leftBeforeAnchorLine,
-				rightBeforeAnchorPos,
-				rightBeforeAnchorLine,
-				leftAfterAnchorPos,
-				leftAfterAnchorLine,
-				rightAfterAnchorPos,
-				rightAfterAnchorLine;
-			let leftEmpty, rightEmpty;
+			let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos, leftEmpty, rightEmpty;
 			let type: DiffType;
 			let asBlock = false;
 
@@ -1439,8 +1490,8 @@ const DiffSeek = (function () {
 				let shortSideIndex, shortSideTokens;
 				let longSidePos, longSideLen;
 				let shortSidePos, shortSideLen;
-				let longSideBeforeAnchorPos, shortSideBeforeAnchorPos, longSideBeforeAnchorLine, shortSideBeforeAnchorLine;
-				let longSideAfterAnchorPos, shortSideAfterAnchorPos, longSideAfterAnchorLine, shortSideAfterAnchorLine;
+				let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
+				let longSideAfterAnchorPos, shortSideAfterAnchorPos;
 				let longSideTokenStart, longSideTokenEnd;
 				let shortSideBeforeToken, shortSideAfterToken;
 
@@ -1502,19 +1553,15 @@ const DiffSeek = (function () {
 						// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
 						// 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
 						longSideBeforeAnchorPos = longSidePos;
-						longSideBeforeAnchorLine = longSideTokenStart.lineNum;
 						shortSideBeforeAnchorPos = shortSidePos;
-						shortSideBeforeAnchorLine = (shortSideBeforeToken ? shortSideBeforeToken.lineNum : 1) + (shortSidePushedToNextLine ? 1 : 0);
-						if (
-							longSideIsLastWord
-							// && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
-						) {
-							asBlock = true;
-							longSideAfterAnchorPos = longSidePos + longSideLen;
-							longSideAfterAnchorLine = longSideTokenEnd.lineNum;
-							shortSideAfterAnchorPos = shortSidePos;
-							shortSideAfterAnchorLine = shortSideBeforeAnchorLine;
-						}
+					}
+					if (
+						longSideIsLastWord
+						// && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
+					) {
+						asBlock = !!longSideIsFirstWord;
+						longSideAfterAnchorPos = longSidePos + longSideLen;
+						shortSideAfterAnchorPos = shortSidePos;
 					}
 				}
 
@@ -1523,16 +1570,12 @@ const DiffSeek = (function () {
 					leftLen = longSideLen;
 					leftEmpty = false;
 					leftBeforeAnchorPos = longSideBeforeAnchorPos;
-					leftBeforeAnchorLine = longSideBeforeAnchorLine;
 					leftAfterAnchorPos = longSideAfterAnchorPos;
-					leftAfterAnchorLine = longSideAfterAnchorLine;
 					rightPos = shortSidePos;
 					rightLen = shortSideLen;
 					rightEmpty = true;
 					rightBeforeAnchorPos = shortSideBeforeAnchorPos;
-					rightBeforeAnchorLine = shortSideBeforeAnchorLine;
 					rightAfterAnchorPos = shortSideAfterAnchorPos;
-					rightAfterAnchorLine = shortSideAfterAnchorLine;
 				} else {
 					leftPos = shortSidePos;
 					leftLen = shortSideLen;
@@ -1543,17 +1586,15 @@ const DiffSeek = (function () {
 					rightLen = longSideLen;
 					rightEmpty = false;
 					rightBeforeAnchorPos = longSideBeforeAnchorPos;
-					rightBeforeAnchorLine = longSideBeforeAnchorLine;
 					rightAfterAnchorPos = longSideAfterAnchorPos;
-					rightAfterAnchorLine = longSideAfterAnchorLine;
 				}
 			}
 
 			if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
-				addAnchor("before", leftBeforeAnchorPos, leftBeforeAnchorLine!, rightBeforeAnchorPos, rightBeforeAnchorLine!, diffs.length);
+				addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
 			}
 			if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
-				addAnchor("after", leftAfterAnchorPos, leftAfterAnchorLine!, rightAfterAnchorPos, rightAfterAnchorLine!, diffs.length);
+				addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
 			}
 
 			const newEntry: DiffEntry = {
@@ -1580,8 +1621,54 @@ const DiffSeek = (function () {
 	}
 
 	disableAlignedMode();
-	leftEditor.updateText();
-	rightEditor.updateText();
+
+	leftEditor.setText(`1.	총칙
+이 문서는 법령의 적용 원칙을 규정한다.
+
+가.	목적
+이 문서의 목적은 공공의 복리를 증진하는 데 있다.
+
+(1)	적용 범위
+이 문서는 국가 및 지방자치단체에 적용된다.
+
+(가)	😒 법 적용 제외
+다음의 경우에는 본 문서를 적용하지 않는다.
+
+2. 정의
+본 문서에서 사용하는 용어의 정의는 다음과 같다.
+
+나. 용어 정리
+"기관"이란 국가기관 및 공공기관을 말한다.
+
+(1) 용어 A
+"기관"에는 행정부, 입법부, 사법부가 포함된다.
+
+(가) 의미
+기관의 정의는 상황에 따라 달라질 수 있다.`);
+
+	rightEditor.setText(`1. 총칙
+이 문서는 법령의 기본 원칙을 기술한다.
+
+가. 기본 원칙
+이 문서의 목표는 사회적 정의를 실현하는 것이다.
+
+(1) 적용 범위
+이 문서는 모든 행정기관에 적용된다.
+
+(가) 적용 예외
+다음의 경우에는 이 문서를 적용하지 아니한다.
+
+2. 정의
+이 문서에서 사용하는 용어는 아래와 같다.
+
+나. 용어 설명
+"기관"이란 국가기관, 공공기관 및 준정부기관을 의미한다.
+
+(1) 용어 A
+"기관"에는 행정부와 입법부가 포함된다.
+
+(가) 의미
+기관의 개념은 상황에 따라 달라질 수 있다.`);
 	_diffContext = {
 		reqId: 0,
 		leftText: leftEditor.text,

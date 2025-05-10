@@ -1,4 +1,3 @@
-
 const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
 
@@ -6,53 +5,18 @@ const FIRST_OF_LINE = 1;
 const LAST_OF_LINE = 2;
 const WILD_CARD = 16;
 const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING = 64;
-const SECTION_HEADING_LV2 = 128; // 가.
-const SECTION_HEADING_LV3 = 256; // (1)
-const SECTION_HEADING_LV4 = 384; // (가)
-const SECTION_HEADING_LV5 = 512; // 1)
-const SECTION_HEADING_LV6 = 640; // 가)
-const SECTION_HEADING_LEVEL = SECTION_HEADING_LV2 | SECTION_HEADING_LV3 | SECTION_HEADING_LV4 | SECTION_HEADING_LV5 | SECTION_HEADING_LV6;
+const SECTION_HEADING_TYPE1 = 64;
+const SECTION_HEADING_TYPE2 = 128; // 가.
+const SECTION_HEADING_TYPE3 = 256; // (1)
+const SECTION_HEADING_TYPE4 = 384; // (가)
+const SECTION_HEADING_TYPE5 = 512; // 1)
+const SECTION_HEADING_TYPE6 = 640; // 가)
+const SECTION_HEADING_MASK =
+	SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
 
-const normalizeChars: { [ch: string]: string } = {};
-const SPLIT_CHARS: { [ch: string]: boolean } = {
-	"(": true,
-	")": true,
-	"[": true,
-	"]": true,
-	"{": true,
-	"}": true,
-};
-// TODO
-// 그냥 { type: "init? config?", normalizeChars: {...}, ... } 이런 식으로 보내는게 더 나을듯.
-for (var entry of NORMALIZE_CHARS) {
-	// entry[0] = encoder.encode(entry[0]);
-	const norm = entry[0];
-	normalizeChars[norm] = norm;
-	for (var i = 0; i < entry.length; i++) {
-		const char = entry[i];
-		if (char.length === 1) {
-			normalizeChars[char] = norm;
-		} else if (typeof char === "number") {
-			normalizeChars[String.fromCharCode(char)] = norm;
-		} else if (char[0] === "&") {
-			normalizeChars[htmlEntityToChar(char)] = norm;
-		} else {
-			throw new Error("normalizeChars: not a single character: " + char);
-		}
-	}
-}
+// const normalizeChars: { [ch: string]: string } = {};
 
-function htmlEntityToChar(entity: string) {
-	const doc = new DOMParser().parseFromString(entity, "text/html");
-	const char = doc.body.textContent!;
-	if (char.length !== 1) {
-		throw new Error("htmlEntityToChar: not a single character entity: " + entity);
-	}
-	return char;
-}
-
-const SPACE_CHARS: { [char: string]: boolean } = {
+const spaceChars: Record<string, boolean> = {
 	" ": true,
 	"\t": true,
 	"\n": true,
@@ -61,6 +25,88 @@ const SPACE_CHARS: { [char: string]: boolean } = {
 	"\v": true, // 볼일이 없을것...
 	"\u00A0": true, // &nbsp; ??
 };
+
+const splitChars: Record<string, boolean> = {
+	"(": true,
+	")": true,
+	"[": true,
+	"]": true,
+	"{": true,
+	"}": true,
+};
+
+const normalizedCharMap = ((normChars: (string | number)[][]) => {
+	const result: Record<string, string> = {};
+	let parser: DOMParser;
+	function htmlEntityToChar(entity: string) {
+		const doc = (parser = parser || new DOMParser()).parseFromString(entity, "text/html");
+		const char = doc.body.textContent!;
+		if (char.length !== 1) {
+			throw new Error("htmlEntityToChar: not a single character entity: " + entity);
+		}
+		return char;
+	}
+
+	for (const entry of normChars) {
+		const [norm, ...variants] = entry;
+		for (const variant of variants) {
+			if (typeof variant === "number") {
+				result[String.fromCharCode(variant)] = norm as string;
+			} else if (typeof variant === "string") {
+				if (variant.length === 1 || (variant.length === 2 && variant.charCodeAt(0) >= 0xd800)) {
+					result[variant] = norm as string;
+				} else if (variant[0] === "&") {
+					result[htmlEntityToChar(variant)] = norm as string;
+				}
+			}
+		}
+	}
+	return result;
+})([
+	['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
+	["-", "‐", "‑", "‒", "–", "﹘", "—", "－"],
+	[".", "․", "．"],
+	[",", "，"],
+	["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
+	["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만 많더라.
+	["■", "▪", "◼"],
+	["□", "▫", "◻", "ㅁ"],
+	["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?...
+	["…", "⋯"],
+	["(", "（"],
+	[")", "）"],
+	["[", "［"],
+	["]", "］"],
+	["{", "｛"],
+	["}", "｝"],
+	["<", "＜"],
+	[">", "＞"],
+	["=", "＝"],
+	["+", "＋"],
+	["*", "＊", "✱", "×", "∗"],
+	["/", "／", "÷"],
+	["\\", "₩"], // 아마도 원화 기호로 사용했겠지
+	["&", "＆"],
+	["#", "＃"],
+	["@", "＠"],
+	["$", "＄"],
+	["%", "％"],
+	["^", "＾"],
+	["~", "～"],
+	["`", "｀"],
+	["|", "｜"],
+	[":", "："],
+	[";", "；"],
+	["?", "？"],
+	["!", "！"],
+	["_", "＿"],
+	["→", "⇒", "➡", "➔", "➞", "➟"],
+	["←", "⇐", "⬅", "⟵", "⟸"],
+	["↑", "⇑", "⬆"],
+	["↓", "⇓", "⬇"],
+	["↔", "⇔"],
+	["↕", "⇕"],
+]);
 
 const TOKEN_CACHE_SIZE = 2;
 
@@ -82,50 +128,36 @@ const tokenCache: Record<TokenizationMode, TokenCacheEntry[]> = {
 // 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
 // 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
 // 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
-const WildcardTrie = createTrie(true);
-WildcardTrie.insert("(추가)", WILD_CARD);
-WildcardTrie.insert("(삭제)", WILD_CARD);
-WildcardTrie.insert("(신설)", WILD_CARD);
-WildcardTrie.insert("(생략)", WILD_CARD);
-WildcardTrie.insert("(현행과같음)", WILD_CARD);
+const wildcardTrie = createTrie(true);
+wildcardTrie.insert("(추가)", WILD_CARD);
+wildcardTrie.insert("(삭제)", WILD_CARD);
+wildcardTrie.insert("(신설)", WILD_CARD);
+wildcardTrie.insert("(생략)", WILD_CARD);
+wildcardTrie.insert("(현행과같음)", WILD_CARD);
 
-const TrieRoot = WildcardTrie.root;
-const WildcardTrieNode = WildcardTrie.root.next("(")!;
+const wildcardTrieNode = wildcardTrie.root.next("(")!;
 
-const SectionHeadingTrie = createTrie(false);
+const sectionHeadingTrie = createTrie(false);
 for (let i = 1; i < 40; i++) {
-	// 1. 제목 ==> 이 패턴은 무시. 보통 이 제목들은 왼쪽 문서 전체 테이블의 맨 왼쪽 컬럼에 들어가 있는데
-	// 많은 문서들이 섹션을 테이블 행으로 분리하지 않고 그냥 엔터키를 열심히 눌러서 분리해두었기 때문에
-	// 이런 경우 복사붙여넣기 하면 1. 제목, 2. 제목2, ...이 모두 문서의 첫 부분에 나와버림. 영구같다!
-	SectionHeadingTrie.insert(`${i}. `, SECTION_HEADING);
-	SectionHeadingTrie.insert(`(${i}) `, SECTION_HEADING | SECTION_HEADING_LV3);
-	SectionHeadingTrie.insert(`${i}) `, SECTION_HEADING | SECTION_HEADING_LV5);
+	sectionHeadingTrie.insert(`${i}.`, SECTION_HEADING_TYPE1);
+	sectionHeadingTrie.insert(`(${i})`, SECTION_HEADING_TYPE3);
+	sectionHeadingTrie.insert(`${i})`, SECTION_HEADING_TYPE5);
 }
 
-const hangulOrder = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
-for (let i = 0; i < hangulOrder.length; i++) {
-	SectionHeadingTrie.insert(`${hangulOrder[i]}. `, SECTION_HEADING | SECTION_HEADING_LV2);
-	SectionHeadingTrie.insert(`(${hangulOrder[i]}) `, SECTION_HEADING | SECTION_HEADING_LV4);
-	SectionHeadingTrie.insert(`${hangulOrder[i]}) `, SECTION_HEADING | SECTION_HEADING_LV6);
-	// SectionHeadingTrie.insert(`(${String.fromCharCode(syllables.charCodeAt(i) + 112)}) `);
-	// SectionHeadingTrie.insert(`${String.fromCharCode(syllables.charCodeAt(i) + 112)}) `);
+for (let i = 0; i < HANGUL_ORDER.length; i++) {
+	sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, SECTION_HEADING_TYPE2);
+	sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE4);
+	sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE6);
 }
-const SectionHeadingTrieNode = SectionHeadingTrie.root;
-const SECTION_HEADING_START = extractStartCharsFromTrie(SectionHeadingTrieNode);
+const SectionHeadingTrieNode = sectionHeadingTrie.root;
+const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
 
-const ManualAnchorTrie = createTrie(false);
-ManualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
-ManualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
-const ManualAnchorTrieNode = ManualAnchorTrie.root;
-const MANUAL_ANCHOR_START = extractStartCharsFromTrie(ManualAnchorTrieNode);
+const manualAnchorTrie = createTrie(false);
+manualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
+manualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
+const manualAnchorTrieNode = manualAnchorTrie.root;
+const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 
-// ============================================================
-// Tokenization
-// tokenize를 ui쓰레드에서 실행하는 것으로 바꿔봤지만
-// editor에서 물흐르듯 자연스러운 편집이 안되는 느낌. 불쾌함!
-// 그래도 UI쓰레드에서 토큰을 직접 가지고 있으면 편리한 부분이 있긴 있음.
-// ============================================================
-// #region Tokenization
 function tokenizeByChar(input: string): Token[] {
 	const tokens: Token[] = [];
 	let lineNum = 1;
@@ -135,9 +167,9 @@ function tokenizeByChar(input: string): Token[] {
 	for (let i = 0; i < inputEnd; i++) {
 		const ch = input[i];
 
-		if (!SPACE_CHARS[ch]) {
+		if (!spaceChars[ch]) {
 			if (ch === "(") {
-				const result = findInTrie(WildcardTrieNode, input, i + 1);
+				const result = findInTrie(wildcardTrieNode, input, i + 1);
 				if (result) {
 					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
 						flags |= FIRST_OF_LINE;
@@ -155,8 +187,8 @@ function tokenizeByChar(input: string): Token[] {
 				}
 			}
 
-			if (MANUAL_ANCHOR_START[ch]) {
-				const nextNode = ManualAnchorTrieNode.next(ch)!;
+			if (manualAnchorStartChars[ch]) {
+				const nextNode = manualAnchorTrieNode.next(ch)!;
 				const result = findInTrie(nextNode, input, i + 1);
 				if (result) {
 					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
@@ -178,7 +210,7 @@ function tokenizeByChar(input: string): Token[] {
 			if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
 				flags |= FIRST_OF_LINE;
 			}
-			const normalized = normalizeChars[ch] || ch;
+			const normalized = normalizedCharMap[ch] || ch;
 			tokens.push({
 				text: normalized,
 				pos: i,
@@ -238,7 +270,7 @@ function tokenizeByWord(input: string): Token[] {
 	for (let i = 0; i < inputEnd; i++) {
 		let ch = input[i];
 
-		if (SPACE_CHARS[ch]) {
+		if (spaceChars[ch]) {
 			if (currentStart !== -1) emitToken(i);
 			if (ch === "\n") {
 				lineNum++;
@@ -248,16 +280,10 @@ function tokenizeByWord(input: string): Token[] {
 			continue;
 		}
 
-		if (normalizeChars[ch]) {
-			shouldNormalize = true;
-			ch = normalizeChars[ch];
-		}
-
 		if (ch === "(") {
-			const result = findInTrie(WildcardTrieNode, input, i);
+			const result = findInTrie(wildcardTrieNode, input, i);
 			if (result) {
 				if (currentStart !== -1) emitToken(i);
-
 				flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
 
 				tokens.push({
@@ -274,12 +300,17 @@ function tokenizeByWord(input: string): Token[] {
 			}
 		}
 
-		if (currentStart === -1 && flags & FIRST_OF_LINE && SECTION_HEADING_START[ch]) {
+		if (currentStart === -1 && flags & FIRST_OF_LINE && sectionHeadingStartChars[ch]) {
 			const result = findInTrie(SectionHeadingTrieNode, input, i);
 			if (result) {
-				let p = result.end;
-				while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
-				if (p < inputEnd) flags |= SECTION_HEADING | result.flags;
+				const nextChar = input[result.end];
+				if (nextChar === " " || nextChar === "\t" || nextChar === "\u00A0") {
+					flags |= result.flags;
+				}
+				
+				// let p = result.end;
+				// while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
+				// if (p < inputEnd) flags |= result.flags;
 			}
 		}
 
@@ -300,6 +331,10 @@ function tokenizeByWord(input: string): Token[] {
 		// 	currentStart = -1;
 		// 	continue;
 		// }
+
+		if (normalizedCharMap[ch]) {
+			shouldNormalize = true;
+		}
 
 		if (currentStart === -1) currentStart = i;
 	}
@@ -328,7 +363,7 @@ function tokenizeByLine(input: string): Token[] {
 		const ch = input[i];
 
 		if (ch !== "\n") {
-			if (!SPACE_CHARS[ch]) {
+			if (!spaceChars[ch]) {
 				if (!started) {
 					pos = i;
 					started = true;
@@ -336,8 +371,8 @@ function tokenizeByLine(input: string): Token[] {
 					const result = findInTrie(SectionHeadingTrieNode, input, i);
 					if (result) {
 						let p = result.end;
-						while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
-						if (p < inputEnd) flags |= SECTION_HEADING;
+						while (p < inputEnd && spaceChars[input[p]]) p++;
+						if (p < inputEnd) flags |= result.flags;
 					}
 				}
 				if (inSpace && buffer.length > 0) buffer += " ";
@@ -423,7 +458,7 @@ function normalize(text: string) {
 	let result = "";
 	for (let i = 0; i < text.length; i++) {
 		const char = text[i];
-		result += normalizeChars[char] || char;
+		result += normalizedCharMap[char] || char;
 	}
 	return result;
 }
@@ -433,7 +468,7 @@ function checkIfFirstOfLine(input: string, pos: number) {
 	while (pos >= 0) {
 		if (input[pos] === "\n") {
 			break;
-		} else if (!SPACE_CHARS[input[pos]]) {
+		} else if (!spaceChars[input[pos]]) {
 			return false;
 		}
 		pos--;

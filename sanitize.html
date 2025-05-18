@@ -10,8 +10,8 @@
 
         .container {
             display: grid;
-            grid-template-columns: 1fr 1fr;
-            grid-template-rows: 1fr 1fr;
+            grid-template-columns: 1fr 1fr !important;
+            grid-template-rows: 1fr 1fr !important;
             height: 100vh;
         }
 
@@ -39,13 +39,14 @@
             vertical-align: top;
         }
     </style>
+    <link rel="stylesheet" href="/styles.css">
     <script src="/build/sanitize.js"></script>
 </head>
 
 
 <body>
     <div class="container">
-        <div id="ce1" contenteditable spellcheck="false"></div>
+        <div id="ce1" class="editor" contenteditable spellcheck="false"></div>
         <div id="ce2" contenteditable="plaintext-only" spellcheck="false"></div>
         <div id="ce3" contenteditable spellcheck="false"></div>
         <div id="ce4" contenteditable spellcheck="false"></div>
@@ -66,7 +67,7 @@
             if (!rawHTML) return;
             e.preventDefault();
             ce4.textContent = rawHTML;
-            const fragment = sanitizeHTML2(rawHTML);
+            const fragment = sanitizeHTML(rawHTML);
             ce1.replaceChildren(fragment);
             // ce1.innerHTML = sanitized;
             // ce2.textContent = e.clipboardData.getData('text/plain');

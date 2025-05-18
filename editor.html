@@ -1,0 +1,130 @@
+<html>
+
+<head>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    .container {
+      display: grid;
+      grid-template-columns: 1fr 1fr !important;
+      grid-template-rows: 1fr 1fr !important;
+      height: 100vh;
+    }
+
+    #ce1,
+    #ce2,
+    #ce3,
+    #ce4 {
+      padding: 10px;
+      border: 1px solid #000;
+      padding: 10px;
+      overflow-y: scroll;
+      font-family: 'Courier New', Courier, monospace;
+      white-space: pre-wrap;
+      word-break: break-all;
+      overflow-wrap: anywhere;
+    }
+
+    table,
+    th,
+    td {
+      border-collapse: collapse;
+      border-spacing: 0;
+    }
+
+    th,
+    td {
+      border: 1px solid #000;
+      vertical-align: top;
+    }
+
+    .color-red {
+      color: red;
+    }
+
+    .color-default {
+      color: #000;
+    }
+  </style>
+  <!-- <link rel="stylesheet" href="/styles.css"> -->
+  <script src="/build/sanitize.js"></script>
+</head>
+
+
+<body>
+  <div class="container">
+    <div id="ce1" class="editor" contenteditable="true" spellcheck="false">
+      hello<span></span><mark></mark>&nbsp;world</div>
+    <div id="ce2" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div id="ce3" contenteditable="plaintext-only" spellcheck="false"></div>
+    <div id="ce4" contenteditable="plaintext-only" spellcheck="false"></div>
+  </div>
+
+  <script src="/build/utils.js"></script>
+  <script src="/build/tempeditor.js"></script>
+
+  <script>
+
+    ce1.addEventListener("paste", (e) => {
+      const html = e.clipboardData?.getData("text/html");
+      if (!html) {
+        return;
+      }
+      e.preventDefault();
+      const node = sanitizeHTML(html);
+      ce1.replaceChildren(node);
+      console.log(node);
+    });
+    
+
+    const base = 131;
+const mod = 1000000007; // 1e9+7, 32비트 이하 소수
+
+// 파워 테이블 미리 계산
+const maxLen = 1000;
+const power = new Array(maxLen + 1);
+power[0] = 1;
+for (let i = 1; i <= maxLen; i++) {
+  power[i] = (power[i - 1] * base) % mod;
+}
+
+// 문자열 해시 함수 (1 mod만 씀)
+function hashString(str) {
+  let h = 0;
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    h = (h * base + code) % mod;
+  }
+  return h;
+}
+
+// 두 해시 합치기 (hashA + hashB)
+function combineHashes(hashA, hashB, lenB) {
+  return (hashA * power[lenB] + hashB) % mod;
+}
+
+// 테스트 코드
+const word1 = "hello";
+const word2 = "world";
+const full = word1 + word2;
+
+const hash1 = hashString(word1);
+const hash2 = hashString(word2);
+const fullHash = hashString(full);
+const combinedHash = combineHashes(hash1, hash2, word2.length);
+
+console.log("Hash1:", hash1);
+console.log("Hash2:", hash2);
+console.log("Full Hash:", fullHash);
+console.log("Combined Hash:", combinedHash);
+console.log("Are hashes equal?", fullHash === combinedHash);
+  </script>
+
+
+</body>
+
+</html>

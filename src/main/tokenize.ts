@@ -1,20 +1,48 @@
 const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
 
-const FIRST_OF_LINE = 1;
-const LAST_OF_LINE = 2;
-const WILD_CARD = 16;
-const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING_TYPE1 = 64;
-const SECTION_HEADING_TYPE2 = 128; // 가.
-const SECTION_HEADING_TYPE3 = 256; // (1)
-const SECTION_HEADING_TYPE4 = 384; // (가)
-const SECTION_HEADING_TYPE5 = 512; // 1)
-const SECTION_HEADING_TYPE6 = 640; // 가)
+const LINE_START = 1 << 0; // 1
+const LINE_END = 1 << 1; // 2
+const CONTAINER_START = 1 << 2; // 4
+const CONTAINER_END = 1 << 3; // 8
+const NO_JOIN = 1 << 4; // @@@, ### 등등 // 16
+const WILD_CARD = 1 << 5;
+const MANUAL_ANCHOR = 1 << 6; // 32. @@@, ### 등등
+const IMAGE = 1 << 7;
+
+const SECTION_HEADING_BIT = 10;
+const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
+const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
+const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
+const SECTION_HEADING_TYPE4 = 1 << (SECTION_HEADING_BIT + 3); // (가)
+const SECTION_HEADING_TYPE5 = 1 << (SECTION_HEADING_BIT + 4); // 1)
+const SECTION_HEADING_TYPE6 = 1 << (SECTION_HEADING_BIT + 5); // 가)
+
+const LINE_BOUNDARY = LINE_START | LINE_END;
+const CONTAINER_BOUNDARY = CONTAINER_START | CONTAINER_END;
 const SECTION_HEADING_MASK =
 	SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
 
 // const normalizeChars: { [ch: string]: string } = {};
+
+// text flow containers?
+const containerElements = {
+	DIV: true,
+	PRE: true,
+	BLOCKQUOTE: true,
+	LI: true,
+	TD: true,
+	TH: true,
+	SECTION: true,
+	ARTICLE: true,
+	HEADER: true,
+	FOOTER: true,
+	ASIDE: true,
+	MAIN: true,
+	CAPTION: true,
+	FIGURE: true,
+	FIGCAPTION: true,
+};
 
 const spaceChars: Record<string, boolean> = {
 	" ": true,
@@ -161,7 +189,7 @@ const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 function tokenizeByChar(input: string): Token[] {
 	const tokens: Token[] = [];
 	let lineNum = 1;
-	let flags = FIRST_OF_LINE;
+	let flags = LINE_START;
 	const inputEnd = input.length;
 
 	for (let i = 0; i < inputEnd; i++) {
@@ -172,7 +200,7 @@ function tokenizeByChar(input: string): Token[] {
 				const result = findInTrie(wildcardTrieNode, input, i + 1);
 				if (result) {
 					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-						flags |= FIRST_OF_LINE;
+						flags |= LINE_START;
 					}
 					tokens.push({
 						text: result.word,
@@ -192,7 +220,7 @@ function tokenizeByChar(input: string): Token[] {
 				const result = findInTrie(nextNode, input, i + 1);
 				if (result) {
 					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-						flags |= FIRST_OF_LINE;
+						flags |= LINE_START;
 					}
 					tokens.push({
 						text: result.word,
@@ -208,7 +236,7 @@ function tokenizeByChar(input: string): Token[] {
 			}
 
 			if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-				flags |= FIRST_OF_LINE;
+				flags |= LINE_START;
 			}
 			const normalized = normalizedCharMap[ch] || ch;
 			tokens.push({
@@ -223,15 +251,15 @@ function tokenizeByChar(input: string): Token[] {
 
 		if (ch === "\n") {
 			lineNum++;
-			flags = FIRST_OF_LINE;
+			flags = LINE_START;
 			if (tokens.length) {
-				tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+				tokens[tokens.length - 1].flags |= LINE_END;
 			}
 		}
 	}
 
 	if (tokens.length) {
-		tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+		tokens[tokens.length - 1].flags |= LINE_END;
 	}
 
 	return tokens;
@@ -241,7 +269,7 @@ function tokenizeByWord(input: string): Token[] {
 	const tokens: Token[] = [];
 	let currentStart = -1;
 	let lineNum = 1;
-	let flags = FIRST_OF_LINE;
+	let flags = LINE_START;
 	let shouldNormalize = false;
 	const inputEnd = input.length;
 
@@ -249,7 +277,7 @@ function tokenizeByWord(input: string): Token[] {
 		const raw = input.slice(currentStart, end);
 		const normalized = shouldNormalize ? normalize(raw) : raw;
 
-		flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? FIRST_OF_LINE : 0;
+		flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? LINE_START : 0;
 		if (normalized === MANUAL_ANCHOR1 || normalized === MANUAL_ANCHOR2) {
 			flags |= MANUAL_ANCHOR;
 		}
@@ -274,8 +302,8 @@ function tokenizeByWord(input: string): Token[] {
 			if (currentStart !== -1) emitToken(i);
 			if (ch === "\n") {
 				lineNum++;
-				flags = FIRST_OF_LINE;
-				if (tokens.length) tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+				flags = LINE_START;
+				if (tokens.length) tokens[tokens.length - 1].flags |= LINE_END;
 			}
 			continue;
 		}
@@ -284,7 +312,7 @@ function tokenizeByWord(input: string): Token[] {
 			const result = findInTrie(wildcardTrieNode, input, i);
 			if (result) {
 				if (currentStart !== -1) emitToken(i);
-				flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
+				flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? LINE_START : 0;
 
 				tokens.push({
 					text: result.word,
@@ -300,14 +328,14 @@ function tokenizeByWord(input: string): Token[] {
 			}
 		}
 
-		if (currentStart === -1 && flags & FIRST_OF_LINE && sectionHeadingStartChars[ch]) {
+		if (currentStart === -1 && flags & LINE_START && sectionHeadingStartChars[ch]) {
 			const result = findInTrie(SectionHeadingTrieNode, input, i);
 			if (result) {
 				const nextChar = input[result.end];
 				if (nextChar === " " || nextChar === "\t" || nextChar === "\u00A0") {
 					flags |= result.flags;
 				}
-				
+
 				// let p = result.end;
 				// while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
 				// if (p < inputEnd) flags |= result.flags;
@@ -342,7 +370,7 @@ function tokenizeByWord(input: string): Token[] {
 	if (currentStart !== -1) emitToken(inputEnd);
 
 	if (tokens.length) {
-		tokens[tokens.length - 1].flags |= LAST_OF_LINE;
+		tokens[tokens.length - 1].flags |= LINE_END;
 	}
 
 	return tokens;
@@ -351,7 +379,7 @@ function tokenizeByWord(input: string): Token[] {
 function tokenizeByLine(input: string): Token[] {
 	const tokens: Token[] = [];
 	let lineNum = 1;
-	let flags = FIRST_OF_LINE | LAST_OF_LINE;
+	let flags = LINE_START | LINE_END;
 	const inputEnd = input.length;
 
 	let buffer = "";
@@ -396,7 +424,7 @@ function tokenizeByLine(input: string): Token[] {
 				buffer = "";
 				started = false;
 				inSpace = false;
-				flags = FIRST_OF_LINE | LAST_OF_LINE;
+				flags = LINE_START | LINE_END;
 			}
 			lineNum++;
 		}
@@ -538,4 +566,133 @@ function extractStartCharsFromTrie(trie: TrieNode): Record<string, 1> {
 		table[ch] = 1;
 	}
 	return table;
+}
+
+type ContainerInfo = {
+	textFlow: boolean;
+	tokens: Token[];
+};
+
+function tokenizeNode(node: Node): Token[] {
+	const startTime = performance.now();
+	let textPos = 0;
+	let currentToken: Token | null = null;
+	const results: Token[] = [];
+	function processToken(text: string, start: number, length: number) {
+		if (currentToken) {
+			currentToken.text += text;
+			currentToken.len = textPos - currentToken.pos;
+		} else {
+			currentToken = {
+				text,
+				pos: start,
+				len: length,
+				flags: 0,
+				lineNum: 0,
+			};
+		}
+	}
+
+	function finalizeToken(flags: number = 0) {
+		if (currentToken) {
+			currentToken.len = textPos - currentToken.pos;
+			currentToken.flags |= flags;
+			results.push(currentToken);
+			currentToken = null;
+			return 1;
+		}
+		return 0;
+	}
+
+	function traverse(node: Node) {
+		if (node.nodeType === 3) {
+			const text = node.nodeValue!;
+			if (text.length === 0) return;
+			let nodeStart = textPos;
+			let currentStart = -1;
+			for (let i = 0; i < text.length; i++, textPos++) {
+				const char = text[i];
+				if (spaceChars[char]) {
+					if (currentStart >= 0) {
+						processToken(text.slice(currentStart, i), nodeStart + currentStart, i - currentStart);
+						currentStart = -1;
+					}
+					finalizeToken();
+				} else {
+					if (currentStart < 0) {
+						currentStart = i;
+					}
+				}
+			}
+
+			if (currentStart >= 0) {
+				processToken(text.slice(currentStart), nodeStart + currentStart, text.length - currentStart);
+			}
+		} else if (node.nodeType === 1) {
+			if (node.nodeName === "BR") {
+				finalizeToken(LINE_END);
+				return;
+			}
+
+			if ((node as HTMLElement).className === "img") {
+				finalizeToken();
+				results.push({
+					text: (node as HTMLElement).dataset.src || (node as HTMLImageElement).src || "🖼️",
+					pos: textPos,
+					len: node.textContent!.length,
+					lineNum: 0,
+					flags: IMAGE | NO_JOIN,
+				});
+				textPos += node.textContent!.length;
+				return;
+			}
+
+			(node as HTMLElement).dataset.startOffset = String(textPos);
+
+			if (TEXT_FLOW_CONTAINERS[node.nodeName]) {
+				finalizeToken(CONTAINER_END | LINE_END);
+			}
+
+			const isTextFlowContainer = TEXT_FLOW_CONTAINERS[node.nodeName];
+			const numTokensBefore = results.length;
+
+			for (const child of node.childNodes) {
+				traverse(child);
+			}
+
+			if (BLOCK_ELEMENTS[node.nodeName]) {
+				finalizeToken();
+			}
+
+			const firstToken = results[numTokensBefore];
+			const lastToken = results[results.length - 1];
+			if (isTextFlowContainer) {
+				if (firstToken) {
+					firstToken.flags |= CONTAINER_START | LINE_START;
+				}
+				if (lastToken) {
+					lastToken.flags |= CONTAINER_END | LINE_END;
+				}
+			} else if (node.nodeName === "P") {
+				if (firstToken) {
+					firstToken.flags |= LINE_START;
+				}
+				if (lastToken) {
+					lastToken.flags |= LINE_END;
+				}
+			}
+
+			(node as HTMLElement).dataset.endOffset = String(textPos);
+
+
+			// currentContainer = containerStack.pop()!;
+		}
+	}
+
+	traverse(node);
+	finalizeToken();
+	const endTime = performance.now();
+	console.log("tokenizeNode", node.nodeName, node.nodeValue, results, Math.ceil(endTime - startTime) + "ms");
+
+	return results;
 }

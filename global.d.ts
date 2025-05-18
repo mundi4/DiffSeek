@@ -11,6 +11,13 @@ declare type Span = {
 	len: number;
 };
 
+type DiffRect = {
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+};
+
 declare type DiffType = 0 | 1 | 2 | 3;
 
 declare type DiffEntry = {
@@ -92,8 +99,8 @@ type TextRun = {
 
 declare type DiffContext = {
 	reqId: number;
-	leftText: string;
-	rightText: string;
+	// leftText: string;
+	// rightText: string;
 	diffOptions: DiffOptions;
 	leftTokens?: Token[];
 	rightTokens?: Token[];
@@ -101,6 +108,8 @@ declare type DiffContext = {
 	diffs?: DiffEntry[];
 	anchors?: Anchor[];
 	headings?: SectionHeading[];
+	leftDiffRects?: DiffRect[][];
+	rightDiffRects?: DiffRect[][];
 	done: boolean;
 	processTime?: number;
 };
@@ -147,4 +156,22 @@ type SectionHeading = {
 	// ordinal: number; // 1,2,3,4,5,...
 	// depth: number; //
 	// type: number; //
+};
+
+type RenderItem = {
+	type: "texthighlight"|"diffhighlight";
+	x: number;
+	y: number;
+	w: number;
+	h: number;
+	fillStyle?: string;
+	strokeStyle?: string;
+};
+
+type DiffRectSet = {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+	rects: DiffRect[];
 };

@@ -1,15 +1,24 @@
-const FIRST_OF_LINE = 1;
-const LAST_OF_LINE = 2;
-const WILD_CARD = 16;
-const MANUAL_ANCHOR = 32; // @@@, ### 등등
-const SECTION_HEADING_TYPE1 = 64;
-const SECTION_HEADING_TYPE2 = 128; // 가.
-const SECTION_HEADING_TYPE3 = 256; // (1)
-const SECTION_HEADING_TYPE4 = 384; // (가)
-const SECTION_HEADING_TYPE5 = 512; // 1)
-const SECTION_HEADING_TYPE6 = 640; // 가)
-const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
+const LINE_START = 1;
+const LINE_END = 2;
+const CONTAINER_START = 1 << 2;
+const CONTAINER_END = 1 << 3;
+const NO_JOIN = 1 << 4; // @@@, ### 등등
+const WILD_CARD = 1 << 5;
+const MANUAL_ANCHOR = 1 << 6; // 32. @@@, ### 등등
+const IMAGE = 1 << 7;
 
+const SECTION_HEADING_BIT = 10;
+const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
+const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
+const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
+const SECTION_HEADING_TYPE4 = 1 << (SECTION_HEADING_BIT + 3); // (가)
+const SECTION_HEADING_TYPE5 = 1 << (SECTION_HEADING_BIT + 4); // 1)
+const SECTION_HEADING_TYPE6 = 1 << (SECTION_HEADING_BIT + 5); // 가)
+
+const LINE_BOUNDARY = LINE_START | LINE_END;
+const CONTAINER_BOUNDARY = CONTAINER_START | CONTAINER_END;
+const SECTION_HEADING_MASK =
+	SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
 
@@ -522,13 +531,13 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 					score *= UNIQUE_BONUS;
 				}
 
-				if (lhsTokens[i].flags & rhsTokens[j].flags & FIRST_OF_LINE) {
+				if (lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
 					// if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LAST_OF_LINE) {
 					// 	score *= FULL_LINE_BONUS;
 					// } else {
 					// }
 					score *= LINE_START_BONUS;
-				} else if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LAST_OF_LINE) {
+				} else if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
 					score *= LINE_END_BONUS;
 				}
 
@@ -721,7 +730,6 @@ function consumeCommonEdges(
 ): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: DiffEntry[], tail: DiffEntry[]] {
 	const head: DiffEntry[] = [];
 	const tail: DiffEntry[] = [];
-
 	let matchedCount;
 
 	// Prefix
@@ -807,38 +815,53 @@ function matchPrefixTokens(
 	rhsLower: number,
 	rhsUpper: number
 ): false | [leftMatched: number, rightMatched: number] {
+	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
+
 	let i = lhsLower,
 		j = rhsLower;
 	let ci = 0,
 		cj = 0;
 
-	const llen = lhsUpper;
-	const rlen = rhsUpper;
+	let lhsToken = leftTokens[i++],
+		ltext = lhsToken.text,
+		lhsLen = ltext.length;
+	let rhsToken = rightTokens[j++],
+		rtext = rhsToken.text,
+		rhsLen = rtext.length;
 
-	while (i < llen && j < rlen) {
-		const ltext = leftTokens[i].text;
-		const rtext = rightTokens[j].text;
-
-		const llen2 = ltext.length;
-		const rlen2 = rtext.length;
-
-		while (ci < llen2 && cj < rlen2) {
-			if (ltext[ci++] !== rtext[cj++]) return false;
+	while (true) {
+		while (ci < lhsLen && cj < rhsLen) {
+			if (ltext[ci++] !== rtext[cj++]) {
+				return false;
+			}
 		}
 
-		if (ci >= ltext.length) {
-			i++;
+		// 문자 불일치 없이 양쪽 토큰이 동시에 끝난 경우
+		if (ci === lhsLen && cj === rhsLen) return [i - lhsLower, j - rhsLower];
+
+		if (ci === lhsLen) {
+			if (i === lhsUpper) return false;
+			if (lhsToken.flags & CONTAINER_END) return false;
+
+			lhsToken = leftTokens[i++];
+			if (!lhsToken || lhsToken.flags & CONTAINER_START) return false;
+
+			ltext = lhsToken.text;
+			lhsLen = ltext.length;
 			ci = 0;
 		}
-		if (cj >= rtext.length) {
-			j++;
+		if (cj === rhsLen) {
+			if (j === rhsUpper) return false;
+			if (rhsToken.flags & CONTAINER_END) return false;
+
+			rhsToken = rightTokens[j++];
+			if (!rhsToken || rhsToken.flags & CONTAINER_START) return false;
+
+			rtext = rhsToken.text;
+			rhsLen = rtext.length;
 			cj = 0;
 		}
-
-		if (ci === 0 && cj === 0) return [i - lhsLower, j - rhsLower];
 	}
-
-	return false;
 }
 
 function matchSuffixTokens(
@@ -849,38 +872,47 @@ function matchSuffixTokens(
 	rhsLower: number,
 	rhsUpper: number
 ): false | [leftMatched: number, rightMatched: number] {
+	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
+
 	let i = lhsUpper - 1,
 		j = rhsUpper - 1;
-	let ci = leftTokens[i].text.length - 1,
-		cj = rightTokens[j].text.length - 1;
 
-	const llen = lhsLower;
-	const rlen = rhsLower;
+	let lhsToken = leftTokens[i--],
+		ltext = lhsToken.text,
+		rhsToken = rightTokens[j--],
+		rtext = rhsToken.text;
+	let ci = ltext.length - 1,
+		cj = rtext.length - 1;
 
-	OUTER: while (i >= llen && j >= rlen) {
-		const ltext = leftTokens[i].text;
-		const rtext = rightTokens[j].text;
-
+	while(true) {
 		while (ci >= 0 && cj >= 0) {
 			if (ltext[ci--] !== rtext[cj--]) {
-				break OUTER;
+				return false;
 			}
 		}
-
-		if (ci === -1 && cj === -1) {
-			return [lhsUpper - i, rhsUpper - j];
-		}
+		if (ci < 0 && cj < 0) return [lhsUpper - i - 1, rhsUpper - j - 1];
 
 		if (ci < 0) {
-			i--;
-			if (i >= llen) ci = leftTokens[i].text.length - 1;
+			if (i < lhsLower) return false;
+			if (lhsToken.flags & CONTAINER_START) return false;
+			
+			lhsToken = leftTokens[i--];
+			if (lhsToken.flags & CONTAINER_END) return false;
+			
+			ltext = lhsToken.text;
+			ci = lhsToken.text.length - 1;
 		}
 		if (cj < 0) {
-			j--;
-			if (j >= rlen) cj = rightTokens[j].text.length - 1;
+			if (j < rhsLower) return false;
+			if (rhsToken.flags & CONTAINER_START) return false;
+
+			rhsToken = rightTokens[j--];
+			if (rhsToken.flags & CONTAINER_END) return false;
+			
+			rtext = rhsToken.text;
+			cj = rhsToken.text.length - 1;
 		}
 	}
-	return false;
 }
 
 type FindAnchorFunc = (

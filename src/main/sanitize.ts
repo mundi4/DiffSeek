@@ -118,6 +118,35 @@ const BLOCK_ELEMENTS: Record<string, boolean> = {
 	"#document-fragment": true,
 };
 
+const INLINE_ELEMENTS: Record<string, boolean> = {
+	SPAN: true,
+	A: true,
+	B: true,
+	I: true,
+	U: true,
+	EM: true,
+	STRONG: true,
+	S: true,
+	STRIKE: true,
+	SUB: true,
+	SUP: true,
+	SMALL: true,
+	BIG: true,
+	MARK: true,
+	INS: true,
+	DEL: true,
+	CODE: true,
+	KBD: true,
+	SAMP: true,
+	VAR: true,
+	DFN: true,
+	ABBR: true,
+	TIME: true,
+	CITE: true,
+	Q: true,
+	LABEL: true,
+};
+
 const LINEBREAK_ELEMENTS: Record<string, boolean> = {
 	DD: true,
 	DT: true,
@@ -196,11 +225,154 @@ const EXCLUDED_HTML_TAGS: Record<string, number> = {
 	HEAD: 1,
 };
 
-function customTrim(str:string) {
-    return str.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, '');
+const EMPTY_ATTRS = {};
+
+const ALLOWED_CONTAINER_TAGS: Record<string, Record<string, boolean>> = {
+	TABLE: EMPTY_ATTRS,
+	TBODY: EMPTY_ATTRS,
+	THEAD: EMPTY_ATTRS,
+	TFOOT: EMPTY_ATTRS,
+	CAPTION: EMPTY_ATTRS,
+	TR: EMPTY_ATTRS,
+	TH: { colspan: true, rowspan: true },
+	TD: { colspan: true, rowspan: true },
+	H1: EMPTY_ATTRS,
+	H2: EMPTY_ATTRS,
+	H3: EMPTY_ATTRS,
+	H4: EMPTY_ATTRS,
+	H5: EMPTY_ATTRS,
+	H6: EMPTY_ATTRS,
+	SUP: EMPTY_ATTRS,
+	SUB: EMPTY_ATTRS,
+	EM: EMPTY_ATTRS,
+	I: EMPTY_ATTRS,
+	S: EMPTY_ATTRS,
+	B: EMPTY_ATTRS,
+	STRONG: EMPTY_ATTRS,
+	U: EMPTY_ATTRS,
+	STRIKE: EMPTY_ATTRS,
+	P: EMPTY_ATTRS,
+	UL: EMPTY_ATTRS,
+	OL: EMPTY_ATTRS,
+	LI: EMPTY_ATTRS,
+	DL: EMPTY_ATTRS,
+	DT: EMPTY_ATTRS,
+	DD: EMPTY_ATTRS,
+	DIV: EMPTY_ATTRS,
+	HEADER: EMPTY_ATTRS,
+	FOOTER: EMPTY_ATTRS,
+	SECTION: EMPTY_ATTRS,
+	ARTICLE: EMPTY_ATTRS,
+	ASIDE: EMPTY_ATTRS,
+	BLOCKQUOTE: EMPTY_ATTRS,
+	ADDRESS: EMPTY_ATTRS,
+
+	//"#document-fragment": EMPTY_ATTRS,
+};
+
+const TEXT_FLOW_CONTAINERS: Record<string, boolean> = {
+	DIV: true,
+	PRE: true,
+	BLOCKQUOTE: true,
+	LI: true,
+	TD: true,
+	TH: true,
+	SECTION: true,
+	ARTICLE: true,
+	HEADER: true,
+	FOOTER: true,
+	ASIDE: true,
+	MAIN: true,
+	CAPTION: true,
+	FIGURE: true,
+	FIGCAPTION: true,
+};
+
+function customTrim(str: string) {
+	return str.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, "");
 }
 
-function sanitizeHTML2(rawHTML: string) {
+type ContainerStackItem = {
+	node: ParentNode;
+	color?: string;
+};
+
+function coerceColor(color: string): string | undefined {
+	if (isReddish(color)) {
+		return "red";
+	}
+	return undefined;
+}
+
+type ConditionalBlock = {
+	condition: string;
+	children: (string | ConditionalBlock)[];
+};
+
+// 조건 시작 정규식 (주석 유무 상관없이, [if ...]> 또는 <![if ...]> 모두 포괄)
+const ifRegex = /(?:<!--)?<?!?\[if\s+([^\]]+?)\]>?/gi;
+// 조건 종료 정규식
+const endifRegex = /<!\[endif\](?:-->|\])?/i;
+
+/**
+ * input: 파싱할 전체 문자열
+ * start: 파싱 시작 위치 (무조건 [if ...]가 시작하는 위치여야 함)
+ *
+ * returns: [조건부 블록, 종료 위치]
+ */
+function parseIfBlock(input: string, start: number): [ConditionalBlock, number] {
+	ifRegex.lastIndex = start;
+	const ifMatch = ifRegex.exec(input);
+	if (!ifMatch || ifMatch.index !== start) {
+		console.error("parseIfBlock must start at an [if] condition", { ifMatch, start, input });
+		throw new Error("parseIfBlock must start at an [if] condition");
+	}
+
+	const condition = ifMatch[1].trim();
+	let cursor = ifRegex.lastIndex;
+	const children: (string | ConditionalBlock)[] = [];
+
+	while (cursor < input.length) {
+		ifRegex.lastIndex = cursor;
+		endifRegex.lastIndex = cursor;
+
+		const nextIf = ifRegex.exec(input);
+		const nextEndIf = endifRegex.exec(input);
+
+		if (nextEndIf && (!nextIf || nextEndIf.index < nextIf.index)) {
+			// endif가 먼저 나오면 현재 조건 종료
+			if (nextEndIf.index > cursor) {
+				const text = input.slice(cursor, nextEndIf.index);
+				if (text.trim()) children.push(text);
+			}
+			cursor = nextEndIf.index + nextEndIf[0].length;
+			return [{ condition, children }, cursor];
+		}
+
+		if (nextIf && nextIf.index === cursor) {
+			// 중첩된 if 조건 파싱 재귀 호출
+			console.log("parseIfBlock called at pos:", start);
+			console.log("String at start:", input.slice(start, start + 20));
+			const [childBlock, newPos] = parseIfBlock(input, cursor);
+			children.push(childBlock);
+			cursor = newPos;
+			continue;
+		}
+
+		// 일반 텍스트 추출 (다음 조건문 혹은 endif까지)
+		let nextPos = input.length;
+		if (nextIf) nextPos = Math.min(nextPos, nextIf.index);
+		if (nextEndIf) nextPos = Math.min(nextPos, nextEndIf.index);
+
+		const text = input.slice(cursor, nextPos);
+		if (text.trim()) children.push(text);
+		cursor = nextPos;
+	}
+
+	throw new Error("Missing matching [endif]");
+}
+
+function sanitizeHTML(rawHTML: string): Node {
 	const START_TAG = "<!--StartFragment-->";
 	const END_TAG = "<!--EndFragment-->";
 	const startIndex = rawHTML.indexOf(START_TAG);
@@ -215,255 +387,336 @@ function sanitizeHTML2(rawHTML: string) {
 
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
-	console.log("tmpl", {
-		tmpl,
-		tmplContent: tmpl.content,
-		tmplContentChild: tmpl.content.firstChild,
-	});
-	function traverse(node: Node): Node | null {
-        if (node.nodeName === "#comment") {
-            return null;
-        }
+
+	let flags = 0;
+	const containerStack: ContainerStackItem[] = [];
+
+	function traverse(node: Node) {
 		if (node.nodeType === 3) {
-			if (EXCLUDED_HTML_TAGS[node.nodeName]) {
-				return null;
-			}
 			if (TEXTLESS_ELEMENTS[node.parentNode!.nodeName]) {
 				return null;
 			}
 			let text = node.nodeValue!;
-			if (BLOCK_ELEMENTS[node.parentNode!.nodeName]) {
+			if (TEXT_FLOW_CONTAINERS[node.parentNode!.nodeName]) {
 				text = customTrim(text);
 			}
 			if (text.length === 0) {
 				return null;
 			}
+			text = text.replace(/\n+/g, " ");
 			return document.createTextNode(text);
-		} else {
-			let newNode: Node | null = null;
-            if (node.nodeName === "#document-fragment") {
-                newNode = document.createDocumentFragment();
-            } else {
-                newNode = document.createElement(node.nodeName);
-            }
-            if (node.nodeName === "TD" || node.nodeName === "TH") {
-                const colspan = (node as HTMLTableCellElement).colSpan;
-                const rowspan = (node as HTMLTableCellElement).rowSpan;
-                if (colspan > 1) {
-                    (newNode as HTMLTableCellElement).colSpan = colspan;
-                }
-                if (rowspan > 1) {
-                    (newNode as HTMLTableCellElement).rowSpan = rowspan;
-                }
-            } else if (node.nodeName === "IMG") {
-                const src = (node as HTMLImageElement).src;
-                if (src && src.startsWith("data:")) {
-                    (newNode as HTMLImageElement).src = src;
-                }
-            }
-			for (const child of node.childNodes) {
-				const result = traverse(child);
-				if (result) {
-					// if (!newNode) {
-					// 	if (node.nodeName === "#document-fragment") {
-					// 		newNode = document.createDocumentFragment();
-					// 	} else {
-					// 		newNode = document.createElement(node.nodeName);
-					// 	}
-					// 	if (node.nodeName === "TD" || node.nodeName === "TH") {
-					// 		const colspan = (node as HTMLTableCellElement).colSpan;
-					// 		const rowspan = (node as HTMLTableCellElement).rowSpan;
-					// 		if (colspan > 1) {
-					// 			(newNode as HTMLTableCellElement).colSpan = colspan;
-					// 		}
-					// 		if (rowspan > 1) {
-					// 			(newNode as HTMLTableCellElement).rowSpan = rowspan;
-					// 		}
-					// 	}
-					// }
-					newNode.appendChild(result);
-				}
-			}
-
-            if (!newNode && BLOCK_ELEMENTS[node.nodeName]) {
-
-            }
-
-
-            console.log("newNode", newNode, node.nodeName, node.childNodes.length);
-			return newNode;
-		}
-		// return null;
-	}
-
-	console.log("tmpl.content", tmpl.content.firstChild);
-	const final = traverse(tmpl.content as Node) as DocumentFragment;
-	return final;
-}
-
-function sanitizeHTML(rawHTML: string) {
-	const START_TAG = "<!--StartFragment-->";
-	const END_TAG = "<!--EndFragment-->";
-	const startIndex = rawHTML.indexOf(START_TAG);
-	if (startIndex >= 0) {
-		const endIndex = rawHTML.lastIndexOf(END_TAG);
-		if (endIndex >= 0) {
-			rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-		} else {
-			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-		}
-	}
-
-	const tmpl = document.createElement("template");
-	tmpl.innerHTML = rawHTML;
-
-	const flagsStack: number[] = [0];
-
-	function visit(node: Node): TextFragment[] {
-		const isBlock = BLOCK_ELEMENTS[node.nodeName];
-		let isNewFlags = false;
-		let flags = flagsStack[0];
-		if (node.nodeType === 1) {
-			const color = (node as HTMLElement).style?.color;
-			if (color) {
-				flags &= ~STYLE_MASK_COLOR;
-				if (isReddish(color)) {
-					flags |= STYLE_COLOR_RED;
-				}
-			}
-			if (flags !== flagsStack[flagsStack.length - 1]) {
-				isNewFlags = true;
-				flagsStack.push(flags);
-			}
 		}
 
-		const results: TextFragment[] = [];
-
-		if (node.nodeName === "TD" || node.nodeName === "TH") {
-			// results.push({ text: "\t", flags: flags });
-			results.push({ text: "<td>", flags: flags });
-		} else if (node.nodeName === "TR") {
-			results.push({ text: "<tr>", flags: flags });
-		} else if (node.nodeName === "TABLE") {
-			results.push({ text: "<table>", flags: flags });
-		}
-		if (node.childNodes) {
-			const isTextless = TEXTLESS_ELEMENTS[node.nodeName];
-			let prevIsBlock = false;
-			let first = true;
-			for (let i = 0; i < node.childNodes.length; i++) {
-				const child = node.childNodes[i];
-				if (child.nodeType === 3) {
-					if (isTextless) {
-						continue;
-					}
-					let text = child.nodeValue!;
-					if (isBlock || node.nodeName === "TD") {
-						text = text.trim();
-						if (text.length === 0) {
-							continue;
-						}
-					}
-
-					if (i === 0 && (BLOCK_ELEMENTS[node.nodeName] || node.nodeName === "TD")) {
-						text = text.trimStart();
-					} else if (i === node.childNodes.length - 1 && (BLOCK_ELEMENTS[node.nodeName] || node.nodeName === "TD")) {
-						text = text.trimEnd();
-						console.log("last text:", { text, flags, parent: node, node: child });
-					}
-					if (text.length === 0) {
-						continue;
-					}
-
-					// text = text.replace(/\t/g, "    ");
-
-					if (first) {
-					} else {
-						if (prevIsBlock) {
-							results.push({ text: "\n", flags, child: child, prev: node.childNodes[i - 1] } as TextFragment);
-						}
-					}
-					prevIsBlock = false;
-					first = false;
-					//console.log("text", { text, flags, parent: node, node: child });
-
-					results.push({ text, flags, parent: node } as TextFragment);
-				} else if (child.nodeType === 1) {
-					if (child.nodeName.startsWith("O:")) {
-						continue;
-					}
-					if (child.nodeName === "BR") {
-						prevIsBlock = false;
-						results.push({ text: "\n", flags, child } as TextFragment);
-						continue;
-					}
-					let childIsBlock = BLOCK_ELEMENTS[child.nodeName];
-					if (first) {
-					} else {
-						if (childIsBlock || prevIsBlock) {
-							results.push({ text: "\n", flags, childIsBlock, prevIsBlock, child } as TextFragment);
-						}
-					}
-					prevIsBlock = childIsBlock;
-					const childResults = visit(child);
-					results.push(...childResults);
-					first = false;
-				}
-			}
-		}
-
-		if (node.nodeName === "TD" || node.nodeName === "TH") {
-			// results.push({ text: "\t", flags: flags });
-			results.push({ text: "</td>", flags: flags });
-		} else if (node.nodeName === "TR") {
-			results.push({ text: "</tr>", flags: flags });
-		} else if (node.nodeName === "TABLE") {
-			results.push({ text: "</table>", flags: flags });
-		}
-		// if (node.nodeName === "TD" || node.nodeName === "TH") {
-		// 	results.push({ text: "\t", flags: flags });
+		// if (node.nodeType === 8) {
+		// 	console.log("comment", node.nodeValue);
+		// 	const parseResult = parseIfBlock(node.nodeValue!, 0);
+		// 	console.log("parseResult", parseResult);
+		// 	return null;
 		// }
 
-		if (isNewFlags) {
-			flagsStack.pop();
+		if (node.nodeType !== 1 && node.nodeType !== 11) {
+			return null;
 		}
 
-		return results;
-	}
-
-	const results = visit(tmpl.content);
-	console.log("results", results);
-
-	let prevFlags = 0;
-	const strArr: string[] = [];
-	let first = true;
-	for (const { text, flags } of results) {
-		if (first) {
-			first = false;
-			if (text === "\n") {
-				continue;
-			}
+		if (EXCLUDED_HTML_TAGS[node.nodeName]) {
+			return null;
 		}
-		if (flags !== prevFlags) {
-			if (prevFlags !== 0) {
-				strArr.push(`</span>`);
-			}
-			if (flags !== 0) {
-				if (flags & STYLE_MASK_COLOR) {
-					strArr.push(`<span style="color: red">`);
+
+		if (node.nodeName === "O:P") {
+			// if (node.childNodes.length === 1) {
+			// 	const onlyChild = node.childNodes[0];
+			// 	if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "\u00A0") {
+			// 		return document.createTextNode("");
+			// 	}
+			// }
+			return null;
+		}
+
+		if (node.nodeName === "BR") {
+			return document.createElement("BR");
+		}
+
+		if (node.nodeName === "IMG") {
+			const span = document.createElement("SPAN");
+			span.textContent = "🖼️";
+			span.className = "dsimg";
+			span.contentEditable = "false";
+			span.dataset.src = (node as HTMLImageElement).src;
+			return span;
+		}
+
+		let color: string | undefined = containerStack[containerStack.length - 1].color;
+		if (node.nodeType === 1) {
+			let colorValue = (node as HTMLElement).style?.color;
+			if (colorValue) {
+				if (colorValue === "inherit") {
+					// use parent color
 				} else {
-					strArr.push(`<span>`);
+					if (isReddish(colorValue)) {
+						color = "red";
+					} else {
+						color = undefined!;
+					}
 				}
 			}
 		}
-		strArr.push(text);
-		prevFlags = flags;
-	}
-	if (prevFlags !== 0) {
-		strArr.push(`</span>`);
+
+		let containerNode: ParentNode | null = null;
+		const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
+		if (allowedAttrs) {
+			containerNode = document.createElement(node.nodeName);
+			for (const attr of (node as HTMLElement).attributes) {
+				if (allowedAttrs[attr.name]) {
+					(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
+				}
+			}
+		} else {
+			containerNode = document.createDocumentFragment();
+		}
+		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
+		containerStack.push({ node: containerNode, color: color });
+
+		let hasChildren = false;
+		//node.normalize();
+
+		for (const child of node.childNodes) {
+			let childResult = traverse(child);
+			if (!childResult) {
+				continue;
+			}
+
+			if (childResult.nodeType === 3) {
+				if (color) {
+					const span = document.createElement("span");
+					span.className = "color-" + color;
+					span.appendChild(childResult);
+					childResult = span;
+				}
+				// console.log("childresult:", {
+				// 	child:child,
+				// 	childResult: childResult,
+				// 	nodeName: childResult.nodeName,
+				// 	nodeType: childResult.nodeType,
+				// 	textContent: (childResult as Text).textContent,
+				// });
+			}
+
+			containerNode.appendChild(childResult);
+			if (!TEXTLESS_ELEMENTS[node.nodeName]) {
+				if (BLOCK_ELEMENTS[child.nodeName] && !BLOCK_ELEMENTS[childResult.nodeName]) {
+					// containerNode.appendChild(document.createElement("BR"));
+				}
+			}
+		}
+
+		containerNode.normalize();
+
+		if (containerNode.nodeName === "P") {
+			if (containerNode.childNodes.length === 0) {
+				containerNode.appendChild(document.createElement("BR"));
+			}
+		} else {
+			if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
+				containerNode.appendChild(document.createElement("BR"));
+			}
+		}
+
+		// if (containerNode.nodeType !== 11) {
+		// }
+		containerStack.pop();
+
+		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
+			containerNode.appendChild(document.createTextNode(""));
+		}
+
+		if (INLINE_ELEMENTS[containerNode.nodeName]) {
+			if (containerNode.childNodes.length === 0) {
+				containerNode = null;
+			} else if (containerNode.childNodes.length === 1) {
+				const onlyChild = containerNode.childNodes[0];
+				if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "") {
+					containerNode = null;
+				}
+			}
+		}
+
+		return containerNode;
 	}
 
-	const result2 = sanitizeHTML2(rawHTML);
-    // return result2.innerHTML;
-	return strArr.join("");
+	const root = document.createDocumentFragment();
+	containerStack.push({ node: root, color: undefined });
+	const result = traverse(tmpl.content)!;
+	result.normalize();
+	if (result.childNodes.length === 0) {
+		result.appendChild(document.createTextNode(""));
+	}
+	return result;
+}
+
+function sanitizeNode(content: Node): [Node, boolean] {
+	let hasBlockElements = false;
+	const containerStack: ContainerStackItem[] = [];
+
+	function traverse(node: Node) {
+		if (node.nodeType === 3) {
+			if (TEXTLESS_ELEMENTS[node.parentNode!.nodeName]) {
+				return null;
+			}
+			let text = node.nodeValue!;
+			if (TEXT_FLOW_CONTAINERS[node.parentNode!.nodeName]) {
+				text = customTrim(text);
+			}
+			if (text.length === 0) {
+				return null;
+			}
+			text = text.replace(/\n+/g, " ");
+			return document.createTextNode(text);
+		}
+
+		// if (node.nodeType === 8) {
+		// 	console.log("comment", node.nodeValue);
+		// 	const parseResult = parseIfBlock(node.nodeValue!, 0);
+		// 	console.log("parseResult", parseResult);
+		// 	return null;
+		// }
+
+		if (node.nodeType !== 1 && node.nodeType !== 11) {
+			return null;
+		}
+
+		if (EXCLUDED_HTML_TAGS[node.nodeName]) {
+			return null;
+		}
+
+		if (node.nodeName === "O:P") {
+			// if (node.childNodes.length === 1) {
+			// 	const onlyChild = node.childNodes[0];
+			// 	if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "\u00A0") {
+			// 		return document.createTextNode("");
+			// 	}
+			// }
+			return null;
+		}
+
+		if (node.nodeName === "BR") {
+			return document.createElement("BR");
+		}
+
+		if (node.nodeName === "IMG") {
+			const span = document.createElement("SPAN");
+			span.textContent = "🖼️";
+			span.className = "dsimg";
+			span.contentEditable = "false";
+			span.dataset.src = (node as HTMLImageElement).src;
+			return span;
+		}
+
+		let color: string | undefined = containerStack[containerStack.length - 1].color;
+		if (node.nodeType === 1) {
+			let colorValue = (node as HTMLElement).style?.color;
+			if (colorValue) {
+				if (colorValue === "inherit") {
+					// use parent color
+				} else {
+					if (isReddish(colorValue)) {
+						color = "red";
+					} else {
+						color = undefined!;
+					}
+				}
+			}
+		}
+
+		let containerNode: ParentNode | null = null;
+		const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
+		if (allowedAttrs) {
+			containerNode = document.createElement(node.nodeName);
+			for (const attr of (node as HTMLElement).attributes) {
+				if (allowedAttrs[attr.name]) {
+					(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
+				}
+			}
+		} else {
+			containerNode = document.createDocumentFragment();
+		}
+		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
+		containerStack.push({ node: containerNode, color: color });
+
+		let hasChildren = false;
+		//node.normalize();
+
+		for (const child of node.childNodes) {
+			let childResult = traverse(child);
+			if (!childResult) {
+				continue;
+			}
+
+			if (childResult.nodeType === 3) {
+				if (color) {
+					const span = document.createElement("span");
+					span.className = "color-" + color;
+					span.appendChild(childResult);
+					childResult = span;
+				}
+				// console.log("childresult:", {
+				// 	child:child,
+				// 	childResult: childResult,
+				// 	nodeName: childResult.nodeName,
+				// 	nodeType: childResult.nodeType,
+				// 	textContent: (childResult as Text).textContent,
+				// });
+			}
+
+			containerNode.appendChild(childResult);
+			if (!TEXTLESS_ELEMENTS[node.nodeName]) {
+				if (BLOCK_ELEMENTS[child.nodeName] && !BLOCK_ELEMENTS[childResult.nodeName]) {
+					// containerNode.appendChild(document.createElement("BR"));
+				}
+			}
+		}
+
+		containerNode.normalize();
+
+		if (containerNode.nodeName === "P") {
+			if (containerNode.childNodes.length === 0) {
+				containerNode.appendChild(document.createElement("BR"));
+			}
+		} else {
+			if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
+				containerNode.appendChild(document.createElement("BR"));
+			}
+		}
+
+		// if (containerNode.nodeType !== 11) {
+		// }
+		containerStack.pop();
+
+		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
+			containerNode.appendChild(document.createTextNode(""));
+		}
+
+		if (INLINE_ELEMENTS[containerNode.nodeName]) {
+			if (containerNode.childNodes.length === 0) {
+				containerNode = null;
+			} else if (containerNode.childNodes.length === 1) {
+				const onlyChild = containerNode.childNodes[0];
+				if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "") {
+					containerNode = null;
+				}
+			}
+		} else if (!hasBlockElements && BLOCK_ELEMENTS[containerNode.nodeName]) {
+			hasBlockElements = true;
+		}
+
+		return containerNode;
+	}
+
+	const root = document.createDocumentFragment();
+	containerStack.push({ node: root, color: undefined });
+	const result = traverse(content)!;
+	result.normalize();
+	if (result.childNodes.length === 0) {
+		result.appendChild(document.createTextNode(""));
+	}
+	return [result, hasBlockElements];
 }

@@ -4,6 +4,8 @@
 	--diff-hue: 0;
 	--status-bar-height: 22px;
 	font-size: 16px;
+	--container-gap: 8px;
+	--sidebar-width: 250px;
 }
 
 * {
@@ -25,10 +27,10 @@ html {
 .container {
 	display: grid;
 	/* grid-template-rows: var(--topbar-height) 1fr; */
-	grid-template-columns: 1fr 250px;
+	grid-template-columns: 1fr var(--sidebar-width);
 	height: calc(100vh - var(--status-bar-height, 0px));
 	overflow: hidden;
-	gap: 0 8px;
+	gap: 0 var(--container-gap, 0px);
 	position: relative;
 }
 
@@ -97,7 +99,7 @@ html {
 	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
-	white-space: pre-wrap;
+	/* white-space: pre-wrap; */
 	word-break: break-all;
 	overflow-wrap: anywhere;
 	max-width: 100%;
@@ -105,6 +107,32 @@ html {
 	outline: none;
 	padding: var(--editor-padding);
 	/* scroll-margin: var(--scroll-margin); */
+}
+
+.has-html .mirror,
+.has-html .editor {
+	white-space: normal;
+	word-break: normal;
+	overflow-wrap: normal;
+	overflow-y: scroll;
+}
+
+.has-html table {
+	border-spacing: 0;
+	border-collapse: collapse;
+	width: 100%;
+}
+
+.has-html td,
+.has-html th {
+	border: 1px solid #000;
+	border-collapse: collapse;
+	padding: 0.25rem;
+	vertical-align: top;
+}
+
+.has-html img {
+	border: 2px solid transparent;
 }
 
 .mirror div,
@@ -117,6 +145,33 @@ html {
 	color: #333;
 }
 
+#main > canvas {
+	position: fixed;
+	top: 0;
+	left: 0;
+	bottom: var(--status-bar-height, 0px);
+	width: calc(100vw - var(--sidebar-width) - var(--container-gap, 0px));
+	height: calc(100vh - var(--status-bar-height, 0px));
+	pointer-events: none;
+	z-index: -1;
+	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+}
+
+.editor-wrapper canvas {
+	position: fixed;
+	bottom: var(--status-bar-height, 0px);
+	width: calc((100vw - var(--sidebar-width) - var(--container-gap, 0px)) / 2);
+	height: calc(100vh - var(--status-bar-height, 0px));
+	pointer-events: none;
+	z-index: -2;
+	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+}
+
+.editor-wrapper canvas.highlight {
+	z-index: -1;
+}
+
+
 .editor-wrapper:focus-within .editor {
 	color: #000;
 }
@@ -124,7 +179,7 @@ html {
 .mirror {
 	background: hsl(0 0% 80% / 0.3);
 	transition: background 0.3s ease, color 0.3s ease;
-	z-index: -1;
+	z-index: -99;
 	position: absolute;
 	top: 0;
 	left: 0;
@@ -164,6 +219,7 @@ html {
 .mirror div {
 	line-height: var(--line-height);
 	min-height: var(--line-height);
+	display: contents;
 }
 
 mark {
@@ -465,7 +521,6 @@ body.aligned {
 	align-items: center;
 	padding: 0 10px;
 	font-size: 12px;
-
 	background: var(--statusbar-bg);
 	color: var(--statusbar-fg);
 	border-top: 1px solid rgba(0, 0, 0, 0.1);
@@ -559,13 +614,21 @@ body.aligned {
 	border: 1px solid #444;
 	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
 	min-width: 150px;
-	z-index: 1000;
+	z-index: -98;
 	display: none;
 }
 
 .popup div {
 	padding: 6px 12px;
 	cursor: pointer;
+}
+
+.edit .mirror {
+	display: none !important;
+}
+
+.aligned canvas {
+	display: none !important;
 }
 
 .popup div:hover {
@@ -607,3 +670,29 @@ body.aligned {
 .aligned .mirror div {
 	display: contents;;
 } */
+
+.editor table {
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+.editor th,
+.editor td {
+	vertical-align: top;
+	border: 1px solid #000;
+	padding: 2px 4px;
+	user-select: none;
+}
+
+.editor p:empty::before {
+	content: "\00a0";
+}
+
+.color-red {
+	color: hsl(0 100% 40%);
+	font-weight: bold;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-size: inherit;
+}

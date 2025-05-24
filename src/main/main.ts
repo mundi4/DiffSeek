@@ -2,10 +2,27 @@
 
 type SelectionHighlightRenderInfo = {
 	editor: Editor;
-	rects: DiffRect[];
+	rects: Rect[];
+};
+
+type EditorRegion = {
+	name: EditorName;
+	x: number;
+	y: number;
+	width: number;
+	height: number;
+	scrollX: number;
+	scrollY: number;
 };
 
 type HightlightRenderItems = {};
+
+const enum RenderFlags {
+	Scroll = 1 << 0,
+	Diffs = 1 << 1,
+	TextHighlight = 1 << 2,
+	Layout = 1 << 3,
+}
 
 const DiffSeek = (function () {
 	let _activeEditor: Editor | null = null;
@@ -28,8 +45,15 @@ const DiffSeek = (function () {
 	let _copyMode: CopyMode = "raw";
 	let _lastNonRawCopyMode: Exclude<CopyMode, "raw"> = "compare";
 	let _diffListItemElements: HTMLElement[] = [];
+	let _aligned = true;
+	const _anchors: AnchorItem[] = [];
 
-	let _selectionHighlight: SelectionHighlightRenderInfo | null = null;
+	const _leftBottomPadding = document.createElement("A");
+	_leftBottomPadding.contentEditable = "false";
+	_leftBottomPadding.className = "bottom-padding";
+	const _rightBottomPadding = document.createElement("A");
+	_rightBottomPadding.contentEditable = "false";
+	_rightBottomPadding.className = "bottom-padding";
 
 	// 정말 지저분한 코드 시작
 	const _diffOptions = (function (defaultValues: DiffOptions) {
@@ -148,6 +172,24 @@ const DiffSeek = (function () {
 				}
 				setValue("uniqueMultiplier", value);
 			},
+			get containerStartMultiplier() {
+				return _diffOptions.containerStartMultiplier;
+			},
+			set containerStartMultiplier(value: number) {
+				if (value <= 0) {
+					throw new Error("Invalid containerStartMultiplier: " + value);
+				}
+				setValue("containerStartMultiplier", value);
+			},
+			get containerEndMultiplier() {
+				return _diffOptions.containerEndMultiplier;
+			},
+			set containerEndMultiplier(value: number) {
+				if (value <= 0) {
+					throw new Error("Invalid containerEndMultiplier: " + value);
+				}
+				setValue("containerEndMultiplier", value);
+			},
 		};
 	})({
 		algorithm: "histogram",
@@ -157,19 +199,26 @@ const DiffSeek = (function () {
 		useLengthBias: true,
 		maxGram: 4,
 		lengthBiasFactor: 0.7,
+		containerStartMultiplier: 1 / 0.85,
+		containerEndMultiplier: 1 / 0.9,
 		sectionHeadingMultiplier: 1 / 0.75,
-		lineStartMultiplier: 1 / 0.85,
-		lineEndMultiplier: 1 / 0.9,
+		lineStartMultiplier: 1 / 0.9,
+		lineEndMultiplier: 1 / 0.95,
 		uniqueMultiplier: 1 / 0.6667,
 	});
 
-	const editorContainer = document.getElementById("main") as HTMLElement;
-	const leftEditor = createEditor(editorContainer, "left", getEditorCallbacks("left"));
-	const rightEditor = createEditor(editorContainer, "right", getEditorCallbacks("right"));
-	const canvas = document.createElement("canvas");
-	canvas.id = "highlightCanvas";
-	editorContainer.appendChild(canvas);
-	const canvasCtx = canvas.getContext("2d")!;
+	const mainContainer = document.getElementById("main") as HTMLElement;
+	const leftEditor = createEditor(mainContainer, "left", getEditorCallbacks("left"));
+	const rightEditor = createEditor(mainContainer, "right", getEditorCallbacks("right"));
+
+	const diffCanvas = document.createElement("canvas");
+	diffCanvas.id = "diffCanvas";
+	mainContainer.appendChild(diffCanvas);
+	const diffCanvasCtx = diffCanvas.getContext("2d")!;
+
+	const highlightCanvas = document.createElement("canvas");
+	highlightCanvas.id = "highlightCanvas";
+	mainContainer.appendChild(highlightCanvas);
 
 	leftEditor.wrapper.tabIndex = 100;
 	rightEditor.wrapper.tabIndex = 101;
@@ -182,15 +231,14 @@ const DiffSeek = (function () {
 	const alignmentStyleElement = document.createElement("style");
 	document.head.appendChild(alignmentStyleElement);
 
-	const resizeObserver = new ResizeObserver(() => {
-		canvas.width = editorContainer.offsetWidth;
-		canvas.height = editorContainer.offsetHeight;
-	});
-	resizeObserver.observe(editorContainer);
+	const renderer = createRenderer(mainContainer, leftEditor, rightEditor, {
+		onDiffVisibilityChanged,
+	} as RendererCallbacks);
+
+	function onDiffVisibilityChanged(editorName: EditorName, shown: number[], hidden: number[]) {}
 
 	function onSelectionChanged() {
 		if (_diffContext.done === false) {
-			_selectionHighlight = null;
 			leftEditor.clearTextHighlight();
 			rightEditor.clearTextHighlight();
 			return;
@@ -198,7 +246,6 @@ const DiffSeek = (function () {
 
 		const selection = window.getSelection();
 		if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-			_selectionHighlight = null;
 			leftEditor.clearTextHighlight();
 			rightEditor.clearTextHighlight();
 			return;
@@ -216,9 +263,7 @@ const DiffSeek = (function () {
 			return;
 		}
 
-		_selectionHighlight = null;
 		const [startOffset, endOffset] = editor.getTextSelectionRange();
-		console.log("Selection:", startOffset, endOffset);
 		if (startOffset === null || endOffset === null) {
 			leftEditor.clearTextHighlight();
 			rightEditor.clearTextHighlight();
@@ -232,9 +277,7 @@ const DiffSeek = (function () {
 		const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
 
 		const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
-		console.log("Selected tokens:", startIndex, endIndex);
 		const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
-		console.log("Mapped tokens:", mappedStartIndex, mappedEndIndex);
 
 		const otherStartToken = otherTokens[mappedStartIndex];
 		const otherEndToken = otherTokens[mappedEndIndex - 1];
@@ -261,6 +304,7 @@ const DiffSeek = (function () {
 		return {
 			onTextChanged: function () {
 				onSelectionChanged();
+
 				computeDiff();
 			},
 
@@ -312,12 +356,12 @@ const DiffSeek = (function () {
 		function* computeDiffGenerator(ctx: DiffContext) {
 			let idleDeadline: IdleDeadline = yield ctx;
 
-			ctx.leftTokens = tokenizeNode(leftEditor.editor);
+			ctx.leftTokens = leftEditor.tokens;
 			if (idleDeadline.timeRemaining() <= 1) {
 				idleDeadline = yield;
 			}
 
-			ctx.rightTokens = tokenizeNode(rightEditor.editor);
+			ctx.rightTokens = rightEditor.tokens;
 			if (idleDeadline.timeRemaining() <= 1) {
 				idleDeadline = yield;
 			}
@@ -330,6 +374,7 @@ const DiffSeek = (function () {
 				rightTokens: ctx.rightTokens!,
 			};
 
+			console.debug("diff request:", request);
 			worker.postMessage(request);
 		}
 
@@ -370,14 +415,18 @@ const DiffSeek = (function () {
 
 		worker.onmessage = function (e) {
 			const data = e.data;
+			console.debug("message received:", e);
 			if (data.type === "diff") {
 				if (data.reqId === _reqId) {
-					// console.debug("diff response:", data);
 					body.classList.remove("computing");
 					_diffContext.rawEntries = data.diffs;
 					postProcess(_diffContext);
 					_diffContext.done = true;
 					_diffContext.processTime = data.processTime;
+
+					renderer.setDiffRanges("left", _diffContext.leftDiffRanges!);
+					renderer.setDiffRanges("right", _diffContext.rightDiffRanges!);
+
 					onDiffComputed(_diffContext);
 				}
 			} else if (data.type === "start") {
@@ -386,12 +435,12 @@ const DiffSeek = (function () {
 		};
 
 		function onDiffComputed(diffContext: DiffContext) {
-			leftEditor.update(diffContext);
-			rightEditor.update(diffContext);
+			// leftEditor.update(diffContext);
+			// rightEditor.update(diffContext);
 			// calculateDiffRects();
 			// leftEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors!, headings: diffContext.headings! });
 			// rightEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors!, headings: diffContext.headings! });
-			updateDiffList();
+			// updateDiffList();
 		}
 
 		return { computeDiff };
@@ -536,22 +585,6 @@ const DiffSeek = (function () {
 	// 		enableAlignedMode();
 	// 	}
 	// });
-
-	function updateHighlightCanvas() {
-		canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-		if (_selectionHighlight) {
-			const scrollTop = _selectionHighlight.editor.wrapper.scrollTop;
-			const scrollLeft = _selectionHighlight.editor.wrapper.scrollLeft;
-			// canvasCtx.fillStyle = "hsl(240 100% 90%)";
-			canvasCtx.fillStyle = "hsl(210 100% 80%)";
-			for (const rect of _selectionHighlight.rects) {
-				const x = rect.x - scrollLeft;
-				const y = rect.y - scrollTop;
-
-				canvasCtx.fillRect(x, y, rect.width, rect.height);
-			}
-		}
-	}
 
 	function toggleSyncScroll() {
 		_syncEditor = !_syncEditor;
@@ -812,22 +845,17 @@ const DiffSeek = (function () {
 	for (const editor of [leftEditor, rightEditor]) {
 		editor.wrapper.addEventListener("scroll", (e) => {
 			// updateCanvas();
-			if (_currentlyScrollingEditor !== null || _preventScrollSync) {
+			if (_preventScrollSync) {
 				return;
 			}
 
-			_lastScrolledEditor = _currentlyScrollingEditor = editor;
-			if (_syncEditor) {
-				syncScrollPosition(editor);
-			}
+			//_preventScrollSync = true;
+			const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
+			otherEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
 
-			if (_resetCurrentlyScrollingEditorId) {
-				cancelAnimationFrame(_resetCurrentlyScrollingEditorId);
-			}
 			_resetCurrentlyScrollingEditorId = requestAnimationFrame(() => {
-				_currentlyScrollingEditor = null;
+				//	_preventScrollSync = false;
 			});
-			// updateHighlightCanvas();
 		});
 
 		function onFocus() {
@@ -839,7 +867,6 @@ const DiffSeek = (function () {
 		}
 		editor.editor.addEventListener("focus", onFocus);
 		editor.editor.addEventListener("blur", onBlur);
-
 		editor.editor.addEventListener("keydown", (e) => {
 			if (e.key === " " && e.ctrlKey) {
 				// 에디터에서 편집 중 반대쪽 에디터의 스크롤 위치를 현재 에디터의 내용에 맞추...려고 시도만 해 봄.
@@ -889,437 +916,398 @@ const DiffSeek = (function () {
 		editor.editor.addEventListener("click", onClick);
 	}
 
+	function clearAnchors() {
+		for (let i = 0; i < _anchors.length; i++) {
+			const entry = _anchors[i];
+			const leftEl = entry.leftEl;
+			const rightEl = entry.rightEl;
+
+			leftEl.classList.remove("padtop");
+			leftEl.removeAttribute("data-anchor");
+			leftEl.style.removeProperty("--padding");
+
+			rightEl.classList.remove("padtop");
+			rightEl.removeAttribute("data-anchor");
+			leftEl.style.removeProperty("--padding");
+		}
+		_anchors.length = 0;
+	}
+
+	function alignAnchors() {
+		// _leftBottomPadding.remove();
+		// _rightBottomPadding.remove();
+
+		let changed = false;
+		const leftScrollTop = leftEditor.wrapper.scrollTop;
+		const rightScrollTop = rightEditor.wrapper.scrollTop;
+
+		const MAX_ITERATIONS = 10;
+		let iteration = 0;
+
+		do {
+			changed = false;
+
+			for (let i = 0; i < _anchors.length; i++) {
+				const entry = _anchors[i];
+				const { leftTokenIndex, leftEl, rightTokenIndex, rightEl } = entry;
+				const leftRange = leftEditor.getRangeForToken(leftTokenIndex, 1);
+				const rightRange = rightEditor.getRangeForToken(rightTokenIndex, 1);
+
+				// reset current padding. 이걸 하지 않으면 패딩이 줄어들지 않고 계속 쌓여나가기만 함.
+				leftEl.classList.remove("padtop");
+				rightEl.classList.remove("padtop");
+				// padtop 클래스가 있어야 --padding 값이 적용이 되므로 --padding 값을 지울 필요는 없을 것 같지만
+				// 지우지 않고 냅두면 당최 이해가 안되는 괴상한 rect가 튀어나올 수 있다.
+				leftEl.style.removeProperty("--padding");
+				rightEl.style.removeProperty("--padding");
+				let leftY = leftRange.getBoundingClientRect().y + leftScrollTop;
+				let rightY = rightRange.getBoundingClientRect().y + rightScrollTop;
+				let delta = Math.round(leftY - rightY);
+				if (delta !== 0) {
+					delta = Math.round(leftY - rightY);
+					if (delta > 0) {
+						rightEl.classList.add("padtop");
+						leftEl.classList.remove("padtop");
+						rightEl.style.setProperty("--padding", `${delta}px`);
+						changed = true;
+					} else if (delta < 0) {
+						// pad left
+						leftEl.classList.add("padtop");
+						rightEl.classList.remove("padtop");
+						leftEl.style.setProperty("--padding", `${-delta}px`);
+						changed = true;
+					}
+				}
+				if (entry.delta !== delta) {
+					entry.delta = delta;
+					changed = true;
+				}
+			}
+		} while (changed && ++iteration < MAX_ITERATIONS);
+
+		console.log("sync height:", {
+			leftWrapperScrollHeight: leftEditor.wrapper.scrollHeight,
+			rightWrapperScrollHeight: rightEditor.wrapper.scrollHeight,
+			leftWrapperHeight: leftEditor.wrapper.clientHeight,
+			rightWrapperHeight: rightEditor.wrapper.clientHeight,
+			leftEditorHeight: leftEditor.editor.clientHeight,
+			rightEditorHeight: rightEditor.editor.clientHeight,
+			leftEditorScrollHeight: leftEditor.editor.scrollHeight,
+			rightEditorScrollHeight: rightEditor.editor.scrollHeight,
+			leftScrollTop: leftScrollTop,
+			rightScrollTop: rightScrollTop,
+			leftEditorWrapperRect: leftEditor.wrapper.getBoundingClientRect(),
+			rightEditorWrapperRect: rightEditor.wrapper.getBoundingClientRect(),
+			leftEditorRect: leftEditor.editor.getBoundingClientRect(),
+			rightEditorRect: rightEditor.editor.getBoundingClientRect(),
+		});
+
+		// 이것도 --padding 값과 마찬가지로 지우지 않고 냅두면 어느순간 납득이 안되는 높이가 나온다.
+		leftEditor.editor.style.removeProperty("--min-height");
+		rightEditor.editor.style.removeProperty("--min-height");
+		requestAnimationFrame(() => {
+			const leftHeight = leftEditor.editor.scrollHeight;
+			const rightHeight = rightEditor.editor.scrollHeight;
+			const maxHeight = Math.max(leftHeight, rightHeight);
+			// leftEditor.wrapper.style.setProperty("--bottom-padding", `${maxHeight - leftHeight}px`);
+			// rightEditor.wrapper.style.setProperty("--bottom-padding", `${maxHeight - rightHeight}px`);
+			leftEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
+			rightEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
+		});
+	}
+
+	// function alignAnchors(iteration = 0) {
+	// 	if (iteration === 0) {
+	// 		_leftBottomPadding.remove();
+	// 		_rightBottomPadding.remove();
+	// 	}
+
+	// 	let changed = false;
+	// 	const leftScrollTop = leftEditor.wrapper.scrollTop;
+	// 	const rightScrollTop = rightEditor.wrapper.scrollTop;
+
+	// 	for (let i = 0; i < _anchors.length; i++) {
+	// 		const entry = _anchors[i];
+	// 		const leftRange = leftEditor.getRangeForToken(entry.leftTokenIndex, 1);
+	// 		const rightRange = rightEditor.getRangeForToken(entry.rightTokenIndex, 1);
+
+	// 		let { y: leftY } = leftRange.getBoundingClientRect();
+	// 		let { y: rightY } = rightRange.getBoundingClientRect();
+	// 		leftY += leftScrollTop;
+	// 		rightY += rightScrollTop;
+	// 		// console.log("[CURRENT] Left Y:", leftY, "Right Y:", rightY);
+
+	// 		let delta = Math.round(leftY - rightY);
+	// 		if (delta !== 0) {
+	// 			// 1. reset current padding
+	// 			entry.leftEl.classList.remove("padtop");
+	// 			entry.rightEl.classList.remove("padtop");
+	// 			entry.leftEl.style.removeProperty("--padding");
+	// 			entry.rightEl.style.removeProperty("--padding");
+
+	// 			// void entry.leftEl.offsetHeight;
+	// 			// void entry.rightEl.offsetHeight;
+	// 			// void (leftRange.startContainer.parentNode! as HTMLElement).offsetHeight;
+	// 			// void (rightRange.startContainer.parentNode! as HTMLElement).offsetHeight;
+
+	// 			// leftY = leftRange.getBoundingClientRect().y + leftScrollTop;
+	// 			// rightY = rightRange.getBoundingClientRect().y + rightScrollTop;
+	// 			if (entry.delta > 0) {
+	// 				rightY -= entry.delta;
+	// 			} else if (entry.delta < 0) {
+	// 				leftY += -entry.delta;
+	// 			}
+
+	// 			// console.log("[AFTER RESET] Left Y:", leftY, "Right Y:", rightY);
+
+	// 			delta = Math.round(leftY - rightY);
+	// 			if (delta > 0) {
+	// 				entry.rightEl.classList.add("padtop");
+	// 				entry.leftEl.classList.remove("padtop");
+	// 				entry.rightEl.style.setProperty("--padding", `${delta}px`);
+	// 				changed = true;
+	// 			} else if (delta < 0) {
+	// 				// pad left
+	// 				entry.leftEl.classList.add("padtop");
+	// 				entry.rightEl.classList.remove("padtop");
+	// 				entry.leftEl.style.setProperty("--padding", `${-delta}px`);
+	// 				changed = true;
+	// 			}
+	// 			entry.delta = delta;
+	// 		}
+
+	// 		// if (entry.delta !== delta) {
+	// 		// 	if (delta > 0) {
+	// 		// 		entry.rightEl.classList.add("padtop");
+	// 		// 		entry.rightEl.style.setProperty("--padding", `${delta}px`);
+	// 		// 		entry.rightTop = delta;
+	// 		// 		entry.leftEl.classList.remove("padtop");
+	// 		// 		changed = true;
+	// 		// 	} else {
+	// 		// 		// pad left
+	// 		// 		entry.leftEl.classList.add("padtop");
+	// 		// 		entry.leftEl.style.setProperty("--padding", `${-delta}px`);
+	// 		// 		entry.leftTop = -delta;
+	// 		// 		entry.rightEl.classList.remove("padtop");
+	// 		// 		changed = true;
+	// 		// 	}
+	// 		// 	entry.delta = delta;
+	// 		// }
+	// 	}
+
+	// 	if (changed) {
+	// 		renderer.markDirty("left", RenderFlags.ALL);
+	// 		renderer.markDirty("right", RenderFlags.ALL);
+	// 		if (iteration < 10) {
+	// 			requestAnimationFrame(() => {
+	// 				alignAnchors(iteration + 1);
+	// 			});
+	// 			return;
+	// 		}
+	// 	}
+
+	// 	requestAnimationFrame(() => {
+	// 		const leftHeight = leftEditor.editor.scrollHeight;
+	// 		const rightHeight = rightEditor.editor.scrollHeight;
+	// 		if (leftHeight > rightHeight) {
+	// 			_leftBottomPadding.style.height = "0px";
+	// 			_rightBottomPadding.style.height = `${leftHeight - rightHeight}px`;
+	// 		} else {
+	// 			_leftBottomPadding.style.height = `${rightHeight - leftHeight}px`;
+	// 			_rightBottomPadding.style.height = "0px";
+	// 		}
+	// 		leftEditor.editor.appendChild(_leftBottomPadding);
+	// 		rightEditor.editor.appendChild(_rightBottomPadding);
+
+	// 		// const height = Math.max(leftEditor.editor.scrollHeight, rightEditor.editor.scrollHeight);
+	// 		// leftEditor.editor.style.height = height + "px";
+	// 		// rightEditor.editor.style.height = height + "px";
+	// 	});
+	// }
+
 	// 무식하게 큰 함수
 	// 찝찝한데... 재미 없는 부분이라...
 	function postProcess(diffContext: DiffContext) {
-		let prevEntry: DiffEntry | null = null;
 		// const leftText = diffContext.leftText!;
 		// const rightText = diffContext.rightText!;
 		const leftTokens = diffContext.leftTokens!;
 		const rightTokens = diffContext.rightTokens!;
 		const rawEntries = diffContext.rawEntries!;
 
+		const leftRanges = leftEditor.ranges;
+		const rightRanges = rightEditor.ranges;
+
 		const diffs: DiffEntry[] = [];
-		const anchors: Anchor[] = [];
+		const anchors: AnchorItem[] = [];
 		const sectionHeadings: SectionHeading[] = [];
 		const headingStack: SectionHeading[] = [];
 		const MAX_ANCHOR_SKIP = 5;
 		let anchorSkipCount = 0;
 
+		const leftDiffRanges: Range[][] = [];
+
+		const rightDiffRanges: Range[][] = [];
+		diffContext.leftDiffRanges = leftDiffRanges;
+		diffContext.rightDiffRanges = rightDiffRanges;
+
+		clearAnchors();
+
+		void leftEditor.wrapper.offsetHeight;
+		void rightEditor.wrapper.offsetHeight;
+
+		let currentDiff: DiffEntry | null = null;
 		for (let i = 0; i < rawEntries.length; i++) {
 			const entry = rawEntries[i];
+			const left = entry.left;
+			const right = entry.right;
+
+			let leftRange: Range | null = null;
+			let rightRange: Range | null = null;
+
 			if (entry.type) {
 				// diff entry
-				if (prevEntry) {
-					console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos, prevEntry, entry);
-					console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos, prevEntry, entry);
-					prevEntry.type |= entry.type;
-					prevEntry.left.len += entry.left.len;
-					prevEntry.right.len += entry.right.len;
+				if (currentDiff) {
+					console.assert(currentDiff.left.pos + currentDiff.left.len === entry.left.pos, currentDiff, entry);
+					console.assert(currentDiff.right.pos + currentDiff.right.len === entry.right.pos, currentDiff, entry);
+					currentDiff.type |= entry.type;
+					currentDiff.left.len += entry.left.len;
+					currentDiff.right.len += entry.right.len;
 				} else {
-					prevEntry = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
+					currentDiff = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
 					//prevEntry = entry;
 				}
 			} else {
 				// common entry
-				if (prevEntry) {
-					addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
-					// mappings.push(prevEntry);
+				if (currentDiff) {
+					finalizeDiff();
 				}
-				prevEntry = null;
+				currentDiff = null;
 
-				const leftToken = leftTokens[entry.left.pos];
-				const rightToken = rightTokens[entry.right.pos];
+				const leftToken = leftTokens[left.pos];
+				const rightToken = rightTokens[right.pos];
+
 				if (leftToken.flags & rightToken.flags & LINE_START) {
-					// 앵커 추가
-					addAnchor("before", leftToken.pos, rightToken.pos, null);
+					const leftEl = leftEditor.insertAnchorBefore(left.pos);
+					const rightEl = rightEditor.insertAnchorBefore(right.pos);
 
-					if (leftToken.flags & rightToken.flags & SECTION_HEADING_MASK) {
-						addHeading(i);
+					if (leftEl && rightEl) {
+						_anchors.push({ leftEl, rightEl, leftTokenIndex: left.pos, rightTokenIndex: right.pos, delta: 0 });
 					}
 				}
-				// mappings.push(entry);
 			}
 		}
-		//addAnchor("before", leftText.length, -1, rightText.length, -1, null);
 
-		if (prevEntry) {
-			addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+		if (currentDiff) {
+			finalizeDiff();
 			// mappings.push(prevEntry);
 		}
 
-		function addHeading(entryIndex: number) {
-			if (true) {
-				return;
+		function adjustEmptyRange(originalRange: Range, otherToken: Token) {
+			console.log("Adjusting empty range for token:", otherToken, "original range:", originalRange);
+			if (otherToken.flags & LINE_START) {
+				const candidates = getFullyContainedNodesInRange(originalRange, NodeFilter.SHOW_ALL, (node) => {
+					console.log("Checking node:", node);
+					if (node.nodeName === "P" || node.nodeName === "DIV") {
+						if (isEmptyElement(node as HTMLElement)) {
+							return NodeFilter.FILTER_ACCEPT;
+						}
+					}
+					console.log("REJECTING NODE:", node);
+					return NodeFilter.FILTER_REJECT;
+				});
+				if (candidates.length > 0) {
+					console.log("Adjusting empty range for token:", otherToken, "to:", candidates);
+					const newRange = document.createRange();
+					newRange.selectNodeContents(candidates[0]);
+					return [newRange];
+				}
 			}
 
-			// const entry = rawEntries[entryIndex];
-			// if (entry.type !== 0) {
-			// 	console.warn("uncommon entry", entry.type, entry);
-			// 	return;
-			// }
+			const candidates = getFullyContainedNodesInRange(originalRange, NodeFilter.SHOW_ALL, (node) => {
+				if (node.nodeType === 3) {
+					return NodeFilter.FILTER_ACCEPT;
+				}
+				if (node.nodeName === "A") {
+					return NodeFilter.FILTER_REJECT;
+				}
+				if (INLINE_ELEMENTS[node.nodeName]) {
+					return NodeFilter.FILTER_ACCEPT;
+				}
+				if (node.nodeName === "BR") {
+					return NodeFilter.FILTER_ACCEPT;
+				}
+				console.log("WTF?:", node);
+				return NodeFilter.FILTER_SKIP;
+			});
 
-			// const leftToken = leftTokens[entry.left.pos];
-			// const rightToken = rightTokens[entry.right.pos];
-			// const type = leftToken.flags & SECTION_HEADING_MASK;
-			// // console.debug("addHeading", { entryIndex, entry, leftToken, rightToken });
+			console.log("second path:", candidates);
+			if (candidates.length > 0) {
+				return candidates.map((node) => {
+					const r = document.createRange();
+					r.selectNodeContents(node);
+					return r;
+				});
+			}
 
-			// // 지금은 일치되는 토큰으로부터 헤딩을 추출하므로 타입도 당연히 같겠지만
-			// // 나중에 일치되지 않는 토큰으로부터 헤딩을 추출하게 될 수도 있으니 마음이 편하게 여기서 한번 더 확인.
-			// if (!type || (rightToken.flags & SECTION_HEADING_MASK) !== type) {
-			// 	console.warn("type mismatch", entry.type, entry);
-			// 	return;
-			// }
-
-			// const ordinalText = leftToken.text;
-			// const ordinalNum = parseOrdinalNumber(ordinalText);
-			// if (Number.isNaN(ordinalNum)) {
-			// 	console.warn("Invalid ordinal number", ordinalText);
-			// 	return;
-			// }
-
-			// // 헤딩 줄 끝 찾기
-			// // 이 값들은 텍스트 내의 문자위치가 아니라 토큰 배열 안의 토큰 인덱스와 개수임!
-			// let hasDiff = false;
-			// let leftTokenCount = 0;
-			// let rightTokenCount = 0;
-
-			// for (let j = entryIndex; j < rawEntries.length; j++) {
-			// 	const entry2 = rawEntries[j];
-			// 	leftTokenCount += entry2.left.len;
-			// 	if (!hasDiff && entry2.type === 0) {
-			// 		rightTokenCount += entry2.right.len;
-			// 	} else {
-			// 		hasDiff = true;
-			// 	}
-			// 	if (leftTokens[entry2.left.pos + entry2.left.len - 1].flags & LAST_OF_LINE) {
-			// 		break;
-			// 	}
-			// }
-
-			// if (leftTokenCount < 2) {
-			// 	console.warn("Invalid heading", leftTokenCount, rightTokenCount, entry);
-			// 	return;
-			// }
-
-			// const lefTokenEnd = entry.left.pos + leftTokenCount;
-			// const title = leftText.slice(leftTokens[entry.left.pos + 1].pos, leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len);
-
-			// let prevSibling: SectionHeading | null = null;
-			// let parent: SectionHeading | null = null;
-			// for (let i = headingStack.length - 1; i >= 0; i--) {
-			// 	const candidate = headingStack[i];
-			// 	if (candidate.type === type) {
-			// 		prevSibling = candidate;
-			// 		headingStack.length = i;
-			// 		break;
-			// 	}
-			// }
-
-			// if (!prevSibling) {
-			// 	parent = headingStack[headingStack.length - 1] ?? null;
-			// } else {
-			// 	parent = prevSibling.parent;
-			// }
-
-			// const current: SectionHeading = {
-			// 	ordinalText,
-			// 	ordinalNum,
-			// 	title,
-			// 	type,
-			// 	left: {
-			// 		pos: leftTokens[entry.left.pos].pos,
-			// 		len: leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len - leftTokens[entry.left.pos].pos,
-			// 	},
-			// 	right: {
-			// 		pos: rightTokens[entry.right.pos].pos,
-			// 		len:
-			// 			rightTokens[entry.right.pos + rightTokenCount - 1].pos +
-			// 			rightTokens[entry.right.pos + rightTokenCount - 1].len -
-			// 			rightTokens[entry.right.pos].pos,
-			// 		// len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
-			// 	},
-			// 	parent,
-			// 	firstChild: null,
-			// 	nextSibling: null,
-			// 	level: headingStack.length + 1,
-			// 	outOfOrder: false,
-			// 	hasDiff,
-			// };
-
-			// if (prevSibling) {
-			// 	prevSibling.nextSibling = current;
-			// 	if (current.ordinalNum <= prevSibling.ordinalNum) {
-			// 		current.outOfOrder = true;
-			// 	}
-			// } else if (parent) {
-			// 	parent.firstChild = current;
-			// }
-
-			// headingStack.push(current);
-			// sectionHeadings.push(current);
+			return [originalRange];
 		}
 
-		function addAnchor(type: "before" | "after", leftPos: number, rightPos: number, diffIndex: number | null) {
-			if (leftPos === undefined || rightPos === undefined) {
-				console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
-			}
-			if (true) {
-				return;
-			}
+		// TODO: => finalizeDiff 로 바꾸고 args 제거
+		function finalizeDiff() {
+			const leftIndex = currentDiff!.left.pos;
+			const rightIndex = currentDiff!.right.pos;
+			const leftTokenCount = currentDiff!.left.len;
+			const rightTokenCount = currentDiff!.right.len;
 
-			//앵커가 너무 많아지는 걸 방지! section heading인 경우 스킵하면 안되고 그걸 판단하려면 token이 필요함... 귀찮아
-			// if (diffIndex === null && anchorSkipCount < MAX_ANCHOR_SKIP && anchors.length > 0) {
-			// 	const lastAnchor = anchors[anchors.length - 1];
-			// 	if (lastAnchor.type === type && lastAnchor.diffIndex === null && leftLine - lastAnchor.leftLine <= 1 && rightLine - lastAnchor.rightLine <= 1) {
-			// 		anchorSkipCount++;
-			// 		return;
-			// 	}
-			// }
-			// anchorSkipCount = 0;
-
-			// if (type === "before") {
-			// 	// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
-			// 	while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
-			// 		leftPos--;
-			// 	}
-			// 	while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
-			// 		rightPos--;
-			// 	}
-			// } else if (type === "after") {
-			// 	// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
-			// 	// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
-			// 	let p;
-			// 	p = leftPos;
-			// 	while (p < leftText.length) {
-			// 		const ch = leftText[p++];
-			// 		if (ch === "\n") {
-			// 			leftPos = p - 1;
-			// 			break;
-			// 		} else if (!spaceChars[ch]) {
-			// 			break;
-			// 		}
-			// 	}
-			// 	p = rightPos;
-			// 	while (p < rightText.length) {
-			// 		const ch = rightText[p++];
-			// 		if (ch === "\n") {
-			// 			rightPos = p - 1;
-			// 			break;
-			// 		} else if (!spaceChars[ch]) {
-			// 			break;
-			// 		}
-			// 	}
-			// }
-
-			// if (anchors.length > 0) {
-			// 	let lastAnchor = anchors[anchors.length - 1];
-			// 	if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
-			// 		return;
-			// 	}
-			// 	if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
-			// 		if (type === lastAnchor.type || type === "before") {
-			// 			return;
-			// 		}
-			// 	}
-			// }
-
-			// // anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
-			// anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
-		}
-
-		function addDiff(leftIndex: number, leftCount: number, rightIndex: number, rightCount: number) {
 			let leftPos, leftLen, rightPos, rightLen;
 			let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos, leftEmpty, rightEmpty;
 			let type: DiffType;
 			let asBlock = false;
+			// let leftToken = leftTokens[leftIndex];
+			// let rightToken = rightTokens[rightIndex];
+			// let leftEndToken = leftTokens[leftIndex + leftTokenCount - 1];
+			// let rightEndToken = rightTokens[rightIndex + rightTokenCount - 1];
 
-			// 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
-			if (leftCount > 0 && rightCount > 0) {
-				type = 3;
-				let leftTokenStart = leftTokens[leftIndex];
-				let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
-				let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
-				let rightTokenStart = rightTokens[rightIndex];
+			let leftRange = leftEditor.getRangeForToken(leftIndex, leftTokenCount);
+			let rightRange = rightEditor.getRangeForToken(rightIndex, rightTokenCount);
 
-				leftPos = leftTokenStart.pos;
-				leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
-				leftEmpty = false;
-				rightPos = rightTokenStart.pos;
-				rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
-				rightEmpty = false;
-
-				// 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
-				// 좌우 정렬을 할 수 있을 것 같기도 한데...
-				if (leftTokenStart.flags & rightTokenStart.flags & LINE_START) {
-					leftBeforeAnchorPos = leftPos;
-					rightBeforeAnchorPos = rightPos;
-
-					// while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
-					// 	leftBeforeAnchorPos--;
-					// }
-
-					// while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
-					// 	rightBeforeAnchorPos--;
-					// }
-					// // addAnchor("before", leftAnchorPos, rightAnchorPos, null);
-
-					// if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
-					// 	asBlock = true;
-					// 	leftAfterAnchorPos = leftPos + leftLen;
-					// 	rightAfterAnchorPos = rightPos + rightLen;
-					// 	if (leftText[leftAfterAnchorPos] !== "\n") {
-					// 		do {
-					// 			leftAfterAnchorPos++;
-					// 		} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
-					// 	}
-					// 	if (rightText[rightAfterAnchorPos] !== "\n") {
-					// 		do {
-					// 			rightAfterAnchorPos++;
-					// 		} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
-					// 	}
-
-					// 	// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
-					// 	// 	leftAnchorPos++;
-					// 	// }
-					// 	// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
-					// 	// 	rightAnchorPos++;
-					// 	// }
-					// 	// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
-					// }
-				}
-			} else {
-				// 한쪽이 비어있음.
-				// 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
-				// 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
-				let longSideText, shortSideText;
-				let longSideIndex, longSideCount, longSideTokens;
-				let shortSideIndex, shortSideTokens;
-				let longSidePos, longSideLen;
-				let shortSidePos, shortSideLen;
-				let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
-				let longSideAfterAnchorPos, shortSideAfterAnchorPos;
-				let longSideTokenStart, longSideTokenEnd;
-				let shortSideBeforeToken, shortSideAfterToken;
-
-				if (leftCount > 0) {
-					type = 1; // 1: left
-					longSideTokens = leftTokens;
-					longSideIndex = leftIndex;
-					longSideCount = leftCount;
-					shortSideTokens = rightTokens;
-					shortSideIndex = rightIndex;
-					leftEmpty = false;
-					rightEmpty = true;
-				} else {
-					type = 2; // 2: right
-					longSideTokens = rightTokens;
-					longSideIndex = rightIndex;
-					longSideCount = rightCount;
-					shortSideTokens = leftTokens;
-					shortSideIndex = leftIndex;
-					leftEmpty = true;
-					rightEmpty = false;
-				}
-				longSideTokenStart = longSideTokens[longSideIndex];
-				longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
-				shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
-				shortSideAfterToken = shortSideTokens[shortSideIndex];
-
-				longSidePos = longSideTokenStart.pos;
-				longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
-				shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
-				shortSideLen = 0;
-
-				const longSideIsFirstWord = longSideTokenStart.flags & LINE_START;
-				const longSideIsLastWord = longSideTokenEnd.flags & LINE_END;
-				const shortSideIsOnLineEdge =
-					shortSideTokens.length === 0 ||
-					(shortSideBeforeToken && shortSideBeforeToken.flags & LINE_END) ||
-					(shortSideAfterToken && shortSideAfterToken.flags & LINE_START);
-
-				let shortSidePushedToNextLine = false;
-				// base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
-				if (shortSideIsOnLineEdge) {
-					// 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
-					if (longSideIsFirstWord) {
-						// if (shortSidePos !== 0) {
-						// 	// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
-						// 	// 주의: 현재 위치 이후에 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함.
-						// 	// 잊지말고 꼭 원본텍스트의 끝에 줄바꿈 하나 붙일 것.
-						// 	// const maxPos = shortSideAfterToken ? shortSideAfterToken.pos - 1 : shortSideText.length - 1;
-						// 	// while (shortSidePos < maxPos && shortSideText[shortSidePos++] !== "\n");
-						// 	while (shortSideText[shortSidePos++] !== "\n");
-						// 	shortSidePushedToNextLine = true;
-						// }
-
-						// 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
-						// 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
-						longSideBeforeAnchorPos = longSidePos;
-						shortSideBeforeAnchorPos = shortSidePos;
-					}
-					if (
-						longSideIsLastWord
-						// && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
-					) {
-						asBlock = !!longSideIsFirstWord;
-						longSideAfterAnchorPos = longSidePos + longSideLen;
-						shortSideAfterAnchorPos = shortSidePos;
+			if (leftTokenCount === 0) {
+				const otherToken = rightTokens[rightIndex];
+				const otherEndToken = rightTokens[rightIndex + rightTokenCount - 1];
+				if (otherToken.flags & LINE_START && otherEndToken.flags & LINE_END) {
+					// add anchor
+					const leftEl = leftEditor.insertAnchorAfter(leftIndex - 1);
+					if (leftEl) {
+						leftEl.classList.add("diff-block");
+						console.log("Inserted anchor for left empty range:", leftIndex, leftTokenCount, leftRange, leftEl);
+					} else {
+						console.warn("Failed to insert anchor for left empty range:", leftIndex, leftTokenCount, leftRange);
 					}
 				}
-
-				if (leftCount > 0) {
-					leftPos = longSidePos;
-					leftLen = longSideLen;
-					leftEmpty = false;
-					leftBeforeAnchorPos = longSideBeforeAnchorPos;
-					leftAfterAnchorPos = longSideAfterAnchorPos;
-					rightPos = shortSidePos;
-					rightLen = shortSideLen;
-					rightEmpty = true;
-					rightBeforeAnchorPos = shortSideBeforeAnchorPos;
-					rightAfterAnchorPos = shortSideAfterAnchorPos;
-				} else {
-					leftPos = shortSidePos;
-					leftLen = shortSideLen;
-					leftEmpty = true;
-					leftBeforeAnchorPos = shortSideBeforeAnchorPos;
-					leftAfterAnchorPos = shortSideAfterAnchorPos;
-					rightPos = longSidePos;
-					rightLen = longSideLen;
-					rightEmpty = false;
-					rightBeforeAnchorPos = longSideBeforeAnchorPos;
-					rightAfterAnchorPos = longSideAfterAnchorPos;
-				}
 			}
 
-			if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
-				addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
+			let leftExtractedRanges = extractTextRanges(leftRange);
+			let rightExtractedRanges = extractTextRanges(rightRange);
+
+			if (leftTokenCount === 0) {
+				console.log("left empty range:", leftRange);
+				leftExtractedRanges = adjustEmptyRange(leftRange, rightTokens[rightIndex]);
 			}
-			if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
-				addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
+			if (rightTokenCount === 0) {
+				console.log("right empty range:", rightRange);
+				rightExtractedRanges = adjustEmptyRange(rightRange, leftTokens[leftIndex]);
 			}
 
-			const newEntry: DiffEntry = {
-				type: type,
-				left: {
-					pos: leftPos,
-					len: leftLen,
-					// empty: leftEmpty,
-				},
-				right: {
-					pos: rightPos,
-					len: rightLen,
-					// empty: rightEmpty,
-				},
-				asBlock,
-			};
-			diffs.push(newEntry);
+			leftDiffRanges.push(leftExtractedRanges);
+			rightDiffRanges.push(rightExtractedRanges);
 		}
 
-		diffContext.diffs = diffs;
-		diffContext.anchors = anchors;
-		diffContext.headings = sectionHeadings;
+		alignAnchors();
+		// setTimeout(() => {
+		// 	requestAnimationFrame(() => {
+		// 	});
+		// }, 1);
+
 		// return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length, sectionHeadings };
 	}
 
@@ -1345,6 +1333,7 @@ const DiffSeek = (function () {
 				activeEditor: _activeEditor,
 			};
 		},
+		clearAnchors,
 
 		compute: computeDiff,
 

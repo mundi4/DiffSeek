@@ -5,12 +5,17 @@ const LINE_START = 1 << 0; // 1
 const LINE_END = 1 << 1; // 2
 const CONTAINER_START = 1 << 2; // 4
 const CONTAINER_END = 1 << 3; // 8
-const NO_JOIN = 1 << 4; // @@@, ### 등등 // 16
-const WILD_CARD = 1 << 5;
-const MANUAL_ANCHOR = 1 << 6; // 32. @@@, ### 등등
-const IMAGE = 1 << 7;
-
-const SECTION_HEADING_BIT = 10;
+const TABLE_START = 1 << 4; // 16
+const TABLE_END = 1 << 5; // 32
+const TABLEROW_START = 1 << 6; // 64
+const TABLEROW_END = 1 << 7; // 128
+const TABLECELL_START = 1 << 8; // 256
+const TABLECELL_END = 1 << 9; // 512
+const NO_JOIN = 1 << 10; // @@@, ### 등등 // 16
+const WILD_CARD = 1 << 11;
+const MANUAL_ANCHOR = 12 << 6; // 32. @@@, ### 등등
+const IMAGE = 1 << 13;
+const SECTION_HEADING_BIT = 14;
 const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
 const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
 const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
@@ -568,16 +573,12 @@ function extractStartCharsFromTrie(trie: TrieNode): Record<string, 1> {
 	return table;
 }
 
-type ContainerInfo = {
-	textFlow: boolean;
-	tokens: Token[];
-};
-
 function tokenizeNode(node: Node): Token[] {
 	const startTime = performance.now();
 	let textPos = 0;
 	let currentToken: Token | null = null;
 	const results: Token[] = [];
+
 	function processToken(text: string, start: number, length: number) {
 		if (currentToken) {
 			currentToken.text += text;
@@ -683,7 +684,6 @@ function tokenizeNode(node: Node): Token[] {
 			}
 
 			(node as HTMLElement).dataset.endOffset = String(textPos);
-
 
 			// currentContainer = containerStack.pop()!;
 		}

@@ -11,7 +11,7 @@ declare type Span = {
 	len: number;
 };
 
-type DiffRect = {
+type Rect = {
 	x: number;
 	y: number;
 	width: number;
@@ -38,6 +38,8 @@ declare type Anchor = {
 	// rightLine: number;
 };
 
+declare type Anchor2 = {};
+
 declare type WhitespaceHandling = "ignore" | "normalize";
 
 declare type DiffAlgorithm = "lcs" | "histogram";
@@ -58,6 +60,8 @@ declare type DiffOptions = {
 
 	lengthBiasFactor: number;
 	sectionHeadingMultiplier: number;
+	containerStartMultiplier: number;
+	containerEndMultiplier: number;
 	lineStartMultiplier: number;
 	lineEndMultiplier: number;
 	uniqueMultiplier: number;
@@ -106,12 +110,15 @@ declare type DiffContext = {
 	rightTokens?: Token[];
 	rawEntries?: DiffEntry[];
 	diffs?: DiffEntry[];
-	anchors?: Anchor[];
+	// anchors?: Anchor[];
 	headings?: SectionHeading[];
-	leftDiffRects?: DiffRect[][];
-	rightDiffRects?: DiffRect[][];
+	leftDiffRects?: Rect[][];
+	rightDiffRects?: Rect[][];
 	done: boolean;
 	processTime?: number;
+
+	leftDiffRanges?: Range[][];
+	rightDiffRanges?: Range[][];
 };
 
 type LineHint = {
@@ -159,7 +166,7 @@ type SectionHeading = {
 };
 
 type RenderItem = {
-	type: "texthighlight"|"diffhighlight";
+	type: "texthighlight" | "diffhighlight";
 	x: number;
 	y: number;
 	w: number;
@@ -173,5 +180,42 @@ type DiffRectSet = {
 	minY: number;
 	maxX: number;
 	maxY: number;
-	rects: DiffRect[];
+	rects: Rect[];
+};
+
+type TextHighlightRenderItem = {
+	rects: Rect[];
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+};
+
+type RenderLayer = {
+	index: 0 | 1;
+	dirty: boolean;
+};
+
+type TextSelectionHighlight = {
+	startOffset: number;
+	endOffset: number;
+	renderItem?: { rects: Rect[] } & RenderBounds;
+};
+
+type RenderBounds = {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+};
+
+// type RectsWithBoundsOptional = ({ rects: Rect[] } & RenderBounds) | ({ rects?: undefined } & RenderBoundsUndefined);
+// type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
+
+type AnchorItem = {
+	leftEl: HTMLElement;
+	rightEl: HTMLElement;
+	leftTokenIndex: number;
+	rightTokenIndex: number;
+	delta: number;
 };

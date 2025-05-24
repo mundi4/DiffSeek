@@ -49,6 +49,10 @@
             width: 100px;
             background-color: rgba(255, 0, 0, 0.5);
         }
+        div, p {
+            min-height: 20px;
+            height: 20px;;
+        }
     </style>
 
 </head>
@@ -59,23 +63,53 @@
 
     <script>
 
-        const para = document.createElement("p");
-
+        const p1 = document.createElement("p");
         const t1 = document.createTextNode("hello");
-        const t2 = document.createTextNode("world");
+        const t2 = document.createTextNode(" ");
+        const t3 = document.createTextNode("world");
+        const span = document.createElement("span");
+        const p2 = document.createElement("p");
+        const br = document.createElement("br");
 
-        para.appendChild(t1);
-        para.appendChild(t2);
+        span.appendChild(t3);
 
-        const range1 = document.createRange();
-        range1.setStart(para, 0);
-        range1.setEnd(para, 1);
 
-        const range2 = document.createRange();
-        range2.setStart(t1, 0);
-        range2.setEnd(t2, t2.nodeValue.length);
+        p1.appendChild(t1);
+        p1.appendChild(t2);
+        p1.appendChild(span);
 
-        document.body.appendChild(para);
+        p2.appendChild(br);
+
+        document.body.appendChild(p1);
+        document.body.appendChild(p2);
+
+        // document.body.appendChild(document.createTextNode("hello world"));
+        document.body.appendChild(document.createElement("br"));
+
+        const range = document.createRange();
+        // range.selectNode(para);
+        // range.setStart(para, 0);
+        // range.setEnd(para, 1);
+        // range.setStart(document.body, 2);
+        // range.setEnd(document.body, 3);
+        range.setStartBefore(t1);
+        range.setEndAfter(t3);
+
+
+        const rects = range.getClientRects();
+        console.log(rects);
+        console.log("range", range);
+        console.log("rects", range.getClientRects());
+
+        const sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+
+        // const r1 = document.createRange();
+        // r1.selectNode(span);
+        // console.log(range.comparePoint(span, 1));
+
+
 
     </script>
 </body>

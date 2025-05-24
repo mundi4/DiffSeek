@@ -1,3 +1,16 @@
+function isRectVisible(
+	top: number,
+	bottom: number,
+	left: number,
+	right: number,
+	viewportTop: number,
+	viewportLeft: number,
+	viewportWidth: number,
+	viewportHeight: number
+): boolean {
+	return bottom >= viewportTop && top <= viewportTop + viewportHeight && right >= viewportLeft && left <= viewportLeft + viewportWidth;
+}
+
 function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
 	let timeoutId: number;
 	return function (this: any, ...args: any) {
@@ -339,164 +352,330 @@ function getTextOffsetOfNode(root: HTMLElement, node: Node, end: boolean = false
 	return pos;
 }
 
-// #region by ChatGTP
-function insertFragmentSmart(fragment: DocumentFragment, hasBlockElements: boolean) {
-	const selection = window.getSelection();
-	if (!selection || selection.rangeCount === 0) return;
-	const range = selection.getRangeAt(0);
-
-	// 커서가 있는 가장 가까운 p 찾기
-	const pEl = getClosestElement(range.startContainer, "p");
-	if (!hasBlockElements) {
-		// 블록 요소 없으면 그냥 삽입
-		insertAtRange(range, fragment);
-		return;
-	}
-
-	console.log("p???", pEl);
-	if (pEl) {
-		// p가 있으면 p 기준으로 쪼개기 + 인라인도 쪼개기
-		splitAncestorsAtRange(range, pEl);
-
-		// p 다시 찾기 (split 했으니)
-		const newP = getClosestElement(range.startContainer, "p");
-		if (!newP) {
-			insertAtRange(range, fragment);
-			return;
-		}
-
-		// p 앞뒤 나누고 fragment 삽입
-		splitAndInsert(range, newP, fragment);
+function dumpRange() {
+	const sel = window.getSelection()!;
+	if (sel && sel.rangeCount > 0) {
+		const range = sel.getRangeAt(0);
+		console.log("current selection", {
+			range,
+			startContainer: range.startContainer,
+			startOffset: range.startOffset,
+			endContainer: range.endContainer,
+			endOffset: range.endOffset,
+		});
+		return range;
 	} else {
-		// p 없으면 인라인 요소들만 쪼개고 fragment 삽입
-		splitAncestorsAtRange(range, null);
-
-		// 그냥 삽입
-		insertAtRange(range, fragment);
+		console.log("no selection");
 	}
 }
-function splitAndInsert(range: Range, p: HTMLElement, fragment: DocumentFragment) {
-	// p 내부 텍스트와 인라인 요소만 쪼개기
-	const beforeFragment = document.createDocumentFragment();
-	const afterFragment = document.createDocumentFragment();
 
-	// p 자식 노드 순회하며 커서 위치 기준으로 before/after 분리
-	let passedCursor = false;
-
-	p.childNodes.forEach((node) => {
-		if (!passedCursor) {
-			// 커서 이전 노드면 beforeFragment에 복사
-			if (node === range.startContainer || node.contains(range.startContainer)) {
-				// 커서가 이 노드 안에 있으면 텍스트 쪼개기
-				if (node.nodeType === Node.TEXT_NODE) {
-					const textNode = node as Text;
-					const beforeText = textNode.textContent!.slice(0, range.startOffset);
-					const afterText = textNode.textContent!.slice(range.startOffset);
-
-					if (beforeText) beforeFragment.appendChild(document.createTextNode(beforeText));
-					if (afterText) afterFragment.appendChild(document.createTextNode(afterText));
-				} else {
-					// 커서가 인라인 요소 안에 있으면 별도 처리 (재귀 등)
-					// 간단히 일단 전체 노드는 afterFragment로
-					afterFragment.appendChild(node.cloneNode(true));
-				}
-				passedCursor = true;
-			} else {
-				beforeFragment.appendChild(node.cloneNode(true));
-			}
-		} else {
-			afterFragment.appendChild(node.cloneNode(true));
-		}
-	});
-
-	// 새 p 요소 생성 (중첩 방지)
-	const pBefore = document.createElement("p");
-	pBefore.appendChild(beforeFragment);
-
-	const pAfter = document.createElement("p");
-	pAfter.appendChild(afterFragment);
-
-	// p 교체
-	const parent = p.parentNode!;
-	parent.insertBefore(pBefore, p);
-	parent.insertBefore(fragment, p);
-	parent.insertBefore(pAfter, p);
-	parent.removeChild(p);
-
-	moveCursorAfterNode(window.getSelection()!, fragment);
+function advanceNode(node: Node, skipChildren = false, rootNode?: Node): Node | null {
+	return !skipChildren && node.firstChild ? node.firstChild : node.nextSibling ?? findNextAncestorSibling(node.parentNode, rootNode);
 }
 
-function getClosestElement(node: Node, tagName: string): HTMLElement | null {
-	if (node.nodeType === Node.ELEMENT_NODE) {
-		return (node as Element).closest(tagName);
+function retreatNode(currentNode: Node): Node | null {
+	if (!currentNode) return null;
+
+	const prev = currentNode.previousSibling;
+	if (prev) {
+		let node = prev;
+		while (node.lastChild) node = node.lastChild;
+		return node;
 	}
-	if (node.parentElement) {
-		return node.parentElement.closest(tagName);
+
+	return currentNode.parentNode;
+}
+
+function findNextAncestorSibling(node: Node | null, rootNode?: Node): Node | null {
+	while (node && node !== rootNode) {
+		if (node.nextSibling) return node.nextSibling;
+		node = node.parentNode;
 	}
 	return null;
 }
 
-function insertAtRange(range: Range, fragment: DocumentFragment) {
-	const selection = window.getSelection();
-	range.deleteContents();
-	range.insertNode(fragment);
-	moveCursorAfterNode(selection!, fragment);
+function mergeRects(rects: Rect[]): { minX: number; minY: number; maxX: number; maxY: number; rects: Rect[] } {
+	rects.sort((a, b) => a.y + a.height - (b.y + b.height));
+
+	const merged: Rect[] = [];
+
+	const used = new Array(rects.length).fill(false);
+
+	let minX = Number.MAX_SAFE_INTEGER;
+	let minY = Number.MAX_SAFE_INTEGER;
+	let maxX = 0;
+	let maxY = 0;
+	for (let i = 0; i < rects.length; i++) {
+		if (used[i]) continue;
+		let base = rects[i];
+
+		for (let j = i + 1; j < rects.length; j++) {
+			if (used[j]) continue;
+			const compare = rects[j];
+
+			// 조기 종료: compare.y > base.y + base.height 이면 더 이상 겹칠 수 없음
+			if (compare.y > base.y + base.height) break;
+
+			// 완전 포함: base가 compare를 완전히 포함하는 경우
+			if (
+				base.x <= compare.x &&
+				base.x + base.width >= compare.x + compare.width &&
+				base.y <= compare.y &&
+				base.y + base.height >= compare.y + compare.height
+			) {
+				used[j] = true;
+				continue;
+			}
+
+			// 완전 포함: compare가 base를 완전히 포함하는 경우
+			if (
+				compare.x <= base.x &&
+				compare.x + compare.width >= base.x + base.width &&
+				compare.y <= base.y &&
+				compare.y + compare.height >= base.y + base.height
+			) {
+				base = compare;
+				used[j] = true;
+				continue;
+			}
+
+			// y축 거의 같고, x축 겹치면 병합 (좌우 확장)
+			const sameY = Math.abs(base.y - compare.y) < 1 && Math.abs(base.height - compare.height) < 1;
+			const xOverlap = base.x <= compare.x + compare.width && compare.x <= base.x + base.width;
+
+			if (sameY && xOverlap) {
+				// 새 병합 사각형 계산
+				const newX = Math.min(base.x, compare.x);
+				const newWidth = Math.max(base.x + base.width, compare.x + compare.width) - newX;
+
+				base = {
+					x: newX,
+					y: base.y,
+					width: newWidth,
+					height: base.height,
+				};
+				used[j] = true;
+			}
+		}
+		merged.push(base);
+		minX = Math.min(minX, base.x);
+		minY = Math.min(minY, base.y);
+		maxX = Math.max(maxX, base.x + base.width);
+		maxY = Math.max(maxY, base.y + base.height);
+		used[i] = true;
+	}
+
+	merged.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.x - b.x));
+
+	return {
+		minX,
+		minY,
+		maxX,
+		maxY,
+		rects: merged,
+	};
 }
 
-function moveCursorAfterNode(selection: Selection, fragment: DocumentFragment) {
-	const lastNode = fragment.lastChild;
-	if (!lastNode) return;
-	const newRange = document.createRange();
-	newRange.setStartAfter(lastNode);
-	newRange.collapse(true);
-	selection.removeAllRanges();
-	selection.addRange(newRange);
+function isLastChildOrFollowing(container: Node, child: Node) {
+	// fast path. 여기서 얼마나 걸릴 지 모르겠지만...
+	if (container.lastChild === child || container.nextSibling === child) {
+		return true;
+	}
+
+	const range = document.createRange();
+	range.selectNode(container);
+
+	range.comparePoint;
 }
 
-/**
- * 인자로 받은 범위 기준으로,
- * stopAt이 있으면 그 요소까지,
- * 없으면 최상위 인라인 요소까지
- * 모두 쪼갭니다.
- */
-function splitAncestorsAtRange(range: Range, stopAt: HTMLElement | null) {
-	let currentNode = range.startContainer;
-	let offset = range.startOffset;
+function extractTextRanges(sourceRange: Range): Range[] {
+	if (sourceRange.startContainer.nodeType === 3 && sourceRange.startContainer === sourceRange.endContainer) {
+		return [sourceRange];
+	}
 
-	// 텍스트 노드면 splitText
-	if (currentNode.nodeType === Node.TEXT_NODE) {
-		const textNode = currentNode as Text;
-		if (offset > 0 && offset < textNode.length) {
-			const afterText = textNode.splitText(offset);
-			range.setStart(afterText, 0);
-			range.setEnd(afterText, 0);
-			currentNode = afterText;
-			offset = 0;
+	const result: Range[] = [];
+
+	const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
+
+	let startNode: Node;
+	let endNode: Node;
+	let currentNode: Node | null;
+
+	if (sourceRange.startContainer.nodeType === 3) {
+		const r = document.createRange();
+		r.setStart(sourceRange.startContainer, sourceRange.startOffset);
+		r.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue!.length);
+		result.push(r);
+		walker.currentNode = sourceRange.startContainer;
+		currentNode = walker.nextNode();
+	} else if (sourceRange.startContainer.nodeType === 1) {
+		startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset]! || sourceRange.startContainer;
+		walker.currentNode = currentNode = startNode;
+	} else {
+		throw new Error("Invalid start container");
+	}
+
+	if (sourceRange.endContainer.nodeType === 3) {
+		endNode = sourceRange.endContainer;
+	} else if (sourceRange.endContainer.nodeType === 1) {
+		if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
+			endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
+		} else {
+			endNode = advanceNode(sourceRange.endContainer, true)!;
+		}
+	} else {
+		throw new Error("Invalid end container");
+	}
+
+	while (currentNode && currentNode !== endNode) {
+		if (currentNode.nodeType === 3) {
+			const r = document.createRange();
+			r.selectNode(currentNode);
+			result.push(r);
+		} else {
+			if (currentNode.nodeName === "BR") {
+				const r = document.createRange();
+				r.selectNode(currentNode);
+				result.push(r);
+			}
+			// do nothing for now
+		}
+		currentNode = walker.nextNode();
+	}
+
+	if (sourceRange.endContainer.nodeType === 3) {
+		const r = document.createRange();
+		r.setStart(sourceRange.endContainer, 0);
+		r.setEnd(sourceRange.endContainer, sourceRange.endOffset);
+		result.push(r);
+	}
+
+	return result;
+}
+
+function findFirstTextNode(root: Node): Text | null {
+	const stack: Node[] = [root];
+
+	while (stack.length > 0) {
+		const node = stack.pop()!;
+
+		if (node.nodeType === Node.TEXT_NODE) {
+			const text = node as Text;
+			if (text.nodeValue && text.nodeValue.trim() !== "") {
+				return text;
+			}
+		}
+
+		const children = node.childNodes;
+		// 앞에서부터 순회 (0 → N)
+		for (let i = children.length - 1; i >= 0; i--) {
+			stack.push(children[i]);
 		}
 	}
 
-	while (currentNode.parentNode && currentNode.parentNode !== stopAt) {
-		const parent = currentNode.parentNode as Element;
-
-		// stopAt 이 null이면 p 없는 상황이니,
-		// inline 요소만 쪼개야 함
-
-		if (BLOCK_ELEMENTS[parent.nodeName]) break;
-		// if (stopAt === null && !INLINE_ELEMENTS[parent.nodeName]) {
-		// 	break;
-		// }
-		// console.log("not stopped", { parent, stopAt });
-
-		const index = Array.prototype.indexOf.call(parent.childNodes, currentNode);
-		const afterSiblings = Array.prototype.slice.call(parent.childNodes, index + 1);
-
-		const newParent = parent.cloneNode(false);
-		afterSiblings.forEach((node: Node) => newParent.appendChild(node));
-
-		// console.log(newParent)
-		parent.parentNode!.insertBefore(newParent, parent.nextSibling);
-
-		currentNode = parent;
-	}
+	return null;
 }
-//#endregion by ChatGTP
+
+function findLastTextNode(root: Node, skipEmpty = false): Text | null {
+	const stack: Node[] = [root];
+
+	while (stack.length > 0) {
+		const node = stack.pop()!;
+
+		if (node.nodeType === Node.TEXT_NODE) {
+			const text = node as Text;
+			if (!skipEmpty || text.nodeValue !== "") {
+				return text;
+			}
+		}
+
+		const children = node.childNodes;
+		for (let i = children.length - 1; i >= 0; i--) {
+			stack.push(children[i]);
+		}
+	}
+
+	return null;
+}
+
+function getNodesInRange(range: Range, whatToShow:number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null) {
+	const commonAncestor = range.commonAncestorContainer;
+
+	const walker = document.createTreeWalker(commonAncestor, whatToShow, filter);
+
+	walker.currentNode = range.startContainer;
+
+	const nodes = [];
+
+	let node: Node | null = walker.currentNode;
+
+	while (node) {
+		const nodeRange = document.createRange();
+		nodeRange.selectNodeContents(node);
+
+		const startsBeforeEnd = nodeRange.compareBoundaryPoints(Range.END_TO_START, range) < 0;
+		const endsAfterStart = nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
+
+		if (startsBeforeEnd && endsAfterStart) {
+			nodes.push(node);
+		} else if (!startsBeforeEnd) {
+			// 이미 범위를 지난 경우 break
+			break;
+		}
+
+		node = walker.nextNode();
+	}
+
+	return nodes;
+}
+
+function getFullyContainedNodesInRange(range: Range, whatToShow: number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null): Node[] {
+	const walker = document.createTreeWalker(range.commonAncestorContainer, whatToShow, filter);
+
+	walker.currentNode = range.startContainer;
+
+	const nodes: Node[] = [];
+	let node: Node | null = walker.currentNode;
+
+	while (node) {
+		const nodeRange = document.createRange();
+
+		try {
+			nodeRange.selectNode(node);
+		} catch {
+			// 텍스트 노드 등 selectNode 실패 시에는 selectNodeContents
+			nodeRange.selectNodeContents(node);
+		}
+
+		const startsAfterOrAt = nodeRange.compareBoundaryPoints(Range.START_TO_START, range) >= 0;
+		const endsBeforeOrAt = nodeRange.compareBoundaryPoints(Range.END_TO_END, range) <= 0;
+
+		if (startsAfterOrAt && endsBeforeOrAt) {
+			nodes.push(node);
+		} else if (!startsAfterOrAt && nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0) {
+			break; // 앞으로는 포함될 가능성 없음
+		}
+
+		node = walker.nextNode();
+	}
+
+	return nodes;
+}
+
+function isEmptyElement(el: HTMLElement): boolean {
+	for (const node of Array.from(el.childNodes)) {
+		if (node.nodeType === Node.TEXT_NODE) {
+			if (node.textContent?.trim()) {
+				return false; // 내용이 있는 텍스트
+			}
+		} else if (node.nodeType === Node.ELEMENT_NODE) {
+			const elem = node as HTMLElement;
+			if (elem.tagName !== "BR") {
+				return false; // <br> 외의 요소가 있음
+			}
+		} else {
+			return false; // 알 수 없는 노드 (예: 주석 등)
+		}
+	}
+	return true;
+}

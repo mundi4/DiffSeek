@@ -395,6 +395,8 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	const diffOptions = ctx.options;
 	const LENGTH_BIAS_FACTOR = diffOptions.lengthBiasFactor || 0.7; // 길이가 너무 크게 영향을 주는 경향이 있어서 이걸로 조절
 	const UNIQUE_BONUS = 1 / (diffOptions.uniqueMultiplier || 1 / 0.5);
+	const CONTAINER_START_BONUS = 1 / (diffOptions.containerStartMultiplier || 1 / 0.85);
+	const CONTAINER_END_BONUS = 1 / (diffOptions.containerEndMultiplier || 1 / 0.8);
 	const LINE_START_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.85);
 	const LINE_END_BONUS = 1 / (diffOptions.lineEndMultiplier || 1 / 0.9);
 	const SECTION_HEADING_BONUS = 1 / (diffOptions.sectionHeadingMultiplier || 1 / 0.75);
@@ -531,23 +533,29 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 					score *= UNIQUE_BONUS;
 				}
 
-				if (lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
-					// if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LAST_OF_LINE) {
-					// 	score *= FULL_LINE_BONUS;
-					// } else {
-					// }
-					score *= LINE_START_BONUS;
-				} else if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
-					score *= LINE_END_BONUS;
-				}
+				let boundaryBonus = 1;
 
-				if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
-					// if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
-					// 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
-					// } else {
-					// }
-					score *= SECTION_HEADING_BONUS;
+				if (boundaryBonus > CONTAINER_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & CONTAINER_START) {
+					boundaryBonus = CONTAINER_START_BONUS;
 				}
+				if (boundaryBonus > CONTAINER_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & CONTAINER_END) {
+					boundaryBonus = CONTAINER_END_BONUS;
+				}
+				if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
+					boundaryBonus = LINE_START_BONUS;
+				}
+				if (boundaryBonus > LINE_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
+					boundaryBonus = LINE_END_BONUS;
+				}
+				score *= boundaryBonus;
+
+				// if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
+				// 	// if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
+				// 	// 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
+				// 	// } else {
+				// 	// }
+				// 	score *= SECTION_HEADING_BONUS;
+				// }
 
 				if (!best || score < best.score) {
 					best = {

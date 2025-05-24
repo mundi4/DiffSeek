@@ -150,6 +150,9 @@ const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머�
 //# sourceMappingURL=constants.js.map
 </script>
 <script>"use strict";
+function isRectVisible(top, bottom, left, right, viewportTop, viewportLeft, viewportWidth, viewportHeight) {
+    return bottom >= viewportTop && top <= viewportTop + viewportHeight && right >= viewportLeft && left <= viewportLeft + viewportWidth;
+}
 function debounce(func, delay) {
     let timeoutId;
     return function (...args) {
@@ -483,152 +486,287 @@ function getTextOffsetOfNode(root, node, end = false) {
     }
     return pos;
 }
-// #region by ChatGTP
-function insertFragmentSmart(fragment, hasBlockElements) {
-    const selection = window.getSelection();
-    if (!selection || selection.rangeCount === 0)
-        return;
-    const range = selection.getRangeAt(0);
-    // 커서가 있는 가장 가까운 p 찾기
-    const pEl = getClosestElement(range.startContainer, "p");
-    if (!hasBlockElements) {
-        // 블록 요소 없으면 그냥 삽입
-        insertAtRange(range, fragment);
-        return;
-    }
-    console.log("p???", pEl);
-    if (pEl) {
-        // p가 있으면 p 기준으로 쪼개기 + 인라인도 쪼개기
-        splitAncestorsAtRange(range, pEl);
-        // p 다시 찾기 (split 했으니)
-        const newP = getClosestElement(range.startContainer, "p");
-        if (!newP) {
-            insertAtRange(range, fragment);
-            return;
-        }
-        // p 앞뒤 나누고 fragment 삽입
-        splitAndInsert(range, newP, fragment);
+function dumpRange() {
+    const sel = window.getSelection();
+    if (sel && sel.rangeCount > 0) {
+        const range = sel.getRangeAt(0);
+        console.log("current selection", {
+            range,
+            startContainer: range.startContainer,
+            startOffset: range.startOffset,
+            endContainer: range.endContainer,
+            endOffset: range.endOffset,
+        });
+        return range;
     }
     else {
-        // p 없으면 인라인 요소들만 쪼개고 fragment 삽입
-        splitAncestorsAtRange(range, null);
-        // 그냥 삽입
-        insertAtRange(range, fragment);
+        console.log("no selection");
     }
 }
-function splitAndInsert(range, p, fragment) {
-    // p 내부 텍스트와 인라인 요소만 쪼개기
-    const beforeFragment = document.createDocumentFragment();
-    const afterFragment = document.createDocumentFragment();
-    // p 자식 노드 순회하며 커서 위치 기준으로 before/after 분리
-    let passedCursor = false;
-    p.childNodes.forEach((node) => {
-        if (!passedCursor) {
-            // 커서 이전 노드면 beforeFragment에 복사
-            if (node === range.startContainer || node.contains(range.startContainer)) {
-                // 커서가 이 노드 안에 있으면 텍스트 쪼개기
-                if (node.nodeType === Node.TEXT_NODE) {
-                    const textNode = node;
-                    const beforeText = textNode.textContent.slice(0, range.startOffset);
-                    const afterText = textNode.textContent.slice(range.startOffset);
-                    if (beforeText)
-                        beforeFragment.appendChild(document.createTextNode(beforeText));
-                    if (afterText)
-                        afterFragment.appendChild(document.createTextNode(afterText));
-                }
-                else {
-                    // 커서가 인라인 요소 안에 있으면 별도 처리 (재귀 등)
-                    // 간단히 일단 전체 노드는 afterFragment로
-                    afterFragment.appendChild(node.cloneNode(true));
-                }
-                passedCursor = true;
-            }
-            else {
-                beforeFragment.appendChild(node.cloneNode(true));
-            }
-        }
-        else {
-            afterFragment.appendChild(node.cloneNode(true));
-        }
-    });
-    // 새 p 요소 생성 (중첩 방지)
-    const pBefore = document.createElement("p");
-    pBefore.appendChild(beforeFragment);
-    const pAfter = document.createElement("p");
-    pAfter.appendChild(afterFragment);
-    // p 교체
-    const parent = p.parentNode;
-    parent.insertBefore(pBefore, p);
-    parent.insertBefore(fragment, p);
-    parent.insertBefore(pAfter, p);
-    parent.removeChild(p);
-    moveCursorAfterNode(window.getSelection(), fragment);
+function advanceNode(node, skipChildren = false, rootNode) {
+    return !skipChildren && node.firstChild ? node.firstChild : node.nextSibling ?? findNextAncestorSibling(node.parentNode, rootNode);
 }
-function getClosestElement(node, tagName) {
-    if (node.nodeType === Node.ELEMENT_NODE) {
-        return node.closest(tagName);
+function retreatNode(currentNode) {
+    if (!currentNode)
+        return null;
+    const prev = currentNode.previousSibling;
+    if (prev) {
+        let node = prev;
+        while (node.lastChild)
+            node = node.lastChild;
+        return node;
     }
-    if (node.parentElement) {
-        return node.parentElement.closest(tagName);
+    return currentNode.parentNode;
+}
+function findNextAncestorSibling(node, rootNode) {
+    while (node && node !== rootNode) {
+        if (node.nextSibling)
+            return node.nextSibling;
+        node = node.parentNode;
     }
     return null;
 }
-function insertAtRange(range, fragment) {
-    const selection = window.getSelection();
-    range.deleteContents();
-    range.insertNode(fragment);
-    moveCursorAfterNode(selection, fragment);
+function mergeRects(rects) {
+    rects.sort((a, b) => a.y + a.height - (b.y + b.height));
+    const merged = [];
+    const used = new Array(rects.length).fill(false);
+    let minX = Number.MAX_SAFE_INTEGER;
+    let minY = Number.MAX_SAFE_INTEGER;
+    let maxX = 0;
+    let maxY = 0;
+    for (let i = 0; i < rects.length; i++) {
+        if (used[i])
+            continue;
+        let base = rects[i];
+        for (let j = i + 1; j < rects.length; j++) {
+            if (used[j])
+                continue;
+            const compare = rects[j];
+            // 조기 종료: compare.y > base.y + base.height 이면 더 이상 겹칠 수 없음
+            if (compare.y > base.y + base.height)
+                break;
+            // 완전 포함: base가 compare를 완전히 포함하는 경우
+            if (base.x <= compare.x &&
+                base.x + base.width >= compare.x + compare.width &&
+                base.y <= compare.y &&
+                base.y + base.height >= compare.y + compare.height) {
+                used[j] = true;
+                continue;
+            }
+            // 완전 포함: compare가 base를 완전히 포함하는 경우
+            if (compare.x <= base.x &&
+                compare.x + compare.width >= base.x + base.width &&
+                compare.y <= base.y &&
+                compare.y + compare.height >= base.y + base.height) {
+                base = compare;
+                used[j] = true;
+                continue;
+            }
+            // y축 거의 같고, x축 겹치면 병합 (좌우 확장)
+            const sameY = Math.abs(base.y - compare.y) < 1 && Math.abs(base.height - compare.height) < 1;
+            const xOverlap = base.x <= compare.x + compare.width && compare.x <= base.x + base.width;
+            if (sameY && xOverlap) {
+                // 새 병합 사각형 계산
+                const newX = Math.min(base.x, compare.x);
+                const newWidth = Math.max(base.x + base.width, compare.x + compare.width) - newX;
+                base = {
+                    x: newX,
+                    y: base.y,
+                    width: newWidth,
+                    height: base.height,
+                };
+                used[j] = true;
+            }
+        }
+        merged.push(base);
+        minX = Math.min(minX, base.x);
+        minY = Math.min(minY, base.y);
+        maxX = Math.max(maxX, base.x + base.width);
+        maxY = Math.max(maxY, base.y + base.height);
+        used[i] = true;
+    }
+    merged.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.x - b.x));
+    return {
+        minX,
+        minY,
+        maxX,
+        maxY,
+        rects: merged,
+    };
 }
-function moveCursorAfterNode(selection, fragment) {
-    const lastNode = fragment.lastChild;
-    if (!lastNode)
-        return;
-    const newRange = document.createRange();
-    newRange.setStartAfter(lastNode);
-    newRange.collapse(true);
-    selection.removeAllRanges();
-    selection.addRange(newRange);
+function isLastChildOrFollowing(container, child) {
+    // fast path. 여기서 얼마나 걸릴 지 모르겠지만...
+    if (container.lastChild === child || container.nextSibling === child) {
+        return true;
+    }
+    const range = document.createRange();
+    range.selectNode(container);
+    range.comparePoint;
 }
-/**
- * 인자로 받은 범위 기준으로,
- * stopAt이 있으면 그 요소까지,
- * 없으면 최상위 인라인 요소까지
- * 모두 쪼갭니다.
- */
-function splitAncestorsAtRange(range, stopAt) {
-    let currentNode = range.startContainer;
-    let offset = range.startOffset;
-    // 텍스트 노드면 splitText
-    if (currentNode.nodeType === Node.TEXT_NODE) {
-        const textNode = currentNode;
-        if (offset > 0 && offset < textNode.length) {
-            const afterText = textNode.splitText(offset);
-            range.setStart(afterText, 0);
-            range.setEnd(afterText, 0);
-            currentNode = afterText;
-            offset = 0;
+function extractTextRanges(sourceRange) {
+    if (sourceRange.startContainer.nodeType === 3 && sourceRange.startContainer === sourceRange.endContainer) {
+        return [sourceRange];
+    }
+    const result = [];
+    const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
+    let startNode;
+    let endNode;
+    let currentNode;
+    if (sourceRange.startContainer.nodeType === 3) {
+        const r = document.createRange();
+        r.setStart(sourceRange.startContainer, sourceRange.startOffset);
+        r.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue.length);
+        result.push(r);
+        walker.currentNode = sourceRange.startContainer;
+        currentNode = walker.nextNode();
+    }
+    else if (sourceRange.startContainer.nodeType === 1) {
+        startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset] || sourceRange.startContainer;
+        walker.currentNode = currentNode = startNode;
+    }
+    else {
+        throw new Error("Invalid start container");
+    }
+    if (sourceRange.endContainer.nodeType === 3) {
+        endNode = sourceRange.endContainer;
+    }
+    else if (sourceRange.endContainer.nodeType === 1) {
+        if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
+            endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
+        }
+        else {
+            endNode = advanceNode(sourceRange.endContainer, true);
         }
     }
-    while (currentNode.parentNode && currentNode.parentNode !== stopAt) {
-        const parent = currentNode.parentNode;
-        // stopAt 이 null이면 p 없는 상황이니,
-        // inline 요소만 쪼개야 함
-        if (BLOCK_ELEMENTS[parent.nodeName])
-            break;
-        // if (stopAt === null && !INLINE_ELEMENTS[parent.nodeName]) {
-        // 	break;
-        // }
-        // console.log("not stopped", { parent, stopAt });
-        const index = Array.prototype.indexOf.call(parent.childNodes, currentNode);
-        const afterSiblings = Array.prototype.slice.call(parent.childNodes, index + 1);
-        const newParent = parent.cloneNode(false);
-        afterSiblings.forEach((node) => newParent.appendChild(node));
-        // console.log(newParent)
-        parent.parentNode.insertBefore(newParent, parent.nextSibling);
-        currentNode = parent;
+    else {
+        throw new Error("Invalid end container");
     }
+    while (currentNode && currentNode !== endNode) {
+        if (currentNode.nodeType === 3) {
+            const r = document.createRange();
+            r.selectNode(currentNode);
+            result.push(r);
+        }
+        else {
+            if (currentNode.nodeName === "BR") {
+                const r = document.createRange();
+                r.selectNode(currentNode);
+                result.push(r);
+            }
+            // do nothing for now
+        }
+        currentNode = walker.nextNode();
+    }
+    if (sourceRange.endContainer.nodeType === 3) {
+        const r = document.createRange();
+        r.setStart(sourceRange.endContainer, 0);
+        r.setEnd(sourceRange.endContainer, sourceRange.endOffset);
+        result.push(r);
+    }
+    return result;
 }
-//#endregion by ChatGTP
+function findFirstTextNode(root) {
+    const stack = [root];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node;
+            if (text.nodeValue && text.nodeValue.trim() !== "") {
+                return text;
+            }
+        }
+        const children = node.childNodes;
+        // 앞에서부터 순회 (0 → N)
+        for (let i = children.length - 1; i >= 0; i--) {
+            stack.push(children[i]);
+        }
+    }
+    return null;
+}
+function findLastTextNode(root, skipEmpty = false) {
+    const stack = [root];
+    while (stack.length > 0) {
+        const node = stack.pop();
+        if (node.nodeType === Node.TEXT_NODE) {
+            const text = node;
+            if (!skipEmpty || text.nodeValue !== "") {
+                return text;
+            }
+        }
+        const children = node.childNodes;
+        for (let i = children.length - 1; i >= 0; i--) {
+            stack.push(children[i]);
+        }
+    }
+    return null;
+}
+function getNodesInRange(range, whatToShow = NodeFilter.SHOW_ALL, filter = null) {
+    const commonAncestor = range.commonAncestorContainer;
+    const walker = document.createTreeWalker(commonAncestor, whatToShow, filter);
+    walker.currentNode = range.startContainer;
+    const nodes = [];
+    let node = walker.currentNode;
+    while (node) {
+        const nodeRange = document.createRange();
+        nodeRange.selectNodeContents(node);
+        const startsBeforeEnd = nodeRange.compareBoundaryPoints(Range.END_TO_START, range) < 0;
+        const endsAfterStart = nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
+        if (startsBeforeEnd && endsAfterStart) {
+            nodes.push(node);
+        }
+        else if (!startsBeforeEnd) {
+            // 이미 범위를 지난 경우 break
+            break;
+        }
+        node = walker.nextNode();
+    }
+    return nodes;
+}
+function getFullyContainedNodesInRange(range, whatToShow = NodeFilter.SHOW_ALL, filter = null) {
+    const walker = document.createTreeWalker(range.commonAncestorContainer, whatToShow, filter);
+    walker.currentNode = range.startContainer;
+    const nodes = [];
+    let node = walker.currentNode;
+    while (node) {
+        const nodeRange = document.createRange();
+        try {
+            nodeRange.selectNode(node);
+        }
+        catch {
+            // 텍스트 노드 등 selectNode 실패 시에는 selectNodeContents
+            nodeRange.selectNodeContents(node);
+        }
+        const startsAfterOrAt = nodeRange.compareBoundaryPoints(Range.START_TO_START, range) >= 0;
+        const endsBeforeOrAt = nodeRange.compareBoundaryPoints(Range.END_TO_END, range) <= 0;
+        if (startsAfterOrAt && endsBeforeOrAt) {
+            nodes.push(node);
+        }
+        else if (!startsAfterOrAt && nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0) {
+            break; // 앞으로는 포함될 가능성 없음
+        }
+        node = walker.nextNode();
+    }
+    return nodes;
+}
+function isEmptyElement(el) {
+    for (const node of Array.from(el.childNodes)) {
+        if (node.nodeType === Node.TEXT_NODE) {
+            if (node.textContent?.trim()) {
+                return false; // 내용이 있는 텍스트
+            }
+        }
+        else if (node.nodeType === Node.ELEMENT_NODE) {
+            const elem = node;
+            if (elem.tagName !== "BR") {
+                return false; // <br> 외의 요소가 있음
+            }
+        }
+        else {
+            return false; // 알 수 없는 노드 (예: 주석 등)
+        }
+    }
+    return true;
+}
 //# sourceMappingURL=utils.js.map
 </script>
 <script>"use strict";
@@ -1044,7 +1182,7 @@ function sanitizeHTML(rawHTML) {
         let containerNode = null;
         const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
         if (allowedAttrs) {
-            containerNode = document.createElement(node.nodeName);
+            containerNode = document.createElement(node.nodeName === "P" ? "DIV" : node.nodeName);
             for (const attr of node.attributes) {
                 if (allowedAttrs[attr.name]) {
                     containerNode.setAttribute(attr.name, attr.value);
@@ -1286,11 +1424,17 @@ const LINE_START = 1 << 0; // 1
 const LINE_END = 1 << 1; // 2
 const CONTAINER_START = 1 << 2; // 4
 const CONTAINER_END = 1 << 3; // 8
-const NO_JOIN = 1 << 4; // @@@, ### 등등 // 16
-const WILD_CARD = 1 << 5;
-const MANUAL_ANCHOR = 1 << 6; // 32. @@@, ### 등등
-const IMAGE = 1 << 7;
-const SECTION_HEADING_BIT = 10;
+const TABLE_START = 1 << 4; // 16
+const TABLE_END = 1 << 5; // 32
+const TABLEROW_START = 1 << 6; // 64
+const TABLEROW_END = 1 << 7; // 128
+const TABLECELL_START = 1 << 8; // 256
+const TABLECELL_END = 1 << 9; // 512
+const NO_JOIN = 1 << 10; // @@@, ### 등등 // 16
+const WILD_CARD = 1 << 11;
+const MANUAL_ANCHOR = 12 << 6; // 32. @@@, ### 등등
+const IMAGE = 1 << 13;
+const SECTION_HEADING_BIT = 14;
 const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
 const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
 const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
@@ -1902,6 +2046,7 @@ function tokenizeNode(node) {
 //# sourceMappingURL=tokenize.js.map
 </script>
 <script>"use strict";
+const TEXT_SELECTION_HIGHLIGHT_FILL_STYLE = "hsl(210 100% 40%)";
 function createEditor(container, editorName, callbacks) {
     const { onDiffVisibilityChanged, onTextChanged } = callbacks;
     const _lineElements = [];
@@ -1913,13 +2058,24 @@ function createEditor(container, editorName, callbacks) {
     const _diffRanges = [];
     const _diffRects = [];
     const _diffLineRects = [];
-    const _highlightItems = [];
-    let _textHighlightItems = null;
+    const _tokens = [];
+    const _ranges = [];
+    const _anchors = new Map();
+    let _textSelectionHighlight = null;
+    // let _textHighlightItems: RenderItem[] | null = null;
     let _diffHighlightItems = null;
-    let _updateStaticCanvasPending = false;
+    let _renderPending = false;
+    const _renderLayers = [
+        { index: 0, dirty: true }, // static canvas
+        { index: 1, dirty: true }, // highlight canvas
+    ];
+    const DIFF_LAYER = 0;
+    const HIGHLIGHT_LAYER = 1;
     let _diffRectsDirty = true;
     let _hasRenderedAny = false;
     let _editMode = false;
+    let _canvasWidth = 0;
+    let _canvasHeight = 0;
     const wrapper = document.createElement("div");
     wrapper.id = editorName + "EditorWrapper";
     wrapper.classList.add("editor-wrapper");
@@ -1932,50 +2088,34 @@ function createEditor(container, editorName, callbacks) {
     highlightCanvas.classList.add("canvas");
     highlightCanvas.classList.add("highlight");
     const highlightCanvasCtx = highlightCanvas.getContext("2d");
-    const EDITOR_INNER_HTML = "<p><br></p>";
+    const INITIAL_EDITOR_HTML = "<DIV><BR/></DIV>";
     const editor = document.createElement("div");
     editor.id = editorName + "Editor";
     editor.classList.add("editor");
     editor.contentEditable = "true";
     editor.spellcheck = false;
-    editor.innerHTML = EDITOR_INNER_HTML;
+    editor.innerHTML = `<table><tbody><tr><td><p>하나 은행</p></td><td><p>국민 은행</p></td><td><p>신한 은행</p></td></tr><tr><td><p>산업 은행</p></td><td><p>카카오 뱅크</p></td><td rowspan="2"><p>케이 뱅크</p></td></tr><tr><td><p>우리 은행</p></td><td><p>우체국</p></td></tr></tbody></table><p>hello</p>`;
     wrapper.appendChild(staticCanvas);
     wrapper.appendChild(highlightCanvas);
     wrapper.appendChild(editor);
     container.appendChild(wrapper);
     const resizeObserver = new ResizeObserver(() => {
         const rect = wrapper.getBoundingClientRect();
-        staticCanvas.width = rect.width;
-        staticCanvas.height = rect.height;
-        highlightCanvas.width = rect.width;
-        highlightCanvas.height = rect.height;
+        staticCanvas.width = highlightCanvas.width = _canvasWidth = rect.width;
+        staticCanvas.height = highlightCanvas.height = _canvasHeight = rect.height;
         _diffRectsDirty = true;
-        render();
+        if (_textSelectionHighlight) {
+            _textSelectionHighlight.renderItem = undefined;
+        }
+        renderAll();
     });
     resizeObserver.observe(wrapper);
     // *** HTML 붙여넣기를 허용할 때만 사용할 코드 ***
     // 지금은 관련 코드를 다 지워버렸고 복구하려면 깃허브에서 이전 코드를 뒤져야함...
     const { observeEditor, unobserveEditor } = (() => {
         const mutationObserver = new MutationObserver((mutations) => {
-            // for (const mutation of mutations) {
-            // 	if (mutation.type === "childList") {
-            // 		for (const node of mutation.addedNodes) {
-            // 			// 보통 브라우저는 span이나 font 태그를 입혀서 스타일을 넣어준다...
-            // 			if (node.nodeName === "SPAN" || node.nodeName === "FONT") {
-            // 				if (node.childNodes.length === 1 && node.firstChild?.nodeType === 3) {
-            // 					node.parentNode?.replaceChild(node.firstChild, node);
-            // 				}
-            // 			}
-            // 		}
-            // 	}
-            // 	// 기존 태그에 style을 바로 넣어주는 경우가 있는지는 모르겠지만 안전빵으로...
-            // 	if (mutation.type === "attributes" && mutation.attributeName === "style") {
-            // 		(mutation.target as HTMLElement).removeAttribute("style");
-            // 	}
-            // }
             if (editor.childNodes.length === 0) {
-                console.log("WTF??");
-                editor.innerHTML = EDITOR_INNER_HTML;
+                editor.innerHTML = INITIAL_EDITOR_HTML;
             }
         });
         function observeEditor() {
@@ -1992,146 +2132,61 @@ function createEditor(container, editorName, callbacks) {
         return { observeEditor, unobserveEditor };
     })();
     observeEditor();
-    let _pasteCounter = 0;
-    let _sanitizeCallbackId = null;
-    // function sanitize(rawHTML: string) {
-    // 	const START_TAG = "<!--StartFragment-->";
-    // 	const END_TAG = "<!--EndFragment-->";
-    // 	const startIndex = rawHTML.indexOf(START_TAG);
-    // 	if (startIndex >= 0) {
-    // 		const endIndex = rawHTML.lastIndexOf(END_TAG);
-    // 		if (endIndex >= 0) {
-    // 			rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-    // 		} else {
-    // 			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-    // 		}
-    // 	}
-    // 	const func = sanitizer(rawHTML);
-    // 	const counter = ++_pasteCounter;
-    // 	const step = (idleDeadline: IdleDeadline) => {
-    // 		_sanitizeCallbackId = null;
-    // 		const { done, value } = func.next(idleDeadline);
-    // 		if (!done && counter === _pasteCounter) {
-    // 			_sanitizeCallbackId = requestIdleCallback(step, { timeout: 100 });
-    // 		} else if (done) {
-    // 			const selection = window.getSelection()!;
-    // 			const range = selection.getRangeAt(0);
-    // 			range.deleteContents();
-    // 			console.log("deleted contents");
-    // 			range.insertNode(value);
-    // 			console.log("inserted node:", value);
-    // 			// editor.replaceChildren(value);
-    // 			onTextChanged();
-    // 		}
-    // 	};
-    // 	_sanitizeCallbackId = requestIdleCallback(step, { timeout: 100 });
-    // }
-    function insertFragmentWithPSplit(fragment) {
-        const selection = window.getSelection();
-        if (!selection?.rangeCount)
-            return;
-        const range = selection.getRangeAt(0);
-        // 1. 커서가 위치한 p 태그를 찾기
-        let p = range.startContainer;
-        while (p && p.nodeName !== "P")
-            p = p.parentNode;
-        if (!p) {
-            // p 안이 아니면 그냥 붙여넣기
-            range.insertNode(fragment);
-            return;
+    function formatPlaintext(plaintext) {
+        const lines = plaintext.split("\n");
+        const fragment = document.createDocumentFragment();
+        for (const line of lines) {
+            const p = document.createElement("p");
+            p.textContent = line;
+            fragment.appendChild(p);
         }
-        // 2. 텍스트 노드면 splitText 처리
-        if (range.startContainer.nodeType === Node.TEXT_NODE) {
-            const textNode = range.startContainer;
-            const offset = range.startOffset;
-            const beforeText = textNode.nodeValue.slice(0, offset);
-            const afterText = textNode.nodeValue.slice(offset);
-            const beforeNode = document.createTextNode(beforeText);
-            const afterNode = document.createTextNode(afterText);
-            const parent = textNode.parentNode;
-            parent.replaceChild(afterNode, textNode);
-            parent.insertBefore(beforeNode, afterNode);
-            range.setStartAfter(beforeNode);
-            range.setEndAfter(beforeNode);
-        }
-        // 3. 앞부분 추출 (커서 이전)
-        const beforeRange = range.cloneRange();
-        beforeRange.setStartBefore(p);
-        beforeRange.setEnd(range.startContainer, range.startOffset);
-        const beforeFragment = beforeRange.cloneContents();
-        // 4. 뒷부분 추출 (커서 이후)
-        const afterRange = range.cloneRange();
-        afterRange.setStart(range.startContainer, range.startOffset);
-        afterRange.setEndAfter(p);
-        const afterFragment = afterRange.cloneContents();
-        // 5. 새로운 <p>들 생성
-        const pBefore = document.createElement("p");
-        pBefore.appendChild(beforeFragment);
-        const pAfter = document.createElement("p");
-        pAfter.appendChild(afterFragment);
-        // 6. 원래 <p> 제거하고 새것들 삽입
-        const parent = p.parentNode;
-        parent.insertBefore(pBefore, p);
-        parent.insertBefore(fragment, p);
-        parent.insertBefore(pAfter, p);
-        parent.removeChild(p);
-        // 7. 커서 이동 (optional)
-        const newRange = document.createRange();
-        newRange.setStartAfter(fragment.lastChild || fragment);
-        newRange.collapse(true);
-        selection.removeAllRanges();
-        selection.addRange(newRange);
+        return fragment;
     }
     editor.addEventListener("paste", (e) => {
-        let t1 = performance.now();
-        let rawHTML = e.clipboardData?.getData("text/html");
-        let t2 = performance.now();
-        console.log("get html time:", t2 - t1);
-        if (!rawHTML) {
-            return;
-        }
+        // 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
+        // 붙여넣기 이후 바로 추가 입력 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
+        console.time("paste");
         e.preventDefault();
-        const START_TAG = "<!--StartFragment-->";
-        const END_TAG = "<!--EndFragment-->";
-        const startIndex = rawHTML.indexOf(START_TAG);
-        if (startIndex >= 0) {
-            const endIndex = rawHTML.lastIndexOf(END_TAG);
-            if (endIndex >= 0) {
-                rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
+        let rawHTML = e.clipboardData?.getData("text/html");
+        let sanitized;
+        if (rawHTML) {
+            const START_TAG = "<!--StartFragment-->";
+            const END_TAG = "<!--EndFragment-->";
+            const startIndex = rawHTML.indexOf(START_TAG);
+            if (startIndex >= 0) {
+                const endIndex = rawHTML.lastIndexOf(END_TAG);
+                if (endIndex >= 0) {
+                    rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
+                }
+                else {
+                    rawHTML = rawHTML.slice(startIndex + START_TAG.length);
+                }
             }
-            else {
-                rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-            }
+            sanitized = sanitizeHTML(rawHTML);
         }
-        const selection = window.getSelection();
-        const range = selection.getRangeAt(0);
-        range.deleteContents();
-        const frag = range.createContextualFragment(rawHTML);
-        const [sanitized, hasBlockElements] = sanitizeNode(frag);
-        insertFragmentSmart(sanitized, hasBlockElements);
-        // range.insertNode(sanitized);
-        onTextChanged();
-        // sanitize(rawHTML);
-        // editor.contentEditable = "true";
-        // t1 = performance.now();
-        // const node = sanitizeHTML(html);
-        // t2 = performance.now();
-        // console.log("sanitizeHTML time:", t2 - t1);
-        // t1 = performance.now();
-        // editor.replaceChildren(node);
-        // t2 = performance.now();
-        // console.log("replaceChildren time:", t2 - t1);
-        // t1 = performance.now();
-        // onTextChanged();
-        // t2 = performance.now();
-        // console.log("onTextChanged time:", t2 - t1);
+        else {
+            sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") || "");
+        }
+        // 자존심 상하지만 document.execCommand("insertHTML",...)를 써야한다.
+        // 1. 브라우저가 undo/redo 히스토리 관리를 할 수 있음.
+        // 2. 필요한 경우 브라우저가 알아서 DOM을 수정해 줌.
+        // 	예: 인라인 엘러먼트 안에 블럭 엘러먼트를 붙여넣는 경우 브라우저가 알아서 인라인 요소를 반으로 갈라서 블럭 엘러먼트를 밖으로 꺼내준다.
+        const div = document.createElement("DIV");
+        div.appendChild(sanitized);
+        document.execCommand("insertHTML", false, div.innerHTML);
+        console.log("insertHTML", div.innerHTML);
+        console.timeEnd("paste");
     });
-    editor.addEventListener("input", () => {
-        onTextChanged();
-    });
+    editor.addEventListener("input", onChange);
     wrapper.addEventListener("scroll", () => {
-        render();
+        renderAll();
     });
+    function onChange() {
+        tokenize();
+    }
+    function onTokenizeDone() {
+        onTextChanged();
+    }
     function getVisibleAnchors() {
         return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
     }
@@ -2238,48 +2293,6 @@ function createEditor(container, editorName, callbacks) {
     function setEditMode(editMode) {
         _editMode = !!editMode;
     }
-    function findLineIndexByPos(pos, low = 0, high = _lineHints.length - 1) {
-        const lineHints = _lineHints;
-        if (lineHints.length === 0)
-            return -1;
-        if (pos < 0)
-            return -1;
-        while (low <= high) {
-            const mid = (low + high) >> 1;
-            const hint = lineHints[mid];
-            const start = hint.pos;
-            const end = mid + 1 < lineHints.length ? lineHints[mid + 1].pos : Infinity;
-            if (pos < start) {
-                high = mid - 1;
-            }
-            else if (pos >= end) {
-                low = mid + 1;
-            }
-            else {
-                return mid;
-            }
-        }
-        return -1; // pos가 마지막 줄 end를 넘어간 경우
-        // let mid;
-        // while (low <= high) {
-        // 	mid = (low + high) >> 1;
-        // 	const lineEl = _lineElements[mid];
-        // 	const linePos = Number(lineEl.dataset.pos);
-        // 	if (linePos === pos) {
-        // 		return mid;
-        // 	}
-        // 	if (linePos > pos) {
-        // 		high = mid - 1;
-        // 	} else {
-        // 		low = mid + 1;
-        // 	}
-        // }
-        // return high;
-    }
-    // =============================================================
-    // 텍스트 선택 영역 관련
-    // 지저분하지만.. 섣불리 건들면 한시간 날아간다!
-    // =============================================================
     // #region
     function getTextOffset(root, node, offset) {
         let result;
@@ -2335,7 +2348,6 @@ function createEditor(container, editorName, callbacks) {
                     width: rect.width,
                     height: rect.height,
                 });
-                console.log("found rects:", rect);
             }
             if (created) {
                 firstTextNode.remove();
@@ -2434,7 +2446,6 @@ function createEditor(container, editorName, callbacks) {
             // 	result.shift();
             // }
         }
-        console.log(editorName, "getTextRangeRects", { startOffset, endOffset, result });
         return result;
     }
     function getTextSelectionRange() {
@@ -2475,94 +2486,186 @@ function createEditor(container, editorName, callbacks) {
         // console.debug(editorName, "getTextSelectionRange", { startOffset, endOffset });
         return [startOffset, endOffset];
     }
-    function createTextRange(startOffset, endOffset, container = editor) {
-        // console.debug(editorName, "selectTextRange", { startOffset, endOffset });
-        // startOffset = Math.max(0, Math.min(startOffset, _text.length - 1));
-        // endOffset = Math.max(0, Math.min(endOffset, _text.length - 1));
+    // 문자 오프셋만으로는 브라우저에서 텍스트를 드래그하듯 완전한 범위 선택을 할 수 없다.
+    // 텍스트노드 자체가 없는데 마우스로 긁으면 선택이 되는 경우가 있다. <br><br><br> 이걸 마우스로 긁거나 CTRL-A를 누르면 3줄이 선택되지만
+    // 문자 오프셋으로는 이걸 표현할 수가 없다. GREEDY하게 할지 LAZY하게 할지 전혀 선택하지 않을지 하나만 선택하게 할지 가장 먼저 나타나는 것을 선택할지 가장 마지막을 선택할지
+    // 사용 시나리오를 살펴봐야한다.
+    // 1. 텍스트를 긁었을 때 반대쪽 에디터에서 RANGE를 만들어서 하이라이팅
+    // 이 경우 처음부터 길이가 0이라면 아무것도 선택하지 않고 리턴(NULL??)
+    // 그렇지 않으면 범위의 시작과 끝 부분에 있는 길이가 0인 텍스트노드는 다 무시해야한다. 중간에 있는 것들은 포함
+    // 2. DIFF 범위 하이라이팅
+    // 이 경우 길이가 0인 경우가 문제가 된다.
+    //
+    function createTextRange(startOffset, endOffset) {
+        const range = document.createRange();
+        let pos = 0;
+        let startSet = false, endSet = false;
+        // 실패하는 경우는 endOffset과 그 이후에 텍스트노드가 없는 경우임.
+        let skipLeadingEmptyTextNodes = endOffset > startOffset;
+        let skipTrailingEmptyTextNodes = endOffset > startOffset;
+        function walk(node) {
+            if (node.nodeType === 3) {
+                const text = node.nodeValue;
+                const textLen = text.length;
+                const endPos = pos + textLen;
+                if (!startSet && startOffset >= pos && startOffset < endPos && (!skipLeadingEmptyTextNodes || textLen > startOffset - pos)) {
+                    range.setStart(node, startOffset - pos);
+                    startSet = true;
+                }
+                if (startSet && endOffset >= pos && endOffset <= endPos && (!skipTrailingEmptyTextNodes || endOffset > pos)) {
+                    range.setEnd(node, endOffset - pos);
+                    endSet = true;
+                    return;
+                }
+                pos = endPos;
+            }
+            else if (node.nodeType === 1) {
+                const childNodes = node.childNodes;
+                if (childNodes.length > 0) {
+                    for (let i = 0; i < childNodes.length; i++) {
+                        walk(childNodes[i]);
+                        if (startSet && endSet) {
+                            return;
+                        }
+                    }
+                }
+                else {
+                    pos += node.textContent.length;
+                }
+            }
+        }
+        walk(editor);
+        if (!startSet) {
+            let node = editor;
+            while (node && node.firstChild) {
+                node = node.firstChild;
+            }
+            range.setStart(node, 0);
+            // while (node && node.firstChild) {
+            // 	node = node.firstChild;
+            // }
+            // range.setStartBefore(node);
+        }
+        if (!endSet) {
+            let node = editor;
+            while (node && node.lastChild) {
+                node = node.lastChild;
+            }
+            range.setEnd(node, 0);
+        }
+        // const sel = window.getSelection()!;
+        // sel.removeAllRanges();
+        // sel.addRange(range);
+        return range;
+    }
+    function _createTextRange(startOffset, endOffset, startNode = editor, startPos = 0) {
+        if (startOffset > endOffset) {
+            [startOffset, endOffset] = [endOffset, startOffset];
+        }
+        const range = document.createRange();
+        let startSet = false, endSet = false;
+        let pos = startPos;
+        // 실패하는 경우는 endOffset과 그 이후에 텍스트노드가 없는 경우임.
+        function walk(node) {
+            if (node.nodeType === 3) {
+                const text = node.nodeValue;
+                const textLen = text.length;
+                const endPos = pos + textLen;
+                if (!startSet && startOffset >= pos && startOffset < endPos) {
+                    range.setStart(node, startOffset - pos);
+                    startSet = true;
+                }
+                else if (!startSet) {
+                    console.log("start not set", node, startOffset, pos);
+                }
+                if (endOffset >= pos && endOffset <= endPos) {
+                    range.setEnd(node, endOffset - pos);
+                    console.log("found end", node, endOffset - pos, endOffset, pos);
+                    endSet = true;
+                    return;
+                }
+                else if (startSet && !endSet) {
+                    console.log("end not set", node, startOffset, pos);
+                }
+                pos = endPos;
+            }
+            else if (node.nodeType === 1) {
+                const childNodes = node.childNodes;
+                if (childNodes.length > 0) {
+                    for (let i = 0; i < childNodes.length; i++) {
+                        walk(childNodes[i]);
+                        if (startSet && endSet) {
+                            return;
+                        }
+                    }
+                }
+                else {
+                    pos += node.textContent.length;
+                }
+            }
+        }
+        walk(startNode || editor);
+        if (!startSet) {
+            let node = editor;
+            while (node && node.firstChild) {
+                node = node.firstChild;
+            }
+            range.setStart(node, 0);
+            // while (node && node.firstChild) {
+            // 	node = node.firstChild;
+            // }
+            // range.setStartBefore(node);
+            console.log("start fallback", node);
+        }
+        if (!endSet) {
+            let node = editor;
+            while (node && node.lastChild) {
+                node = node.lastChild;
+            }
+            range.setEnd(node, 0);
+            console.log("end fallback", node);
+        }
+        // const sel = window.getSelection()!;
+        // sel.removeAllRanges();
+        // sel.addRange(range);
+        return range;
+    }
+    function createTextRange2(startOffset, endOffset) {
         if (startOffset > endOffset) {
             [startOffset, endOffset] = [endOffset, startOffset];
         }
         const range = document.createRange();
         let startSet = false;
         let endSet = false;
-        if (container === editor) {
-            const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-            if (startOffset === 0 && endOffset === 0) {
-                const firstTextNode = walker.nextNode();
-                if (firstTextNode) {
-                    range.setStart(firstTextNode, 0);
-                    range.setEnd(firstTextNode, 0);
-                    console.log("found rects:", range.getClientRects());
-                    return range;
-                }
-                else {
-                    console.warn("no text node found");
-                    return null;
-                }
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+        if (startOffset === 0 && endOffset === 0) {
+            const firstChild = editor.firstChild;
+            if (firstChild) {
+                range.setStart(firstChild, 0);
+                return range;
             }
-            let currentNode;
-            let pos = 0;
-            while (!endSet && (currentNode = walker.nextNode())) {
-                if (!startSet && pos + currentNode.nodeValue.length >= startOffset) {
-                    range.setStart(currentNode, startOffset - pos);
-                    startSet = true;
-                }
-                if (!endSet && pos + currentNode.nodeValue.length >= endOffset) {
-                    range.setEnd(currentNode, endOffset - pos);
-                    endSet = true;
-                }
-                pos += currentNode.nodeValue.length;
+            const firstTextNode = walker.nextNode();
+            if (firstTextNode) {
+                range.setStart(firstTextNode, 0);
+                range.setEnd(firstTextNode, 0);
+                return range;
+            }
+            else {
+                return null;
             }
         }
-        else {
-            let startLineIndex = findLineIndexByPos(startOffset);
-            let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
-            let basePos = _lineHints[startLineIndex].pos;
-            if (basePos === startOffset) {
-                range.setStartBefore(_lineElements[startLineIndex]);
+        let currentNode;
+        let pos = 0;
+        while (!endSet && (currentNode = walker.nextNode())) {
+            if (!startSet && pos + currentNode.nodeValue.length >= startOffset) {
+                range.setStart(currentNode, startOffset - pos);
                 startSet = true;
             }
-            else {
-                let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null);
-                let pos = basePos;
-                let currentNode;
-                while ((currentNode = walker.nextNode())) {
-                    const nodeLen = currentNode.nodeValue.length;
-                    if (pos + nodeLen >= startOffset) {
-                        range.setStart(currentNode, startOffset - pos);
-                        startSet = true;
-                        break;
-                    }
-                    pos += nodeLen;
-                }
-                if (!startSet) {
-                    range.setStartAfter(_lineElements[startLineIndex]);
-                    startSet = true;
-                }
-            }
-            basePos = _lineHints[endLineIndex].pos;
-            if (basePos === endOffset) {
-                range.setEndBefore(_lineElements[endLineIndex]);
+            if (!endSet && pos + currentNode.nodeValue.length >= endOffset) {
+                range.setEnd(currentNode, endOffset - pos);
                 endSet = true;
             }
-            else {
-                let walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null);
-                let pos = basePos;
-                let currentNode;
-                while ((currentNode = walker.nextNode())) {
-                    const nodeLen = currentNode.nodeValue.length;
-                    if (pos + nodeLen >= endOffset) {
-                        range.setEnd(currentNode, endOffset - pos);
-                        endSet = true;
-                        break;
-                    }
-                    pos += nodeLen;
-                }
-                if (!endSet) {
-                    range.setEndAfter(_lineElements[endLineIndex]);
-                    endSet = true;
-                }
-            }
+            pos += currentNode.nodeValue.length;
         }
         if (startSet && endSet) {
             return range;
@@ -2659,31 +2762,39 @@ function createEditor(container, editorName, callbacks) {
     }
     function getTextRects(startOffset, endOffset) {
         const range = createTextRange(startOffset, endOffset);
+        let result = [];
         if (range) {
             let { x: baseX, y: baseY } = wrapper.getBoundingClientRect();
-            baseX = -baseX;
-            baseX = wrapper.scrollLeft;
-            baseY = wrapper.scrollTop;
-            const diffExpandX = 1;
-            const diffExpandY = 1;
-            console.log(editorName, "base", { baseX, baseY });
-            const rectsArr = [];
-            const heightMultiplier = 1.2;
+            baseX = -baseX + wrapper.scrollLeft;
+            baseY = -baseY + wrapper.scrollTop;
             const rects = range.getClientRects();
             for (const rect of rects) {
                 if (rect) {
-                    const newHeight = rect.height * heightMultiplier;
-                    const heightDelta = newHeight - rect.height;
-                    rect.x += baseX - diffExpandX;
-                    rect.y += baseY - heightDelta / 2 - diffExpandY;
-                    rect.width += diffExpandX * 2;
-                    rect.height = newHeight + diffExpandY * 2;
+                    rect.x += baseX;
+                    rect.y += baseY;
+                    result.push(rect);
                 }
-                rectsArr.push(rect);
             }
-            return mergeRects(rectsArr);
         }
-        return null;
+        if (result.length > 0) {
+            let firstNonZero = -1;
+            let lastNonZero = -1;
+            for (let i = 0; i < result.length; i++) {
+                if (result[i].width > 0) {
+                    if (firstNonZero === -1) {
+                        firstNonZero = i;
+                    }
+                    lastNonZero = i;
+                }
+            }
+            if (firstNonZero !== -1 && lastNonZero !== -1) {
+                result = result.slice(firstNonZero, lastNonZero + 1);
+            }
+            else if (result.length > 1) {
+                result.length = 1;
+            }
+        }
+        return result;
     }
     function calculateDiffRects() {
         const diffExpandX = 1;
@@ -2741,18 +2852,33 @@ function createEditor(container, editorName, callbacks) {
             }
         }
     }
+    function renderAll() {
+        _renderLayers[DIFF_LAYER].dirty = true;
+        _renderLayers[HIGHLIGHT_LAYER].dirty = true;
+        render();
+    }
     function render(imediate = false) {
         if (!imediate) {
-            if (_updateStaticCanvasPending) {
+            if (_renderPending) {
                 return;
             }
-            _updateStaticCanvasPending = true;
+            _renderPending = true;
             requestAnimationFrame(() => {
                 render(true);
-                _updateStaticCanvasPending = false;
+                _renderPending = false;
             });
             return;
         }
+        if (_renderLayers[DIFF_LAYER].dirty) {
+            renderDiffLayer();
+            _renderLayers[DIFF_LAYER].dirty = false;
+        }
+        if (_renderLayers[HIGHLIGHT_LAYER].dirty) {
+            renderHighlightLayer();
+            _renderLayers[HIGHLIGHT_LAYER].dirty = false;
+        }
+    }
+    function renderDiffLayer() {
         if (_diffRectsDirty) {
             calculateDiffRects();
             _diffRectsDirty = false;
@@ -2813,14 +2939,113 @@ function createEditor(container, editorName, callbacks) {
         if (visibilityChangeEntries.length > 0) {
             onDiffVisibilityChanged(visibilityChangeEntries);
         }
-        renderHighlights();
     }
-    function renderHighlights() {
+    // function doRenderRects(ctx: CanvasRenderingContext2D, rects: Rect[], fillColor: string, strokeColor?: string) {
+    // 	const scrollTop = wrapper.scrollTop;
+    // 	const scrollLeft = wrapper.scrollLeft;
+    // 	ctx.fillStyle = fillColor;
+    // 	if (strokeColor) {
+    // 		ctx.strokeStyle = strokeColor;
+    // 	}
+    // 	for (const rect of rects) {
+    // 		const x = Math.floor(rect.x - scrollLeft),
+    // 			y = Math.floor(rect.y - scrollTop),
+    // 			width = Math.ceil(rect.width),
+    // 			height = Math.ceil(rect.height);
+    // 		if (y + height < 0 || y > _canvasHeight) continue;
+    // 		if (x + width < 0 || x > _canvasWidth) continue;
+    // 		if (fillColor) {
+    // 			ctx.fillRect(x, y, width, height);
+    // 		}
+    // 		if (strokeColor) {
+    // 			ctx.strokeRect(x, y, width, height);
+    // 		}
+    // 	}
+    // }
+    // len이 0인 span이 들어있을 수 있다.
+    function getTextRanges(spans) {
+        const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+        let currentNode = walker.nextNode();
+        let pos = 0;
+        const result = new Array(spans.length);
+        function create(startOffset, endOffset) {
+            const range = document.createRange();
+            if (currentNode) {
+                let startSet = false;
+                do {
+                    const nodeText = currentNode.nodeValue;
+                    const nodeStart = pos;
+                    const nodeEnd = pos + nodeText.length;
+                    if (!startSet && startOffset >= nodeStart && startOffset < nodeEnd) {
+                        range.setStart(currentNode, startOffset - nodeStart);
+                        startSet = true;
+                    }
+                    if (startSet && endOffset <= nodeEnd) {
+                        range.setEnd(currentNode, endOffset - nodeStart);
+                        break;
+                    }
+                    pos = nodeEnd;
+                } while ((currentNode = walker.nextNode()));
+            }
+            return range;
+        }
+        for (let i = 0; i < spans.length; i++) {
+            const span = spans[i];
+            if (span.len > 0) {
+                const startOffset = span.pos;
+                const endOffset = span.pos + span.len;
+                const range = create(startOffset, endOffset);
+                if (range.startContainer === document || range.endContainer === document) {
+                    throw new Error("range is not valid");
+                }
+                result[i] = range;
+            }
+        }
+        for (let i = 0; i < spans.length; i++) {
+            if (!result[i]) {
+                const range = document.createRange();
+                if (i > 0) {
+                    range.setStart(range.endContainer, range.endOffset);
+                }
+                else {
+                    range.setStart(editor, 0);
+                }
+                range.setEnd(editor, editor.childNodes.length);
+            }
+        }
+        return result;
+    }
+    function renderHighlightLayer() {
         const ctx = highlightCanvasCtx;
-        const canvasWidth = highlightCanvas.width, canvasHeight = highlightCanvas.height;
+        const canvasWidth = _canvasWidth, canvasHeight = _canvasHeight;
         ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         const scrollTop = wrapper.scrollTop;
         const scrollLeft = wrapper.scrollLeft;
+        if (_textSelectionHighlight) {
+            let item = _textSelectionHighlight.renderItem;
+            if (!item) {
+                const rects = getTextRects(_textSelectionHighlight.startOffset, _textSelectionHighlight.endOffset);
+                const merged = mergeRects(rects);
+                item = _textSelectionHighlight.renderItem = {
+                    rects: merged.rects,
+                    minX: merged.minX,
+                    minY: merged.minY,
+                    maxX: merged.maxX,
+                    maxY: merged.maxY,
+                };
+            }
+            if (isRectVisible(item.minY, item.maxY, item.minX, item.maxX, scrollTop, scrollLeft, canvasWidth, canvasHeight)) {
+                ctx.fillStyle = TEXT_SELECTION_HIGHLIGHT_FILL_STYLE;
+                for (const rect of item.rects) {
+                    const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                    if (y + height < 0 || y > _canvasHeight)
+                        continue;
+                    if (x + width < 0 || x > _canvasWidth)
+                        continue;
+                    ctx.fillRect(x, y, width, height);
+                }
+            }
+        }
         function doRender(items) {
             for (const item of items) {
                 const x = Math.floor(item.x - scrollLeft), y = Math.floor(item.y - scrollTop), width = Math.ceil(item.w), height = Math.ceil(item.h);
@@ -2847,18 +3072,20 @@ function createEditor(container, editorName, callbacks) {
             doRender(_diffHighlightItems);
             ctx.restore();
         }
-        if (_textHighlightItems && _textHighlightItems.length > 0) {
-            doRender(_textHighlightItems);
-            for (const item of _textHighlightItems) {
-                const x = Math.floor(item.x - scrollLeft), y = Math.floor(item.y - scrollTop), width = Math.ceil(item.w), height = Math.ceil(item.h);
-                if (y + height < 0 || y > canvasHeight)
-                    continue;
-                if (x + width < 0 || x > canvasWidth)
-                    continue;
-                ctx.fillStyle = item.fillStyle || "hsl(210 100% 80%)";
-                ctx.fillRect(x, y, width, height);
-            }
-        }
+        // if (_textHighlightItems && _textHighlightItems.length > 0) {
+        // 	doRender(_textHighlightItems);
+        // 	// for (const item of _textHighlightItems) {
+        // 	// 	const x = Math.floor(item.x - scrollLeft),
+        // 	// 		y = Math.floor(item.y - scrollTop),
+        // 	// 		width = Math.ceil(item.w),
+        // 	// 		height = Math.ceil(item.h);
+        // 	// 	if (y + height < 0 || y > canvasHeight) continue;
+        // 	// 	if (x + width < 0 || x > canvasWidth) continue;
+        // 	// 	ctx.fillStyle = item.fillStyle || "hsl(210 100% 80%)";
+        // 	// 	ctx.fillRect(x, y, width, height);
+        // 	// 	console.log("highlight", { x, y, width, height });
+        // 	// }
+        // }
     }
     function sliceText(startOffset, endOffset) {
         if (startOffset > endOffset) {
@@ -2890,6 +3117,9 @@ function createEditor(container, editorName, callbacks) {
         return result;
     }
     function update(ctx) {
+        if (!ctx.done) {
+            return;
+        }
         const started = performance.now();
         _diffRanges.length = 0;
         _diffRects.length = 0;
@@ -2901,8 +3131,7 @@ function createEditor(container, editorName, callbacks) {
         const diffs = ctx.diffs;
         let currentNode = editor.firstChild;
         function advance(skipChildren = false) {
-            if (!currentNode) {
-                currentNode = null;
+            if (!currentNode || currentNode === editor) {
                 return false;
             }
             if (!skipChildren && currentNode.firstChild) {
@@ -2931,7 +3160,6 @@ function createEditor(container, editorName, callbacks) {
                     const nodeStart = pos;
                     let nodeEnd = nodeStart + text.length;
                     if (diffEndPos < nodeStart) {
-                        console.log(1, editorName, "diffEndPos < nodeStart", { diffEndPos, nodeStart });
                         break;
                     }
                     if (diffPos <= nodeEnd) {
@@ -2944,7 +3172,7 @@ function createEditor(container, editorName, callbacks) {
                     }
                     if (diffEndPos < nodeEnd) {
                         // done this diff
-                        console.log(2, editorName, "diffEndPos <= nodeEnd", { diffEndPos, nodeEnd });
+                        // console.log(2, editorName, "diffEndPos <= nodeEnd", { diffEndPos, nodeEnd });
                         break;
                     }
                     pos = nodeEnd;
@@ -2955,7 +3183,7 @@ function createEditor(container, editorName, callbacks) {
                     const nodeEnd = Number(currentNode.dataset.endOffset);
                     if (!isNaN(nodeStart) && !isNaN(nodeEnd)) {
                         if (nodeStart >= diffPos && nodeEnd <= diffEndPos) {
-                            console.log(3, editorName, "nodeStart, nodeEnd", { currentNode, nodeStart, nodeEnd });
+                            // console.log(3, editorName, "nodeStart, nodeEnd", { currentNode, nodeStart, nodeEnd });
                             if (currentNode.nodeName === "P" || INLINE_ELEMENTS[currentNode.nodeName]) {
                                 const range = document.createRange();
                                 range.selectNodeContents(currentNode);
@@ -2970,14 +3198,14 @@ function createEditor(container, editorName, callbacks) {
                             }
                         }
                         if (diffPos > nodeEnd) {
-                            console.log(4, editorName, "diffPos >= nodeEnd", { diffPos, nodeEnd });
+                            // console.log(4, editorName, "diffPos >= nodeEnd", { diffPos, nodeEnd });
                             pos = nodeEnd;
                             advance(true);
                             continue;
                         }
                     }
                     // console.log(editorName, "children", Array.from(currentNode.childNodes));
-                    console.log(5, editorName, "advance", { currentNode });
+                    // console.log(5, editorName, "advance", { currentNode });
                     advance();
                     continue;
                 }
@@ -3002,36 +3230,30 @@ function createEditor(container, editorName, callbacks) {
         const end = performance.now();
         console.log(editorName, "update", end - started);
         _diffRectsDirty = true;
+        renderAll();
+    }
+    function setLayerDirty(layerIndex) {
+        _renderLayers[layerIndex].dirty = true;
         render();
     }
-    let _highlightedTextStart = null;
-    let _highlightedTextEnd = null;
-    function applyTextHighlight(startOffset, endOffset) {
-        if (startOffset === _highlightedTextStart && endOffset === _highlightedTextEnd) {
+    function applyTextSelectionHighlight(startOffset, endOffset) {
+        if (_textSelectionHighlight?.startOffset === startOffset && _textSelectionHighlight?.endOffset === endOffset) {
             return;
         }
-        _highlightedTextStart = startOffset;
-        _highlightedTextEnd = endOffset;
-        const rectSet = getTextRects(startOffset, endOffset);
-        if (rectSet && rectSet.rects.length > 0) {
-            _textHighlightItems = rectSet.rects.map((rect) => {
-                return {
-                    x: rect.x,
-                    y: rect.y,
-                    w: rect.width,
-                    h: rect.height,
-                    fillStyle: "hsl(210 100% 80%)",
-                    type: "texthighlight",
-                };
-            });
-        }
-        renderHighlights();
+        _textSelectionHighlight = {
+            startOffset,
+            endOffset,
+        };
+        // let { x: baseX, y: baseY } = wrapper.getBoundingClientRect();
+        // baseX = -baseX;
+        // baseX += wrapper.scrollLeft;
+        // baseY += wrapper.scrollTop;
+        setLayerDirty(HIGHLIGHT_LAYER);
+        renderHighlightLayer();
     }
-    function clearTextHighlight() {
-        _highlightedTextStart = null;
-        _highlightedTextEnd = null;
-        _textHighlightItems = null;
-        renderHighlights();
+    function clearTextSelectionHighlight() {
+        _textSelectionHighlight = null;
+        renderHighlightLayer();
     }
     let _highlightedDiffIndex = null;
     function applyDiffHighlight(diffIndex) {
@@ -3052,14 +3274,328 @@ function createEditor(container, editorName, callbacks) {
                 };
             });
         }
-        renderHighlights();
+        renderHighlightLayer();
     }
     function clearDiffHighlight() {
         _highlightedDiffIndex = null;
         _diffHighlightItems = null;
-        renderHighlights();
+        renderHighlightLayer();
     }
+    // temp
+    setTimeout(onChange, 0);
+    // 앵커를 어떤식으로 추가할지
+    // 1. classList에 넣고 anchor:before
+    // 2. <a> 태그를 넣는다
+    function insertAnchorBefore(tokenIndex) {
+        const token = _tokens[tokenIndex];
+        const range = _ranges[tokenIndex];
+        // console.log("insertAnchorBefore", tokenIndex, token, range);
+        let el = null;
+        // if (token.flags & TABLE_START) {
+        // 	// console.log("insertAnchorBefore: TABLE_START", tokenIndex, token);
+        // 	el = (range.startContainer.parentNode as HTMLElement).closest("table");
+        // }
+        if (!el) {
+            el = range.startContainer;
+            if (el.nodeType === 3) {
+                //console.assert(range.startOffset === 0);
+            }
+            else if (el.nodeType === 1) {
+                console.assert(range.startOffset < range.startContainer.childNodes.length);
+                el = el.childNodes[range.startOffset];
+            }
+        }
+        if (!el)
+            return null;
+        if (el.previousSibling && el.previousSibling.nodeName === "A") {
+            return el.previousSibling;
+        }
+        const anchorEl = document.createElement("A");
+        anchorEl.classList.add("anchor");
+        el.parentNode.insertBefore(anchorEl, el);
+        // (el as HTMLElement).dataset.anchor = String(_anchorElements.length);
+        // (el as HTMLElement).classList.add("anchor");
+        // _anchorElements.push(el as HTMLElement);
+        return anchorEl;
+    }
+    function insertAnchorAfter(tokenIndex) {
+        const token = _tokens[tokenIndex];
+        if (!token) {
+            return null;
+        }
+        const range = _ranges[tokenIndex];
+        // console.log("insertAnchorAfter", tokenIndex, token, range);
+        let el = null;
+        // if (token.flags & TABLE_START) {
+        // 	// console.log("insertAnchorAfter: TABLE_START", tokenIndex, token);
+        // 	el = (range.startContainer.parentNode as HTMLElement).closest("table");
+        // }
+        console.log("insertAnchorAfter", tokenIndex, token, range);
+        let parent;
+        let before = null;
+        if (range.endContainer.nodeType === 3) {
+            parent = range.endContainer.parentNode;
+            before = range.endContainer.nextSibling;
+        }
+        else if (range.endContainer.nodeType === 1) {
+            parent = range.endContainer;
+            before = range.endContainer.childNodes[range.endOffset]?.nextSibling || null;
+        }
+        else {
+            console.warn("Unexpected node type in range.endContainer", range.endContainer);
+            return null;
+        }
+        if (before && before.nodeName === "A") {
+            return before;
+        }
+        const anchorEl = document.createElement("A");
+        anchorEl.classList.add("anchor");
+        parent.insertBefore(anchorEl, before);
+        return anchorEl;
+    }
+    function findAnchorTargetElement(tokenIndex) {
+        const token = _tokens[tokenIndex];
+        const range = _ranges[tokenIndex];
+        // let parent: HTMLElement | null = null;
+        // let childIndex = 0;
+        // if (token.flags & TABLE_START) {
+        // 	[parent, childIndex] = findClosestTable(range.startContainer);
+        // }
+        let el = range.startContainer;
+        // 찾을 수 있는 가장 상위 요소를 찾는데
+        // 1. TEXT_FLOW_CONTAINER의 자식이면서
+        while (!BLOCK_ELEMENTS[el.nodeName]) {
+            el = el.parentNode;
+            if (!el || el === editor) {
+                console.warn("couldn't find appropriate element for anchor");
+                return null;
+            }
+        }
+        // (el as HTMLElement).dataset.anchor = String(_anchorElements.length);
+        // (el as HTMLElement).classList.add("anchor");
+        // _anchorElements.push(el as HTMLElement);
+        return el;
+    }
+    const { tokenize } = (function () {
+        const TIMEOUT = 200;
+        let _contextId = 0;
+        let _callbackId = null;
+        let _startTime = 0;
+        function* tokenizeGenerator(ctx) {
+            let idleDeadline = yield;
+            let nodeCounter = 0;
+            // console.log("BEFORE!", editorName, "tokenize", editor.textContent);
+            const startTime = performance.now();
+            let textPos = 0;
+            let tokenIndex = 0;
+            let currentToken = null;
+            let currentRange = null;
+            // function processToken(str: string, start: number, length: number) {
+            // 	if (currentToken) {
+            // 		currentToken.text += str;
+            // 		currentToken.len = textPos - currentToken.pos;
+            // 	} else {
+            // 		currentToken = {
+            // 			text: str,
+            // 			pos: start,
+            // 			len: length,
+            // 			flags: 0,
+            // 			lineNum: 0,
+            // 		};
+            // 	}
+            // }
+            function processToken2(text, startOffset, endOffset) {
+                if (currentToken) {
+                    currentToken.text += text.nodeValue.slice(startOffset, endOffset);
+                    currentToken.len += endOffset - startOffset;
+                    currentRange.setEnd(text, endOffset);
+                }
+                else {
+                    currentToken = {
+                        text: text.nodeValue.slice(startOffset, endOffset),
+                        pos: textPos + startOffset,
+                        len: endOffset - startOffset,
+                        flags: 0,
+                        lineNum: 0,
+                    };
+                    currentRange = document.createRange();
+                    currentRange.setStart(text, startOffset);
+                    currentRange.setEnd(text, endOffset);
+                }
+            }
+            function finalizeToken(flags = 0) {
+                if (currentToken) {
+                    currentToken.flags |= flags;
+                    _tokens[tokenIndex] = currentToken;
+                    _ranges[tokenIndex] = currentRange;
+                    currentToken = null;
+                    tokenIndex++;
+                    return 1;
+                }
+                return 0;
+            }
+            function* traverse(node) {
+                if (ctx.id !== _contextId) {
+                    throw new Error("cancelled");
+                }
+                if ((++nodeCounter & 31) === 0) {
+                    if (idleDeadline.timeRemaining() < 1) {
+                        idleDeadline = yield;
+                    }
+                }
+                let currentStart = -1;
+                if (node.nodeType === 3) {
+                    const text = node.nodeValue;
+                    if (text.length === 0)
+                        return;
+                    for (let i = 0; i < text.length; i++) {
+                        const char = text[i];
+                        if (spaceChars[char]) {
+                            if (currentStart >= 0) {
+                                processToken2(node, currentStart, i);
+                                currentStart = -1;
+                            }
+                            finalizeToken();
+                        }
+                        else {
+                            if (currentStart < 0) {
+                                currentStart = i;
+                            }
+                        }
+                    }
+                    if (currentStart >= 0) {
+                        processToken2(node, currentStart, text.length);
+                    }
+                    textPos += text.length;
+                }
+                else if (node.nodeType === 1) {
+                    if (node.nodeName === "BR") {
+                        finalizeToken(LINE_END);
+                        return;
+                    }
+                    if (node.className === "img") {
+                        finalizeToken();
+                        currentToken = {
+                            text: node.dataset.src || node.src || "🖼️",
+                            pos: textPos,
+                            len: node.textContent.length,
+                            lineNum: 0,
+                            flags: IMAGE | NO_JOIN,
+                        };
+                        currentRange = document.createRange();
+                        currentRange.setStart(node, 0);
+                        currentRange.setEnd(node, node.childNodes.length);
+                        finalizeToken();
+                        textPos += node.textContent.length; // 아마도 0이겠지
+                        return;
+                    }
+                    node.dataset.startOffset = String(textPos);
+                    if (TEXT_FLOW_CONTAINERS[node.nodeName]) {
+                        finalizeToken(CONTAINER_END | LINE_END);
+                    }
+                    const isTextFlowContainer = TEXT_FLOW_CONTAINERS[node.nodeName];
+                    const numTokensBefore = tokenIndex;
+                    for (const child of node.childNodes) {
+                        yield* traverse(child);
+                    }
+                    if (BLOCK_ELEMENTS[node.nodeName]) {
+                        finalizeToken();
+                    }
+                    const firstToken = _tokens[numTokensBefore];
+                    const lastToken = _tokens[tokenIndex - 1];
+                    if (isTextFlowContainer) {
+                        if (firstToken) {
+                            firstToken.flags |= CONTAINER_START | LINE_START;
+                        }
+                        if (lastToken) {
+                            lastToken.flags |= CONTAINER_END | LINE_END;
+                        }
+                    }
+                    if (node.nodeName === "P") {
+                        if (firstToken) {
+                            firstToken.flags |= LINE_START;
+                        }
+                        if (lastToken) {
+                            lastToken.flags |= LINE_END;
+                        }
+                    }
+                    if (node.nodeName === "TR") {
+                        if (firstToken) {
+                            firstToken.flags |= TABLEROW_START;
+                        }
+                        if (lastToken) {
+                            lastToken.flags |= TABLEROW_END;
+                        }
+                    }
+                    if (node.nodeName === "TD" || node.nodeName === "TH") {
+                        if (firstToken) {
+                            firstToken.flags |= TABLECELL_START;
+                        }
+                        if (lastToken) {
+                            lastToken.flags |= TABLECELL_END;
+                        }
+                    }
+                    if (node.nodeName === "TABLE") {
+                        if (firstToken) {
+                            firstToken.flags |= TABLE_START;
+                        }
+                        if (lastToken) {
+                            lastToken.flags |= TABLE_END;
+                        }
+                    }
+                    node.dataset.endOffset = String(textPos);
+                    // currentContainer = containerStack.pop()!;
+                }
+            }
+            yield* traverse(editor);
+            finalizeToken();
+            _tokens.length = tokenIndex;
+            _ranges.length = tokenIndex;
+            const endTime = performance.now();
+            console.log(editorName, "tokenize", Math.ceil(endTime - startTime) + "ms", { _tokens, _ranges });
+        }
+        function tokenize() {
+            _startTime = performance.now();
+            const ctx = {
+                id: ++_contextId,
+            };
+            const generator = tokenizeGenerator(ctx);
+            const step = (idleDeadline) => {
+                _callbackId = null;
+                try {
+                    const { done } = generator.next(idleDeadline);
+                    if (done) {
+                        const endTime = performance.now();
+                        console.log(editorName, "tokenize done", Math.ceil(endTime - _startTime) + "ms", { _tokens, _ranges });
+                        onTokenizeDone();
+                    }
+                    else {
+                        if (ctx.id === _contextId) {
+                            _callbackId = requestIdleCallback(step, { timeout: TIMEOUT });
+                        }
+                        else {
+                            console.log(editorName, "tokenize cancelled");
+                        }
+                    }
+                }
+                catch (e) {
+                    if (e.message === "cancelled") {
+                        console.log(editorName, "tokenize cancelled");
+                    }
+                    else {
+                        console.error(editorName, "tokenize error", e);
+                    }
+                }
+            };
+            _callbackId = requestIdleCallback(step, { timeout: TIMEOUT });
+        }
+        return { tokenize };
+    })();
     return {
+        insertAnchorBefore,
+        insertAnchorAfter,
+        findAnchorTargetElement,
+        createTextRange2,
         update,
         sliceText,
         name: editorName,
@@ -3081,10 +3617,11 @@ function createEditor(container, editorName, callbacks) {
         selectTextRange,
         createTextRange,
         getTextRects,
-        applyTextHighlight,
-        clearTextHighlight,
+        applyTextHighlight: applyTextSelectionHighlight,
+        clearTextHighlight: clearTextSelectionHighlight,
         applyDiffHighlight,
         clearDiffHighlight,
+        getRangeForToken,
         // 그냥 states 객체를 하나 만들어서 리턴할까...
         // get text() {
         // 	return _text;
@@ -3104,9 +3641,323 @@ function createEditor(container, editorName, callbacks) {
         get visibleDiffIndices() {
             return _visibleDiffIndices;
         },
+        get tokens() {
+            return _tokens;
+        },
+        get ranges() {
+            return _ranges;
+        },
     };
+    function getRangeForToken(index, count = 1) {
+        const ranges = _ranges;
+        const range = document.createRange();
+        if (count === 1) {
+            return ranges[index];
+        }
+        if (count > 1) {
+            range.setStart(ranges[index].startContainer, ranges[index].startOffset);
+            range.setEnd(ranges[index + count - 1].endContainer, ranges[index + count - 1].endOffset);
+            return range;
+        }
+        if (index > 0) {
+            const prevRange = ranges[index - 1];
+            range.setStart(prevRange.endContainer, prevRange.endOffset);
+        }
+        else {
+            range.setStart(editor, 0);
+        }
+        if (index < ranges.length) {
+            const nextRange = ranges[index];
+            console.log("next range", nextRange);
+            range.setEnd(nextRange.startContainer, nextRange.startOffset);
+        }
+        else {
+            range.setEnd(editor, editor.childNodes.length);
+        }
+        return range;
+    }
 }
 //# sourceMappingURL=editor.js.map
+</script>
+<script>"use strict";
+function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
+    // diff index to rect array(하나의 diff가 여러개의 rect를 가질 수 있음)
+    const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
+    const DIFF_LINE_EXPAND_Y = 4;
+    const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
+    const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged || (() => { });
+    const _leftRegion = {
+        editor: _leftEditor,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        scrollTop: 0,
+        scrollLeft: 0,
+        dirtyFlags: 0,
+        diffRanges: null,
+        diffRenderItems: null,
+        diffLineRects: null,
+        visibleDiffIndices: new Set(),
+    };
+    const _rightRegion = {
+        editor: _rightEditor,
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+        scrollTop: 0,
+        scrollLeft: 0,
+        dirtyFlags: 0,
+        diffRanges: null,
+        diffRenderItems: null,
+        diffLineRects: null,
+        visibleDiffIndices: new Set(),
+    };
+    let _canvasX = 0;
+    let _canvasY = 0;
+    let _canvasWidth = 0;
+    let _canvasHeight = 0;
+    let _textHighlights = null;
+    let _renderPending = false;
+    const diffCanvas = document.createElement("canvas");
+    const diffCanvasCtx = diffCanvas.getContext("2d");
+    _container.appendChild(diffCanvas);
+    const highlightCanvas = document.createElement("canvas");
+    const highlightCanvasCtx = highlightCanvas.getContext("2d");
+    _container.appendChild(highlightCanvas);
+    const resizeObserver = new ResizeObserver((entries) => {
+        updateLayout();
+        render();
+    });
+    resizeObserver.observe(_container);
+    resizeObserver.observe(_leftEditor.wrapper);
+    resizeObserver.observe(_rightEditor.wrapper);
+    function onEditorScroll(e) {
+        const editor = e.target === _leftEditor.wrapper ? _leftEditor : _rightEditor;
+        const editorName = editor.name;
+        const scrollTop = editor.wrapper.scrollTop;
+        const scrollLeft = editor.wrapper.scrollLeft;
+        const region = editorName === "left" ? _leftRegion : _rightRegion;
+        if (region.scrollTop !== scrollTop || region.scrollLeft !== scrollLeft) {
+            region.scrollTop = scrollTop;
+            region.scrollLeft = scrollLeft;
+            region.dirtyFlags |= 3 /* RenderFlags.ALL */;
+            render();
+        }
+    }
+    _leftEditor.wrapper.addEventListener("scroll", onEditorScroll);
+    _rightEditor.wrapper.addEventListener("scroll", onEditorScroll);
+    function updateLayout() {
+        const { x, y, width, height } = _container.getBoundingClientRect();
+        if (_canvasWidth === width && _canvasHeight === height && _canvasX === x && _canvasY === y) {
+            return;
+        }
+        _canvasX = x;
+        _canvasY = y;
+        _canvasWidth = width;
+        _canvasHeight = height;
+        diffCanvas.width = width;
+        diffCanvas.height = height;
+        highlightCanvas.width = width;
+        highlightCanvas.height = height;
+        for (const editor of [_leftEditor, _rightEditor]) {
+            const editorName = editor.name;
+            const region = editorName === "left" ? _leftRegion : _rightRegion;
+            const { x, y, width, height } = editor.wrapper.getBoundingClientRect();
+            region.x = x - _canvasX;
+            region.y = y - _canvasY;
+            region.width = width;
+            region.height = height;
+            region.scrollTop = editor.wrapper.scrollTop;
+            region.scrollLeft = editor.wrapper.scrollLeft;
+            region.diffRenderItems = null;
+            region.dirtyFlags |= 3 /* RenderFlags.ALL */;
+        }
+        render();
+    }
+    function setTextHighlight(region, ranges) { }
+    function setDiffRanges(editor, ranges) {
+        const region = editor === "left" ? _leftRegion : _rightRegion;
+        region.diffRanges = ranges;
+        region.diffRenderItems = null;
+        region.dirtyFlags |= 1 /* RenderFlags.DIFF */;
+        render();
+    }
+    let _renderCounter = 0;
+    function render() {
+        if (_renderPending) {
+            return;
+        }
+        _renderPending = true;
+        requestAnimationFrame(() => {
+            ++_renderCounter;
+            if (_leftRegion.dirtyFlags !== 0) {
+                renderEditorRegion("left");
+                _leftRegion.dirtyFlags = 0;
+            }
+            if (_rightRegion.dirtyFlags !== 0) {
+                renderEditorRegion("right");
+                _rightRegion.dirtyFlags = 0;
+            }
+            _renderPending = false;
+        });
+    }
+    function renderEditorRegion(editorName) {
+        const region = editorName === "left" ? _leftRegion : _rightRegion;
+        if (region.dirtyFlags & 1 /* RenderFlags.DIFF */) {
+            const ctx = diffCanvasCtx;
+            const { scrollLeft, scrollTop } = region;
+            ctx.clearRect(region.x, region.y, region.width, region.height);
+            let visibleDiffIndices = region.visibleDiffIndices;
+            let renderItems = region.diffRenderItems;
+            if (!renderItems) {
+                buildDiffRenderItems(region);
+                console.log("buildDiffRenderItems!!:", region);
+                renderItems = region.diffRenderItems;
+            }
+            // render diff lines
+            ctx.fillStyle = DIFF_LINE_FILL_STYLE;
+            console.log("diffLineRects:", region.diffLineRects);
+            for (const rect of region.diffLineRects) {
+                const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                if (y + height < 0 || y > _canvasHeight)
+                    continue;
+                if (x + width < 0 || x > _canvasWidth)
+                    continue;
+                ctx.fillRect(x, y, width, height);
+            }
+            let shown = [];
+            let hidden = [];
+            for (let diffIndex = 0; diffIndex < renderItems.length; ++diffIndex) {
+                const item = renderItems[diffIndex];
+                if (!item) {
+                    continue;
+                }
+                item.renderedRect.length = 0;
+                let isVisible = !(item.maxY - scrollTop < 0 || item.minY - scrollTop > _canvasHeight) &&
+                    !(item.maxX - scrollLeft < 0 || item.minX - scrollLeft > _canvasWidth);
+                if (isVisible) {
+                    if (!visibleDiffIndices.has(diffIndex)) {
+                        visibleDiffIndices.add(diffIndex);
+                        shown.push(diffIndex);
+                    }
+                }
+                else {
+                    if (visibleDiffIndices.has(diffIndex)) {
+                        visibleDiffIndices.delete(diffIndex);
+                        hidden.push(diffIndex);
+                    }
+                    continue;
+                }
+                ctx.fillStyle = item.fill;
+                ctx.strokeStyle = item.stroke;
+                for (const rect of item.rects) {
+                    const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                    if (y + height < 0 || y > _canvasHeight)
+                        continue;
+                    if (x + width < 0 || x > _canvasWidth)
+                        continue;
+                    ctx.fillRect(x, y, width, height);
+                    ctx.strokeRect(x, y, width, height);
+                    item.renderedRect.push(rect);
+                }
+            }
+            if (shown.length > 0 || hidden.length > 0) {
+                onDiffVisibilityChanged(editorName, shown, hidden);
+            }
+        }
+    }
+    function buildDiffRenderItems(region) {
+        const rangesMap = region.diffRanges;
+        if (!rangesMap || rangesMap.length === 0) {
+            region.diffRenderItems = [];
+            region.diffLineRects = [];
+            return [];
+        }
+        const expandX = 1;
+        const expandY = 0;
+        const { left: canvasLeft, right: canvasRight } = diffCanvas.getBoundingClientRect();
+        const { x: regionX, y: regionY, width: regionWidth, height: regionHeight, scrollLeft, scrollTop } = region;
+        const offsetX = scrollLeft;
+        const offsetY = scrollTop;
+        const result = new Array(rangesMap.length);
+        const allRects = [];
+        for (let diffIndex = 0; diffIndex < rangesMap.length; ++diffIndex) {
+            const ranges = rangesMap[diffIndex];
+            const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
+            const rawRects = [];
+            for (const range of ranges) {
+                const clientRects = range.getClientRects();
+                for (let i = 0; i < clientRects.length; ++i) {
+                    const rect = {
+                        x: clientRects[i].x + offsetX - expandX,
+                        y: clientRects[i].y + offsetY - expandY,
+                        width: clientRects[i].width + expandX * 2,
+                        height: clientRects[i].height + expandY * 2,
+                    };
+                    rawRects.push(rect);
+                    allRects.push(rect);
+                }
+            }
+            const merged = mergeRects(rawRects);
+            result[diffIndex] = {
+                diffIndex,
+                editor: region.editor.name,
+                minX: merged.minX,
+                minY: merged.minY,
+                maxX: merged.maxX,
+                maxY: merged.maxY,
+                rects: merged.rects,
+                fill: `hsl(${hue} 100% 80%)`,
+                stroke: `hsl(${hue} 100% 40% / 0.5)`,
+                renderedRect: [],
+            };
+        }
+        region.diffRenderItems = result;
+        buildDiffLineRects(region, allRects);
+        return result;
+    }
+    function buildDiffLineRects(region, diffRects) {
+        diffRects.sort((a, b) => a.y - b.y);
+        const result = [];
+        let lineRect = null;
+        for (const rect of diffRects) {
+            const y = rect.y - DIFF_LINE_EXPAND_Y;
+            const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER + DIFF_LINE_EXPAND_Y * 2;
+            //const height = rect.height + lineExpand * 2;
+            if (lineRect === null || y > lineRect.y + lineRect.height) {
+                lineRect = {
+                    x: region.x,
+                    y: y,
+                    width: region.width,
+                    height: height,
+                };
+                result.push(lineRect);
+            }
+            else {
+                lineRect.height = y + height - lineRect.y;
+            }
+        }
+        region.diffLineRects = result;
+        console.log("diffLineRects:", result);
+    }
+    updateLayout();
+    function markDirty(editor, flags) {
+        const region = editor === "left" ? _leftRegion : _rightRegion;
+        region.dirtyFlags |= flags;
+        if (region.dirtyFlags & 1 /* RenderFlags.DIFF */) {
+            region.diffRenderItems = null;
+        }
+        render();
+    }
+    return {
+        updateLayout,
+        setDiffRanges,
+        markDirty,
+    };
+}
+//# sourceMappingURL=renderer.js.map
 </script>
 <script id="worker.js" type="text/plain">"use strict";
 const LINE_START = 1;
@@ -3460,6 +4311,8 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
     const diffOptions = ctx.options;
     const LENGTH_BIAS_FACTOR = diffOptions.lengthBiasFactor || 0.7; // 길이가 너무 크게 영향을 주는 경향이 있어서 이걸로 조절
     const UNIQUE_BONUS = 1 / (diffOptions.uniqueMultiplier || 1 / 0.5);
+    const CONTAINER_START_BONUS = 1 / (diffOptions.containerStartMultiplier || 1 / 0.85);
+    const CONTAINER_END_BONUS = 1 / (diffOptions.containerEndMultiplier || 1 / 0.8);
     const LINE_START_BONUS = 1 / (diffOptions.lineStartMultiplier || 1 / 0.85);
     const LINE_END_BONUS = 1 / (diffOptions.lineEndMultiplier || 1 / 0.9);
     const SECTION_HEADING_BONUS = 1 / (diffOptions.sectionHeadingMultiplier || 1 / 0.75);
@@ -3575,23 +4428,27 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
                 if (frequency === 1) {
                     score *= UNIQUE_BONUS;
                 }
-                if (lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
-                    // if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LAST_OF_LINE) {
-                    // 	score *= FULL_LINE_BONUS;
-                    // } else {
-                    // }
-                    score *= LINE_START_BONUS;
+                let boundaryBonus = 1;
+                if (boundaryBonus > CONTAINER_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & CONTAINER_START) {
+                    boundaryBonus = CONTAINER_START_BONUS;
                 }
-                else if (lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
-                    score *= LINE_END_BONUS;
+                if (boundaryBonus > CONTAINER_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & CONTAINER_END) {
+                    boundaryBonus = CONTAINER_END_BONUS;
                 }
-                if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
-                    // if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
-                    // 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
-                    // } else {
-                    // }
-                    score *= SECTION_HEADING_BONUS;
+                if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
+                    boundaryBonus = LINE_START_BONUS;
                 }
+                if (boundaryBonus > LINE_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
+                    boundaryBonus = LINE_END_BONUS;
+                }
+                score *= boundaryBonus;
+                // if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
+                // 	// if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
+                // 	// 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
+                // 	// } else {
+                // 	// }
+                // 	score *= SECTION_HEADING_BONUS;
+                // }
                 if (!best || score < best.score) {
                     best = {
                         lhsIndex: i,
@@ -3895,7 +4752,9 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
 	--status-bar-height: 22px;
 	font-size: 16px;
 	--container-gap: 8px;
-	--sidebar-width: 250px;
+	--sidebar-width: 200px;
+	--text-container-padding-block: 4px;
+	--text-container-padding-inline: 4px;
 }
 
 * {
@@ -3910,7 +4769,7 @@ html {
 	width: 100vw;
 	overflow: hidden;
 	scroll-padding-top: 1rem;
-	font-family: "돋음"; /*monospace가 필요할 때 '돋음체'를 사용할 수 있기 때문!*/
+	font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
 	/* font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; */
 }
 
@@ -3985,7 +4844,7 @@ html {
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	font-family: "돋움체", monospace;
+	/* font-family: "돋움체", monospace; */
 	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
@@ -3997,32 +4856,6 @@ html {
 	outline: none;
 	padding: var(--editor-padding);
 	/* scroll-margin: var(--scroll-margin); */
-}
-
-.has-html .mirror,
-.has-html .editor {
-	white-space: normal;
-	word-break: normal;
-	overflow-wrap: normal;
-	overflow-y: scroll;
-}
-
-.has-html table {
-	border-spacing: 0;
-	border-collapse: collapse;
-	width: 100%;
-}
-
-.has-html td,
-.has-html th {
-	border: 1px solid #000;
-	border-collapse: collapse;
-	padding: 0.25rem;
-	vertical-align: top;
-}
-
-.has-html img {
-	border: 2px solid transparent;
 }
 
 .mirror div,
@@ -4044,7 +4877,7 @@ html {
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
 	z-index: -1;
-	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
 .editor-wrapper canvas {
@@ -4054,13 +4887,13 @@ html {
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
 	z-index: -2;
-	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
 .editor-wrapper canvas.highlight {
 	z-index: -1;
+	opacity: 0.3;
 }
-
 
 .editor-wrapper:focus-within .editor {
 	color: #000;
@@ -4570,8 +5403,19 @@ body.aligned {
 .editor td {
 	vertical-align: top;
 	border: 1px solid #000;
-	padding: 2px 4px;
+	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
 	user-select: none;
+}
+
+.editor div,
+.editor section,
+.editor header,
+.editor footer,
+.editor article,
+.editor aside,
+.editor nav,
+.editor main {
+	/* padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px); */
 }
 
 .editor p:empty::before {
@@ -4583,9 +5427,44 @@ body.aligned {
 	font-weight: bold;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-size: inherit;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-size: inherit;
 }
+
+.padtop:before {
+	content: "";
+	display: block;
+	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+	height: var(--padding);
+}
+
+.bottom-padding {
+	display: block;
+	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+}
+
+.editor {
+	min-height: max(100%, var(--min-height, 100%));
+}
+
+.editor::after {
+	content: "";
+	display: block;
+	height: var(--bottom-padding, 0px);
+
+	background: red repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+}
+
+.editor a {
+	pointer-events: none;
+	user-select: none;
+}
+
 </style>
 </head>
 
@@ -4642,7 +5521,14 @@ const DiffSeek = (function () {
     let _copyMode = "raw";
     let _lastNonRawCopyMode = "compare";
     let _diffListItemElements = [];
-    let _selectionHighlight = null;
+    let _aligned = true;
+    const _anchors = [];
+    const _leftBottomPadding = document.createElement("A");
+    _leftBottomPadding.contentEditable = "false";
+    _leftBottomPadding.className = "bottom-padding";
+    const _rightBottomPadding = document.createElement("A");
+    _rightBottomPadding.contentEditable = "false";
+    _rightBottomPadding.className = "bottom-padding";
     // 정말 지저분한 코드 시작
     const _diffOptions = (function (defaultValues) {
         let _diffOptions = { ...defaultValues };
@@ -4752,6 +5638,24 @@ const DiffSeek = (function () {
                 }
                 setValue("uniqueMultiplier", value);
             },
+            get containerStartMultiplier() {
+                return _diffOptions.containerStartMultiplier;
+            },
+            set containerStartMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid containerStartMultiplier: " + value);
+                }
+                setValue("containerStartMultiplier", value);
+            },
+            get containerEndMultiplier() {
+                return _diffOptions.containerEndMultiplier;
+            },
+            set containerEndMultiplier(value) {
+                if (value <= 0) {
+                    throw new Error("Invalid containerEndMultiplier: " + value);
+                }
+                setValue("containerEndMultiplier", value);
+            },
         };
     })({
         algorithm: "histogram",
@@ -4761,18 +5665,23 @@ const DiffSeek = (function () {
         useLengthBias: true,
         maxGram: 4,
         lengthBiasFactor: 0.7,
+        containerStartMultiplier: 1 / 0.85,
+        containerEndMultiplier: 1 / 0.9,
         sectionHeadingMultiplier: 1 / 0.75,
-        lineStartMultiplier: 1 / 0.85,
-        lineEndMultiplier: 1 / 0.9,
+        lineStartMultiplier: 1 / 0.9,
+        lineEndMultiplier: 1 / 0.95,
         uniqueMultiplier: 1 / 0.6667,
     });
-    const editorContainer = document.getElementById("main");
-    const leftEditor = createEditor(editorContainer, "left", getEditorCallbacks("left"));
-    const rightEditor = createEditor(editorContainer, "right", getEditorCallbacks("right"));
-    const canvas = document.createElement("canvas");
-    canvas.id = "highlightCanvas";
-    editorContainer.appendChild(canvas);
-    const canvasCtx = canvas.getContext("2d");
+    const mainContainer = document.getElementById("main");
+    const leftEditor = createEditor(mainContainer, "left", getEditorCallbacks("left"));
+    const rightEditor = createEditor(mainContainer, "right", getEditorCallbacks("right"));
+    const diffCanvas = document.createElement("canvas");
+    diffCanvas.id = "diffCanvas";
+    mainContainer.appendChild(diffCanvas);
+    const diffCanvasCtx = diffCanvas.getContext("2d");
+    const highlightCanvas = document.createElement("canvas");
+    highlightCanvas.id = "highlightCanvas";
+    mainContainer.appendChild(highlightCanvas);
     leftEditor.wrapper.tabIndex = 100;
     rightEditor.wrapper.tabIndex = 101;
     const body = document.querySelector("body");
@@ -4782,21 +5691,18 @@ const DiffSeek = (function () {
     const scrollSyncIndicator = document.getElementById("scrollSyncIndicator");
     const alignmentStyleElement = document.createElement("style");
     document.head.appendChild(alignmentStyleElement);
-    const resizeObserver = new ResizeObserver(() => {
-        canvas.width = editorContainer.offsetWidth;
-        canvas.height = editorContainer.offsetHeight;
+    const renderer = createRenderer(mainContainer, leftEditor, rightEditor, {
+        onDiffVisibilityChanged,
     });
-    resizeObserver.observe(editorContainer);
+    function onDiffVisibilityChanged(editorName, shown, hidden) { }
     function onSelectionChanged() {
         if (_diffContext.done === false) {
-            _selectionHighlight = null;
             leftEditor.clearTextHighlight();
             rightEditor.clearTextHighlight();
             return;
         }
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0 || selection.isCollapsed) {
-            _selectionHighlight = null;
             leftEditor.clearTextHighlight();
             rightEditor.clearTextHighlight();
             return;
@@ -4812,9 +5718,7 @@ const DiffSeek = (function () {
             rightEditor.clearTextHighlight();
             return;
         }
-        _selectionHighlight = null;
         const [startOffset, endOffset] = editor.getTextSelectionRange();
-        console.log("Selection:", startOffset, endOffset);
         if (startOffset === null || endOffset === null) {
             leftEditor.clearTextHighlight();
             rightEditor.clearTextHighlight();
@@ -4826,9 +5730,7 @@ const DiffSeek = (function () {
         const sideKey = editor === leftEditor ? "left" : "right";
         const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
         const [startIndex, endIndex] = getSelectedTokenRange(tokens, startOffset, endOffset);
-        console.log("Selected tokens:", startIndex, endIndex);
         const [mappedStartIndex, mappedEndIndex] = mapTokenRangeToOtherSide(rawEntries, sideKey, startIndex, endIndex);
-        console.log("Mapped tokens:", mappedStartIndex, mappedEndIndex);
         const otherStartToken = otherTokens[mappedStartIndex];
         const otherEndToken = otherTokens[mappedEndIndex - 1];
         if (otherStartToken && otherEndToken) {
@@ -4898,11 +5800,11 @@ const DiffSeek = (function () {
         let computeDiffTimeoutId = null;
         function* computeDiffGenerator(ctx) {
             let idleDeadline = yield ctx;
-            ctx.leftTokens = tokenizeNode(leftEditor.editor);
+            ctx.leftTokens = leftEditor.tokens;
             if (idleDeadline.timeRemaining() <= 1) {
                 idleDeadline = yield;
             }
-            ctx.rightTokens = tokenizeNode(rightEditor.editor);
+            ctx.rightTokens = rightEditor.tokens;
             if (idleDeadline.timeRemaining() <= 1) {
                 idleDeadline = yield;
             }
@@ -4913,6 +5815,7 @@ const DiffSeek = (function () {
                 leftTokens: ctx.leftTokens,
                 rightTokens: ctx.rightTokens,
             };
+            console.debug("diff request:", request);
             worker.postMessage(request);
         }
         function computeDiff() {
@@ -4945,14 +5848,16 @@ const DiffSeek = (function () {
         }
         worker.onmessage = function (e) {
             const data = e.data;
+            console.debug("message received:", e);
             if (data.type === "diff") {
                 if (data.reqId === _reqId) {
-                    // console.debug("diff response:", data);
                     body.classList.remove("computing");
                     _diffContext.rawEntries = data.diffs;
                     postProcess(_diffContext);
                     _diffContext.done = true;
                     _diffContext.processTime = data.processTime;
+                    renderer.setDiffRanges("left", _diffContext.leftDiffRanges);
+                    renderer.setDiffRanges("right", _diffContext.rightDiffRanges);
                     onDiffComputed(_diffContext);
                 }
             }
@@ -4961,12 +5866,12 @@ const DiffSeek = (function () {
             }
         };
         function onDiffComputed(diffContext) {
-            leftEditor.update(diffContext);
-            rightEditor.update(diffContext);
+            // leftEditor.update(diffContext);
+            // rightEditor.update(diffContext);
             // calculateDiffRects();
             // leftEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors!, headings: diffContext.headings! });
             // rightEditor.update({ diffs: diffContext.diffs!, anchors: diffContext.anchors!, headings: diffContext.headings! });
-            updateDiffList();
+            // updateDiffList();
         }
         return { computeDiff };
     })();
@@ -5096,20 +6001,6 @@ const DiffSeek = (function () {
     // 		enableAlignedMode();
     // 	}
     // });
-    function updateHighlightCanvas() {
-        canvasCtx.clearRect(0, 0, canvas.width, canvas.height);
-        if (_selectionHighlight) {
-            const scrollTop = _selectionHighlight.editor.wrapper.scrollTop;
-            const scrollLeft = _selectionHighlight.editor.wrapper.scrollLeft;
-            // canvasCtx.fillStyle = "hsl(240 100% 90%)";
-            canvasCtx.fillStyle = "hsl(210 100% 80%)";
-            for (const rect of _selectionHighlight.rects) {
-                const x = rect.x - scrollLeft;
-                const y = rect.y - scrollTop;
-                canvasCtx.fillRect(x, y, rect.width, rect.height);
-            }
-        }
-    }
     function toggleSyncScroll() {
         _syncEditor = !_syncEditor;
     }
@@ -5336,20 +6227,15 @@ const DiffSeek = (function () {
     for (const editor of [leftEditor, rightEditor]) {
         editor.wrapper.addEventListener("scroll", (e) => {
             // updateCanvas();
-            if (_currentlyScrollingEditor !== null || _preventScrollSync) {
+            if (_preventScrollSync) {
                 return;
             }
-            _lastScrolledEditor = _currentlyScrollingEditor = editor;
-            if (_syncEditor) {
-                syncScrollPosition(editor);
-            }
-            if (_resetCurrentlyScrollingEditorId) {
-                cancelAnimationFrame(_resetCurrentlyScrollingEditorId);
-            }
+            //_preventScrollSync = true;
+            const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
+            otherEditor.wrapper.scrollTop = editor.wrapper.scrollTop;
             _resetCurrentlyScrollingEditorId = requestAnimationFrame(() => {
-                _currentlyScrollingEditor = null;
+                //	_preventScrollSync = false;
             });
-            // updateHighlightCanvas();
         });
         function onFocus() {
             _activeEditor = _lastFocusedEditor = editor;
@@ -5403,399 +6289,352 @@ const DiffSeek = (function () {
         }
         editor.editor.addEventListener("click", onClick);
     }
+    function clearAnchors() {
+        for (let i = 0; i < _anchors.length; i++) {
+            const entry = _anchors[i];
+            const leftEl = entry.leftEl;
+            const rightEl = entry.rightEl;
+            leftEl.classList.remove("padtop");
+            leftEl.removeAttribute("data-anchor");
+            leftEl.style.removeProperty("--padding");
+            rightEl.classList.remove("padtop");
+            rightEl.removeAttribute("data-anchor");
+            leftEl.style.removeProperty("--padding");
+        }
+        _anchors.length = 0;
+    }
+    function alignAnchors() {
+        // _leftBottomPadding.remove();
+        // _rightBottomPadding.remove();
+        let changed = false;
+        const leftScrollTop = leftEditor.wrapper.scrollTop;
+        const rightScrollTop = rightEditor.wrapper.scrollTop;
+        const MAX_ITERATIONS = 10;
+        let iteration = 0;
+        do {
+            changed = false;
+            for (let i = 0; i < _anchors.length; i++) {
+                const entry = _anchors[i];
+                const { leftTokenIndex, leftEl, rightTokenIndex, rightEl } = entry;
+                const leftRange = leftEditor.getRangeForToken(leftTokenIndex, 1);
+                const rightRange = rightEditor.getRangeForToken(rightTokenIndex, 1);
+                // reset current padding. 이걸 하지 않으면 패딩이 줄어들지 않고 계속 쌓여나가기만 함.
+                leftEl.classList.remove("padtop");
+                rightEl.classList.remove("padtop");
+                // padtop 클래스가 있어야 --padding 값이 적용이 되므로 --padding 값을 지울 필요는 없을 것 같지만
+                // 지우지 않고 냅두면 당최 이해가 안되는 괴상한 rect가 튀어나올 수 있다.
+                leftEl.style.removeProperty("--padding");
+                rightEl.style.removeProperty("--padding");
+                let leftY = leftRange.getBoundingClientRect().y + leftScrollTop;
+                let rightY = rightRange.getBoundingClientRect().y + rightScrollTop;
+                let delta = Math.round(leftY - rightY);
+                if (delta !== 0) {
+                    delta = Math.round(leftY - rightY);
+                    if (delta > 0) {
+                        rightEl.classList.add("padtop");
+                        leftEl.classList.remove("padtop");
+                        rightEl.style.setProperty("--padding", `${delta}px`);
+                        changed = true;
+                    }
+                    else if (delta < 0) {
+                        // pad left
+                        leftEl.classList.add("padtop");
+                        rightEl.classList.remove("padtop");
+                        leftEl.style.setProperty("--padding", `${-delta}px`);
+                        changed = true;
+                    }
+                }
+                if (entry.delta !== delta) {
+                    entry.delta = delta;
+                    changed = true;
+                }
+            }
+        } while (changed && ++iteration < MAX_ITERATIONS);
+        console.log("sync height:", {
+            leftWrapperScrollHeight: leftEditor.wrapper.scrollHeight,
+            rightWrapperScrollHeight: rightEditor.wrapper.scrollHeight,
+            leftWrapperHeight: leftEditor.wrapper.clientHeight,
+            rightWrapperHeight: rightEditor.wrapper.clientHeight,
+            leftEditorHeight: leftEditor.editor.clientHeight,
+            rightEditorHeight: rightEditor.editor.clientHeight,
+            leftEditorScrollHeight: leftEditor.editor.scrollHeight,
+            rightEditorScrollHeight: rightEditor.editor.scrollHeight,
+            leftScrollTop: leftScrollTop,
+            rightScrollTop: rightScrollTop,
+            leftEditorWrapperRect: leftEditor.wrapper.getBoundingClientRect(),
+            rightEditorWrapperRect: rightEditor.wrapper.getBoundingClientRect(),
+            leftEditorRect: leftEditor.editor.getBoundingClientRect(),
+            rightEditorRect: rightEditor.editor.getBoundingClientRect(),
+        });
+        // 이것도 --padding 값과 마찬가지로 지우지 않고 냅두면 어느순간 납득이 안되는 높이가 나온다.
+        leftEditor.editor.style.removeProperty("--min-height");
+        rightEditor.editor.style.removeProperty("--min-height");
+        requestAnimationFrame(() => {
+            const leftHeight = leftEditor.editor.scrollHeight;
+            const rightHeight = rightEditor.editor.scrollHeight;
+            const maxHeight = Math.max(leftHeight, rightHeight);
+            // leftEditor.wrapper.style.setProperty("--bottom-padding", `${maxHeight - leftHeight}px`);
+            // rightEditor.wrapper.style.setProperty("--bottom-padding", `${maxHeight - rightHeight}px`);
+            leftEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
+            rightEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
+        });
+    }
+    // function alignAnchors(iteration = 0) {
+    // 	if (iteration === 0) {
+    // 		_leftBottomPadding.remove();
+    // 		_rightBottomPadding.remove();
+    // 	}
+    // 	let changed = false;
+    // 	const leftScrollTop = leftEditor.wrapper.scrollTop;
+    // 	const rightScrollTop = rightEditor.wrapper.scrollTop;
+    // 	for (let i = 0; i < _anchors.length; i++) {
+    // 		const entry = _anchors[i];
+    // 		const leftRange = leftEditor.getRangeForToken(entry.leftTokenIndex, 1);
+    // 		const rightRange = rightEditor.getRangeForToken(entry.rightTokenIndex, 1);
+    // 		let { y: leftY } = leftRange.getBoundingClientRect();
+    // 		let { y: rightY } = rightRange.getBoundingClientRect();
+    // 		leftY += leftScrollTop;
+    // 		rightY += rightScrollTop;
+    // 		// console.log("[CURRENT] Left Y:", leftY, "Right Y:", rightY);
+    // 		let delta = Math.round(leftY - rightY);
+    // 		if (delta !== 0) {
+    // 			// 1. reset current padding
+    // 			entry.leftEl.classList.remove("padtop");
+    // 			entry.rightEl.classList.remove("padtop");
+    // 			entry.leftEl.style.removeProperty("--padding");
+    // 			entry.rightEl.style.removeProperty("--padding");
+    // 			// void entry.leftEl.offsetHeight;
+    // 			// void entry.rightEl.offsetHeight;
+    // 			// void (leftRange.startContainer.parentNode! as HTMLElement).offsetHeight;
+    // 			// void (rightRange.startContainer.parentNode! as HTMLElement).offsetHeight;
+    // 			// leftY = leftRange.getBoundingClientRect().y + leftScrollTop;
+    // 			// rightY = rightRange.getBoundingClientRect().y + rightScrollTop;
+    // 			if (entry.delta > 0) {
+    // 				rightY -= entry.delta;
+    // 			} else if (entry.delta < 0) {
+    // 				leftY += -entry.delta;
+    // 			}
+    // 			// console.log("[AFTER RESET] Left Y:", leftY, "Right Y:", rightY);
+    // 			delta = Math.round(leftY - rightY);
+    // 			if (delta > 0) {
+    // 				entry.rightEl.classList.add("padtop");
+    // 				entry.leftEl.classList.remove("padtop");
+    // 				entry.rightEl.style.setProperty("--padding", `${delta}px`);
+    // 				changed = true;
+    // 			} else if (delta < 0) {
+    // 				// pad left
+    // 				entry.leftEl.classList.add("padtop");
+    // 				entry.rightEl.classList.remove("padtop");
+    // 				entry.leftEl.style.setProperty("--padding", `${-delta}px`);
+    // 				changed = true;
+    // 			}
+    // 			entry.delta = delta;
+    // 		}
+    // 		// if (entry.delta !== delta) {
+    // 		// 	if (delta > 0) {
+    // 		// 		entry.rightEl.classList.add("padtop");
+    // 		// 		entry.rightEl.style.setProperty("--padding", `${delta}px`);
+    // 		// 		entry.rightTop = delta;
+    // 		// 		entry.leftEl.classList.remove("padtop");
+    // 		// 		changed = true;
+    // 		// 	} else {
+    // 		// 		// pad left
+    // 		// 		entry.leftEl.classList.add("padtop");
+    // 		// 		entry.leftEl.style.setProperty("--padding", `${-delta}px`);
+    // 		// 		entry.leftTop = -delta;
+    // 		// 		entry.rightEl.classList.remove("padtop");
+    // 		// 		changed = true;
+    // 		// 	}
+    // 		// 	entry.delta = delta;
+    // 		// }
+    // 	}
+    // 	if (changed) {
+    // 		renderer.markDirty("left", RenderFlags.ALL);
+    // 		renderer.markDirty("right", RenderFlags.ALL);
+    // 		if (iteration < 10) {
+    // 			requestAnimationFrame(() => {
+    // 				alignAnchors(iteration + 1);
+    // 			});
+    // 			return;
+    // 		}
+    // 	}
+    // 	requestAnimationFrame(() => {
+    // 		const leftHeight = leftEditor.editor.scrollHeight;
+    // 		const rightHeight = rightEditor.editor.scrollHeight;
+    // 		if (leftHeight > rightHeight) {
+    // 			_leftBottomPadding.style.height = "0px";
+    // 			_rightBottomPadding.style.height = `${leftHeight - rightHeight}px`;
+    // 		} else {
+    // 			_leftBottomPadding.style.height = `${rightHeight - leftHeight}px`;
+    // 			_rightBottomPadding.style.height = "0px";
+    // 		}
+    // 		leftEditor.editor.appendChild(_leftBottomPadding);
+    // 		rightEditor.editor.appendChild(_rightBottomPadding);
+    // 		// const height = Math.max(leftEditor.editor.scrollHeight, rightEditor.editor.scrollHeight);
+    // 		// leftEditor.editor.style.height = height + "px";
+    // 		// rightEditor.editor.style.height = height + "px";
+    // 	});
+    // }
     // 무식하게 큰 함수
     // 찝찝한데... 재미 없는 부분이라...
     function postProcess(diffContext) {
-        let prevEntry = null;
         // const leftText = diffContext.leftText!;
         // const rightText = diffContext.rightText!;
         const leftTokens = diffContext.leftTokens;
         const rightTokens = diffContext.rightTokens;
         const rawEntries = diffContext.rawEntries;
+        const leftRanges = leftEditor.ranges;
+        const rightRanges = rightEditor.ranges;
         const diffs = [];
         const anchors = [];
         const sectionHeadings = [];
         const headingStack = [];
         const MAX_ANCHOR_SKIP = 5;
         let anchorSkipCount = 0;
+        const leftDiffRanges = [];
+        const rightDiffRanges = [];
+        diffContext.leftDiffRanges = leftDiffRanges;
+        diffContext.rightDiffRanges = rightDiffRanges;
+        clearAnchors();
+        void leftEditor.wrapper.offsetHeight;
+        void rightEditor.wrapper.offsetHeight;
+        let currentDiff = null;
         for (let i = 0; i < rawEntries.length; i++) {
             const entry = rawEntries[i];
+            const left = entry.left;
+            const right = entry.right;
+            let leftRange = null;
+            let rightRange = null;
             if (entry.type) {
                 // diff entry
-                if (prevEntry) {
-                    console.assert(prevEntry.left.pos + prevEntry.left.len === entry.left.pos, prevEntry, entry);
-                    console.assert(prevEntry.right.pos + prevEntry.right.len === entry.right.pos, prevEntry, entry);
-                    prevEntry.type |= entry.type;
-                    prevEntry.left.len += entry.left.len;
-                    prevEntry.right.len += entry.right.len;
+                if (currentDiff) {
+                    console.assert(currentDiff.left.pos + currentDiff.left.len === entry.left.pos, currentDiff, entry);
+                    console.assert(currentDiff.right.pos + currentDiff.right.len === entry.right.pos, currentDiff, entry);
+                    currentDiff.type |= entry.type;
+                    currentDiff.left.len += entry.left.len;
+                    currentDiff.right.len += entry.right.len;
                 }
                 else {
-                    prevEntry = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
+                    currentDiff = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
                     //prevEntry = entry;
                 }
             }
             else {
                 // common entry
-                if (prevEntry) {
-                    addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
-                    // mappings.push(prevEntry);
+                if (currentDiff) {
+                    finalizeDiff();
                 }
-                prevEntry = null;
-                const leftToken = leftTokens[entry.left.pos];
-                const rightToken = rightTokens[entry.right.pos];
+                currentDiff = null;
+                const leftToken = leftTokens[left.pos];
+                const rightToken = rightTokens[right.pos];
                 if (leftToken.flags & rightToken.flags & LINE_START) {
-                    // 앵커 추가
-                    addAnchor("before", leftToken.pos, rightToken.pos, null);
-                    if (leftToken.flags & rightToken.flags & SECTION_HEADING_MASK) {
-                        addHeading(i);
+                    const leftEl = leftEditor.insertAnchorBefore(left.pos);
+                    const rightEl = rightEditor.insertAnchorBefore(right.pos);
+                    if (leftEl && rightEl) {
+                        _anchors.push({ leftEl, rightEl, leftTokenIndex: left.pos, rightTokenIndex: right.pos, delta: 0 });
                     }
                 }
-                // mappings.push(entry);
             }
         }
-        //addAnchor("before", leftText.length, -1, rightText.length, -1, null);
-        if (prevEntry) {
-            addDiff(prevEntry.left.pos, prevEntry.left.len, prevEntry.right.pos, prevEntry.right.len);
+        if (currentDiff) {
+            finalizeDiff();
             // mappings.push(prevEntry);
         }
-        function addHeading(entryIndex) {
-            if (true) {
-                return;
+        function adjustEmptyRange(originalRange, otherToken) {
+            console.log("Adjusting empty range for token:", otherToken, "original range:", originalRange);
+            if (otherToken.flags & LINE_START) {
+                const candidates = getFullyContainedNodesInRange(originalRange, NodeFilter.SHOW_ALL, (node) => {
+                    console.log("Checking node:", node);
+                    if (node.nodeName === "P" || node.nodeName === "DIV") {
+                        if (isEmptyElement(node)) {
+                            return NodeFilter.FILTER_ACCEPT;
+                        }
+                    }
+                    console.log("REJECTING NODE:", node);
+                    return NodeFilter.FILTER_REJECT;
+                });
+                if (candidates.length > 0) {
+                    console.log("Adjusting empty range for token:", otherToken, "to:", candidates);
+                    const newRange = document.createRange();
+                    newRange.selectNodeContents(candidates[0]);
+                    return [newRange];
+                }
             }
-            // const entry = rawEntries[entryIndex];
-            // if (entry.type !== 0) {
-            // 	console.warn("uncommon entry", entry.type, entry);
-            // 	return;
-            // }
-            // const leftToken = leftTokens[entry.left.pos];
-            // const rightToken = rightTokens[entry.right.pos];
-            // const type = leftToken.flags & SECTION_HEADING_MASK;
-            // // console.debug("addHeading", { entryIndex, entry, leftToken, rightToken });
-            // // 지금은 일치되는 토큰으로부터 헤딩을 추출하므로 타입도 당연히 같겠지만
-            // // 나중에 일치되지 않는 토큰으로부터 헤딩을 추출하게 될 수도 있으니 마음이 편하게 여기서 한번 더 확인.
-            // if (!type || (rightToken.flags & SECTION_HEADING_MASK) !== type) {
-            // 	console.warn("type mismatch", entry.type, entry);
-            // 	return;
-            // }
-            // const ordinalText = leftToken.text;
-            // const ordinalNum = parseOrdinalNumber(ordinalText);
-            // if (Number.isNaN(ordinalNum)) {
-            // 	console.warn("Invalid ordinal number", ordinalText);
-            // 	return;
-            // }
-            // // 헤딩 줄 끝 찾기
-            // // 이 값들은 텍스트 내의 문자위치가 아니라 토큰 배열 안의 토큰 인덱스와 개수임!
-            // let hasDiff = false;
-            // let leftTokenCount = 0;
-            // let rightTokenCount = 0;
-            // for (let j = entryIndex; j < rawEntries.length; j++) {
-            // 	const entry2 = rawEntries[j];
-            // 	leftTokenCount += entry2.left.len;
-            // 	if (!hasDiff && entry2.type === 0) {
-            // 		rightTokenCount += entry2.right.len;
-            // 	} else {
-            // 		hasDiff = true;
-            // 	}
-            // 	if (leftTokens[entry2.left.pos + entry2.left.len - 1].flags & LAST_OF_LINE) {
-            // 		break;
-            // 	}
-            // }
-            // if (leftTokenCount < 2) {
-            // 	console.warn("Invalid heading", leftTokenCount, rightTokenCount, entry);
-            // 	return;
-            // }
-            // const lefTokenEnd = entry.left.pos + leftTokenCount;
-            // const title = leftText.slice(leftTokens[entry.left.pos + 1].pos, leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len);
-            // let prevSibling: SectionHeading | null = null;
-            // let parent: SectionHeading | null = null;
-            // for (let i = headingStack.length - 1; i >= 0; i--) {
-            // 	const candidate = headingStack[i];
-            // 	if (candidate.type === type) {
-            // 		prevSibling = candidate;
-            // 		headingStack.length = i;
-            // 		break;
-            // 	}
-            // }
-            // if (!prevSibling) {
-            // 	parent = headingStack[headingStack.length - 1] ?? null;
-            // } else {
-            // 	parent = prevSibling.parent;
-            // }
-            // const current: SectionHeading = {
-            // 	ordinalText,
-            // 	ordinalNum,
-            // 	title,
-            // 	type,
-            // 	left: {
-            // 		pos: leftTokens[entry.left.pos].pos,
-            // 		len: leftTokens[lefTokenEnd - 1].pos + leftTokens[lefTokenEnd - 1].len - leftTokens[entry.left.pos].pos,
-            // 	},
-            // 	right: {
-            // 		pos: rightTokens[entry.right.pos].pos,
-            // 		len:
-            // 			rightTokens[entry.right.pos + rightTokenCount - 1].pos +
-            // 			rightTokens[entry.right.pos + rightTokenCount - 1].len -
-            // 			rightTokens[entry.right.pos].pos,
-            // 		// len: rightTokens[rightEndPos - 1].pos + rightTokens[rightEndPos - 1].len - rightTokens[entry.right.pos].pos,
-            // 	},
-            // 	parent,
-            // 	firstChild: null,
-            // 	nextSibling: null,
-            // 	level: headingStack.length + 1,
-            // 	outOfOrder: false,
-            // 	hasDiff,
-            // };
-            // if (prevSibling) {
-            // 	prevSibling.nextSibling = current;
-            // 	if (current.ordinalNum <= prevSibling.ordinalNum) {
-            // 		current.outOfOrder = true;
-            // 	}
-            // } else if (parent) {
-            // 	parent.firstChild = current;
-            // }
-            // headingStack.push(current);
-            // sectionHeadings.push(current);
+            const candidates = getFullyContainedNodesInRange(originalRange, NodeFilter.SHOW_ALL, (node) => {
+                if (node.nodeType === 3) {
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+                if (node.nodeName === "A") {
+                    return NodeFilter.FILTER_REJECT;
+                }
+                if (INLINE_ELEMENTS[node.nodeName]) {
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+                if (node.nodeName === "BR") {
+                    return NodeFilter.FILTER_ACCEPT;
+                }
+                console.log("WTF?:", node);
+                return NodeFilter.FILTER_SKIP;
+            });
+            console.log("second path:", candidates);
+            if (candidates.length > 0) {
+                return candidates.map((node) => {
+                    const r = document.createRange();
+                    r.selectNodeContents(node);
+                    return r;
+                });
+            }
+            return [originalRange];
         }
-        function addAnchor(type, leftPos, rightPos, diffIndex) {
-            if (leftPos === undefined || rightPos === undefined) {
-                console.error("addAnchor", { type, leftPos, rightPos, diffIndex });
-            }
-            if (true) {
-                return;
-            }
-            //앵커가 너무 많아지는 걸 방지! section heading인 경우 스킵하면 안되고 그걸 판단하려면 token이 필요함... 귀찮아
-            // if (diffIndex === null && anchorSkipCount < MAX_ANCHOR_SKIP && anchors.length > 0) {
-            // 	const lastAnchor = anchors[anchors.length - 1];
-            // 	if (lastAnchor.type === type && lastAnchor.diffIndex === null && leftLine - lastAnchor.leftLine <= 1 && rightLine - lastAnchor.rightLine <= 1) {
-            // 		anchorSkipCount++;
-            // 		return;
-            // 	}
-            // }
-            // anchorSkipCount = 0;
-            // if (type === "before") {
-            // 	// before 앵커는 항상 줄의 시작위치일 때만 추가하므로 줄바꿈 문자만 확인하면 된다!
-            // 	while (leftPos > 0 && leftText[leftPos - 1] !== "\n") {
-            // 		leftPos--;
-            // 	}
-            // 	while (rightPos > 0 && rightText[rightPos - 1] !== "\n") {
-            // 		rightPos--;
-            // 	}
-            // } else if (type === "after") {
-            // 	// empty diff의 after앵커는 이후에 다른 토큰이 존재할 수 있음.
-            // 	// 공백이 아닌 문자가 나오면 멈추고 기본 위치 사용.
-            // 	let p;
-            // 	p = leftPos;
-            // 	while (p < leftText.length) {
-            // 		const ch = leftText[p++];
-            // 		if (ch === "\n") {
-            // 			leftPos = p - 1;
-            // 			break;
-            // 		} else if (!spaceChars[ch]) {
-            // 			break;
-            // 		}
-            // 	}
-            // 	p = rightPos;
-            // 	while (p < rightText.length) {
-            // 		const ch = rightText[p++];
-            // 		if (ch === "\n") {
-            // 			rightPos = p - 1;
-            // 			break;
-            // 		} else if (!spaceChars[ch]) {
-            // 			break;
-            // 		}
-            // 	}
-            // }
-            // if (anchors.length > 0) {
-            // 	let lastAnchor = anchors[anchors.length - 1];
-            // 	if (lastAnchor.left > leftPos || lastAnchor.right > rightPos) {
-            // 		return;
-            // 	}
-            // 	if (lastAnchor.left === leftPos || lastAnchor.right === rightPos) {
-            // 		if (type === lastAnchor.type || type === "before") {
-            // 			return;
-            // 		}
-            // 	}
-            // }
-            // // anchors.push({ type, left: leftPos, leftLine, right: rightPos, rightLine, diffIndex });
-            // anchors.push({ type, left: leftPos, right: rightPos, diffIndex });
-        }
-        function addDiff(leftIndex, leftCount, rightIndex, rightCount) {
+        // TODO: => finalizeDiff 로 바꾸고 args 제거
+        function finalizeDiff() {
+            const leftIndex = currentDiff.left.pos;
+            const rightIndex = currentDiff.right.pos;
+            const leftTokenCount = currentDiff.left.len;
+            const rightTokenCount = currentDiff.right.len;
             let leftPos, leftLen, rightPos, rightLen;
             let leftBeforeAnchorPos, rightBeforeAnchorPos, leftAfterAnchorPos, rightAfterAnchorPos, leftEmpty, rightEmpty;
             let type;
             let asBlock = false;
-            // 양쪽에 대응하는 토큰이 모두 존재하는 경우. 쉬운 케이스
-            if (leftCount > 0 && rightCount > 0) {
-                type = 3;
-                let leftTokenStart = leftTokens[leftIndex];
-                let leftTokenEnd = leftTokens[leftIndex + leftCount - 1];
-                let rightTokenEnd = rightTokens[rightIndex + rightCount - 1];
-                let rightTokenStart = rightTokens[rightIndex];
-                leftPos = leftTokenStart.pos;
-                leftLen = leftTokenEnd.pos + leftTokenEnd.len - leftPos;
-                leftEmpty = false;
-                rightPos = rightTokenStart.pos;
-                rightLen = rightTokenEnd.pos + rightTokenEnd.len - rightPos;
-                rightEmpty = false;
-                // 생각: 한쪽만 줄의 첫 토큰일 때에도 앵커를 넣을까? 앵커에 display:block을 줘서 강제로 줄바꿈 시킨 후에에
-                // 좌우 정렬을 할 수 있을 것 같기도 한데...
-                if (leftTokenStart.flags & rightTokenStart.flags & LINE_START) {
-                    leftBeforeAnchorPos = leftPos;
-                    rightBeforeAnchorPos = rightPos;
-                    // while (leftBeforeAnchorPos > 0 && leftText[leftBeforeAnchorPos - 1] !== "\n") {
-                    // 	leftBeforeAnchorPos--;
-                    // }
-                    // while (rightBeforeAnchorPos > 0 && rightText[rightBeforeAnchorPos - 1] !== "\n") {
-                    // 	rightBeforeAnchorPos--;
-                    // }
-                    // // addAnchor("before", leftAnchorPos, rightAnchorPos, null);
-                    // if (leftTokenEnd.flags & rightTokenEnd.flags & LAST_OF_LINE) {
-                    // 	asBlock = true;
-                    // 	leftAfterAnchorPos = leftPos + leftLen;
-                    // 	rightAfterAnchorPos = rightPos + rightLen;
-                    // 	if (leftText[leftAfterAnchorPos] !== "\n") {
-                    // 		do {
-                    // 			leftAfterAnchorPos++;
-                    // 		} while (leftAfterAnchorPos < leftText.length && leftText[leftAfterAnchorPos] !== "\n");
-                    // 	}
-                    // 	if (rightText[rightAfterAnchorPos] !== "\n") {
-                    // 		do {
-                    // 			rightAfterAnchorPos++;
-                    // 		} while (rightAfterAnchorPos < rightText.length && rightText[rightAfterAnchorPos] !== "\n");
-                    // 	}
-                    // 	// while (leftAnchorPos + 1 < leftText.length && leftText[leftAnchorPos + 1] !== "\n") {
-                    // 	// 	leftAnchorPos++;
-                    // 	// }
-                    // 	// while (rightAnchorPos + 1 < rightText.length && rightText[rightAnchorPos + 1] !== "\n") {
-                    // 	// 	rightAnchorPos++;
-                    // 	// }
-                    // 	// addAnchor("after", leftBeforeAnchorPos, rightBeforeAnchorPos, null);
-                    // }
-                }
-            }
-            else {
-                // 한쪽이 비어있음.
-                // 단순하게 토큰 사이에 위치시켜도 되지만 되도록이면 대응하는 쪽과 유사한 위치(줄시작/줄끝)에 위치시키기 위해...
-                // 자꾸 이런저런 시도를 하다보니 난장판인데 만지기 싫음...
-                let longSideText, shortSideText;
-                let longSideIndex, longSideCount, longSideTokens;
-                let shortSideIndex, shortSideTokens;
-                let longSidePos, longSideLen;
-                let shortSidePos, shortSideLen;
-                let longSideBeforeAnchorPos, shortSideBeforeAnchorPos;
-                let longSideAfterAnchorPos, shortSideAfterAnchorPos;
-                let longSideTokenStart, longSideTokenEnd;
-                let shortSideBeforeToken, shortSideAfterToken;
-                if (leftCount > 0) {
-                    type = 1; // 1: left
-                    longSideTokens = leftTokens;
-                    longSideIndex = leftIndex;
-                    longSideCount = leftCount;
-                    shortSideTokens = rightTokens;
-                    shortSideIndex = rightIndex;
-                    leftEmpty = false;
-                    rightEmpty = true;
-                }
-                else {
-                    type = 2; // 2: right
-                    longSideTokens = rightTokens;
-                    longSideIndex = rightIndex;
-                    longSideCount = rightCount;
-                    shortSideTokens = leftTokens;
-                    shortSideIndex = leftIndex;
-                    leftEmpty = true;
-                    rightEmpty = false;
-                }
-                longSideTokenStart = longSideTokens[longSideIndex];
-                longSideTokenEnd = longSideTokens[longSideIndex + longSideCount - 1];
-                shortSideBeforeToken = shortSideTokens[shortSideIndex - 1];
-                shortSideAfterToken = shortSideTokens[shortSideIndex];
-                longSidePos = longSideTokenStart.pos;
-                longSideLen = longSideTokenEnd.pos + longSideTokenEnd.len - longSidePos;
-                shortSidePos = shortSideBeforeToken ? shortSideBeforeToken.pos + shortSideBeforeToken.len : 0;
-                shortSideLen = 0;
-                const longSideIsFirstWord = longSideTokenStart.flags & LINE_START;
-                const longSideIsLastWord = longSideTokenEnd.flags & LINE_END;
-                const shortSideIsOnLineEdge = shortSideTokens.length === 0 ||
-                    (shortSideBeforeToken && shortSideBeforeToken.flags & LINE_END) ||
-                    (shortSideAfterToken && shortSideAfterToken.flags & LINE_START);
-                let shortSidePushedToNextLine = false;
-                // base pos는 되도록이면 앞쪽으로 잡자. 난데없이 빈줄 10개 스킵하고 diff가 시작되면 이상하자나.
-                if (shortSideIsOnLineEdge) {
-                    // 줄의 경계에 empty diff를 표시하는 경우 현재 줄의 끝이나 다음 줄의 시작 중 "적절하게" 선택. 현재 줄의 끝(이전 토큰의 뒤)에 위치 중임.
-                    if (longSideIsFirstWord) {
-                        // if (shortSidePos !== 0) {
-                        // 	// pos가 0이 아닌 경우는 이전 토큰의 뒤로 위치를 잡은 경우니까 다음 줄바꿈을 찾아서 그 줄바꿈 뒤로 밀어줌
-                        // 	// 주의: 현재 위치 이후에 줄바꿈이 있는지 없는지 확인하기보다는 원본 텍스트의 마지막에 줄바꿈이 없는 경우 강제로 줄바꿈을 붙여주는게 편함.
-                        // 	// 잊지말고 꼭 원본텍스트의 끝에 줄바꿈 하나 붙일 것.
-                        // 	// const maxPos = shortSideAfterToken ? shortSideAfterToken.pos - 1 : shortSideText.length - 1;
-                        // 	// while (shortSidePos < maxPos && shortSideText[shortSidePos++] !== "\n");
-                        // 	while (shortSideText[shortSidePos++] !== "\n");
-                        // 	shortSidePushedToNextLine = true;
-                        // }
-                        // 양쪽 모두 줄의 시작 부분에 위치하므로 앵커 추가.
-                        // 빈 diff가 줄 시작이나 줄 끝 위치에 있다면 하나의 줄로 표시되게 할 수 있음(css 사용)
-                        longSideBeforeAnchorPos = longSidePos;
-                        shortSideBeforeAnchorPos = shortSidePos;
+            // let leftToken = leftTokens[leftIndex];
+            // let rightToken = rightTokens[rightIndex];
+            // let leftEndToken = leftTokens[leftIndex + leftTokenCount - 1];
+            // let rightEndToken = rightTokens[rightIndex + rightTokenCount - 1];
+            let leftRange = leftEditor.getRangeForToken(leftIndex, leftTokenCount);
+            let rightRange = rightEditor.getRangeForToken(rightIndex, rightTokenCount);
+            if (leftTokenCount === 0) {
+                const otherToken = rightTokens[rightIndex];
+                const otherEndToken = rightTokens[rightIndex + rightTokenCount - 1];
+                if (otherToken.flags & LINE_START && otherEndToken.flags & LINE_END) {
+                    // add anchor
+                    const leftEl = leftEditor.insertAnchorAfter(leftIndex - 1);
+                    if (leftEl) {
+                        leftEl.classList.add("diff-block");
+                        console.log("Inserted anchor for left empty range:", leftIndex, leftTokenCount, leftRange, leftEl);
                     }
-                    if (longSideIsLastWord
-                    // && !shortSideAfterToken || (shortSideBeforeToken && shortSideAfterToken.lineNum - shortSideBeforeToken.lineNum > 1)
-                    ) {
-                        asBlock = !!longSideIsFirstWord;
-                        longSideAfterAnchorPos = longSidePos + longSideLen;
-                        shortSideAfterAnchorPos = shortSidePos;
+                    else {
+                        console.warn("Failed to insert anchor for left empty range:", leftIndex, leftTokenCount, leftRange);
                     }
                 }
-                if (leftCount > 0) {
-                    leftPos = longSidePos;
-                    leftLen = longSideLen;
-                    leftEmpty = false;
-                    leftBeforeAnchorPos = longSideBeforeAnchorPos;
-                    leftAfterAnchorPos = longSideAfterAnchorPos;
-                    rightPos = shortSidePos;
-                    rightLen = shortSideLen;
-                    rightEmpty = true;
-                    rightBeforeAnchorPos = shortSideBeforeAnchorPos;
-                    rightAfterAnchorPos = shortSideAfterAnchorPos;
-                }
-                else {
-                    leftPos = shortSidePos;
-                    leftLen = shortSideLen;
-                    leftEmpty = true;
-                    leftBeforeAnchorPos = shortSideBeforeAnchorPos;
-                    leftAfterAnchorPos = shortSideAfterAnchorPos;
-                    rightPos = longSidePos;
-                    rightLen = longSideLen;
-                    rightEmpty = false;
-                    rightBeforeAnchorPos = longSideBeforeAnchorPos;
-                    rightAfterAnchorPos = longSideAfterAnchorPos;
-                }
             }
-            if (leftBeforeAnchorPos !== undefined && rightBeforeAnchorPos !== undefined) {
-                addAnchor("before", leftBeforeAnchorPos, rightBeforeAnchorPos, diffs.length);
+            let leftExtractedRanges = extractTextRanges(leftRange);
+            let rightExtractedRanges = extractTextRanges(rightRange);
+            if (leftTokenCount === 0) {
+                console.log("left empty range:", leftRange);
+                leftExtractedRanges = adjustEmptyRange(leftRange, rightTokens[rightIndex]);
             }
-            if (leftAfterAnchorPos !== undefined && rightAfterAnchorPos !== undefined) {
-                addAnchor("after", leftAfterAnchorPos, rightAfterAnchorPos, diffs.length);
+            if (rightTokenCount === 0) {
+                console.log("right empty range:", rightRange);
+                rightExtractedRanges = adjustEmptyRange(rightRange, leftTokens[leftIndex]);
             }
-            const newEntry = {
-                type: type,
-                left: {
-                    pos: leftPos,
-                    len: leftLen,
-                    // empty: leftEmpty,
-                },
-                right: {
-                    pos: rightPos,
-                    len: rightLen,
-                    // empty: rightEmpty,
-                },
-                asBlock,
-            };
-            diffs.push(newEntry);
+            leftDiffRanges.push(leftExtractedRanges);
+            rightDiffRanges.push(rightExtractedRanges);
         }
-        diffContext.diffs = diffs;
-        diffContext.anchors = anchors;
-        diffContext.headings = sectionHeadings;
+        alignAnchors();
+        // setTimeout(() => {
+        // 	requestAnimationFrame(() => {
+        // 	});
+        // }, 1);
         // return { diffs, anchors, leftTokenCount: leftTokens.length, rightTokenCount: rightTokens.length, sectionHeadings };
     }
     _diffContext = {
@@ -5819,6 +6658,7 @@ const DiffSeek = (function () {
                 activeEditor: _activeEditor,
             };
         },
+        clearAnchors,
         compute: computeDiff,
         diffOptions: _diffOptions,
         get outputOptions() {

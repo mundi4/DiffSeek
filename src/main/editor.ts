@@ -8,6 +8,14 @@ type VisibilityChangeEntry = {
 	isVisible: boolean;
 };
 
+type EditorNodeHint = {
+	node: ChildNode;
+	pos: number;
+	len: number;
+};
+
+const TEXT_SELECTION_HIGHLIGHT_FILL_STYLE = "hsl(210 100% 40%)";
+
 function createEditor(container: HTMLElement, editorName: "left" | "right", callbacks: EditorCallbacks) {
 	const { onDiffVisibilityChanged, onTextChanged } = callbacks;
 	const _lineElements: HTMLElement[] = [];
@@ -19,16 +27,28 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 	const _diffRanges: Range[][] = [];
 	const _diffRects: DiffRectSet[] = [];
-	const _diffLineRects: DiffRect[] = [];
-	const _highlightItems: RenderItem[] = [];
+	const _diffLineRects: Rect[] = [];
+	const _tokens: Token[] = [];
+	const _ranges: Range[] = [];
+	const _anchors: Map<number, HTMLElement> = new Map();
 
-	let _textHighlightItems: RenderItem[] | null = null;
+	let _textSelectionHighlight: TextSelectionHighlight | null = null;
+	// let _textHighlightItems: RenderItem[] | null = null;
 	let _diffHighlightItems: RenderItem[] | null = null;
-	let _updateStaticCanvasPending = false;
+	let _renderPending = false;
+
+	const _renderLayers: RenderLayer[] = [
+		{ index: 0, dirty: true }, // static canvas
+		{ index: 1, dirty: true }, // highlight canvas
+	];
+	const DIFF_LAYER = 0;
+	const HIGHLIGHT_LAYER = 1;
 
 	let _diffRectsDirty = true;
 	let _hasRenderedAny = false;
 	let _editMode = false;
+	let _canvasWidth = 0;
+	let _canvasHeight = 0;
 
 	const wrapper = document.createElement("div");
 	wrapper.id = editorName + "EditorWrapper";
@@ -45,13 +65,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	highlightCanvas.classList.add("highlight");
 	const highlightCanvasCtx = highlightCanvas.getContext("2d")!;
 
-	const EDITOR_INNER_HTML = "<p><br></p>";
+	const INITIAL_EDITOR_HTML = "<DIV><BR/></DIV>";
 	const editor = document.createElement("div");
 	editor.id = editorName + "Editor";
 	editor.classList.add("editor");
 	editor.contentEditable = "true";
 	editor.spellcheck = false;
-	editor.innerHTML = EDITOR_INNER_HTML;
+	editor.innerHTML = `<table><tbody><tr><td><p>하나 은행</p></td><td><p>국민 은행</p></td><td><p>신한 은행</p></td></tr><tr><td><p>산업 은행</p></td><td><p>카카오 뱅크</p></td><td rowspan="2"><p>케이 뱅크</p></td></tr><tr><td><p>우리 은행</p></td><td><p>우체국</p></td></tr></tbody></table><p>hello</p>`;
 
 	wrapper.appendChild(staticCanvas);
 	wrapper.appendChild(highlightCanvas);
@@ -60,12 +80,15 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 
 	const resizeObserver = new ResizeObserver(() => {
 		const rect = wrapper.getBoundingClientRect();
-		staticCanvas.width = rect.width;
-		staticCanvas.height = rect.height;
-		highlightCanvas.width = rect.width;
-		highlightCanvas.height = rect.height;
+		staticCanvas.width = highlightCanvas.width = _canvasWidth = rect.width;
+		staticCanvas.height = highlightCanvas.height = _canvasHeight = rect.height;
 		_diffRectsDirty = true;
-		render();
+
+		if (_textSelectionHighlight) {
+			_textSelectionHighlight.renderItem = undefined;
+		}
+
+		renderAll();
 	});
 	resizeObserver.observe(wrapper);
 
@@ -73,28 +96,9 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	// 지금은 관련 코드를 다 지워버렸고 복구하려면 깃허브에서 이전 코드를 뒤져야함...
 	const { observeEditor, unobserveEditor } = (() => {
 		const mutationObserver = new MutationObserver((mutations) => {
-			// for (const mutation of mutations) {
-			// 	if (mutation.type === "childList") {
-			// 		for (const node of mutation.addedNodes) {
-			// 			// 보통 브라우저는 span이나 font 태그를 입혀서 스타일을 넣어준다...
-			// 			if (node.nodeName === "SPAN" || node.nodeName === "FONT") {
-			// 				if (node.childNodes.length === 1 && node.firstChild?.nodeType === 3) {
-			// 					node.parentNode?.replaceChild(node.firstChild, node);
-			// 				}
-			// 			}
-			// 		}
-			// 	}
-			// 	// 기존 태그에 style을 바로 넣어주는 경우가 있는지는 모르겠지만 안전빵으로...
-			// 	if (mutation.type === "attributes" && mutation.attributeName === "style") {
-			// 		(mutation.target as HTMLElement).removeAttribute("style");
-			// 	}
-			// }
-
 			if (editor.childNodes.length === 0) {
-				console.log("WTF??");
-				editor.innerHTML = EDITOR_INNER_HTML;
+				editor.innerHTML = INITIAL_EDITOR_HTML;
 			}
-			
 		});
 
 		function observeEditor() {
@@ -114,169 +118,68 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	})();
 	observeEditor();
 
-	let _pasteCounter = 0;
-	let _sanitizeCallbackId: number | null = null;
-	// function sanitize(rawHTML: string) {
-	// 	const START_TAG = "<!--StartFragment-->";
-	// 	const END_TAG = "<!--EndFragment-->";
-	// 	const startIndex = rawHTML.indexOf(START_TAG);
-	// 	if (startIndex >= 0) {
-	// 		const endIndex = rawHTML.lastIndexOf(END_TAG);
-	// 		if (endIndex >= 0) {
-	// 			rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-	// 		} else {
-	// 			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-	// 		}
-	// 	}
+	function formatPlaintext(plaintext: string) {
+		const lines = plaintext.split("\n");
 
-	// 	const func = sanitizer(rawHTML);
-	// 	const counter = ++_pasteCounter;
-	// 	const step = (idleDeadline: IdleDeadline) => {
-	// 		_sanitizeCallbackId = null;
-	// 		const { done, value } = func.next(idleDeadline);
-	// 		if (!done && counter === _pasteCounter) {
-	// 			_sanitizeCallbackId = requestIdleCallback(step, { timeout: 100 });
-	// 		} else if (done) {
-	// 			const selection = window.getSelection()!;
-	// 			const range = selection.getRangeAt(0);
-	// 			range.deleteContents();
-	// 			console.log("deleted contents");
-	// 			range.insertNode(value);
-	// 			console.log("inserted node:", value);
-	// 			// editor.replaceChildren(value);
-	// 			onTextChanged();
-	// 		}
-	// 	};
-	// 	_sanitizeCallbackId = requestIdleCallback(step, { timeout: 100 });
-	// }
-
-	function insertFragmentWithPSplit(fragment: DocumentFragment) {
-		const selection = window.getSelection();
-		if (!selection?.rangeCount) return;
-
-		const range = selection.getRangeAt(0);
-
-		// 1. 커서가 위치한 p 태그를 찾기
-		let p = range.startContainer;
-		while (p && p.nodeName !== "P") p = p.parentNode!;
-		if (!p) {
-			// p 안이 아니면 그냥 붙여넣기
-			range.insertNode(fragment);
-			return;
+		const fragment = document.createDocumentFragment();
+		for (const line of lines) {
+			const p = document.createElement("p");
+			p.textContent = line;
+			fragment.appendChild(p);
 		}
 
-		// 2. 텍스트 노드면 splitText 처리
-		if (range.startContainer.nodeType === Node.TEXT_NODE) {
-			const textNode = range.startContainer;
-			const offset = range.startOffset;
-
-			const beforeText = textNode.nodeValue!.slice(0, offset);
-			const afterText = textNode.nodeValue!.slice(offset);
-
-			const beforeNode = document.createTextNode(beforeText);
-			const afterNode = document.createTextNode(afterText);
-
-			const parent = textNode.parentNode!;
-			parent.replaceChild(afterNode, textNode);
-			parent.insertBefore(beforeNode, afterNode);
-
-			range.setStartAfter(beforeNode);
-			range.setEndAfter(beforeNode);
-		}
-
-		// 3. 앞부분 추출 (커서 이전)
-		const beforeRange = range.cloneRange();
-		beforeRange.setStartBefore(p);
-		beforeRange.setEnd(range.startContainer, range.startOffset);
-		const beforeFragment = beforeRange.cloneContents();
-
-		// 4. 뒷부분 추출 (커서 이후)
-		const afterRange = range.cloneRange();
-		afterRange.setStart(range.startContainer, range.startOffset);
-		afterRange.setEndAfter(p);
-		const afterFragment = afterRange.cloneContents();
-
-		// 5. 새로운 <p>들 생성
-		const pBefore = document.createElement("p");
-		pBefore.appendChild(beforeFragment);
-
-		const pAfter = document.createElement("p");
-		pAfter.appendChild(afterFragment);
-
-		// 6. 원래 <p> 제거하고 새것들 삽입
-		const parent = p.parentNode!;
-		parent.insertBefore(pBefore, p);
-		parent.insertBefore(fragment, p);
-		parent.insertBefore(pAfter, p);
-		parent.removeChild(p);
-
-		// 7. 커서 이동 (optional)
-		const newRange = document.createRange();
-		newRange.setStartAfter(fragment.lastChild || fragment);
-		newRange.collapse(true);
-		selection.removeAllRanges();
-		selection.addRange(newRange);
+		return fragment;
 	}
 
 	editor.addEventListener("paste", (e) => {
-		let t1 = performance.now();
-		let rawHTML = e.clipboardData?.getData("text/html");
-		let t2 = performance.now();
-		console.log("get html time:", t2 - t1);
-		if (!rawHTML) {
-			return;
-		}
-
+		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
+		// 붙여넣기 이후 바로 추가 입력 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
+		console.time("paste");
 		e.preventDefault();
 
-		const START_TAG = "<!--StartFragment-->";
-		const END_TAG = "<!--EndFragment-->";
-		const startIndex = rawHTML.indexOf(START_TAG);
-		if (startIndex >= 0) {
-			const endIndex = rawHTML.lastIndexOf(END_TAG);
-			if (endIndex >= 0) {
-				rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-			} else {
-				rawHTML = rawHTML.slice(startIndex + START_TAG.length);
+		let rawHTML = e.clipboardData?.getData("text/html");
+		let sanitized: Node;
+		if (rawHTML) {
+			const START_TAG = "<!--StartFragment-->";
+			const END_TAG = "<!--EndFragment-->";
+			const startIndex = rawHTML.indexOf(START_TAG);
+			if (startIndex >= 0) {
+				const endIndex = rawHTML.lastIndexOf(END_TAG);
+				if (endIndex >= 0) {
+					rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
+				} else {
+					rawHTML = rawHTML.slice(startIndex + START_TAG.length);
+				}
 			}
+			sanitized = sanitizeHTML(rawHTML);
+		} else {
+			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") || "");
 		}
 
-		const selection = window.getSelection()!;
-		const range = selection.getRangeAt(0);
-		range.deleteContents();
-		const frag = range.createContextualFragment(rawHTML);
-		const [sanitized, hasBlockElements] = sanitizeNode(frag);
-
-		insertFragmentSmart(sanitized as DocumentFragment, hasBlockElements);
-		// range.insertNode(sanitized);
-		onTextChanged();
-
-		// sanitize(rawHTML);
-
-		// editor.contentEditable = "true";
-		// t1 = performance.now();
-		// const node = sanitizeHTML(html);
-		// t2 = performance.now();
-		// console.log("sanitizeHTML time:", t2 - t1);
-
-		// t1 = performance.now();
-		// editor.replaceChildren(node);
-		// t2 = performance.now();
-		// console.log("replaceChildren time:", t2 - t1);
-
-		// t1 = performance.now();
-		// onTextChanged();
-		// t2 = performance.now();
-		// console.log("onTextChanged time:", t2 - t1);
+		// 자존심 상하지만 document.execCommand("insertHTML",...)를 써야한다.
+		// 1. 브라우저가 undo/redo 히스토리 관리를 할 수 있음.
+		// 2. 필요한 경우 브라우저가 알아서 DOM을 수정해 줌.
+		// 	예: 인라인 엘러먼트 안에 블럭 엘러먼트를 붙여넣는 경우 브라우저가 알아서 인라인 요소를 반으로 갈라서 블럭 엘러먼트를 밖으로 꺼내준다.
+		const div = document.createElement("DIV");
+		div.appendChild(sanitized);
+		document.execCommand("insertHTML", false, div.innerHTML);
+		console.log("insertHTML", div.innerHTML);
+		console.timeEnd("paste");
 	});
 
-	editor.addEventListener("input", () => {
-		onTextChanged();
-	});
+	editor.addEventListener("input", onChange);
 
 	wrapper.addEventListener("scroll", () => {
-		render();
+		renderAll();
 	});
+
+	function onChange() {
+		tokenize();
+	}
+
+	function onTokenizeDone() {
+		onTextChanged();
+	}
 
 	function getVisibleAnchors() {
 		return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
@@ -393,56 +296,13 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		_editMode = !!editMode;
 	}
 
-	function findLineIndexByPos(pos: number, low = 0, high = _lineHints.length - 1) {
-		const lineHints = _lineHints;
-		if (lineHints.length === 0) return -1;
-
-		if (pos < 0) return -1;
-		while (low <= high) {
-			const mid = (low + high) >> 1;
-			const hint = lineHints[mid];
-			const start = hint.pos;
-			const end = mid + 1 < lineHints.length ? lineHints[mid + 1].pos : Infinity;
-
-			if (pos < start) {
-				high = mid - 1;
-			} else if (pos >= end) {
-				low = mid + 1;
-			} else {
-				return mid;
-			}
-		}
-
-		return -1; // pos가 마지막 줄 end를 넘어간 경우
-
-		// let mid;
-		// while (low <= high) {
-		// 	mid = (low + high) >> 1;
-		// 	const lineEl = _lineElements[mid];
-		// 	const linePos = Number(lineEl.dataset.pos);
-		// 	if (linePos === pos) {
-		// 		return mid;
-		// 	}
-		// 	if (linePos > pos) {
-		// 		high = mid - 1;
-		// 	} else {
-		// 		low = mid + 1;
-		// 	}
-		// }
-		// return high;
-	}
-
-	// =============================================================
-	// 텍스트 선택 영역 관련
-	// 지저분하지만.. 섣불리 건들면 한시간 날아간다!
-	// =============================================================
 	// #region
 	function getTextOffset(root: HTMLElement, node: Node, offset: number): number {
 		let result;
 		if (node.nodeType === 1) {
 			let container = editor;
 			let offsetBase = 0;
-			
+
 			if (node.childNodes.length === offset) {
 				// return Number((node as HTMLElement).dataset.endOffset);
 				// offset이 node.childNode 배열 크기를 넘는 경우(정확히는 offset === childNode.length)
@@ -467,11 +327,11 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return result;
 	}
 
-	function getTextRangeRects(startOffset: number, endOffset: number): DiffRect[] {
+	function getTextRangeRects(startOffset: number, endOffset: number): Rect[] {
 		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
 		let currentPos = 0;
 		let currentNode: Node | null;
-		let result: DiffRect[] = [];
+		let result: Rect[] = [];
 		// console.log(editorName, "getTextRangeRects", { startOffset, endOffset });
 
 		if (startOffset === 0 && endOffset === 0) {
@@ -493,7 +353,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 					width: rect.width,
 					height: rect.height,
 				});
-				console.log("found rects:", rect);
 			}
 			if (created) {
 				(firstTextNode as ChildNode).remove();
@@ -602,7 +461,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			// }
 		}
 
-		console.log(editorName, "getTextRangeRects", { startOffset, endOffset, result });
 		return result;
 	}
 
@@ -650,95 +508,200 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		return [startOffset, endOffset];
 	}
 
-	function createTextRange(startOffset: number, endOffset: number, container: HTMLElement = editor): Range | null {
-		// console.debug(editorName, "selectTextRange", { startOffset, endOffset });
-		// startOffset = Math.max(0, Math.min(startOffset, _text.length - 1));
-		// endOffset = Math.max(0, Math.min(endOffset, _text.length - 1));
+	// 문자 오프셋만으로는 브라우저에서 텍스트를 드래그하듯 완전한 범위 선택을 할 수 없다.
+	// 텍스트노드 자체가 없는데 마우스로 긁으면 선택이 되는 경우가 있다. <br><br><br> 이걸 마우스로 긁거나 CTRL-A를 누르면 3줄이 선택되지만
+	// 문자 오프셋으로는 이걸 표현할 수가 없다. GREEDY하게 할지 LAZY하게 할지 전혀 선택하지 않을지 하나만 선택하게 할지 가장 먼저 나타나는 것을 선택할지 가장 마지막을 선택할지
+	// 사용 시나리오를 살펴봐야한다.
+	// 1. 텍스트를 긁었을 때 반대쪽 에디터에서 RANGE를 만들어서 하이라이팅
+	// 이 경우 처음부터 길이가 0이라면 아무것도 선택하지 않고 리턴(NULL??)
+	// 그렇지 않으면 범위의 시작과 끝 부분에 있는 길이가 0인 텍스트노드는 다 무시해야한다. 중간에 있는 것들은 포함
+	// 2. DIFF 범위 하이라이팅
+	// 이 경우 길이가 0인 경우가 문제가 된다.
+	//
+	function createTextRange(startOffset: number, endOffset: number) {
+		const range = document.createRange();
 
+		let pos = 0;
+		let startSet = false,
+			endSet = false;
+
+		// 실패하는 경우는 endOffset과 그 이후에 텍스트노드가 없는 경우임.
+
+		let skipLeadingEmptyTextNodes = endOffset > startOffset;
+		let skipTrailingEmptyTextNodes = endOffset > startOffset;
+
+		function walk(node: Node) {
+			if (node.nodeType === 3) {
+				const text = node.nodeValue!;
+				const textLen = text.length;
+				const endPos = pos + textLen;
+				if (!startSet && startOffset >= pos && startOffset < endPos && (!skipLeadingEmptyTextNodes || textLen > startOffset - pos)) {
+					range.setStart(node, startOffset - pos);
+					startSet = true;
+				}
+				if (startSet && endOffset >= pos && endOffset <= endPos && (!skipTrailingEmptyTextNodes || endOffset > pos)) {
+					range.setEnd(node, endOffset - pos);
+					endSet = true;
+					return;
+				}
+				pos = endPos;
+			} else if (node.nodeType === 1) {
+				const childNodes = node.childNodes;
+				if (childNodes.length > 0) {
+					for (let i = 0; i < childNodes.length; i++) {
+						walk(childNodes[i]);
+						if (startSet && endSet) {
+							return;
+						}
+					}
+				} else {
+					pos += node.textContent!.length;
+				}
+			}
+		}
+
+		walk(editor);
+		if (!startSet) {
+			let node: Node = editor;
+			while (node && node.firstChild) {
+				node = node.firstChild;
+			}
+			range.setStart(node, 0);
+			// while (node && node.firstChild) {
+			// 	node = node.firstChild;
+			// }
+			// range.setStartBefore(node);
+		}
+		if (!endSet) {
+			let node: Node = editor;
+			while (node && node.lastChild) {
+				node = node.lastChild;
+			}
+			range.setEnd(node, 0);
+		}
+		// const sel = window.getSelection()!;
+		// sel.removeAllRanges();
+		// sel.addRange(range);
+		return range;
+	}
+
+	function _createTextRange(startOffset: number, endOffset: number, startNode: Node = editor, startPos = 0) {
 		if (startOffset > endOffset) {
 			[startOffset, endOffset] = [endOffset, startOffset];
 		}
+
 		const range = document.createRange();
 
-		let startSet = false;
-		let endSet = false;
+		let startSet = false,
+			endSet = false;
+		let pos = startPos;
 
-		if (container === editor) {
-			const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
-			if (startOffset === 0 && endOffset === 0) {
-				const firstTextNode = walker.nextNode();
-				if (firstTextNode) {
-					range.setStart(firstTextNode, 0);
-					range.setEnd(firstTextNode, 0);
-					console.log("found rects:", range.getClientRects());
-					return range;
+		// 실패하는 경우는 endOffset과 그 이후에 텍스트노드가 없는 경우임.
+
+		function walk(node: Node) {
+			if (node.nodeType === 3) {
+				const text = node.nodeValue!;
+				const textLen = text.length;
+				const endPos = pos + textLen;
+				if (!startSet && startOffset >= pos && startOffset < endPos) {
+					range.setStart(node, startOffset - pos);
+					startSet = true;
+				} else if (!startSet) {
+					console.log("start not set", node, startOffset, pos);
+				}
+				if (endOffset >= pos && endOffset <= endPos) {
+					range.setEnd(node, endOffset - pos);
+					console.log("found end", node, endOffset - pos, endOffset, pos);
+					endSet = true;
+					return;
+				} else if (startSet && !endSet) {
+					console.log("end not set", node, startOffset, pos);
+				}
+				pos = endPos;
+			} else if (node.nodeType === 1) {
+				const childNodes = node.childNodes;
+				if (childNodes.length > 0) {
+					for (let i = 0; i < childNodes.length; i++) {
+						walk(childNodes[i]);
+						if (startSet && endSet) {
+							return;
+						}
+					}
 				} else {
-					console.warn("no text node found");
-					return null;
-				}
-			}
-
-			let currentNode;
-			let pos = 0;
-			while (!endSet && (currentNode = walker.nextNode())) {
-				if (!startSet && pos + currentNode.nodeValue!.length >= startOffset) {
-					range.setStart(currentNode, startOffset - pos);
-					startSet = true;
-				}
-				if (!endSet && pos + currentNode.nodeValue!.length >= endOffset) {
-					range.setEnd(currentNode, endOffset - pos);
-					endSet = true;
-				}
-				pos += currentNode.nodeValue!.length;
-			}
-		} else {
-			let startLineIndex = findLineIndexByPos(startOffset);
-			let endLineIndex = findLineIndexByPos(endOffset, startLineIndex);
-			let basePos = _lineHints[startLineIndex].pos;
-			if (basePos === startOffset) {
-				range.setStartBefore(_lineElements[startLineIndex]);
-				startSet = true;
-			} else {
-				let walker = document.createTreeWalker(_lineElements[startLineIndex], NodeFilter.SHOW_TEXT, null);
-				let pos = basePos;
-				let currentNode;
-				while ((currentNode = walker.nextNode())) {
-					const nodeLen = currentNode.nodeValue!.length;
-					if (pos + nodeLen >= startOffset) {
-						range.setStart(currentNode, startOffset - pos);
-						startSet = true;
-						break;
-					}
-					pos += nodeLen;
-				}
-				if (!startSet) {
-					range.setStartAfter(_lineElements[startLineIndex]);
-					startSet = true;
-				}
-			}
-			basePos = _lineHints[endLineIndex].pos;
-			if (basePos === endOffset) {
-				range.setEndBefore(_lineElements[endLineIndex]);
-				endSet = true;
-			} else {
-				let walker = document.createTreeWalker(_lineElements[endLineIndex], NodeFilter.SHOW_TEXT, null);
-				let pos = basePos;
-				let currentNode;
-				while ((currentNode = walker.nextNode())) {
-					const nodeLen = currentNode.nodeValue!.length;
-					if (pos + nodeLen >= endOffset) {
-						range.setEnd(currentNode, endOffset - pos);
-						endSet = true;
-						break;
-					}
-					pos += nodeLen;
-				}
-				if (!endSet) {
-					range.setEndAfter(_lineElements[endLineIndex]);
-					endSet = true;
+					pos += node.textContent!.length;
 				}
 			}
 		}
+
+		walk(startNode || editor);
+
+		if (!startSet) {
+			let node: Node = editor;
+			while (node && node.firstChild) {
+				node = node.firstChild;
+			}
+			range.setStart(node, 0);
+			// while (node && node.firstChild) {
+			// 	node = node.firstChild;
+			// }
+			// range.setStartBefore(node);
+			console.log("start fallback", node);
+		}
+		if (!endSet) {
+			let node: Node = editor;
+			while (node && node.lastChild) {
+				node = node.lastChild;
+			}
+			range.setEnd(node, 0);
+			console.log("end fallback", node);
+		}
+		// const sel = window.getSelection()!;
+		// sel.removeAllRanges();
+		// sel.addRange(range);
+		return range;
+	}
+
+	function createTextRange2(startOffset: number, endOffset: number): Range | null {
+		if (startOffset > endOffset) {
+			[startOffset, endOffset] = [endOffset, startOffset];
+		}
+
+		const range = document.createRange();
+		let startSet = false;
+		let endSet = false;
+		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+		if (startOffset === 0 && endOffset === 0) {
+			const firstChild = editor.firstChild;
+			if (firstChild) {
+				range.setStart(firstChild, 0);
+
+				return range;
+			}
+
+			const firstTextNode = walker.nextNode();
+			if (firstTextNode) {
+				range.setStart(firstTextNode, 0);
+				range.setEnd(firstTextNode, 0);
+				return range;
+			} else {
+				return null;
+			}
+		}
+
+		let currentNode;
+		let pos = 0;
+		while (!endSet && (currentNode = walker.nextNode())) {
+			if (!startSet && pos + currentNode.nodeValue!.length >= startOffset) {
+				range.setStart(currentNode, startOffset - pos);
+				startSet = true;
+			}
+			if (!endSet && pos + currentNode.nodeValue!.length >= endOffset) {
+				range.setEnd(currentNode, endOffset - pos);
+				endSet = true;
+			}
+			pos += currentNode.nodeValue!.length;
+		}
+
 		if (startSet && endSet) {
 			return range;
 		} else {
@@ -759,10 +722,10 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	// #endregion
 	// =============================================================
 
-	function mergeRects(rects: DiffRect[]): DiffRectSet {
+	function mergeRects(rects: Rect[]): DiffRectSet {
 		rects.sort((a, b) => a.y + a.height - (b.y + b.height));
 
-		const merged: DiffRect[] = [];
+		const merged: Rect[] = [];
 		const used = new Array(rects.length).fill(false);
 
 		let minX = Number.MAX_SAFE_INTEGER;
@@ -847,34 +810,42 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		};
 	}
 
-	function getTextRects(startOffset: number, endOffset: number): DiffRectSet | null {
+	function getTextRects(startOffset: number, endOffset: number): Rect[] {
 		const range = createTextRange(startOffset, endOffset);
+		let result: Rect[] = [];
 		if (range) {
 			let { x: baseX, y: baseY } = wrapper.getBoundingClientRect();
-			baseX = -baseX;
-			baseX = wrapper.scrollLeft;
-			baseY = wrapper.scrollTop;
-			const diffExpandX = 1;
-			const diffExpandY = 1;
-			console.log(editorName, "base", { baseX, baseY });
-
-			const rectsArr: DiffRect[] = [];
-			const heightMultiplier = 1.2;
+			baseX = -baseX + wrapper.scrollLeft;
+			baseY = -baseY + wrapper.scrollTop;
 			const rects = range.getClientRects();
 			for (const rect of rects) {
 				if (rect) {
-					const newHeight = rect.height * heightMultiplier;
-					const heightDelta = newHeight - rect.height;
-					rect.x += baseX - diffExpandX;
-					rect.y += baseY - heightDelta / 2 - diffExpandY;
-					rect.width += diffExpandX * 2;
-					rect.height = newHeight + diffExpandY * 2;
+					rect.x += baseX;
+					rect.y += baseY;
+					result.push(rect);
 				}
-				rectsArr.push(rect);
 			}
-			return mergeRects(rectsArr);
 		}
-		return null;
+
+		if (result.length > 0) {
+			let firstNonZero = -1;
+			let lastNonZero = -1;
+			for (let i = 0; i < result.length; i++) {
+				if (result[i].width > 0) {
+					if (firstNonZero === -1) {
+						firstNonZero = i;
+					}
+					lastNonZero = i;
+				}
+			}
+			if (firstNonZero !== -1 && lastNonZero !== -1) {
+				result = result.slice(firstNonZero, lastNonZero + 1);
+			} else if (result.length > 1) {
+				result.length = 1;
+			}
+		}
+
+		return result;
 	}
 
 	function calculateDiffRects() {
@@ -885,8 +856,8 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		baseX += wrapper.scrollLeft;
 		baseY += wrapper.scrollTop;
 		_diffRects.length = 0;
-		const temp: DiffRect[] = [];
-		const allRects: DiffRect[] = [];
+		const temp: Rect[] = [];
+		const allRects: Rect[] = [];
 		const heightMultiplier = 1;
 		for (let diffIndex = 0; diffIndex < _diffRanges.length; diffIndex++) {
 			const ranges = _diffRanges[diffIndex];
@@ -915,7 +886,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		const canvasWidth = staticCanvas.width;
 		allRects.sort((a, b) => a.y - b.y);
 
-		let lineRect: DiffRect | null = null;
+		let lineRect: Rect | null = null;
 		const lineExpandY = 4;
 		const lineHeightMultiplier = 1.1;
 		for (const rect of allRects) {
@@ -936,19 +907,36 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		}
 	}
 
+	function renderAll() {
+		_renderLayers[DIFF_LAYER].dirty = true;
+		_renderLayers[HIGHLIGHT_LAYER].dirty = true;
+		render();
+	}
+
 	function render(imediate = false) {
 		if (!imediate) {
-			if (_updateStaticCanvasPending) {
+			if (_renderPending) {
 				return;
 			}
-			_updateStaticCanvasPending = true;
+			_renderPending = true;
 			requestAnimationFrame(() => {
 				render(true);
-				_updateStaticCanvasPending = false;
+				_renderPending = false;
 			});
 			return;
 		}
 
+		if (_renderLayers[DIFF_LAYER].dirty) {
+			renderDiffLayer();
+			_renderLayers[DIFF_LAYER].dirty = false;
+		}
+		if (_renderLayers[HIGHLIGHT_LAYER].dirty) {
+			renderHighlightLayer();
+			_renderLayers[HIGHLIGHT_LAYER].dirty = false;
+		}
+	}
+
+	function renderDiffLayer() {
 		if (_diffRectsDirty) {
 			calculateDiffRects();
 			_diffRectsDirty = false;
@@ -1026,19 +1014,131 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		if (visibilityChangeEntries.length > 0) {
 			onDiffVisibilityChanged(visibilityChangeEntries);
 		}
-
-		renderHighlights();
 	}
 
-	function renderHighlights() {
+	// function doRenderRects(ctx: CanvasRenderingContext2D, rects: Rect[], fillColor: string, strokeColor?: string) {
+	// 	const scrollTop = wrapper.scrollTop;
+	// 	const scrollLeft = wrapper.scrollLeft;
+	// 	ctx.fillStyle = fillColor;
+	// 	if (strokeColor) {
+	// 		ctx.strokeStyle = strokeColor;
+	// 	}
+
+	// 	for (const rect of rects) {
+	// 		const x = Math.floor(rect.x - scrollLeft),
+	// 			y = Math.floor(rect.y - scrollTop),
+	// 			width = Math.ceil(rect.width),
+	// 			height = Math.ceil(rect.height);
+
+	// 		if (y + height < 0 || y > _canvasHeight) continue;
+	// 		if (x + width < 0 || x > _canvasWidth) continue;
+	// 		if (fillColor) {
+	// 			ctx.fillRect(x, y, width, height);
+	// 		}
+	// 		if (strokeColor) {
+	// 			ctx.strokeRect(x, y, width, height);
+	// 		}
+	// 	}
+	// }
+
+	// len이 0인 span이 들어있을 수 있다.
+	function getTextRanges(spans: Span[]) {
+		const walker = document.createTreeWalker(editor, NodeFilter.SHOW_TEXT, null);
+		let currentNode: Node | null = walker.nextNode();
+		let pos = 0;
+		const result: Range[] = new Array(spans.length);
+
+		function create(startOffset: number, endOffset: number) {
+			const range = document.createRange();
+			if (currentNode) {
+				let startSet = false;
+				do {
+					const nodeText = currentNode!.nodeValue!;
+					const nodeStart = pos;
+					const nodeEnd = pos + nodeText.length;
+
+					if (!startSet && startOffset >= nodeStart && startOffset < nodeEnd) {
+						range.setStart(currentNode!, startOffset - nodeStart);
+						startSet = true;
+					}
+
+					if (startSet && endOffset <= nodeEnd) {
+						range.setEnd(currentNode!, endOffset - nodeStart);
+						break;
+					}
+					pos = nodeEnd;
+				} while ((currentNode = walker.nextNode()));
+			}
+			return range;
+		}
+
+		for (let i = 0; i < spans.length; i++) {
+			const span = spans[i];
+			if (span.len > 0) {
+				const startOffset = span.pos;
+				const endOffset = span.pos + span.len;
+				const range = create(startOffset, endOffset);
+				if (range.startContainer === document || range.endContainer === document) {
+					throw new Error("range is not valid");
+				}
+				result[i] = range;
+			}
+		}
+
+		for (let i = 0; i < spans.length; i++) {
+			if (!result[i]) {
+				const range = document.createRange();
+				if (i > 0) {
+					range.setStart(range.endContainer, range.endOffset);
+				} else {
+					range.setStart(editor, 0);
+				}
+				range.setEnd(editor, editor.childNodes.length);
+			}
+		}
+
+		return result;
+	}
+
+	function renderHighlightLayer() {
 		const ctx = highlightCanvasCtx;
-		const canvasWidth = highlightCanvas.width,
-			canvasHeight = highlightCanvas.height;
+		const canvasWidth = _canvasWidth,
+			canvasHeight = _canvasHeight;
 
 		ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 
 		const scrollTop = wrapper.scrollTop;
 		const scrollLeft = wrapper.scrollLeft;
+
+		if (_textSelectionHighlight) {
+			let item = _textSelectionHighlight.renderItem;
+			if (!item) {
+				const rects = getTextRects(_textSelectionHighlight.startOffset, _textSelectionHighlight.endOffset);
+				const merged = mergeRects(rects);
+				item = _textSelectionHighlight.renderItem = {
+					rects: merged.rects,
+					minX: merged.minX,
+					minY: merged.minY,
+					maxX: merged.maxX,
+					maxY: merged.maxY,
+				};
+			}
+
+			if (isRectVisible(item.minY, item.maxY, item.minX, item.maxX, scrollTop, scrollLeft, canvasWidth, canvasHeight)) {
+				ctx.fillStyle = TEXT_SELECTION_HIGHLIGHT_FILL_STYLE;
+
+				for (const rect of item.rects) {
+					const x = Math.floor(rect.x - scrollLeft),
+						y = Math.floor(rect.y - scrollTop),
+						width = Math.ceil(rect.width),
+						height = Math.ceil(rect.height);
+
+					if (y + height < 0 || y > _canvasHeight) continue;
+					if (x + width < 0 || x > _canvasWidth) continue;
+					ctx.fillRect(x, y, width, height);
+				}
+			}
+		}
 
 		function doRender(items: RenderItem[]) {
 			for (const item of items) {
@@ -1074,21 +1174,22 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			ctx.restore();
 		}
 
-		if (_textHighlightItems && _textHighlightItems.length > 0) {
-			doRender(_textHighlightItems);
-			for (const item of _textHighlightItems) {
-				const x = Math.floor(item.x - scrollLeft),
-					y = Math.floor(item.y - scrollTop),
-					width = Math.ceil(item.w),
-					height = Math.ceil(item.h);
+		// if (_textHighlightItems && _textHighlightItems.length > 0) {
+		// 	doRender(_textHighlightItems);
+		// 	// for (const item of _textHighlightItems) {
+		// 	// 	const x = Math.floor(item.x - scrollLeft),
+		// 	// 		y = Math.floor(item.y - scrollTop),
+		// 	// 		width = Math.ceil(item.w),
+		// 	// 		height = Math.ceil(item.h);
 
-				if (y + height < 0 || y > canvasHeight) continue;
-				if (x + width < 0 || x > canvasWidth) continue;
+		// 	// 	if (y + height < 0 || y > canvasHeight) continue;
+		// 	// 	if (x + width < 0 || x > canvasWidth) continue;
 
-				ctx.fillStyle = item.fillStyle || "hsl(210 100% 80%)";
-				ctx.fillRect(x, y, width, height);
-			}
-		}
+		// 	// 	ctx.fillStyle = item.fillStyle || "hsl(210 100% 80%)";
+		// 	// 	ctx.fillRect(x, y, width, height);
+		// 	// 	console.log("highlight", { x, y, width, height });
+		// 	// }
+		// }
 	}
 
 	function sliceText(startOffset: number, endOffset: number): string {
@@ -1124,6 +1225,10 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 	}
 
 	function update(ctx: DiffContext) {
+		if (!ctx.done) {
+			return;
+		}
+
 		const started = performance.now();
 		_diffRanges.length = 0;
 		_diffRects.length = 0;
@@ -1135,11 +1240,10 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		let diffEndPos: number;
 
 		const diffs = ctx.diffs!;
-		let currentNode = editor.firstChild;
 
+		let currentNode = editor.firstChild;
 		function advance(skipChildren = false): boolean {
-			if (!currentNode) {
-				currentNode = null;
+			if (!currentNode || currentNode === editor) {
 				return false;
 			}
 
@@ -1174,7 +1278,6 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 					let nodeEnd = nodeStart + text.length;
 
 					if (diffEndPos < nodeStart) {
-						console.log(1, editorName, "diffEndPos < nodeStart", { diffEndPos, nodeStart });
 						break;
 					}
 
@@ -1188,7 +1291,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 					}
 					if (diffEndPos < nodeEnd) {
 						// done this diff
-						console.log(2, editorName, "diffEndPos <= nodeEnd", { diffEndPos, nodeEnd });
+						// console.log(2, editorName, "diffEndPos <= nodeEnd", { diffEndPos, nodeEnd });
 						break;
 					}
 					pos = nodeEnd;
@@ -1198,7 +1301,7 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 					const nodeEnd = Number((currentNode as HTMLElement).dataset.endOffset);
 					if (!isNaN(nodeStart) && !isNaN(nodeEnd)) {
 						if (nodeStart >= diffPos && nodeEnd <= diffEndPos) {
-							console.log(3, editorName, "nodeStart, nodeEnd", { currentNode, nodeStart, nodeEnd });
+							// console.log(3, editorName, "nodeStart, nodeEnd", { currentNode, nodeStart, nodeEnd });
 							if (currentNode.nodeName === "P" || INLINE_ELEMENTS[currentNode.nodeName]) {
 								const range = document.createRange();
 								range.selectNodeContents(currentNode);
@@ -1214,14 +1317,14 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 							}
 						}
 						if (diffPos > nodeEnd) {
-							console.log(4, editorName, "diffPos >= nodeEnd", { diffPos, nodeEnd });
+							// console.log(4, editorName, "diffPos >= nodeEnd", { diffPos, nodeEnd });
 							pos = nodeEnd;
 							advance(true);
 							continue;
 						}
 					}
 					// console.log(editorName, "children", Array.from(currentNode.childNodes));
-					console.log(5, editorName, "advance", { currentNode });
+					// console.log(5, editorName, "advance", { currentNode });
 					advance();
 					continue;
 				} else {
@@ -1249,41 +1352,36 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		console.log(editorName, "update", end - started);
 
 		_diffRectsDirty = true;
+		renderAll();
+	}
+
+	function setLayerDirty(layerIndex: number) {
+		_renderLayers[layerIndex].dirty = true;
 		render();
 	}
 
-	let _highlightedTextStart: number | null = null;
-	let _highlightedTextEnd: number | null = null;
-
-	function applyTextHighlight(startOffset: number, endOffset: number) {
-		if (startOffset === _highlightedTextStart && endOffset === _highlightedTextEnd) {
+	function applyTextSelectionHighlight(startOffset: number, endOffset: number) {
+		if (_textSelectionHighlight?.startOffset === startOffset && _textSelectionHighlight?.endOffset === endOffset) {
 			return;
 		}
-		_highlightedTextStart = startOffset;
-		_highlightedTextEnd = endOffset;
 
-		const rectSet = getTextRects(startOffset, endOffset);
-		if (rectSet && rectSet.rects.length > 0) {
-			_textHighlightItems = rectSet.rects.map((rect) => {
-				return {
-					x: rect.x,
-					y: rect.y,
-					w: rect.width,
-					h: rect.height,
-					fillStyle: "hsl(210 100% 80%)",
-					type: "texthighlight",
-				};
-			});
-		}
+		_textSelectionHighlight = {
+			startOffset,
+			endOffset,
+		};
 
-		renderHighlights();
+		// let { x: baseX, y: baseY } = wrapper.getBoundingClientRect();
+		// baseX = -baseX;
+		// baseX += wrapper.scrollLeft;
+		// baseY += wrapper.scrollTop;
+
+		setLayerDirty(HIGHLIGHT_LAYER);
+		renderHighlightLayer();
 	}
 
-	function clearTextHighlight() {
-		_highlightedTextStart = null;
-		_highlightedTextEnd = null;
-		_textHighlightItems = null;
-		renderHighlights();
+	function clearTextSelectionHighlight() {
+		_textSelectionHighlight = null;
+		renderHighlightLayer();
 	}
 
 	let _highlightedDiffIndex: number | null = null;
@@ -1307,16 +1405,368 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 			});
 		}
 
-		renderHighlights();
+		renderHighlightLayer();
 	}
 
 	function clearDiffHighlight() {
 		_highlightedDiffIndex = null;
 		_diffHighlightItems = null;
-		renderHighlights();
+		renderHighlightLayer();
 	}
 
+	// temp
+	setTimeout(onChange, 0);
+
+	// 앵커를 어떤식으로 추가할지
+	// 1. classList에 넣고 anchor:before
+	// 2. <a> 태그를 넣는다
+
+	function insertAnchorBefore(tokenIndex: number): HTMLElement | null {
+		const token = _tokens[tokenIndex];
+		const range = _ranges[tokenIndex];
+		// console.log("insertAnchorBefore", tokenIndex, token, range);
+		let el: Node | null = null;
+		// if (token.flags & TABLE_START) {
+		// 	// console.log("insertAnchorBefore: TABLE_START", tokenIndex, token);
+		// 	el = (range.startContainer.parentNode as HTMLElement).closest("table");
+		// }
+
+		if (!el) {
+			el = range.startContainer;
+			if (el.nodeType === 3) {
+				//console.assert(range.startOffset === 0);
+			} else if (el.nodeType === 1) {
+				console.assert(range.startOffset < range.startContainer.childNodes.length);
+				el = el.childNodes[range.startOffset];
+			}
+		}
+
+		if (!el) return null;
+
+		if (el.previousSibling && el.previousSibling.nodeName === "A") {
+			return el.previousSibling as HTMLElement;
+		}
+
+		const anchorEl = document.createElement("A");
+		anchorEl.classList.add("anchor");
+		el.parentNode!.insertBefore(anchorEl, el);
+
+		// (el as HTMLElement).dataset.anchor = String(_anchorElements.length);
+		// (el as HTMLElement).classList.add("anchor");
+		// _anchorElements.push(el as HTMLElement);
+		return anchorEl;
+	}
+
+	function insertAnchorAfter(tokenIndex: number): HTMLElement | null {
+		const token = _tokens[tokenIndex];
+		if (!token) {
+			return null;
+		}
+
+		const range = _ranges[tokenIndex];
+		// console.log("insertAnchorAfter", tokenIndex, token, range);
+		let el: Node | null = null;
+		// if (token.flags & TABLE_START) {
+		// 	// console.log("insertAnchorAfter: TABLE_START", tokenIndex, token);
+		// 	el = (range.startContainer.parentNode as HTMLElement).closest("table");
+		// }
+
+		console.log("insertAnchorAfter", tokenIndex, token, range);
+		let parent: Node;
+		let before: Node | null = null;
+		if (range.endContainer.nodeType === 3) {
+			parent = range.endContainer.parentNode!;
+			before = range.endContainer.nextSibling;
+		} else if (range.endContainer.nodeType === 1) {
+			parent = range.endContainer;
+			before = range.endContainer.childNodes[range.endOffset]?.nextSibling || null;
+		} else {
+			console.warn("Unexpected node type in range.endContainer", range.endContainer);
+			return null;
+		}
+		
+		if (before && before.nodeName === "A") {
+			return before as HTMLElement;
+		}
+
+		const anchorEl = document.createElement("A");
+		anchorEl.classList.add("anchor");
+		parent.insertBefore(anchorEl, before);
+
+		return anchorEl;
+	}
+
+	function findAnchorTargetElement(tokenIndex: number): HTMLElement | null {
+		const token = _tokens[tokenIndex];
+		const range = _ranges[tokenIndex];
+		// let parent: HTMLElement | null = null;
+		// let childIndex = 0;
+		// if (token.flags & TABLE_START) {
+		// 	[parent, childIndex] = findClosestTable(range.startContainer);
+		// }
+
+		let el = range.startContainer;
+
+		// 찾을 수 있는 가장 상위 요소를 찾는데
+		// 1. TEXT_FLOW_CONTAINER의 자식이면서
+
+		while (!BLOCK_ELEMENTS[el.nodeName]) {
+			el = el.parentNode!;
+			if (!el || el === editor) {
+				console.warn("couldn't find appropriate element for anchor");
+				return null;
+			}
+		}
+
+		// (el as HTMLElement).dataset.anchor = String(_anchorElements.length);
+		// (el as HTMLElement).classList.add("anchor");
+		// _anchorElements.push(el as HTMLElement);
+		return el as HTMLElement;
+	}
+
+	const { tokenize } = (function () {
+		const TIMEOUT = 200;
+
+		let _contextId = 0;
+		let _callbackId: number | null = null;
+		let _startTime = 0;
+
+		type TokinizeContext = {
+			id: number;
+		};
+
+		function* tokenizeGenerator(ctx: TokinizeContext) {
+			let idleDeadline: IdleDeadline = yield;
+			let nodeCounter = 0;
+
+			// console.log("BEFORE!", editorName, "tokenize", editor.textContent);
+			const startTime = performance.now();
+			let textPos = 0;
+			let tokenIndex = 0;
+
+			let currentToken: Token | null = null;
+			let currentRange: Range | null = null;
+
+			// function processToken(str: string, start: number, length: number) {
+			// 	if (currentToken) {
+			// 		currentToken.text += str;
+			// 		currentToken.len = textPos - currentToken.pos;
+			// 	} else {
+			// 		currentToken = {
+			// 			text: str,
+			// 			pos: start,
+			// 			len: length,
+			// 			flags: 0,
+			// 			lineNum: 0,
+			// 		};
+			// 	}
+			// }
+
+			function processToken2(text: Text, startOffset: number, endOffset: number) {
+				if (currentToken) {
+					currentToken.text += text.nodeValue!.slice(startOffset, endOffset);
+					currentToken.len += endOffset - startOffset;
+					currentRange!.setEnd(text, endOffset);
+				} else {
+					currentToken = {
+						text: text.nodeValue!.slice(startOffset, endOffset),
+						pos: textPos + startOffset,
+						len: endOffset - startOffset,
+						flags: 0,
+						lineNum: 0,
+					};
+					currentRange = document.createRange();
+					currentRange.setStart(text, startOffset);
+					currentRange.setEnd(text, endOffset);
+				}
+			}
+
+			function finalizeToken(flags: number = 0) {
+				if (currentToken) {
+					currentToken.flags |= flags;
+					_tokens[tokenIndex] = currentToken;
+					_ranges[tokenIndex] = currentRange!;
+					currentToken = null;
+					tokenIndex++;
+					return 1;
+				}
+				return 0;
+			}
+
+			function* traverse(node: Node): Generator<unknown, void, IdleDeadline> {
+				if (ctx.id !== _contextId) {
+					throw new Error("cancelled");
+				}
+
+				if ((++nodeCounter & 31) === 0) {
+					if (idleDeadline.timeRemaining() < 1) {
+						idleDeadline = yield;
+					}
+				}
+
+				let currentStart = -1;
+				if (node.nodeType === 3) {
+					const text = node.nodeValue!;
+					if (text.length === 0) return;
+
+					for (let i = 0; i < text.length; i++) {
+						const char = text[i];
+						if (spaceChars[char]) {
+							if (currentStart >= 0) {
+								processToken2(node as Text, currentStart, i);
+								currentStart = -1;
+							}
+							finalizeToken();
+						} else {
+							if (currentStart < 0) {
+								currentStart = i;
+							}
+						}
+					}
+
+					if (currentStart >= 0) {
+						processToken2(node as Text, currentStart, text.length);
+					}
+					textPos += text.length;
+				} else if (node.nodeType === 1) {
+					if (node.nodeName === "BR") {
+						finalizeToken(LINE_END);
+						return;
+					}
+
+					if ((node as HTMLElement).className === "img") {
+						finalizeToken();
+						currentToken = {
+							text: (node as HTMLElement).dataset.src || (node as HTMLImageElement).src || "🖼️",
+							pos: textPos,
+							len: node.textContent!.length,
+							lineNum: 0,
+							flags: IMAGE | NO_JOIN,
+						};
+						currentRange = document.createRange();
+						currentRange.setStart(node, 0);
+						currentRange.setEnd(node, node.childNodes.length);
+						finalizeToken();
+						textPos += node.textContent!.length; // 아마도 0이겠지
+						return;
+					}
+
+					(node as HTMLElement).dataset.startOffset = String(textPos);
+
+					if (TEXT_FLOW_CONTAINERS[node.nodeName]) {
+						finalizeToken(CONTAINER_END | LINE_END);
+					}
+
+					const isTextFlowContainer = TEXT_FLOW_CONTAINERS[node.nodeName];
+					const numTokensBefore = tokenIndex;
+
+					for (const child of node.childNodes) {
+						yield* traverse(child);
+					}
+
+					if (BLOCK_ELEMENTS[node.nodeName]) {
+						finalizeToken();
+					}
+
+					const firstToken = _tokens[numTokensBefore];
+					const lastToken = _tokens[tokenIndex - 1];
+					if (isTextFlowContainer) {
+						if (firstToken) {
+							firstToken.flags |= CONTAINER_START | LINE_START;
+						}
+						if (lastToken) {
+							lastToken.flags |= CONTAINER_END | LINE_END;
+						}
+					}
+					if (node.nodeName === "P") {
+						if (firstToken) {
+							firstToken.flags |= LINE_START;
+						}
+						if (lastToken) {
+							lastToken.flags |= LINE_END;
+						}
+					}
+					if (node.nodeName === "TR") {
+						if (firstToken) {
+							firstToken.flags |= TABLEROW_START;
+						}
+						if (lastToken) {
+							lastToken.flags |= TABLEROW_END;
+						}
+					}
+					if (node.nodeName === "TD" || node.nodeName === "TH") {
+						if (firstToken) {
+							firstToken.flags |= TABLECELL_START;
+						}
+						if (lastToken) {
+							lastToken.flags |= TABLECELL_END;
+						}
+					}
+
+					if (node.nodeName === "TABLE") {
+						if (firstToken) {
+							firstToken.flags |= TABLE_START;
+						}
+						if (lastToken) {
+							lastToken.flags |= TABLE_END;
+						}
+					}
+
+					(node as HTMLElement).dataset.endOffset = String(textPos);
+
+					// currentContainer = containerStack.pop()!;
+				}
+			}
+
+			yield* traverse(editor);
+			finalizeToken();
+			_tokens.length = tokenIndex;
+			_ranges.length = tokenIndex;
+			const endTime = performance.now();
+			console.log(editorName, "tokenize", Math.ceil(endTime - startTime) + "ms", { _tokens, _ranges });
+		}
+
+		function tokenize() {
+			_startTime = performance.now();
+
+			const ctx: TokinizeContext = {
+				id: ++_contextId,
+			};
+			const generator = tokenizeGenerator(ctx);
+			const step = (idleDeadline: IdleDeadline) => {
+				_callbackId = null;
+				try {
+					const { done } = generator.next(idleDeadline);
+					if (done) {
+						const endTime = performance.now();
+						console.log(editorName, "tokenize done", Math.ceil(endTime - _startTime) + "ms", { _tokens, _ranges });
+						onTokenizeDone();
+					} else {
+						if (ctx.id === _contextId) {
+							_callbackId = requestIdleCallback(step, { timeout: TIMEOUT });
+						} else {
+							console.log(editorName, "tokenize cancelled");
+						}
+					}
+				} catch (e) {
+					if ((e as Error).message === "cancelled") {
+						console.log(editorName, "tokenize cancelled");
+					} else {
+						console.error(editorName, "tokenize error", e);
+					}
+				}
+			};
+			_callbackId = requestIdleCallback(step, { timeout: TIMEOUT });
+		}
+
+		return { tokenize };
+	})();
+
 	return {
+		insertAnchorBefore,
+		insertAnchorAfter,
+		findAnchorTargetElement,
+		createTextRange2,
 		update,
 		sliceText,
 		name: editorName,
@@ -1338,10 +1788,11 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		selectTextRange,
 		createTextRange,
 		getTextRects,
-		applyTextHighlight,
-		clearTextHighlight,
+		applyTextHighlight: applyTextSelectionHighlight,
+		clearTextHighlight: clearTextSelectionHighlight,
 		applyDiffHighlight,
 		clearDiffHighlight,
+		getRangeForToken,
 		// 그냥 states 객체를 하나 만들어서 리턴할까...
 		// get text() {
 		// 	return _text;
@@ -1361,7 +1812,43 @@ function createEditor(container: HTMLElement, editorName: "left" | "right", call
 		get visibleDiffIndices() {
 			return _visibleDiffIndices;
 		},
+		get tokens() {
+			return _tokens;
+		},
+		get ranges() {
+			return _ranges;
+		},
 	};
+
+	function getRangeForToken(index: number, count: number = 1) {
+		const ranges = _ranges;
+		const range = document.createRange();
+		if (count === 1) {
+			return ranges[index];
+		}
+
+		if (count > 1) {
+			range.setStart(ranges[index].startContainer, ranges[index].startOffset);
+			range.setEnd(ranges[index + count - 1].endContainer, ranges[index + count - 1].endOffset);
+			return range;
+		}
+
+		if (index > 0) {
+			const prevRange = ranges[index - 1];
+			range.setStart(prevRange.endContainer, prevRange.endOffset);
+		} else {
+			range.setStart(editor, 0);
+		}
+
+		if (index < ranges.length) {
+			const nextRange = ranges[index];
+			console.log("next range", nextRange);
+			range.setEnd(nextRange.startContainer, nextRange.startOffset);
+		} else {
+			range.setEnd(editor, editor.childNodes.length);
+		}
+		return range;
+	}
 }
 
 type Editor = ReturnType<typeof createEditor>;

@@ -464,7 +464,7 @@ function sanitizeHTML(rawHTML: string): Node {
 		let containerNode: ParentNode | null = null;
 		const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
 		if (allowedAttrs) {
-			containerNode = document.createElement(node.nodeName);
+			containerNode = document.createElement(node.nodeName === "P" ? "DIV" : node.nodeName);
 			for (const attr of (node as HTMLElement).attributes) {
 				if (allowedAttrs[attr.name]) {
 					(containerNode as HTMLElement).setAttribute(attr.name, attr.value);

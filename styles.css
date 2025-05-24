@@ -5,7 +5,9 @@
 	--status-bar-height: 22px;
 	font-size: 16px;
 	--container-gap: 8px;
-	--sidebar-width: 250px;
+	--sidebar-width: 200px;
+	--text-container-padding-block: 4px;
+	--text-container-padding-inline: 4px;
 }
 
 * {
@@ -20,7 +22,7 @@ html {
 	width: 100vw;
 	overflow: hidden;
 	scroll-padding-top: 1rem;
-	font-family: "돋음"; /*monospace가 필요할 때 '돋음체'를 사용할 수 있기 때문!*/
+	font-family: "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
 	/* font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; */
 }
 
@@ -95,7 +97,7 @@ html {
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	font-family: "돋움체", monospace;
+	/* font-family: "돋움체", monospace; */
 	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
@@ -107,32 +109,6 @@ html {
 	outline: none;
 	padding: var(--editor-padding);
 	/* scroll-margin: var(--scroll-margin); */
-}
-
-.has-html .mirror,
-.has-html .editor {
-	white-space: normal;
-	word-break: normal;
-	overflow-wrap: normal;
-	overflow-y: scroll;
-}
-
-.has-html table {
-	border-spacing: 0;
-	border-collapse: collapse;
-	width: 100%;
-}
-
-.has-html td,
-.has-html th {
-	border: 1px solid #000;
-	border-collapse: collapse;
-	padding: 0.25rem;
-	vertical-align: top;
-}
-
-.has-html img {
-	border: 2px solid transparent;
 }
 
 .mirror div,
@@ -154,7 +130,7 @@ html {
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
 	z-index: -1;
-	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
 .editor-wrapper canvas {
@@ -164,13 +140,13 @@ html {
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
 	z-index: -2;
-	will-change: transform;/* 정확히 뭘하는 놈인지 알아봐야함 */
+	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
 .editor-wrapper canvas.highlight {
 	z-index: -1;
+	opacity: 0.3;
 }
-
 
 .editor-wrapper:focus-within .editor {
 	color: #000;
@@ -680,8 +656,19 @@ body.aligned {
 .editor td {
 	vertical-align: top;
 	border: 1px solid #000;
-	padding: 2px 4px;
+	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
 	user-select: none;
+}
+
+.editor div,
+.editor section,
+.editor header,
+.editor footer,
+.editor article,
+.editor aside,
+.editor nav,
+.editor main {
+	/* padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px); */
 }
 
 .editor p:empty::before {
@@ -693,6 +680,40 @@ body.aligned {
 	font-weight: bold;
 }
 
-h1, h2, h3, h4, h5, h6 {
-  font-size: inherit;
+h1,
+h2,
+h3,
+h4,
+h5,
+h6 {
+	font-size: inherit;
+}
+
+.padtop:before {
+	content: "";
+	display: block;
+	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+	height: var(--padding);
+}
+
+.bottom-padding {
+	display: block;
+	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+}
+
+.editor {
+	min-height: max(100%, var(--min-height, 100%));
+}
+
+.editor::after {
+	content: "";
+	display: block;
+	height: var(--bottom-padding, 0px);
+
+	background: red repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+}
+
+.editor a {
+	pointer-events: none;
+	user-select: none;
 }

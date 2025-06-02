@@ -11,11 +11,14 @@ const TABLEROW_START = 1 << 6; // 64
 const TABLEROW_END = 1 << 7; // 128
 const TABLECELL_START = 1 << 8; // 256
 const TABLECELL_END = 1 << 9; // 512
-const NO_JOIN = 1 << 10; // @@@, ### 등등 // 16
-const WILD_CARD = 1 << 11;
-const MANUAL_ANCHOR = 12 << 6; // 32. @@@, ### 등등
-const IMAGE = 1 << 13;
-const SECTION_HEADING_BIT = 14;
+const NO_JOIN_PREV = 1 << 10; // @@@, ### 등등 // 1024
+const NO_JOIN_NEXT = 1 << 11; // @@@, ### 등등 // 2048
+const WILD_CARD = 1 << 12;
+const MANUAL_ANCHOR = 1 << 13; // 32. @@@, ### 등등
+const IMAGE = 1 << 14;
+const HTML_SUP = 1 << 15;
+const HTML_SUB = 1 << 16;
+const SECTION_HEADING_BIT = 17;
 const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
 const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
 const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
@@ -23,6 +26,8 @@ const SECTION_HEADING_TYPE4 = 1 << (SECTION_HEADING_BIT + 3); // (가)
 const SECTION_HEADING_TYPE5 = 1 << (SECTION_HEADING_BIT + 4); // 1)
 const SECTION_HEADING_TYPE6 = 1 << (SECTION_HEADING_BIT + 5); // 가)
 
+const BLOCK_START = CONTAINER_START | LINE_START | TABLECELL_START;
+const BLOCK_END = CONTAINER_END | LINE_END | TABLECELL_END;
 const LINE_BOUNDARY = LINE_START | LINE_END;
 const CONTAINER_BOUNDARY = CONTAINER_START | CONTAINER_END;
 const SECTION_HEADING_MASK =
@@ -141,19 +146,6 @@ const normalizedCharMap = ((normChars: (string | number)[][]) => {
 	["↕", "⇕"],
 ]);
 
-const TOKEN_CACHE_SIZE = 2;
-
-type TokenCacheEntry = {
-	text: string;
-	tokens: Token[];
-};
-
-const tokenCache: Record<TokenizationMode, TokenCacheEntry[]> = {
-	["char"]: [],
-	["word"]: [],
-	["line"]: [],
-};
-
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
 // 글자단위로 토큰화하는 경우에도 얘네들은 (...) 통채로 하나의 토큰으로 취급.
@@ -191,301 +183,6 @@ manualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
 const manualAnchorTrieNode = manualAnchorTrie.root;
 const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 
-function tokenizeByChar(input: string): Token[] {
-	const tokens: Token[] = [];
-	let lineNum = 1;
-	let flags = LINE_START;
-	const inputEnd = input.length;
-
-	for (let i = 0; i < inputEnd; i++) {
-		const ch = input[i];
-
-		if (!spaceChars[ch]) {
-			if (ch === "(") {
-				const result = findInTrie(wildcardTrieNode, input, i + 1);
-				if (result) {
-					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-						flags |= LINE_START;
-					}
-					tokens.push({
-						text: result.word,
-						pos: i,
-						len: result.end - i,
-						lineNum,
-						flags: flags | result.flags,
-					});
-					flags = 0;
-					i = result.end - 1;
-					continue;
-				}
-			}
-
-			if (manualAnchorStartChars[ch]) {
-				const nextNode = manualAnchorTrieNode.next(ch)!;
-				const result = findInTrie(nextNode, input, i + 1);
-				if (result) {
-					if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-						flags |= LINE_START;
-					}
-					tokens.push({
-						text: result.word,
-						pos: i,
-						len: result.end - i,
-						lineNum,
-						flags: flags | result.flags,
-					});
-					flags = 0;
-					i = result.end - 1;
-					continue;
-				}
-			}
-
-			if (tokens.length === 0 || checkIfFirstOfLine(input, i)) {
-				flags |= LINE_START;
-			}
-			const normalized = normalizedCharMap[ch] || ch;
-			tokens.push({
-				text: normalized,
-				pos: i,
-				len: 1,
-				lineNum,
-				flags,
-			});
-			flags = 0;
-		}
-
-		if (ch === "\n") {
-			lineNum++;
-			flags = LINE_START;
-			if (tokens.length) {
-				tokens[tokens.length - 1].flags |= LINE_END;
-			}
-		}
-	}
-
-	if (tokens.length) {
-		tokens[tokens.length - 1].flags |= LINE_END;
-	}
-
-	return tokens;
-}
-
-function tokenizeByWord(input: string): Token[] {
-	const tokens: Token[] = [];
-	let currentStart = -1;
-	let lineNum = 1;
-	let flags = LINE_START;
-	let shouldNormalize = false;
-	const inputEnd = input.length;
-
-	function emitToken(end: number) {
-		const raw = input.slice(currentStart, end);
-		const normalized = shouldNormalize ? normalize(raw) : raw;
-
-		flags |= tokens.length === 0 || checkIfFirstOfLine(input, currentStart) ? LINE_START : 0;
-		if (normalized === MANUAL_ANCHOR1 || normalized === MANUAL_ANCHOR2) {
-			flags |= MANUAL_ANCHOR;
-		}
-
-		tokens.push({
-			text: normalized,
-			pos: currentStart,
-			len: end - currentStart,
-			lineNum,
-			flags,
-		});
-
-		currentStart = -1;
-		flags = 0;
-		shouldNormalize = false;
-	}
-
-	for (let i = 0; i < inputEnd; i++) {
-		let ch = input[i];
-
-		if (spaceChars[ch]) {
-			if (currentStart !== -1) emitToken(i);
-			if (ch === "\n") {
-				lineNum++;
-				flags = LINE_START;
-				if (tokens.length) tokens[tokens.length - 1].flags |= LINE_END;
-			}
-			continue;
-		}
-
-		if (ch === "(") {
-			const result = findInTrie(wildcardTrieNode, input, i);
-			if (result) {
-				if (currentStart !== -1) emitToken(i);
-				flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? LINE_START : 0;
-
-				tokens.push({
-					text: result.word,
-					pos: i,
-					len: result.end - i,
-					lineNum,
-					flags: flags | result.flags,
-				});
-				flags = 0;
-				currentStart = -1;
-				i = result.end - 1;
-				continue;
-			}
-		}
-
-		if (currentStart === -1 && flags & LINE_START && sectionHeadingStartChars[ch]) {
-			const result = findInTrie(SectionHeadingTrieNode, input, i);
-			if (result) {
-				const nextChar = input[result.end];
-				if (nextChar === " " || nextChar === "\t" || nextChar === "\u00A0") {
-					flags |= result.flags;
-				}
-
-				// let p = result.end;
-				// while (p < inputEnd && SPACE_CHARS[input[p]]) p++;
-				// if (p < inputEnd) flags |= result.flags;
-			}
-		}
-
-		// if (SPLIT_CHARS[ch]) {
-		// 	if (currentStart !== -1) emitToken(i);
-
-		// 	flags |= tokens.length === 0 || checkIfFirstOfLine(input, i) ? FIRST_OF_LINE : 0;
-
-		// 	tokens.push({
-		// 		text: ch,
-		// 		pos: i,
-		// 		len: 1,
-		// 		lineNum,
-		// 		flags,
-		// 	});
-
-		// 	flags = 0;
-		// 	currentStart = -1;
-		// 	continue;
-		// }
-
-		if (normalizedCharMap[ch]) {
-			shouldNormalize = true;
-		}
-
-		if (currentStart === -1) currentStart = i;
-	}
-
-	if (currentStart !== -1) emitToken(inputEnd);
-
-	if (tokens.length) {
-		tokens[tokens.length - 1].flags |= LINE_END;
-	}
-
-	return tokens;
-}
-
-function tokenizeByLine(input: string): Token[] {
-	const tokens: Token[] = [];
-	let lineNum = 1;
-	let flags = LINE_START | LINE_END;
-	const inputEnd = input.length;
-
-	let buffer = "";
-	let started = false;
-	let inSpace = false;
-	let pos = -1;
-
-	for (let i = 0; i < inputEnd; i++) {
-		const ch = input[i];
-
-		if (ch !== "\n") {
-			if (!spaceChars[ch]) {
-				if (!started) {
-					pos = i;
-					started = true;
-
-					const result = findInTrie(SectionHeadingTrieNode, input, i);
-					if (result) {
-						let p = result.end;
-						while (p < inputEnd && spaceChars[input[p]]) p++;
-						if (p < inputEnd) flags |= result.flags;
-					}
-				}
-				if (inSpace && buffer.length > 0) buffer += " ";
-				buffer += ch;
-				inSpace = false;
-			} else {
-				inSpace = started;
-			}
-		} else {
-			if (started) {
-				if (buffer === MANUAL_ANCHOR1 || buffer === MANUAL_ANCHOR2) {
-					flags |= MANUAL_ANCHOR;
-				}
-				tokens.push({
-					text: buffer,
-					pos,
-					len: i - pos,
-					lineNum,
-					flags,
-				});
-				buffer = "";
-				started = false;
-				inSpace = false;
-				flags = LINE_START | LINE_END;
-			}
-			lineNum++;
-		}
-	}
-
-	return tokens;
-}
-
-function tokenize(input: string, mode: TokenizationMode, noCache: boolean = false): Token[] {
-	let cacheArr = !noCache && tokenCache[mode];
-	if (cacheArr) {
-		for (let i = 0; i < cacheArr.length; i++) {
-			const cache = cacheArr[i];
-			if (cache.text.length === input.length && cache.text === input) {
-				if (i !== cacheArr.length - 1) {
-					cacheArr.splice(i, 1);
-					cacheArr.push(cache);
-				}
-				return cache.tokens;
-			}
-		}
-	}
-
-	const now = performance.now();
-	let tokens: Token[];
-	switch (mode) {
-		case "char":
-			tokens = tokenizeByChar(input);
-			break;
-		case "word":
-			tokens = tokenizeByWord(input);
-			break;
-		case "line":
-			tokens = tokenizeByLine(input);
-			break;
-		default:
-			throw new Error("Unknown tokenization mode: " + mode);
-	}
-	console.debug("tokenize took %d ms", performance.now() - now);
-	// tokens.push({
-	// 	text: "",
-	// 	pos: input.length,
-	// 	len: 0,
-	// 	lineNum: tokens.length > 0 ? tokens[tokens.length - 1].lineNum : 1,
-	// 	flags: FIRST_OF_LINE | LAST_OF_LINE,
-	// });
-
-	if (cacheArr) {
-		if (cacheArr.length >= TOKEN_CACHE_SIZE) {
-			cacheArr.shift();
-		}
-		cacheArr.push({ text: input, tokens: tokens as Token[] });
-	}
-
-	return tokens;
-}
 
 function normalize(text: string) {
 	let result = "";
@@ -573,126 +270,636 @@ function extractStartCharsFromTrie(trie: TrieNode): Record<string, 1> {
 	return table;
 }
 
-function tokenizeNode(node: Node): Token[] {
-	const startTime = performance.now();
-	let textPos = 0;
-	let currentToken: Token | null = null;
-	const results: Token[] = [];
+type TokinizeContext = {
+	content: HTMLElement;
+	cancelled: boolean;
+	tokens?: RichToken[];
+	idleDeadline?: IdleDeadline;
+};
 
-	function processToken(text: string, start: number, length: number) {
+type ContainerInfo2 = {
+	tagName: string;
+	parent: ContainerInfo2 | null;
+	currentIndex: number;
+};
+
+type NodeInfo = {
+	tokenStart: number;
+	tokenEnd: number;
+};
+
+// function* tokenizeGenerator(ctx: TokinizeContext) {
+// 	const tokens = (ctx.tokens ??= []);
+
+// 	let idleDeadline: IdleDeadline = yield;
+// 	let nodeCounter = 0;
+// 	let textPos = 0;
+// 	let tokenIndex = 0;
+
+// 	let shouldNormalize = false;
+// 	let currentToken: RichToken | null = null;
+
+// 	const containerStack: ContainerInfo2[] = [];
+// 	let currentContainer: ContainerInfo2 = {
+// 		tagName: "#root",
+// 		parent: null,
+// 		currentIndex: 0,
+// 	};
+
+// 	function processToken(textNode: Text, startOffset: number, endOffset: number) {
+// 		let str = textNode.nodeValue!.slice(startOffset, endOffset);
+// 		if (shouldNormalize) {
+// 			str = normalize(str);
+// 		}
+// 		if (currentToken) {
+// 			currentToken.text += str;
+// 			currentToken.endContainer = textNode;
+// 			currentToken.endOffset = endOffset;
+// 		} else {
+// 			currentToken = {
+// 				text: str,
+// 				flags: 0,
+// 				startContainer: textNode,
+// 				startOffset: startOffset,
+// 				endContainer: textNode,
+// 				endOffset: endOffset,
+// 			};
+// 		}
+// 		shouldNormalize = false;
+// 	}
+
+// 	function finalizeToken(flags: number = 0) {
+// 		if (currentToken) {
+// 			currentToken.flags |= flags;
+// 			tokens[tokenIndex] = currentToken;
+// 			currentToken = null;
+// 			tokenIndex++;
+// 			return 1;
+// 		}
+// 		return 0;
+// 	}
+
+// 	function* traverse(node: Node): Generator<unknown, void, IdleDeadline> {
+// 		if ((++nodeCounter & 31) === 0) {
+// 			if (idleDeadline.timeRemaining() < 1) {
+// 				idleDeadline = yield;
+// 			}
+// 			if (ctx.cancelled) {
+// 				throw new Error("cancelled");
+// 			}
+// 		}
+
+// 		let currentStart = -1;
+// 		if (node.nodeType === 3) {
+// 			const text = node.nodeValue!;
+// 			if (text.length === 0 || text === "\u200B") return;
+
+// 			for (let i = 0; i < text.length; i++) {
+// 				const char = text[i];
+// 				if (spaceChars[char]) {
+// 					if (currentStart >= 0) {
+// 						processToken(node as Text, currentStart, i);
+// 						currentStart = -1;
+// 					}
+// 					finalizeToken();
+// 				} else {
+// 					if (currentStart < 0) {
+// 						currentStart = i;
+// 					}
+// 					if (!shouldNormalize && normalizedCharMap[char]) {
+// 						shouldNormalize = true;
+// 					}
+// 				}
+// 			}
+
+// 			if (currentStart >= 0) {
+// 				processToken(node as Text, currentStart, text.length);
+// 			}
+// 			textPos += text.length;
+// 		} else if (node.nodeType === 1) {
+// 			if (node.nodeName === "BR") {
+// 				finalizeToken();
+// 				return;
+// 			}
+
+// 			if ((node as HTMLElement).className === "img") {
+// 				finalizeToken();
+// 				currentToken = {
+// 					text: (node as HTMLElement).dataset.src || (node as HTMLImageElement).src || "🖼️",
+// 					flags: IMAGE | NO_JOIN_PREV | NO_JOIN_NEXT,
+// 					startContainer: node.parentNode!,
+// 					startOffset: currentContainer.currentIndex,
+// 					endContainer: node.parentNode!,
+// 					endOffset: currentContainer.currentIndex + 1,
+// 				};
+// 				finalizeToken();
+// 				textPos += node.textContent!.length; // 아마도 0이겠지
+// 				return;
+// 			}
+
+// 			containerStack.push(currentContainer);
+// 			currentContainer = {
+// 				tagName: node.nodeName,
+// 				parent: currentContainer,
+// 				currentIndex: 0,
+// 			};
+
+// 			if (node.nodeName === "SUP" || node.nodeName === "SUB") {
+// 				finalizeToken(NO_JOIN_NEXT);
+// 			} else if (BLOCK_ELEMENTS[node.nodeName]) {
+// 				finalizeToken(LINE_END | (node.nodeName === "P" ? 0 : CONTAINER_END));
+// 			}
+
+// 			const isTextFlowContainer = TEXT_FLOW_CONTAINERS[node.nodeName];
+// 			const numTokensBefore = tokenIndex;
+
+// 			// if (node.nodeName === "TD") {
+// 			// 	finalizeToken();
+// 			// 	currentToken = {
+// 			// 		text: "TDBEG",
+// 			// 		pos: textPos,
+// 			// 		len: 5,
+// 			// 		flags: TABLECELL_START | NO_JOIN,
+// 			// 	};
+// 			// 	currentRange = document.createRange();
+// 			// 	currentRange.setStart(node, 0);
+// 			// 	currentRange.collapse(true);
+// 			// 	finalizeToken();
+// 			// }
+
+// 			for (const child of node.childNodes) {
+// 				yield* traverse(child);
+// 				currentContainer.currentIndex++;
+// 			}
+
+// 			const tokenCount = tokens.length - numTokensBefore;
+
+// 			// if (node.nodeName === "TD") {
+// 			// 	finalizeToken();
+// 			// 	currentToken = {
+// 			// 		text: "TDEND",
+// 			// 		pos: textPos,
+// 			// 		len: 5,
+// 			// 		flags: TABLECELL_END | NO_JOIN,
+// 			// 	};
+// 			// 	currentRange = document.createRange();
+// 			// 	currentRange.setStart(node, node.childNodes.length);
+// 			// 	currentRange.collapse(true);
+// 			// 	finalizeToken();
+// 			// }
+
+// 			if (node.nodeName === "SUP" || node.nodeName === "SUB") {
+// 				finalizeToken();
+// 				for (let i = numTokensBefore; i < tokenIndex; i++) {
+// 					tokens[i].flags |= node.nodeName === "SUP" ? HTML_SUP : HTML_SUB;
+// 				}
+// 			} else if (BLOCK_ELEMENTS[node.nodeName]) {
+// 				finalizeToken();
+// 			}
+
+// 			if (tokenCount > 0) {
+// 				(node as HTMLElement).dataset.tokenStart = String(numTokensBefore);
+// 				(node as HTMLElement).dataset.tokenEnd = String(tokenIndex);
+// 			}
+
+// 			const firstToken = tokens[numTokensBefore];
+// 			const lastToken = tokens[tokenIndex - 1];
+
+// 			if (isTextFlowContainer) {
+// 				if (firstToken) {
+// 					firstToken.flags |= CONTAINER_START | LINE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= CONTAINER_END | LINE_END;
+// 				}
+// 			}
+// 			if (
+// 				node.nodeName === "P" ||
+// 				node.nodeName === "H1" ||
+// 				node.nodeName === "H2" ||
+// 				node.nodeName === "H3" ||
+// 				node.nodeName === "H4" ||
+// 				node.nodeName === "H5" ||
+// 				node.nodeName === "H6"
+// 			) {
+// 				if (firstToken) {
+// 					firstToken.flags |= LINE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= LINE_END;
+// 				}
+// 			}
+// 			// if (node.nodeName === "TR") {
+// 			// 	if (firstToken) {
+// 			// 		firstToken.flags |= TABLEROW_START| NO_JOIN;
+// 			// 	}
+// 			// 	if (lastToken) {
+// 			// 		lastToken.flags |= TABLEROW_END| NO_JOIN;
+// 			// 	}
+// 			// }
+// 			if (node.nodeName === "TD" || node.nodeName === "TH") {
+// 				if (firstToken) {
+// 					firstToken.flags |= TABLECELL_START | NO_JOIN_PREV;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= TABLECELL_END | NO_JOIN_NEXT;
+// 				}
+// 			}
+
+// 			if (node.nodeName === "TABLE") {
+// 				if (firstToken) {
+// 					firstToken.flags |= TABLE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= TABLE_END;
+// 				}
+// 			}
+
+// 			currentContainer = containerStack.pop()!;
+// 		}
+// 	}
+
+// 	yield* traverse(ctx.content);
+// 	finalizeToken();
+// 	tokens.length = tokenIndex;
+// 	return tokens;
+// }
+
+type ContainerInfo = {
+	node: Node;
+	depth: number;
+	indexInParent: number;
+	tokenStartIndex: number;
+	tokenCount: number;
+	commonFlags: number;
+};
+
+type TokenizationEvent =
+	| { type: "containerStart"; container: ContainerInfo }
+	| { type: "containerEnd"; container: ContainerInfo }
+	| TextTokenizationEvent
+	| { type: "img"; src: string; node: Node; indexInParent: number }
+	| { type: "break" };
+
+type TextTokenizationEvent = {
+	type: "textNode";
+	node: Text;
+	parent: ContainerInfo;
+	indexInParent: number;
+	text: string;
+};
+
+function* tokenizeWithContainers(root: Node): Generator<TokenizationEvent, void, unknown> {
+	const containerStack: ContainerInfo[] = [];
+	let tokenIndex = 0;
+
+	function* traverse(node: Node, depth: number, indexInParent: number): Generator<TokenizationEvent> {
+		// 컨테이너 여부 판단
+		const nodeName = node.nodeName;
+
+		// 논리적으로 의미가 있는, 토큰화에 쓸모 있는 정보를 제공할 수 있는 container 노드만 취급
+		const isContainer =
+			BLOCK_ELEMENTS[nodeName] || // 블럭요소는 블럭의 시작과 끝을 판단하는데 필요
+			nodeName === "TABLE" || // 마찬가지 테이블 행의 시작과 끝
+			nodeName === "TR" || // 테이블 행의 시작과 끝
+			nodeName === "TD" || // 테이블 셀의 시작과 끝
+			nodeName === "TH" || // 테이블 셀의 시작과 끝
+			nodeName === "SUP" || // SUP
+			nodeName === "SUB"; // SUB
+
+		if (isContainer) {
+			const containerInfo: ContainerInfo = {
+				node,
+				depth,
+				indexInParent,
+				tokenStartIndex: tokenIndex,
+				tokenCount: 0,
+				commonFlags: 0,
+			};
+
+			if (nodeName === "SUP") {
+				containerInfo.commonFlags |= HTML_SUP;
+			} else if (nodeName === "SUB") {
+				containerInfo.commonFlags |= HTML_SUB;
+			}
+
+			containerStack.push(containerInfo);
+			yield { type: "containerStart", container: containerInfo };
+		}
+
+		if (node.nodeType === 3) {
+			// 텍스트 노드일 때
+			if (containerStack.length > 0) {
+				const parentContainer = containerStack[containerStack.length - 1];
+				yield {
+					type: "textNode",
+					node: node as Text,
+					parent: parentContainer,
+					indexInParent,
+					text: node.nodeValue!,
+				};
+				tokenIndex++;
+				if (containerStack.length > 0) {
+					containerStack[containerStack.length - 1].tokenCount++;
+				}
+			}
+		} else if (node.nodeType === 1) {
+			if (nodeName === "IMG") {
+				yield { type: "img", node, src: (node as HTMLImageElement).src, indexInParent };
+			}
+			if (nodeName === "BR") {
+				yield { type: "break" };
+			}
+			if (nodeName === "A") {
+				return;
+			}
+			// 엘리먼트 노드
+			let childIndex = 0;
+			for (const child of node.childNodes) {
+				yield* traverse(child, depth + 1, childIndex++);
+			}
+		}
+
+		if (isContainer) {
+			const containerInfo = containerStack.pop()!;
+			containerInfo.tokenCount = tokenIndex - containerInfo.tokenStartIndex;
+			yield { type: "containerEnd", container: containerInfo };
+		}
+	}
+
+	yield* traverse(root, 0, 0);
+}
+
+function* tokenize2(ctx: TokinizeContext) {
+	const tokens: RichToken[] = (ctx.tokens ??= []);
+	let tokenIndex = 0;
+	let buffer: TextTokenizationEvent[] = [];
+
+	const iterator = tokenizeWithContainers(ctx.content);
+	let nextResult = iterator.next();
+
+	let currentToken: RichToken | null = null;
+	let currentFlags = LINE_START;
+	let shouldNormalize = false;
+	let containerStack: ContainerInfo[] = [];
+
+	let currentContainer: ContainerInfo = {
+		node: ctx.content,
+		depth: 0,
+		indexInParent: 0,
+		tokenStartIndex: 0,
+		tokenCount: 0,
+		commonFlags: 0,
+	};
+
+	function processToken(textNode: Text, startOffset: number, endOffset: number, flags: number = 0) {
+		let str = textNode.nodeValue!.slice(startOffset, endOffset);
+		if (shouldNormalize) {
+			str = normalize(str);
+			shouldNormalize = false;
+		}
 		if (currentToken) {
-			currentToken.text += text;
-			currentToken.len = textPos - currentToken.pos;
+			currentToken.text += str;
+			currentToken.endContainer = textNode;
+			currentToken.endOffset = endOffset;
 		} else {
 			currentToken = {
-				text,
-				pos: start,
-				len: length,
-				flags: 0,
-				lineNum: 0,
+				text: str,
+				flags: currentFlags | flags,
+				startContainer: textNode,
+				startOffset: startOffset,
+				endContainer: textNode,
+				endOffset: endOffset,
 			};
 		}
 	}
 
 	function finalizeToken(flags: number = 0) {
 		if (currentToken) {
-			currentToken.len = textPos - currentToken.pos;
 			currentToken.flags |= flags;
-			results.push(currentToken);
+			tokens[tokenIndex] = currentToken;
+			tokenIndex++;
 			currentToken = null;
-			return 1;
+			currentFlags = 0;
 		}
-		return 0;
 	}
 
-	function traverse(node: Node) {
-		if (node.nodeType === 3) {
-			const text = node.nodeValue!;
-			if (text.length === 0) return;
-			let nodeStart = textPos;
-			let currentStart = -1;
-			for (let i = 0; i < text.length; i++, textPos++) {
-				const char = text[i];
-				if (spaceChars[char]) {
-					if (currentStart >= 0) {
-						processToken(text.slice(currentStart, i), nodeStart + currentStart, i - currentStart);
-						currentStart = -1;
-					}
-					finalizeToken();
-				} else {
-					if (currentStart < 0) {
-						currentStart = i;
-					}
+	function findInTrie2(trie: TrieNode, buffer: TextTokenizationEvent[], bufferIndex: number, bufferCount: number, charIndex: number) {
+		let node: TrieNode | null = trie;
+		let i = bufferIndex;
+		let j = charIndex;
+		do {
+			const text = buffer[i].text;
+			for (; j < text.length; j++) {
+				node = node!.next(text[j]);
+				if (!node) {
+					return null;
+				}
+				if (node.word) {
+					return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
 				}
 			}
 
-			if (currentStart >= 0) {
-				processToken(text.slice(currentStart), nodeStart + currentStart, text.length - currentStart);
-			}
-		} else if (node.nodeType === 1) {
-			if (node.nodeName === "BR") {
-				finalizeToken(LINE_END);
-				return;
+			i++;
+			j = 0;
+		} while (i < bufferCount);
+		return null;
+	}
+
+	while (!nextResult.done) {
+		let event = nextResult.value;
+
+		if (event.type === "textNode") {
+			console.assert(currentToken === null, "currentToken should be null at this point");
+			let bufferCount = 0;
+			do {
+				buffer[bufferCount++] = event;
+			} while (!(nextResult = iterator.next()).done && (event = nextResult.value).type === "textNode");
+
+			let i = 0;
+			OUTER: for (let bufferIndex = 0; bufferIndex < bufferCount; bufferIndex++) {
+				const text = buffer[bufferIndex].text;
+				const textLen = text.length;
+				let currentStart = -1;
+				for (; i < textLen; i++) {
+					let char = text[i];
+					char = normalizedCharMap[char] || char; // normalize the character
+					if (spaceChars[char]) {
+						if (currentStart !== -1) {
+							processToken(buffer[bufferIndex].node, currentStart, i);
+							currentStart = -1;
+						}
+						finalizeToken();
+					} else {
+						// 모든 문자에 대해서 trie를 탐색하는건 너무 비효율적이라서...
+						if (char === "(") {
+							// 정말 지저분하지만... 별 수 없다.
+							const found = findInTrie2(wildcardTrieNode, buffer, bufferIndex, bufferCount, i + 1);
+							if (found) {
+								const startContainer = buffer[bufferIndex].node;
+								const startOffset = i;
+								if (currentStart !== -1) {
+									processToken(buffer[bufferIndex].node, currentStart, i);
+									currentStart = -1;
+								}
+								finalizeToken();
+								tokens[tokenIndex++] = {
+									text: found.word,
+									flags: currentFlags | found.flags,
+									startContainer,
+									startOffset,
+									endContainer: buffer[found.bufferIndex].node,
+									endOffset: found.charIndex,
+								};
+								currentFlags = 0;
+								bufferIndex = found.bufferIndex - 1;
+								i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
+								continue OUTER;
+							}
+						}
+						if (currentFlags & LINE_START && sectionHeadingStartChars[char]) {
+							const found = findInTrie2(SectionHeadingTrieNode, buffer, bufferIndex, bufferCount, i);
+							if (found) {
+								const startContainer = buffer[bufferIndex].node;
+								const startOffset = i;
+								if (currentStart !== -1) {
+									processToken(buffer[bufferIndex].node, currentStart, i);
+									currentStart = -1;
+								}
+								finalizeToken();
+								tokens[tokenIndex++] = {
+									text: found.word,
+									flags: currentFlags | found.flags,
+									startContainer,
+									startOffset,
+									endContainer: buffer[found.bufferIndex].node,
+									endOffset: found.charIndex,
+								};
+								currentFlags = 0;
+								bufferIndex = found.bufferIndex - 1;
+								i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
+								continue OUTER;
+							}
+						}
+
+						if (normalizedCharMap[char]) {
+							shouldNormalize = true;
+						}
+
+						if (currentStart === -1) {
+							currentStart = i;
+						}
+					}
+				}
+				if (currentStart !== -1) {
+					processToken(buffer[bufferIndex].node, currentStart, textLen);
+				}
+
+				i = 0;
 			}
 
-			if ((node as HTMLElement).className === "img") {
+			if (currentToken) {
 				finalizeToken();
-				results.push({
-					text: (node as HTMLElement).dataset.src || (node as HTMLImageElement).src || "🖼️",
-					pos: textPos,
-					len: node.textContent!.length,
-					lineNum: 0,
-					flags: IMAGE | NO_JOIN,
-				});
-				textPos += node.textContent!.length;
-				return;
+			}
+			if (nextResult.done) {
+				break;
+			}
+		}
+
+		console.assert(currentToken === null, "currentToken should be null at this point");
+
+		if (event.type === "containerStart") {
+			containerStack.push(currentContainer);
+			currentContainer = event.container;
+			currentContainer.tokenStartIndex = tokenIndex;
+		} else if (event.type === "containerEnd") {
+			currentContainer.tokenCount = tokenIndex - currentContainer.tokenStartIndex;
+			(currentContainer.node as HTMLElement).dataset.tokenStart = String(currentContainer.tokenStartIndex);
+			(currentContainer.node as HTMLElement).dataset.tokenEnd = String(tokenIndex);
+
+			const nodeName = currentContainer.node.nodeName;
+			const firstToken = tokens[currentContainer.tokenStartIndex];
+			const lastToken = tokens[tokenIndex - 1];
+
+			if (currentContainer.commonFlags !== 0) {
+				for (let i = currentContainer.tokenStartIndex; i < tokenIndex; i++) {
+					tokens[i].flags |= currentContainer.commonFlags;
+				}
 			}
 
-			(node as HTMLElement).dataset.startOffset = String(textPos);
-
-			if (TEXT_FLOW_CONTAINERS[node.nodeName]) {
-				finalizeToken(CONTAINER_END | LINE_END);
-			}
-
-			const isTextFlowContainer = TEXT_FLOW_CONTAINERS[node.nodeName];
-			const numTokensBefore = results.length;
-
-			for (const child of node.childNodes) {
-				traverse(child);
-			}
-
-			if (BLOCK_ELEMENTS[node.nodeName]) {
-				finalizeToken();
-			}
-
-			const firstToken = results[numTokensBefore];
-			const lastToken = results[results.length - 1];
-			if (isTextFlowContainer) {
+			if (TEXT_FLOW_CONTAINERS[nodeName]) {
 				if (firstToken) {
-					firstToken.flags |= CONTAINER_START | LINE_START;
+					firstToken.flags |= currentFlags | CONTAINER_START | BLOCK_START | LINE_START;
 				}
 				if (lastToken) {
-					lastToken.flags |= CONTAINER_END | LINE_END;
+					lastToken.flags |= CONTAINER_END | BLOCK_END | LINE_END;
 				}
-			} else if (node.nodeName === "P") {
+			} else if (LINEBREAK_ELEMENTS[nodeName]) {
 				if (firstToken) {
-					firstToken.flags |= LINE_START;
+					firstToken.flags |= currentFlags | LINE_START;
 				}
 				if (lastToken) {
 					lastToken.flags |= LINE_END;
 				}
 			}
 
-			(node as HTMLElement).dataset.endOffset = String(textPos);
+			if (LINE_ELEMENTS[nodeName]) {
+				if (firstToken) {
+					firstToken.flags |= currentFlags | LINE_START;
+				}
+				if (lastToken) {
+					lastToken.flags |= LINE_END;
+				}
+			}
 
-			// currentContainer = containerStack.pop()!;
+			if (nodeName === "TD" || nodeName === "TH") {
+				if (firstToken) {
+					firstToken.flags |= TABLECELL_START | NO_JOIN_PREV;
+				}
+				if (lastToken) {
+					lastToken.flags |= TABLECELL_END | NO_JOIN_NEXT;
+				}
+			} else if (nodeName === "TR") {
+				if (firstToken) {
+					firstToken.flags |= TABLEROW_START | NO_JOIN_PREV;
+				}
+				if (lastToken) {
+					lastToken.flags |= TABLEROW_END | NO_JOIN_NEXT;
+				}
+			} else if (nodeName === "TABLE") {
+				if (firstToken) {
+					firstToken.flags |= TABLE_START;
+				}
+				if (lastToken) {
+					lastToken.flags |= TABLE_END;
+				}
+			}
+
+			currentContainer = containerStack.pop()!;
+			currentFlags &= ~CONTAINER_START;
+		} else if (event.type === "break") {
+			if (tokenIndex > 0) {
+				tokens[tokenIndex - 1].flags |= LINE_END;
+			}
+			currentFlags |= LINE_START;
+		} else if (event.type === "img") {
+			tokens[tokenIndex++] = {
+				text: event.src || "🖼️",
+				flags: IMAGE | NO_JOIN_PREV | NO_JOIN_NEXT | currentFlags,
+				startContainer: event.node.parentNode!,
+				startOffset: currentContainer.indexInParent,
+				endContainer: event.node.parentNode!,
+				endOffset: currentContainer.indexInParent + 1,
+			};
 		}
+
+		nextResult = iterator.next();
 	}
 
-	traverse(node);
-	finalizeToken();
-	const endTime = performance.now();
-	console.log("tokenizeNode", node.nodeName, node.nodeValue, results, Math.ceil(endTime - startTime) + "ms");
+	if (currentToken) {
+		finalizeToken();
+	}
 
-	return results;
+	tokens.length = tokenIndex;
+	return tokens;
 }

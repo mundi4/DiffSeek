@@ -1,8 +1,7 @@
 declare type Token = {
-	pos: number;
-	len: number;
 	text: string;
-	lineNum: number;
+	pos?: number;
+	len?: number;
 	flags: number;
 };
 
@@ -72,8 +71,8 @@ declare type DiffRequest = {
 	reqId: number;
 	// leftText: string;
 	// rightText: string;
-	leftTokens: Token[];
-	rightTokens: Token[];
+	leftTokens: Token[] | null;
+	rightTokens: Token[] | null;
 	options: DiffOptions;
 };
 
@@ -103,11 +102,9 @@ type TextRun = {
 
 declare type DiffContext = {
 	reqId: number;
-	// leftText: string;
-	// rightText: string;
 	diffOptions: DiffOptions;
-	leftTokens?: Token[];
-	rightTokens?: Token[];
+	// leftTokens?: Token[];
+	// rightTokens?: Token[];
 	rawEntries?: DiffEntry[];
 	diffs?: DiffEntry[];
 	// anchors?: Anchor[];
@@ -119,6 +116,9 @@ declare type DiffContext = {
 
 	leftDiffRanges?: Range[][];
 	rightDiffRanges?: Range[][];
+
+	leftTokens: readonly RichToken[] | null;
+	rightTokens: readonly RichToken[] | null;
 };
 
 type LineHint = {
@@ -212,10 +212,24 @@ type RenderBounds = {
 // type RectsWithBoundsOptional = ({ rects: Rect[] } & RenderBounds) | ({ rects?: undefined } & RenderBoundsUndefined);
 // type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
 
-type AnchorItem = {
+type AnchorPairs = {
 	leftEl: HTMLElement;
 	rightEl: HTMLElement;
-	leftTokenIndex: number;
-	rightTokenIndex: number;
+
 	delta: number;
+};
+
+type RectSet = {
+	rects: Rect[];
+} & RenderBounds;
+
+type RichToken = {
+	text: string;
+	flags: number;
+	/** 텍스트노드일 때에는 startOffset값은 반드시 null이 아님 */
+	startContainer: Node;
+	startOffset: number;
+	/** 텍스트노드일 때에는 endOffset값은 반드시 null이 아님. 엘러먼트 요소일 때에는 inclusive임. */
+	endContainer: Node;
+	endOffset: number;
 };

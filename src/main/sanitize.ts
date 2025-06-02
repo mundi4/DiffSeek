@@ -177,35 +177,6 @@ const LINEBREAK_ELEMENTS: Record<string, boolean> = {
 	TR: true,
 };
 
-const TEXTLESS_ELEMENTS: Record<string, boolean> = {
-	HR: true,
-	BR: true,
-	IMG: true,
-	VIDEO: true,
-	AUDIO: true,
-	EMBED: true,
-	OBJECT: true,
-	CANVAS: true,
-	SVG: true,
-	TABLE: true,
-	THEAD: true,
-	TBODY: true,
-	TFOOT: true,
-	TR: true,
-	OL: true,
-	UL: true,
-	DL: true,
-	STYLE: true,
-	HEAD: true,
-	TITLE: true,
-	SCRIPT: true,
-	LINK: true,
-	META: true,
-	BASE: true,
-	AREA: true,
-	"#document-fragment": true,
-};
-
 const EXCLUDED_HTML_TAGS: Record<string, number> = {
 	SCRIPT: 1,
 	STYLE: 1,
@@ -270,23 +241,7 @@ const ALLOWED_CONTAINER_TAGS: Record<string, Record<string, boolean>> = {
 	//"#document-fragment": EMPTY_ATTRS,
 };
 
-const TEXT_FLOW_CONTAINERS: Record<string, boolean> = {
-	DIV: true,
-	PRE: true,
-	BLOCKQUOTE: true,
-	LI: true,
-	TD: true,
-	TH: true,
-	SECTION: true,
-	ARTICLE: true,
-	HEADER: true,
-	FOOTER: true,
-	ASIDE: true,
-	MAIN: true,
-	CAPTION: true,
-	FIGURE: true,
-	FIGCAPTION: true,
-};
+
 
 function customTrim(str: string) {
 	return str.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, "");

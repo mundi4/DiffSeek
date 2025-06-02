@@ -1,13 +1,19 @@
-const LINE_START = 1;
-const LINE_END = 2;
-const CONTAINER_START = 1 << 2;
-const CONTAINER_END = 1 << 3;
-const NO_JOIN = 1 << 4; // @@@, ### 등등
-const WILD_CARD = 1 << 5;
-const MANUAL_ANCHOR = 1 << 6; // 32. @@@, ### 등등
-const IMAGE = 1 << 7;
-
-const SECTION_HEADING_BIT = 10;
+const LINE_START = 1 << 0; // 1
+const LINE_END = 1 << 1; // 2
+const CONTAINER_START = 1 << 2; // 4
+const CONTAINER_END = 1 << 3; // 8
+const TABLE_START = 1 << 4; // 16
+const TABLE_END = 1 << 5; // 32
+const TABLEROW_START = 1 << 6; // 64
+const TABLEROW_END = 1 << 7; // 128
+const TABLECELL_START = 1 << 8; // 256
+const TABLECELL_END = 1 << 9; // 512
+const NO_JOIN_PREV = 1 << 10; // @@@, ### 등등 // 16
+const NO_JOIN_NEXT = 1 << 11; // @@@, ### 등등 // 16
+const WILD_CARD = 1 << 12;
+const MANUAL_ANCHOR = 1 << 13; // 32. @@@, ### 등등
+const IMAGE = 1 << 14;
+const SECTION_HEADING_BIT = 15;
 const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
 const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
 const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
@@ -37,6 +43,8 @@ type WorkContext = {
 	states: Record<string, any>;
 };
 
+
+
 self.onmessage = (e) => {
 	if (e.data.type === "diff") {
 		const request = e.data as DiffRequest;
@@ -48,7 +56,15 @@ self.onmessage = (e) => {
 			lastYield: 0,
 			entries: [],
 			states: {},
-		};
+		} as WorkContext;
+
+		if (ctx.leftTokens === null) {
+			ctx.leftTokens = _currentCtx!.leftTokens!;
+		}
+		if (ctx.rightTokens === null) {
+			ctx.rightTokens = _currentCtx!.rightTokens!;
+		}
+
 		if (_currentCtx) {
 			_currentCtx.cancel = true;
 			_nextCtx = ctx;
@@ -412,17 +428,39 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	for (let n = 1; n <= maxLen; n++) {
 		for (let i = lhsLower; i <= lhsUpper - n; i++) {
 			let key = lhsTokens[i].text;
+			let failed = false;
+			// if (!(lhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
+				// if (lhsTokens[i + k].flags & NO_JOIN) {
+				// 	failed = true;
+				// 	break;
+				// }
 				key += delimiter + lhsTokens[i + k].text;
 			}
+			// } else {
+			// 	failed = n > 1;
+			// }
+			// if (!failed) {
 			freq[key] = (freq[key] || 0) + 1;
+			// }
 		}
 		for (let i = rhsLower; i <= rhsUpper - n; i++) {
 			let key = rhsTokens[i].text;
+			let failed = false;
+			// if (!(rhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
+				// if (rhsTokens[i + k].flags & NO_JOIN) {
+				// 	failed = true;
+				// 	break;
+				// }
 				key += delimiter + rhsTokens[i + k].text;
 			}
+			// } else {
+			// 	failed = n > 1;
+			// }
+			// if (!failed) {
 			freq[key] = (freq[key] || 0) + 1;
+			// }
 		}
 	}
 
@@ -535,18 +573,18 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 				let boundaryBonus = 1;
 
-				if (boundaryBonus > CONTAINER_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & CONTAINER_START) {
-					boundaryBonus = CONTAINER_START_BONUS;
-				}
-				if (boundaryBonus > CONTAINER_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & CONTAINER_END) {
-					boundaryBonus = CONTAINER_END_BONUS;
-				}
-				if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
-					boundaryBonus = LINE_START_BONUS;
-				}
-				if (boundaryBonus > LINE_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
-					boundaryBonus = LINE_END_BONUS;
-				}
+				// if (boundaryBonus > CONTAINER_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & CONTAINER_START) {
+				// 	boundaryBonus = CONTAINER_START_BONUS;
+				// }
+				// if (boundaryBonus > CONTAINER_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & CONTAINER_END) {
+				// 	boundaryBonus = CONTAINER_END_BONUS;
+				// }
+				// if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
+				// 	boundaryBonus = LINE_START_BONUS;
+				// }
+				// if (boundaryBonus > LINE_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
+				// 	boundaryBonus = LINE_END_BONUS;
+				// }
 				score *= boundaryBonus;
 
 				// if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
@@ -678,50 +716,6 @@ async function diffCore(
 	return entries;
 }
 
-// function appendEqualEntriesFromAnchor(
-// 	leftTokens: Token[],
-// 	lhsIndex: number,
-// 	lhsLength: number,
-// 	rightTokens: Token[],
-// 	rhsIndex: number,
-// 	rhsLength: number,
-// 	whitespace: WhitespaceHandling = "ignore",
-// 	entries: DiffEntry[]
-// ) {
-// 	let li = lhsIndex;
-// 	let ri = rhsIndex;
-
-// 	while (li < lhsIndex + lhsLength && ri < rhsIndex + rhsLength) {
-// 		const lt = leftTokens[li];
-// 		const rt = rightTokens[ri];
-
-// 		if (lt.text === rt.text) {
-// 			entries.push({
-// 				type: 0,
-// 				left: { pos: li, len: 1 },
-// 				right: { pos: ri, len: 1 },
-// 			});
-// 			li++;
-// 			ri++;
-// 		} else if (whitespace === "ignore" && lt.text.length !== rt.text.length && lt.text[0] === rt.text[0]) {
-// 			// 1:N, N:1 or N:M → custom matching (e.g. matchPrefixTokens)
-// 			const match = matchPrefixTokens(leftTokens, li, lhsIndex + lhsLength, rightTokens, ri, rhsIndex + rhsLength);
-// 			if (!match) break;
-
-// 			entries.push({
-// 				type: 0,
-// 				left: { pos: li, len: match[0] },
-// 				right: { pos: ri, len: match[1] },
-// 			});
-
-// 			li += match[0];
-// 			ri += match[1];
-// 		} else {
-// 			break;
-// 		}
-// 	}
-// }
-
 // 공백을 완전히 무시하는 경우 "안녕 하세요" vs "안녕하세요"는 같다고 처리해야하지만
 // 단어단위 토큰인 경우 토큰 대 토큰 비교는 실패할 수 밖에 없다.
 // 따라서 각 토큰의 글자를 한땀한땀 매치시켜봐야하고 양쪽에서 토큰이 끝나는 시점까지 모든 글자가 매치되었다면
@@ -837,6 +831,10 @@ function matchPrefixTokens(
 		rtext = rhsToken.text,
 		rhsLen = rtext.length;
 
+	// if (lhsToken.flags & NO_JOIN_NEXT || rhsToken.flags & NO_JOIN_NEXT) {
+	// 	// return false;
+	// }
+
 	while (true) {
 		while (ci < lhsLen && cj < rhsLen) {
 			if (ltext[ci++] !== rtext[cj++]) {
@@ -849,10 +847,11 @@ function matchPrefixTokens(
 
 		if (ci === lhsLen) {
 			if (i === lhsUpper) return false;
-			if (lhsToken.flags & CONTAINER_END) return false;
+			if (lhsToken.flags & NO_JOIN_NEXT) return false;
 
 			lhsToken = leftTokens[i++];
-			if (!lhsToken || lhsToken.flags & CONTAINER_START) return false;
+			if (!lhsToken) return false;
+			if (lhsToken.flags & NO_JOIN_PREV) return false;
 
 			ltext = lhsToken.text;
 			lhsLen = ltext.length;
@@ -860,10 +859,11 @@ function matchPrefixTokens(
 		}
 		if (cj === rhsLen) {
 			if (j === rhsUpper) return false;
-			if (rhsToken.flags & CONTAINER_END) return false;
+			if (rhsToken.flags & NO_JOIN_NEXT) return false;
 
 			rhsToken = rightTokens[j++];
-			if (!rhsToken || rhsToken.flags & CONTAINER_START) return false;
+			if (!rhsToken) return false;
+			if (rhsToken.flags & NO_JOIN_PREV) return false;
 
 			rtext = rhsToken.text;
 			rhsLen = rtext.length;
@@ -892,7 +892,11 @@ function matchSuffixTokens(
 	let ci = ltext.length - 1,
 		cj = rtext.length - 1;
 
-	while(true) {
+	// if (lhsToken.flags & NO_JOIN_PREV || rhsToken.flags & NO_JOIN_PREV) {
+	// 	return false;
+	// }
+
+	while (true) {
 		while (ci >= 0 && cj >= 0) {
 			if (ltext[ci--] !== rtext[cj--]) {
 				return false;
@@ -902,21 +906,23 @@ function matchSuffixTokens(
 
 		if (ci < 0) {
 			if (i < lhsLower) return false;
-			if (lhsToken.flags & CONTAINER_START) return false;
-			
+			if (lhsToken.flags & NO_JOIN_PREV) return false;
+
 			lhsToken = leftTokens[i--];
-			if (lhsToken.flags & CONTAINER_END) return false;
-			
+			if (!lhsToken) return false;
+			if (lhsToken.flags & NO_JOIN_NEXT) return false;
+
 			ltext = lhsToken.text;
 			ci = lhsToken.text.length - 1;
 		}
 		if (cj < 0) {
 			if (j < rhsLower) return false;
-			if (rhsToken.flags & CONTAINER_START) return false;
+			if (rhsToken.flags & NO_JOIN_PREV) return false;
 
 			rhsToken = rightTokens[j--];
-			if (rhsToken.flags & CONTAINER_END) return false;
-			
+			if (!rhsToken) return false;
+			if (rhsToken.flags & NO_JOIN_NEXT) return false;
+
 			rtext = rhsToken.text;
 			cj = rhsToken.text.length - 1;
 		}

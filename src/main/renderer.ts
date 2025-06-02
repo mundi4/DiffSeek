@@ -1,7 +1,8 @@
 const enum RenderFlags {
 	DIFF = 1 << 0,
 	HIGHLIGHT = 1 << 1,
-	ALL = DIFF | HIGHLIGHT,
+	DIFF_GEOMETRY = 1 << 2,
+	ALL = DIFF | HIGHLIGHT | DIFF_GEOMETRY,
 }
 
 type EditorRenderRegion = {
@@ -88,25 +89,25 @@ function createRenderer(_container: HTMLElement, _leftEditor: Editor, _rightEdit
 	_container.appendChild(highlightCanvas);
 
 	const resizeObserver = new ResizeObserver((entries) => {
-		updateLayout();
-		render();
+		// updateLayout();
+		// render();
 	});
 	resizeObserver.observe(_container);
 	resizeObserver.observe(_leftEditor.wrapper);
 	resizeObserver.observe(_rightEditor.wrapper);
 
 	function onEditorScroll(e: Event) {
-		const editor = e.target === _leftEditor.wrapper ? _leftEditor : _rightEditor;
-		const editorName = editor.name;
-		const scrollTop = editor.wrapper.scrollTop;
-		const scrollLeft = editor.wrapper.scrollLeft;
-		const region = editorName === "left" ? _leftRegion : _rightRegion;
-		if (region.scrollTop !== scrollTop || region.scrollLeft !== scrollLeft) {
-			region.scrollTop = scrollTop;
-			region.scrollLeft = scrollLeft;
-			region.dirtyFlags |= RenderFlags.ALL;
-			render();
-		}
+		// const editor = e.target === _leftEditor.wrapper ? _leftEditor : _rightEditor;
+		// const editorName = editor.name;
+		// const scrollTop = editor.wrapper.scrollTop;
+		// const scrollLeft = editor.wrapper.scrollLeft;
+		// const region = editorName === "left" ? _leftRegion : _rightRegion;
+		// if (region.scrollTop !== scrollTop || region.scrollLeft !== scrollLeft) {
+		// 	region.scrollTop = scrollTop;
+		// 	region.scrollLeft = scrollLeft;
+		// 	region.dirtyFlags |= RenderFlags.ALL;
+		// 	render();
+		// }
 	}
 	_leftEditor.wrapper.addEventListener("scroll", onEditorScroll);
 	_rightEditor.wrapper.addEventListener("scroll", onEditorScroll);
@@ -138,7 +139,7 @@ function createRenderer(_container: HTMLElement, _leftEditor: Editor, _rightEdit
 			region.diffRenderItems = null;
 			region.dirtyFlags |= RenderFlags.ALL;
 		}
-		render();
+		// render();
 	}
 
 	function setTextHighlight(region: EditorName, ranges: Range[]) {}
@@ -153,22 +154,22 @@ function createRenderer(_container: HTMLElement, _leftEditor: Editor, _rightEdit
 
 	let _renderCounter = 0;
 	function render() {
-		if (_renderPending) {
-			return;
-		}
-		_renderPending = true;
-		requestAnimationFrame(() => {
-			++_renderCounter;
-			if (_leftRegion.dirtyFlags !== 0) {
-				renderEditorRegion("left");
-				_leftRegion.dirtyFlags = 0;
-			}
-			if (_rightRegion.dirtyFlags !== 0) {
-				renderEditorRegion("right");
-				_rightRegion.dirtyFlags = 0;
-			}
-			_renderPending = false;
-		});
+		// if (_renderPending) {
+		// 	return;
+		// }
+		// _renderPending = true;
+		// requestAnimationFrame(() => {
+		// 	++_renderCounter;
+		// 	if (_leftRegion.dirtyFlags !== 0) {
+		// 		renderEditorRegion("left");
+		// 		_leftRegion.dirtyFlags = 0;
+		// 	}
+		// 	if (_rightRegion.dirtyFlags !== 0) {
+		// 		renderEditorRegion("right");
+		// 		_rightRegion.dirtyFlags = 0;
+		// 	}
+		// 	_renderPending = false;
+		// });
 	}
 
 	function renderEditorRegion(editorName: EditorName) {

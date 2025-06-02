@@ -42,63 +42,6 @@ function findIndexByPos(arr: { pos: number; len: number }[], pos: number): numbe
 	return ~low;
 }
 
-function getSelectedTokenRange(tokens: Token[], startOffset: number, endOffset: number): [number, number] {
-	function findTokenIndex(offset: number, low?: number): number {
-		let isStart;
-		if (low === undefined) {
-			isStart = true;
-			low = 0;
-		} else {
-			isStart = false;
-		}
-		let high = tokens.length - 1;
-		let result = isStart ? tokens.length : -1;
-
-		while (low! <= high) {
-			const mid: number = (low! + high) >> 1;
-			const token = tokens[mid];
-			const tokenEnd = token.pos + token.len;
-
-			if (isStart) {
-				const prevEnd = mid > 0 ? tokens[mid - 1].pos + tokens[mid - 1].len : 0;
-				if (offset > prevEnd && offset < tokenEnd) {
-					return mid;
-				}
-				if (mid === 0 && offset >= token.pos && offset < tokenEnd) {
-					return 0;
-				}
-			} else {
-				const nextStart = mid + 1 < tokens.length ? tokens[mid + 1].pos : Infinity;
-				if (offset >= token.pos && offset < nextStart) {
-					return mid;
-				}
-			}
-
-			if (isStart) {
-				if (token.pos >= offset) {
-					result = mid;
-					high = mid - 1;
-				} else {
-					low = mid + 1;
-				}
-			} else {
-				if (tokenEnd < offset) {
-					result = mid;
-					low = mid + 1;
-				} else {
-					high = mid - 1;
-				}
-			}
-		}
-
-		return result;
-	}
-
-	const startIndex = findTokenIndex(startOffset);
-	const endIndex = findTokenIndex(endOffset - 1, startIndex);
-	return [startIndex, endIndex + 1]; // [inclusive, exclusive]
-}
-
 function findDiffEntryRangeByPos(entries: DiffEntry[], side: "left" | "right", pos: number, endPos: number) {
 	console.log("findDiffEntryRangeByPos", { entries, side, pos, endPos });
 	let low = 0;
@@ -369,8 +312,21 @@ function dumpRange() {
 	}
 }
 
-function advanceNode(node: Node, skipChildren = false, rootNode?: Node): Node | null {
-	return !skipChildren && node.firstChild ? node.firstChild : node.nextSibling ?? findNextAncestorSibling(node.parentNode, rootNode);
+function advanceNode(currentNode: Node, rootNode: Node | null = null, skipChildren = false): Node | null {
+	if (!skipChildren && currentNode.firstChild) {
+		return currentNode.firstChild;
+	}
+
+	let node: Node | null = currentNode;
+
+	while (node && node !== rootNode) {
+		if (node.nextSibling) {
+			return node.nextSibling;
+		}
+		node = node.parentNode;
+	}
+
+	return null;
 }
 
 function retreatNode(currentNode: Node): Node | null {
@@ -394,17 +350,17 @@ function findNextAncestorSibling(node: Node | null, rootNode?: Node): Node | nul
 	return null;
 }
 
-function mergeRects(rects: Rect[]): { minX: number; minY: number; maxX: number; maxY: number; rects: Rect[] } {
-	rects.sort((a, b) => a.y + a.height - (b.y + b.height));
+function mergeRects(rects: Rect[], toleranceX: number = 0, toleranceY: number = 0): { minX: number; minY: number; maxX: number; maxY: number; rects: Rect[] } {
+	rects.sort((a, b) => a.y - b.y || a.x - b.x);
 
 	const merged: Rect[] = [];
-
 	const used = new Array(rects.length).fill(false);
 
 	let minX = Number.MAX_SAFE_INTEGER;
 	let minY = Number.MAX_SAFE_INTEGER;
 	let maxX = 0;
 	let maxY = 0;
+
 	for (let i = 0; i < rects.length; i++) {
 		if (used[i]) continue;
 		let base = rects[i];
@@ -413,59 +369,37 @@ function mergeRects(rects: Rect[]): { minX: number; minY: number; maxX: number; 
 			if (used[j]) continue;
 			const compare = rects[j];
 
-			// 조기 종료: compare.y > base.y + base.height 이면 더 이상 겹칠 수 없음
-			if (compare.y > base.y + base.height) break;
+			// 세로 위치/높이 거의 같아야 병합 대상이 됨
+			const sameY = Math.abs(base.y - compare.y) <= toleranceY && Math.abs(base.height - compare.height) <= toleranceY;
 
-			// 완전 포함: base가 compare를 완전히 포함하는 경우
-			if (
-				base.x <= compare.x &&
-				base.x + base.width >= compare.x + compare.width &&
-				base.y <= compare.y &&
-				base.y + base.height >= compare.y + compare.height
-			) {
-				used[j] = true;
-				continue;
-			}
+			if (!sameY) continue;
 
-			// 완전 포함: compare가 base를 완전히 포함하는 경우
-			if (
-				compare.x <= base.x &&
-				compare.x + compare.width >= base.x + base.width &&
-				compare.y <= base.y &&
-				compare.y + compare.height >= base.y + base.height
-			) {
-				base = compare;
-				used[j] = true;
-				continue;
-			}
+			// x축 겹치거나 toleranceX 이내
+			const baseRight = base.x + base.width;
+			const compareRight = compare.x + compare.width;
+			const xOverlapOrClose = baseRight >= compare.x - toleranceX && compareRight >= base.x - toleranceX;
 
-			// y축 거의 같고, x축 겹치면 병합 (좌우 확장)
-			const sameY = Math.abs(base.y - compare.y) < 1 && Math.abs(base.height - compare.height) < 1;
-			const xOverlap = base.x <= compare.x + compare.width && compare.x <= base.x + base.width;
-
-			if (sameY && xOverlap) {
-				// 새 병합 사각형 계산
+			if (xOverlapOrClose) {
 				const newX = Math.min(base.x, compare.x);
-				const newWidth = Math.max(base.x + base.width, compare.x + compare.width) - newX;
-
+				const newRight = Math.max(baseRight, compareRight);
 				base = {
 					x: newX,
-					y: base.y,
-					width: newWidth,
-					height: base.height,
+					y: Math.min(base.y, compare.y),
+					width: newRight - newX,
+					height: Math.max(base.height, compare.height),
 				};
 				used[j] = true;
 			}
 		}
+
 		merged.push(base);
+		used[i] = true;
+
 		minX = Math.min(minX, base.x);
 		minY = Math.min(minY, base.y);
 		maxX = Math.max(maxX, base.x + base.width);
 		maxY = Math.max(maxY, base.y + base.height);
-		used[i] = true;
 	}
-
-	merged.sort((a, b) => (a.y !== b.y ? a.y - b.y : a.x - b.x));
 
 	return {
 		minX,
@@ -493,6 +427,7 @@ function extractTextRanges(sourceRange: Range): Range[] {
 		return [sourceRange];
 	}
 
+	const root = sourceRange.commonAncestorContainer;
 	const result: Range[] = [];
 
 	const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
@@ -521,7 +456,8 @@ function extractTextRanges(sourceRange: Range): Range[] {
 		if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
 			endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
 		} else {
-			endNode = advanceNode(sourceRange.endContainer, true)!;
+			
+			endNode = advanceNode(sourceRange.endContainer, root, true)!;
 		}
 	} else {
 		throw new Error("Invalid end container");
@@ -530,7 +466,7 @@ function extractTextRanges(sourceRange: Range): Range[] {
 	while (currentNode && currentNode !== endNode) {
 		if (currentNode.nodeType === 3) {
 			const r = document.createRange();
-			r.selectNode(currentNode);
+			r.selectNodeContents(currentNode);
 			result.push(r);
 		} else {
 			if (currentNode.nodeName === "BR") {
@@ -598,7 +534,7 @@ function findLastTextNode(root: Node, skipEmpty = false): Text | null {
 	return null;
 }
 
-function getNodesInRange(range: Range, whatToShow:number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null) {
+function getNodesInRange(range: Range, whatToShow: number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null) {
 	const commonAncestor = range.commonAncestorContainer;
 
 	const walker = document.createTreeWalker(commonAncestor, whatToShow, filter);
@@ -678,4 +614,12 @@ function isEmptyElement(el: HTMLElement): boolean {
 		}
 	}
 	return true;
+}
+
+function isNodeStartInsideRange(element: Node, range: Range) {
+	const elementStart = document.createRange();
+	elementStart.setStartBefore(element);
+	elementStart.setEndBefore(element);
+
+	return range.compareBoundaryPoints(Range.START_TO_START, elementStart) <= 0 && range.compareBoundaryPoints(Range.END_TO_START, elementStart) > 0;
 }

@@ -61,55 +61,63 @@
 
 
 
-    <script>
+    <script type="module">
+        import { helloWorld } from "./temp.js";
+        helloWorld();
+// --- Closure 버전 ---
+function createClosureCounter() {
+  let count = 0;
+  return {
+    inc() {
+      count++;
+    },
+    get() {
+      return count;
+    }
+  };
+}
 
-        const p1 = document.createElement("p");
-        const t1 = document.createTextNode("hello");
-        const t2 = document.createTextNode(" ");
-        const t3 = document.createTextNode("world");
-        const span = document.createElement("span");
-        const p2 = document.createElement("p");
-        const br = document.createElement("br");
+// --- Class 버전 ---
+class ClassCounter {
+  constructor() {
+    this.count = 0;
+  }
+  inc() {
+    this.count++;
+  }
+  get() {
+    return this.count;
+  }
+}
 
-        span.appendChild(t3);
+// 준비
+const NUM_OPS = 1_000_000;
+const closureCounter = createClosureCounter();
+const classCounter = new ClassCounter();
 
+// --- 측정 도우미 ---
+function benchmark(label, fn) {
+  const start = performance.now();
+  fn();
+  const end = performance.now();
+  console.log(`${label}: ${(end - start).toFixed(2)}ms`);
+}
 
-        p1.appendChild(t1);
-        p1.appendChild(t2);
-        p1.appendChild(span);
+// --- Closure 벤치마크 ---
+benchmark("Closure", () => {
+  for (let i = 0; i < NUM_OPS; i++) {
+    closureCounter.inc();
+    closureCounter.get();
+  }
+});
 
-        p2.appendChild(br);
-
-        document.body.appendChild(p1);
-        document.body.appendChild(p2);
-
-        // document.body.appendChild(document.createTextNode("hello world"));
-        document.body.appendChild(document.createElement("br"));
-
-        const range = document.createRange();
-        // range.selectNode(para);
-        // range.setStart(para, 0);
-        // range.setEnd(para, 1);
-        // range.setStart(document.body, 2);
-        // range.setEnd(document.body, 3);
-        range.setStartBefore(t1);
-        range.setEndAfter(t3);
-
-
-        const rects = range.getClientRects();
-        console.log(rects);
-        console.log("range", range);
-        console.log("rects", range.getClientRects());
-
-        const sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-
-        // const r1 = document.createRange();
-        // r1.selectNode(span);
-        // console.log(range.comparePoint(span, 1));
-
-
+// --- Class 벤치마크 ---
+benchmark("Class", () => {
+  for (let i = 0; i < NUM_OPS; i++) {
+    classCounter.inc();
+    classCounter.get();
+  }
+});
 
     </script>
 </body>

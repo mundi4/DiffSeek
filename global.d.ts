@@ -226,10 +226,21 @@ type RectSet = {
 type RichToken = {
 	text: string;
 	flags: number;
-	/** 텍스트노드일 때에는 startOffset값은 반드시 null이 아님 */
+	range: LightRange | Range;
+	container: RichTokenContainer;
+};
+
+type RichTokenContainer = {
+	element: HTMLElement;
+	depth: number;
+	startTokenIndex: number; // 시작 토큰 인덱스
+	tokenCount: number; // 토큰 개수
+	parent: RichTokenContainer | null; // 부모 컨테이너 정보
+};
+
+type LightRange = {
 	startContainer: Node;
 	startOffset: number;
-	/** 텍스트노드일 때에는 endOffset값은 반드시 null이 아님. 엘러먼트 요소일 때에는 inclusive임. */
 	endContainer: Node;
-	endOffset: number;
-};
+	endOffset: number;	
+}

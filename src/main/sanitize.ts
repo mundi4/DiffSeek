@@ -86,37 +86,6 @@ type TextFragment = {
 	flags: number;
 };
 
-const BLOCK_ELEMENTS: Record<string, boolean> = {
-	DD: true,
-	DT: true,
-	DIV: true,
-	P: true,
-	H1: true,
-	H2: true,
-	H3: true,
-	H4: true,
-	H5: true,
-	H6: true,
-	UL: true,
-	OL: true,
-	LI: true,
-	BLOCKQUOTE: true,
-	FORM: true,
-	HEADER: true,
-	FOOTER: true,
-	ARTICLE: true,
-	SECTION: true,
-	ASIDE: true,
-	NAV: true,
-	ADDRESS: true,
-	FIGURE: true,
-	FIGCAPTION: true,
-	TABLE: true,
-	CAPTION: true,
-	TR: true,
-	//TD: true,
-	"#document-fragment": true,
-};
 
 const INLINE_ELEMENTS: Record<string, boolean> = {
 	SPAN: true,
@@ -675,3 +644,16 @@ function sanitizeNode(content: Node): [Node, boolean] {
 	}
 	return [result, hasBlockElements];
 }
+
+	function formatPlaintext(plaintext: string) {
+		const lines = plaintext.split("\n");
+
+		const fragment = document.createDocumentFragment();
+		for (const line of lines) {
+			const p = document.createElement("p");
+			p.textContent = line;
+			fragment.appendChild(p);
+		}
+
+		return fragment;
+	}

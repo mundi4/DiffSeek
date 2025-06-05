@@ -81,11 +81,12 @@ function findDiffEntryRangeByPos(entries: DiffEntry[], side: "left" | "right", p
 }
 
 function mapTokenRangeToOtherSide(rawEntries: DiffEntry[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
+	console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
 	const otherSide = side === "left" ? "right" : "left";
 	let low = 0;
 	let high = rawEntries.length - 1;
-	let mappedStart = 0;
-	let mappedEnd = 0;
+	let mappedStart = -1;
+	let mappedEnd = -1;
 
 	while (low <= high) {
 		const mid = (low + high) >> 1;
@@ -96,22 +97,31 @@ function mapTokenRangeToOtherSide(rawEntries: DiffEntry[], side: "left" | "right
 			low = mid + 1;
 		} else {
 			mappedStart = rawEntries[mid][otherSide].pos;
+			if (endIndex <= s.pos + s.len) {
+				mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+			}
+			// if (rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len < endIndex) {
+			// 	mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+			// }
 			low = mid; // reuse for mappedEnd search
 			break;
 		}
 	}
 
-	high = rawEntries.length - 1;
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		const s = rawEntries[mid][side];
-		if (endIndex - 1 < s.pos) {
-			high = mid - 1;
-		} else if (endIndex - 1 >= s.pos + s.len) {
-			low = mid + 1;
-		} else {
-			mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
-			break;
+	if (mappedStart >= 0 && mappedEnd === -1) {
+		mappedEnd = mappedStart;
+		high = rawEntries.length - 1;
+		while (low <= high) {
+			const mid = (low + high) >> 1;
+			const s = rawEntries[mid][side];
+			if (endIndex - 1 < s.pos) {
+				high = mid - 1;
+			} else if (endIndex - 1 >= s.pos + s.len) {
+				low = mid + 1;
+			} else {
+				mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+				break;
+			}
 		}
 	}
 
@@ -456,7 +466,6 @@ function extractTextRanges(sourceRange: Range): Range[] {
 		if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
 			endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
 		} else {
-			
 			endNode = advanceNode(sourceRange.endContainer, root, true)!;
 		}
 	} else {
@@ -622,4 +631,136 @@ function isNodeStartInsideRange(element: Node, range: Range) {
 	elementStart.setEndBefore(element);
 
 	return range.compareBoundaryPoints(Range.START_TO_START, elementStart) <= 0 && range.compareBoundaryPoints(Range.END_TO_START, elementStart) > 0;
+}
+
+function extractRects(sourceRange: Range): Rect[] {
+	// console.debug("extractRects", sourceRange);
+
+	const result: Rect[] = [];
+
+	const tempRange = document.createRange();
+
+	let startNode: Node | null;
+	if (sourceRange.startContainer.nodeType === 3) {
+		tempRange.setStart(sourceRange.startContainer, sourceRange.startOffset);
+		if (sourceRange.startContainer === sourceRange.endContainer) {
+			tempRange.setEnd(sourceRange.startContainer, sourceRange.endOffset);
+		} else {
+			tempRange.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue!.length);
+		}
+		for (const rect of tempRange.getClientRects()) {
+			result.push({
+				x: rect.x,
+				y: rect.y,
+				width: rect.width,
+				height: rect.height,
+			});
+		}
+		startNode = advanceNode(sourceRange.startContainer)!;
+	} else {
+		startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset];
+		if (!startNode) {
+			startNode = advanceNode(sourceRange.startContainer, null, true);
+			if (!startNode) {
+				console.warn("extractRects: No startNode found", sourceRange);
+				return result;
+			}
+		}
+	}
+
+	const endContainer = sourceRange.endContainer;
+	let endOffset: number;
+	let endNode: Node;
+	if (endContainer.nodeType === 3) {
+		endNode = endContainer;
+		endOffset = sourceRange.endOffset;
+	} else {
+		endNode = endContainer.childNodes[sourceRange.endOffset];
+		if (!endNode) {
+			endNode = advanceNode(endContainer, null, true)!;
+		}
+		endOffset = -1;
+	}
+
+	console.debug("extractRects", { sourceRange, startNode, endNode, endOffset });
+	const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
+
+	if (!startNode || !endNode) {
+		console.warn("extractRects: No startNode or endNode", sourceRange);
+		return result;
+	}
+
+	if (endNode.compareDocumentPosition(startNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
+		// startNode가 endNode보다 뒤에 있는 경우
+		console.warn("extractRects: startNode is after endNode", startNode, endNode);
+		return result;
+	}
+
+	walker.currentNode = startNode;
+	// const hardEnd = advanceNode(editor);
+	do {
+		const currentNode = walker.currentNode;
+		if (!currentNode) {
+			console.error("extractRects: currentNode is null", sourceRange);
+		}
+		if (currentNode === endNode) {
+			if (currentNode.nodeType === 3 && endOffset >= 0) {
+				tempRange.setStart(endNode, 0);
+				tempRange.setEnd(endNode, endOffset);
+				for (const rect of tempRange.getClientRects()) {
+					result.push({
+						x: rect.x,
+						y: rect.y,
+						width: rect.width,
+						height: rect.height,
+					});
+				}
+			}
+			break;
+		}
+
+		// if (currentNode === hardEnd) {
+		// 	console.warn("extractRects: reached hard end", currentNode, endOffset);
+		// 	break;
+		// }
+
+		if (currentNode.nodeType === 3) {
+			tempRange.selectNodeContents(currentNode);
+			for (const rect of tempRange.getClientRects()) {
+				result.push({
+					x: rect.x,
+					y: rect.y,
+					width: rect.width,
+					height: rect.height,
+				});
+			}
+		} else if (currentNode.nodeName === "BR") {
+			//
+		} else if (currentNode.nodeName === "A") {
+			const tempText = document.createTextNode("\u200B"); // zero-width space
+			currentNode.appendChild(tempText);
+			tempRange.selectNodeContents(tempText);
+			for (const rect of tempRange.getClientRects()) {
+				result.push({
+					x: rect.x,
+					y: rect.y,
+					width: rect.width,
+					height: rect.height,
+				});
+			}
+			tempText.remove();
+		} else if (currentNode.nodeName === "IMG") {
+			tempRange.selectNode(currentNode);
+			for (const rect of tempRange.getClientRects()) {
+				result.push({
+					x: rect.x,
+					y: rect.y,
+					width: rect.width,
+					height: rect.height,
+				});
+			}
+		}
+	} while (walker.nextNode());
+
+	return result;
 }

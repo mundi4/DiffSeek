@@ -2,8 +2,8 @@
 	"compilerOptions": {
 		"sourceMap": true,
 		"moduleResolution": "bundler",
-		"module": "ES2022", // CommonJS 모듈 형식
-		"target": "ES2024", // ES5로 변환
+		"module": "esnext", // CommonJS 모듈 형식
+		"target": "es2024", // ES5로 변환
 		// "module": "commonjs", // CommonJS 모듈 형식
 		"strict": true, // 타입 체크 엄격 모드
 		"forceConsistentCasingInFileNames": true, // 파일 이름 일관성 유지

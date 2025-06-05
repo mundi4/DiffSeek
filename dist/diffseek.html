@@ -197,21 +197,52 @@ const LINE_ELEMENTS = {
 // 많은 요소들이 있지만 다 무시하고 root와 td/th만 생각함.
 // 다른 요소들은 어차피 레이아웃과 무관
 const TEXT_FLOW_CONTAINERS = {
-    DIV: true,
-    PRE: true,
-    BLOCKQUOTE: true,
-    LI: true,
     TD: true,
     TH: true,
-    SECTION: true,
-    ARTICLE: true,
+    // DIV: true,
+    // PRE: true,
+    // BLOCKQUOTE: true,
+    // LI: true,
+    // SECTION: true,
+    // ARTICLE: true,
+    // HEADER: true,
+    // FOOTER: true,
+    // ASIDE: true,
+    // MAIN: true,
+    // CAPTION: true,
+    // FIGURE: true,
+    // FIGCAPTION: true,
+};
+const BLOCK_ELEMENTS = {
+    DD: true,
+    DT: true,
+    DIV: true,
+    P: true,
+    H1: true,
+    H2: true,
+    H3: true,
+    H4: true,
+    H5: true,
+    H6: true,
+    UL: true,
+    OL: true,
+    LI: true,
+    BLOCKQUOTE: true,
+    FORM: true,
     HEADER: true,
     FOOTER: true,
+    ARTICLE: true,
+    SECTION: true,
     ASIDE: true,
-    MAIN: true,
-    CAPTION: true,
+    NAV: true,
+    ADDRESS: true,
     FIGURE: true,
     FIGCAPTION: true,
+    TABLE: true,
+    CAPTION: true,
+    TR: true,
+    //TD: true,
+    "#document-fragment": true,
 };
 //# sourceMappingURL=constants.js.map
 </script>
@@ -288,11 +319,12 @@ function findDiffEntryRangeByPos(entries, side, pos, endPos) {
     return [mappedStart, mappedEnd];
 }
 function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
+    console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
     const otherSide = side === "left" ? "right" : "left";
     let low = 0;
     let high = rawEntries.length - 1;
-    let mappedStart = 0;
-    let mappedEnd = 0;
+    let mappedStart = -1;
+    let mappedEnd = -1;
     while (low <= high) {
         const mid = (low + high) >> 1;
         const s = rawEntries[mid][side];
@@ -304,23 +336,32 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
         }
         else {
             mappedStart = rawEntries[mid][otherSide].pos;
+            if (endIndex <= s.pos + s.len) {
+                mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+            }
+            // if (rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len < endIndex) {
+            // 	mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+            // }
             low = mid; // reuse for mappedEnd search
             break;
         }
     }
-    high = rawEntries.length - 1;
-    while (low <= high) {
-        const mid = (low + high) >> 1;
-        const s = rawEntries[mid][side];
-        if (endIndex - 1 < s.pos) {
-            high = mid - 1;
-        }
-        else if (endIndex - 1 >= s.pos + s.len) {
-            low = mid + 1;
-        }
-        else {
-            mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
-            break;
+    if (mappedStart >= 0 && mappedEnd === -1) {
+        mappedEnd = mappedStart;
+        high = rawEntries.length - 1;
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            const s = rawEntries[mid][side];
+            if (endIndex - 1 < s.pos) {
+                high = mid - 1;
+            }
+            else if (endIndex - 1 >= s.pos + s.len) {
+                low = mid + 1;
+            }
+            else {
+                mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+                break;
+            }
         }
     }
     return [mappedStart, mappedEnd];
@@ -777,6 +818,132 @@ function isNodeStartInsideRange(element, range) {
     elementStart.setEndBefore(element);
     return range.compareBoundaryPoints(Range.START_TO_START, elementStart) <= 0 && range.compareBoundaryPoints(Range.END_TO_START, elementStart) > 0;
 }
+function extractRects(sourceRange) {
+    // console.debug("extractRects", sourceRange);
+    const result = [];
+    const tempRange = document.createRange();
+    let startNode;
+    if (sourceRange.startContainer.nodeType === 3) {
+        tempRange.setStart(sourceRange.startContainer, sourceRange.startOffset);
+        if (sourceRange.startContainer === sourceRange.endContainer) {
+            tempRange.setEnd(sourceRange.startContainer, sourceRange.endOffset);
+        }
+        else {
+            tempRange.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue.length);
+        }
+        for (const rect of tempRange.getClientRects()) {
+            result.push({
+                x: rect.x,
+                y: rect.y,
+                width: rect.width,
+                height: rect.height,
+            });
+        }
+        startNode = advanceNode(sourceRange.startContainer);
+    }
+    else {
+        startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset];
+        if (!startNode) {
+            startNode = advanceNode(sourceRange.startContainer, null, true);
+            if (!startNode) {
+                console.warn("extractRects: No startNode found", sourceRange);
+                return result;
+            }
+        }
+    }
+    const endContainer = sourceRange.endContainer;
+    let endOffset;
+    let endNode;
+    if (endContainer.nodeType === 3) {
+        endNode = endContainer;
+        endOffset = sourceRange.endOffset;
+    }
+    else {
+        endNode = endContainer.childNodes[sourceRange.endOffset];
+        if (!endNode) {
+            endNode = advanceNode(endContainer, null, true);
+        }
+        endOffset = -1;
+    }
+    console.debug("extractRects", { sourceRange, startNode, endNode, endOffset });
+    const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
+    if (!startNode || !endNode) {
+        console.warn("extractRects: No startNode or endNode", sourceRange);
+        return result;
+    }
+    if (endNode.compareDocumentPosition(startNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
+        // startNode가 endNode보다 뒤에 있는 경우
+        console.warn("extractRects: startNode is after endNode", startNode, endNode);
+        return result;
+    }
+    walker.currentNode = startNode;
+    // const hardEnd = advanceNode(editor);
+    do {
+        const currentNode = walker.currentNode;
+        if (!currentNode) {
+            console.error("extractRects: currentNode is null", sourceRange);
+        }
+        if (currentNode === endNode) {
+            if (currentNode.nodeType === 3 && endOffset >= 0) {
+                tempRange.setStart(endNode, 0);
+                tempRange.setEnd(endNode, endOffset);
+                for (const rect of tempRange.getClientRects()) {
+                    result.push({
+                        x: rect.x,
+                        y: rect.y,
+                        width: rect.width,
+                        height: rect.height,
+                    });
+                }
+            }
+            break;
+        }
+        // if (currentNode === hardEnd) {
+        // 	console.warn("extractRects: reached hard end", currentNode, endOffset);
+        // 	break;
+        // }
+        if (currentNode.nodeType === 3) {
+            tempRange.selectNodeContents(currentNode);
+            for (const rect of tempRange.getClientRects()) {
+                result.push({
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                });
+            }
+        }
+        else if (currentNode.nodeName === "BR") {
+            //
+        }
+        else if (currentNode.nodeName === "A") {
+            const tempText = document.createTextNode("\u200B"); // zero-width space
+            currentNode.appendChild(tempText);
+            tempRange.selectNodeContents(tempText);
+            for (const rect of tempRange.getClientRects()) {
+                result.push({
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                });
+            }
+            tempText.remove();
+        }
+        else if (currentNode.nodeName === "IMG") {
+            tempRange.selectNode(currentNode);
+            for (const rect of tempRange.getClientRects()) {
+                result.push({
+                    x: rect.x,
+                    y: rect.y,
+                    width: rect.width,
+                    height: rect.height,
+                });
+            }
+        }
+    } while (walker.nextNode());
+    return result;
+}
 //# sourceMappingURL=utils.js.map
 </script>
 <script>"use strict";
@@ -849,37 +1016,6 @@ function isReddish(color) {
     reddishCache.set(color, isRed);
     return isRed;
 }
-const BLOCK_ELEMENTS = {
-    DD: true,
-    DT: true,
-    DIV: true,
-    P: true,
-    H1: true,
-    H2: true,
-    H3: true,
-    H4: true,
-    H5: true,
-    H6: true,
-    UL: true,
-    OL: true,
-    LI: true,
-    BLOCKQUOTE: true,
-    FORM: true,
-    HEADER: true,
-    FOOTER: true,
-    ARTICLE: true,
-    SECTION: true,
-    ASIDE: true,
-    NAV: true,
-    ADDRESS: true,
-    FIGURE: true,
-    FIGCAPTION: true,
-    TABLE: true,
-    CAPTION: true,
-    TR: true,
-    //TD: true,
-    "#document-fragment": true,
-};
 const INLINE_ELEMENTS = {
     SPAN: true,
     A: true,
@@ -1380,40 +1516,27 @@ function sanitizeNode(content) {
     }
     return [result, hasBlockElements];
 }
+function formatPlaintext(plaintext) {
+    const lines = plaintext.split("\n");
+    const fragment = document.createDocumentFragment();
+    for (const line of lines) {
+        const p = document.createElement("p");
+        p.textContent = line;
+        fragment.appendChild(p);
+    }
+    return fragment;
+}
 //# sourceMappingURL=sanitize.js.map
 </script>
 <script>"use strict";
 const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
-const LINE_START = 1 << 0; // 1
-const LINE_END = 1 << 1; // 2
-const CONTAINER_START = 1 << 2; // 4
-const CONTAINER_END = 1 << 3; // 8
-const TABLE_START = 1 << 4; // 16
-const TABLE_END = 1 << 5; // 32
-const TABLEROW_START = 1 << 6; // 64
-const TABLEROW_END = 1 << 7; // 128
-const TABLECELL_START = 1 << 8; // 256
-const TABLECELL_END = 1 << 9; // 512
-const NO_JOIN_PREV = 1 << 10; // @@@, ### 등등 // 1024
-const NO_JOIN_NEXT = 1 << 11; // @@@, ### 등등 // 2048
-const WILD_CARD = 1 << 12;
-const MANUAL_ANCHOR = 1 << 13; // 32. @@@, ### 등등
-const IMAGE = 1 << 14;
-const HTML_SUP = 1 << 15;
-const HTML_SUB = 1 << 16;
-const SECTION_HEADING_BIT = 17;
-const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
-const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
-const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
-const SECTION_HEADING_TYPE4 = 1 << (SECTION_HEADING_BIT + 3); // (가)
-const SECTION_HEADING_TYPE5 = 1 << (SECTION_HEADING_BIT + 4); // 1)
-const SECTION_HEADING_TYPE6 = 1 << (SECTION_HEADING_BIT + 5); // 가)
-const BLOCK_START = CONTAINER_START | LINE_START | TABLECELL_START;
-const BLOCK_END = CONTAINER_END | LINE_END | TABLECELL_END;
-const LINE_BOUNDARY = LINE_START | LINE_END;
-const CONTAINER_BOUNDARY = CONTAINER_START | CONTAINER_END;
-const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
+const SECTION_HEADING_MASK = 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */ |
+    1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */ |
+    2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */ |
+    4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */ |
+    8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */ |
+    8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */;
 // const normalizeChars: { [ch: string]: string } = {};
 // text flow containers?
 const containerElements = {
@@ -1522,6 +1645,7 @@ const normalizedCharMap = ((normChars) => {
     ["↓", "⇓", "⬇"],
     ["↔", "⇔"],
     ["↕", "⇕"],
+    [" ", "\u00A0"],
 ]);
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
@@ -1531,28 +1655,28 @@ const normalizedCharMap = ((normChars) => {
 // 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
 // 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
 const wildcardTrie = createTrie(true);
-wildcardTrie.insert("(추가)", WILD_CARD);
-wildcardTrie.insert("(삭제)", WILD_CARD);
-wildcardTrie.insert("(신설)", WILD_CARD);
-wildcardTrie.insert("(생략)", WILD_CARD);
-wildcardTrie.insert("(현행과같음)", WILD_CARD);
+wildcardTrie.insert("(추가)", 16384 /* TokenFlags.WILD_CARD */);
+wildcardTrie.insert("(삭제)", 16384 /* TokenFlags.WILD_CARD */);
+wildcardTrie.insert("(신설)", 16384 /* TokenFlags.WILD_CARD */);
+wildcardTrie.insert("(생략)", 16384 /* TokenFlags.WILD_CARD */);
+wildcardTrie.insert("(현행과같음)", 16384 /* TokenFlags.WILD_CARD */);
 const wildcardTrieNode = wildcardTrie.root.next("(");
 const sectionHeadingTrie = createTrie(false);
 for (let i = 1; i < 40; i++) {
-    sectionHeadingTrie.insert(`${i}.`, SECTION_HEADING_TYPE1);
-    sectionHeadingTrie.insert(`(${i})`, SECTION_HEADING_TYPE3);
-    sectionHeadingTrie.insert(`${i})`, SECTION_HEADING_TYPE5);
+    sectionHeadingTrie.insert(`${i}.`, 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */);
+    sectionHeadingTrie.insert(`(${i})`, 2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */);
+    sectionHeadingTrie.insert(`${i})`, 8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */);
 }
 for (let i = 0; i < HANGUL_ORDER.length; i++) {
-    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, SECTION_HEADING_TYPE2);
-    sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE4);
-    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, SECTION_HEADING_TYPE6);
+    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, 1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */);
+    sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, 4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */);
+    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, 8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */);
 }
 const SectionHeadingTrieNode = sectionHeadingTrie.root;
 const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
 const manualAnchorTrie = createTrie(false);
-manualAnchorTrie.insert(MANUAL_ANCHOR1, MANUAL_ANCHOR);
-manualAnchorTrie.insert(MANUAL_ANCHOR2, MANUAL_ANCHOR);
+manualAnchorTrie.insert(MANUAL_ANCHOR1, 32768 /* TokenFlags.MANUAL_ANCHOR */);
+manualAnchorTrie.insert(MANUAL_ANCHOR2, 32768 /* TokenFlags.MANUAL_ANCHOR */);
 const manualAnchorTrieNode = manualAnchorTrie.root;
 const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 function normalize(text) {
@@ -1626,136 +1750,373 @@ function extractStartCharsFromTrie(trie) {
     }
     return table;
 }
-function* tokenizeWithContainers(root) {
-    const containerStack = [];
+// const TOKEN_BOUNDARY_ELEMENTS: Record<string, boolean> = {
+// 	...BLOCK_ELEMENTS,
+// 	BR: true,
+// 	HR: true,
+// 	IMG: true,
+// };
+// function* tokenizeWithContainers(root: Node): Generator<TokenizationEvent, void, unknown> {
+// 	const containerStack: ContainerInfo[] = [];
+// 	function* traverse(node: Node, depth: number, indexInParent: number): Generator<TokenizationEvent> {
+// 		// 컨테이너 여부 판단
+// 		const nodeName = node.nodeName;
+// 		const isTokenBoundary = nodeName === "BR" || BLOCK_ELEMENTS[nodeName];
+// 		// 논리적으로 의미가 있는, 토큰화에 쓸모 있는 정보를 제공할 수 있는 container 노드만 취급
+// 		const isContainer =
+// 			BLOCK_ELEMENTS[nodeName] || // 블럭요소는 블럭의 시작과 끝을 판단하는데 필요
+// 			nodeName === "TABLE" || // 마찬가지 테이블 행의 시작과 끝
+// 			nodeName === "TR" || // 테이블 행의 시작과 끝
+// 			nodeName === "TD" || // 테이블 셀의 시작과 끝
+// 			nodeName === "TH" || // 테이블 셀의 시작과 끝
+// 			nodeName === "SUP" || // SUP
+// 			nodeName === "SUB"; // SUB
+// 		if (isContainer) {
+// 			const containerInfo: ContainerInfo = {
+// 				node,
+// 				depth,
+// 			};
+// 			containerStack.push(containerInfo);
+// 			yield { type: "containerStart", container: containerInfo };
+// 		}
+// 		if (node.nodeType === 3) {
+// 			// 텍스트 노드일 때
+// 			if (containerStack.length > 0) {
+// 				const parentContainer = containerStack[containerStack.length - 1];
+// 				yield {
+// 					type: "textNode",
+// 					node: node as Text,
+// 					parent: parentContainer,
+// 					indexInParent,
+// 					text: node.nodeValue!,
+// 				};
+// 				if (containerStack.length > 0) {
+// 					containerStack[containerStack.length - 1].tokenCount++;
+// 				}
+// 			}
+// 		} else if (node.nodeType === 1) {
+// 			if (nodeName === "IMG") {
+// 				yield { type: "img", node, src: (node as HTMLImageElement).src, indexInParent };
+// 			}
+// 			if (nodeName === "BR") {
+// 				yield { type: "break" };
+// 			}
+// 			if (nodeName === "A") {
+// 				return;
+// 			}
+// 			// 엘리먼트 노드
+// 			let childIndex = 0;
+// 			for (const child of node.childNodes) {
+// 				yield* traverse(child, depth + 1, childIndex++);
+// 			}
+// 		}
+// 		if (isContainer) {
+// 			const containerInfo = containerStack.pop()!;
+// 			yield { type: "containerEnd", container: containerInfo };
+// 		}
+// 	}
+// 	yield* traverse(root, 0, 0);
+// }
+// function* tokenize2(ctx: TokinizeContext) {
+// 	const tokens: RichToken[] = (ctx.tokens ??= []);
+// 	let tokenIndex = 0;
+// 	let buffer: TextTokenizationEvent[] = [];
+// 	const iterator = tokenizeWithContainers(ctx.content);
+// 	let nextResult = iterator.next();
+// 	let currentToken: RichToken | null = null;
+// 	let currentFlags = LINE_START;
+// 	let shouldNormalize = false;
+// 	let containerStack: ContainerInfo[] = [];
+// 	let currentContainer: ContainerInfo = {
+// 		node: ctx.content,
+// 		depth: 0,
+// 		indexInParent: 0,
+// 		tokenStartIndex: 0,
+// 		tokenCount: 0,
+// 		commonFlags: 0,
+// 	};
+// 	function processToken(textNode: Text, startOffset: number, endOffset: number, flags: number = 0) {
+// 		let str = textNode.nodeValue!.slice(startOffset, endOffset);
+// 		if (shouldNormalize) {
+// 			str = normalize(str);
+// 			shouldNormalize = false;
+// 		}
+// 		if (currentToken) {
+// 			currentToken.text += str;
+// 			currentToken.endContainer = textNode;
+// 			currentToken.endOffset = endOffset;
+// 		} else {
+// 			currentToken = {
+// 				text: str,
+// 				flags: currentFlags | flags,
+// 				startContainer: textNode,
+// 				startOffset: startOffset,
+// 				endContainer: textNode,
+// 				endOffset: endOffset,
+// 			};
+// 		}
+// 	}
+// 	function finalizeToken(flags: number = 0) {
+// 		if (currentToken) {
+// 			currentToken.flags |= flags;
+// 			tokens[tokenIndex] = currentToken;
+// 			tokenIndex++;
+// 			currentToken = null;
+// 			currentFlags = 0;
+// 		}
+// 	}
+// 	function findInTrie2(trie: TrieNode, buffer: TextTokenizationEvent[], bufferIndex: number, bufferCount: number, charIndex: number) {
+// 		let node: TrieNode | null = trie;
+// 		let i = bufferIndex;
+// 		let j = charIndex;
+// 		do {
+// 			const text = buffer[i].text;
+// 			for (; j < text.length; j++) {
+// 				node = node!.next(text[j]);
+// 				if (!node) {
+// 					return null;
+// 				}
+// 				if (node.word) {
+// 					return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
+// 				}
+// 			}
+// 			i++;
+// 			j = 0;
+// 		} while (i < bufferCount);
+// 		return null;
+// 	}
+// 	while (!nextResult.done) {
+// 		let event = nextResult.value;
+// 		if (event.type === "textNode") {
+// 			console.assert(currentToken === null, "currentToken should be null at this point");
+// 			let bufferCount = 0;
+// 			do {
+// 				buffer[bufferCount++] = event;
+// 			} while (!(nextResult = iterator.next()).done && (event = nextResult.value).type === "textNode");
+// 			let i = 0;
+// 			OUTER: for (let bufferIndex = 0; bufferIndex < bufferCount; bufferIndex++) {
+// 				const text = buffer[bufferIndex].text;
+// 				const textLen = text.length;
+// 				let currentStart = -1;
+// 				for (; i < textLen; i++) {
+// 					let char = text[i];
+// 					char = normalizedCharMap[char] || char; // normalize the character
+// 					if (spaceChars[char]) {
+// 						if (currentStart !== -1) {
+// 							processToken(buffer[bufferIndex].node, currentStart, i);
+// 							currentStart = -1;
+// 						}
+// 						finalizeToken();
+// 					} else {
+// 						// 모든 문자에 대해서 trie를 탐색하는건 너무 비효율적이라서...
+// 						if (char === "(") {
+// 							// 정말 지저분하지만... 별 수 없다.
+// 							const found = findInTrie2(wildcardTrieNode, buffer, bufferIndex, bufferCount, i + 1);
+// 							if (found) {
+// 								const startContainer = buffer[bufferIndex].node;
+// 								const startOffset = i;
+// 								if (currentStart !== -1) {
+// 									processToken(buffer[bufferIndex].node, currentStart, i);
+// 									currentStart = -1;
+// 								}
+// 								finalizeToken();
+// 								tokens[tokenIndex++] = {
+// 									text: found.word,
+// 									flags: currentFlags | found.flags,
+// 									startContainer,
+// 									startOffset,
+// 									endContainer: buffer[found.bufferIndex].node,
+// 									endOffset: found.charIndex,
+// 								};
+// 								currentFlags = 0;
+// 								bufferIndex = found.bufferIndex - 1;
+// 								i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
+// 								continue OUTER;
+// 							}
+// 						}
+// 						if (currentFlags & LINE_START && sectionHeadingStartChars[char]) {
+// 							const found = findInTrie2(SectionHeadingTrieNode, buffer, bufferIndex, bufferCount, i);
+// 							if (found) {
+// 								const startContainer = buffer[bufferIndex].node;
+// 								const startOffset = i;
+// 								if (currentStart !== -1) {
+// 									processToken(buffer[bufferIndex].node, currentStart, i);
+// 									currentStart = -1;
+// 								}
+// 								finalizeToken();
+// 								tokens[tokenIndex++] = {
+// 									text: found.word,
+// 									flags: currentFlags | found.flags,
+// 									startContainer,
+// 									startOffset,
+// 									endContainer: buffer[found.bufferIndex].node,
+// 									endOffset: found.charIndex,
+// 								};
+// 								currentFlags = 0;
+// 								bufferIndex = found.bufferIndex - 1;
+// 								i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
+// 								continue OUTER;
+// 							}
+// 						}
+// 						if (normalizedCharMap[char]) {
+// 							shouldNormalize = true;
+// 						}
+// 						if (currentStart === -1) {
+// 							currentStart = i;
+// 						}
+// 					}
+// 				}
+// 				if (currentStart !== -1) {
+// 					processToken(buffer[bufferIndex].node, currentStart, textLen);
+// 				}
+// 				i = 0;
+// 			}
+// 			if (currentToken) {
+// 				finalizeToken();
+// 			}
+// 			if (nextResult.done) {
+// 				break;
+// 			}
+// 		}
+// 		console.assert(currentToken === null, "currentToken should be null at this point");
+// 		if (event.type === "containerStart") {
+// 			containerStack.push(currentContainer);
+// 			currentContainer = event.container;
+// 			currentContainer.tokenStartIndex = tokenIndex;
+// 		} else if (event.type === "containerEnd") {
+// 			currentContainer.tokenCount = tokenIndex - currentContainer.tokenStartIndex;
+// 			(currentContainer.node as HTMLElement).dataset.tokenStart = String(currentContainer.tokenStartIndex);
+// 			(currentContainer.node as HTMLElement).dataset.tokenEnd = String(tokenIndex);
+// 			const nodeName = currentContainer.node.nodeName;
+// 			const firstToken = tokens[currentContainer.tokenStartIndex];
+// 			const lastToken = tokens[tokenIndex - 1];
+// 			if (currentContainer.commonFlags !== 0) {
+// 				for (let i = currentContainer.tokenStartIndex; i < tokenIndex; i++) {
+// 					tokens[i].flags |= currentContainer.commonFlags;
+// 				}
+// 			}
+// 			if (TEXT_FLOW_CONTAINERS[nodeName]) {
+// 				if (firstToken) {
+// 					firstToken.flags |= currentFlags | CONTAINER_START | BLOCK_START | LINE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= CONTAINER_END | BLOCK_END | LINE_END;
+// 				}
+// 			} else if (LINEBREAK_ELEMENTS[nodeName]) {
+// 				if (firstToken) {
+// 					firstToken.flags |= currentFlags | LINE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= LINE_END;
+// 				}
+// 			}
+// 			if (LINE_ELEMENTS[nodeName]) {
+// 				if (firstToken) {
+// 					firstToken.flags |= currentFlags | LINE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= LINE_END;
+// 				}
+// 			}
+// 			if (nodeName === "TD" || nodeName === "TH") {
+// 				if (firstToken) {
+// 					firstToken.flags |= TABLECELL_START | NO_JOIN_PREV;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= TABLECELL_END | NO_JOIN_NEXT;
+// 				}
+// 			} else if (nodeName === "TR") {
+// 				if (firstToken) {
+// 					firstToken.flags |= TABLEROW_START | NO_JOIN_PREV;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= TABLEROW_END | NO_JOIN_NEXT;
+// 				}
+// 			} else if (nodeName === "TABLE") {
+// 				if (firstToken) {
+// 					firstToken.flags |= TABLE_START;
+// 				}
+// 				if (lastToken) {
+// 					lastToken.flags |= TABLE_END;
+// 				}
+// 			}
+// 			currentContainer = containerStack.pop()!;
+// 			currentFlags &= ~CONTAINER_START;
+// 		} else if (event.type === "break") {
+// 			if (tokenIndex > 0) {
+// 				tokens[tokenIndex - 1].flags |= LINE_END;
+// 			}
+// 			currentFlags |= LINE_START;
+// 		} else if (event.type === "img") {
+// 			tokens[tokenIndex++] = {
+// 				text: event.src || "🖼️",
+// 				flags: IMAGE | NO_JOIN_PREV | NO_JOIN_NEXT | currentFlags,
+// 				startContainer: event.node.parentNode!,
+// 				startOffset: currentContainer.indexInParent,
+// 				endContainer: event.node.parentNode!,
+// 				endOffset: currentContainer.indexInParent + 1,
+// 			};
+// 		}
+// 		nextResult = iterator.next();
+// 	}
+// 	if (currentToken) {
+// 		finalizeToken();
+// 	}
+// 	tokens.length = tokenIndex;
+// 	return tokens;
+// }
+//
+// 왕왕 큰 함수. 그래도 괜히 여러 함수로 쪼개서 성능 손해 보고 싶지 않은 마음...
+function* tokenizer(ctx, idleDeadline) {
+    const tokens = [];
+    const containers = new Map();
+    const root = ctx.content;
+    const textNodes = [];
+    const textNodeIndices = [];
     let tokenIndex = 0;
-    function* traverse(node, depth, indexInParent) {
-        // 컨테이너 여부 판단
-        const nodeName = node.nodeName;
-        // 논리적으로 의미가 있는, 토큰화에 쓸모 있는 정보를 제공할 수 있는 container 노드만 취급
-        const isContainer = BLOCK_ELEMENTS[nodeName] || // 블럭요소는 블럭의 시작과 끝을 판단하는데 필요
-            nodeName === "TABLE" || // 마찬가지 테이블 행의 시작과 끝
-            nodeName === "TR" || // 테이블 행의 시작과 끝
-            nodeName === "TD" || // 테이블 셀의 시작과 끝
-            nodeName === "TH" || // 테이블 셀의 시작과 끝
-            nodeName === "SUP" || // SUP
-            nodeName === "SUB"; // SUB
-        if (isContainer) {
-            const containerInfo = {
-                node,
-                depth,
-                indexInParent,
-                tokenStartIndex: tokenIndex,
-                tokenCount: 0,
-                commonFlags: 0,
-            };
-            if (nodeName === "SUP") {
-                containerInfo.commonFlags |= HTML_SUP;
-            }
-            else if (nodeName === "SUB") {
-                containerInfo.commonFlags |= HTML_SUB;
-            }
-            containerStack.push(containerInfo);
-            yield { type: "containerStart", container: containerInfo };
-        }
-        if (node.nodeType === 3) {
-            // 텍스트 노드일 때
-            if (containerStack.length > 0) {
-                const parentContainer = containerStack[containerStack.length - 1];
-                yield {
-                    type: "textNode",
-                    node: node,
-                    parent: parentContainer,
-                    indexInParent,
-                    text: node.nodeValue,
-                };
-                tokenIndex++;
-                if (containerStack.length > 0) {
-                    containerStack[containerStack.length - 1].tokenCount++;
-                }
-            }
-        }
-        else if (node.nodeType === 1) {
-            if (nodeName === "IMG") {
-                yield { type: "img", node, src: node.src, indexInParent };
-            }
-            if (nodeName === "BR") {
-                yield { type: "break" };
-            }
-            if (nodeName === "A") {
-                return;
-            }
-            // 엘리먼트 노드
-            let childIndex = 0;
-            for (const child of node.childNodes) {
-                yield* traverse(child, depth + 1, childIndex++);
-            }
-        }
-        if (isContainer) {
-            const containerInfo = containerStack.pop();
-            containerInfo.tokenCount = tokenIndex - containerInfo.tokenStartIndex;
-            yield { type: "containerEnd", container: containerInfo };
-        }
-    }
-    yield* traverse(root, 0, 0);
-}
-function* tokenize2(ctx) {
-    const tokens = (ctx.tokens ??= []);
-    let tokenIndex = 0;
-    let buffer = [];
-    const iterator = tokenizeWithContainers(ctx.content);
-    let nextResult = iterator.next();
     let currentToken = null;
-    let currentFlags = LINE_START;
-    let shouldNormalize = false;
-    let containerStack = [];
-    let currentContainer = {
-        node: ctx.content,
-        depth: 0,
-        indexInParent: 0,
-        tokenStartIndex: 0,
-        tokenCount: 0,
-        commonFlags: 0,
-    };
+    let nextTokenFlags = 0;
+    let recursionCount = 0;
+    const containerStack = [];
+    let currentContainer = null;
     function processToken(textNode, startOffset, endOffset, flags = 0) {
-        let str = textNode.nodeValue.slice(startOffset, endOffset);
-        if (shouldNormalize) {
-            str = normalize(str);
-            shouldNormalize = false;
-        }
         if (currentToken) {
-            currentToken.text += str;
-            currentToken.endContainer = textNode;
-            currentToken.endOffset = endOffset;
+            currentToken.text += textNode.nodeValue.slice(startOffset, endOffset);
+            currentToken.range.endContainer = textNode;
+            currentToken.range.endOffset = endOffset;
         }
         else {
             currentToken = {
-                text: str,
-                flags: currentFlags | flags,
-                startContainer: textNode,
-                startOffset: startOffset,
-                endContainer: textNode,
-                endOffset: endOffset,
+                text: textNode.nodeValue.slice(startOffset, endOffset),
+                flags: nextTokenFlags | flags,
+                range: {
+                    startContainer: textNode,
+                    startOffset: startOffset,
+                    endContainer: textNode,
+                    endOffset: endOffset,
+                },
+                container: currentContainer,
             };
+            nextTokenFlags = 0;
         }
     }
     function finalizeToken(flags = 0) {
         if (currentToken) {
             currentToken.flags |= flags;
-            tokens[tokenIndex] = currentToken;
-            tokenIndex++;
+            tokens[tokenIndex++] = currentToken;
             currentToken = null;
-            currentFlags = 0;
         }
     }
-    function findInTrie2(trie, buffer, bufferIndex, bufferCount, charIndex) {
+    function findInTrie2(trie, bufferIndex, charIndex) {
         let node = trie;
         let i = bufferIndex;
         let j = charIndex;
         do {
-            const text = buffer[i].text;
+            const text = textNodes[i].nodeValue;
             for (; j < text.length; j++) {
-                node = node.next(text[j]);
+                let ch = text[j];
+                ch = normalizedCharMap[ch] || ch;
+                node = node.next(ch);
                 if (!node) {
                     return null;
                 }
@@ -1765,195 +2126,219 @@ function* tokenize2(ctx) {
             }
             i++;
             j = 0;
-        } while (i < bufferCount);
+        } while (i < textNodes.length);
         return null;
     }
-    while (!nextResult.done) {
-        let event = nextResult.value;
-        if (event.type === "textNode") {
-            console.assert(currentToken === null, "currentToken should be null at this point");
-            let bufferCount = 0;
-            do {
-                buffer[bufferCount++] = event;
-            } while (!(nextResult = iterator.next()).done && (event = nextResult.value).type === "textNode");
-            let i = 0;
-            OUTER: for (let bufferIndex = 0; bufferIndex < bufferCount; bufferIndex++) {
-                const text = buffer[bufferIndex].text;
-                const textLen = text.length;
-                let currentStart = -1;
-                for (; i < textLen; i++) {
-                    let char = text[i];
-                    char = normalizedCharMap[char] || char; // normalize the character
-                    if (spaceChars[char]) {
-                        if (currentStart !== -1) {
-                            processToken(buffer[bufferIndex].node, currentStart, i);
-                            currentStart = -1;
-                        }
-                        finalizeToken();
+    function doTokenize() {
+        console.assert(textNodes.length > 0, "textNodes should not be empty at this point");
+        let nodeIndex = 0;
+        let charIndex = 0;
+        // for loop를 쓰면 머리 아파진다.
+        // trie 매칭이 성공 했을때 임의로 nodeIndex와 charIndex를 advance 시켜야하기 때문에
+        // continue 할때 인덱스 값을 하나 빼줘야하는지 말아야하는지 생각을 안해도 된다면 그것만으로 while의 가치는 충분함!
+        do {
+            const textNode = textNodes[nodeIndex];
+            const text = textNode.nodeValue;
+            const textLen = text.length;
+            let shouldNormalize = false;
+            let currentStart = -1;
+            while (charIndex < textLen) {
+                // 4byte 문자를 생각해야한다. later....
+                const cp = text.codePointAt(charIndex);
+                // todo 문자가 아니라 코드포인트로 spaceChar나 normalizeChar 등등 확인하기
+                let char = text[charIndex];
+                if (spaceChars[char]) {
+                    // split here
+                    if (currentStart !== -1) {
+                        processToken(textNode, currentStart, charIndex);
+                        currentStart = -1;
                     }
-                    else {
-                        // 모든 문자에 대해서 trie를 탐색하는건 너무 비효율적이라서...
-                        if (char === "(") {
-                            // 정말 지저분하지만... 별 수 없다.
-                            const found = findInTrie2(wildcardTrieNode, buffer, bufferIndex, bufferCount, i + 1);
-                            if (found) {
-                                const startContainer = buffer[bufferIndex].node;
-                                const startOffset = i;
-                                if (currentStart !== -1) {
-                                    processToken(buffer[bufferIndex].node, currentStart, i);
-                                    currentStart = -1;
-                                }
-                                finalizeToken();
-                                tokens[tokenIndex++] = {
-                                    text: found.word,
-                                    flags: currentFlags | found.flags,
+                    finalizeToken();
+                }
+                else {
+                    if (char === "(") {
+                        const match = findInTrie2(wildcardTrieNode, nodeIndex, charIndex + 1);
+                        if (match) {
+                            const startContainer = textNode;
+                            const startOffset = charIndex;
+                            if (currentStart !== -1) {
+                                processToken(textNode, currentStart, charIndex);
+                                currentStart = -1;
+                            }
+                            finalizeToken();
+                            tokens[tokenIndex++] = {
+                                text: match.word,
+                                flags: nextTokenFlags | match.flags,
+                                range: {
                                     startContainer,
                                     startOffset,
-                                    endContainer: buffer[found.bufferIndex].node,
-                                    endOffset: found.charIndex,
-                                };
-                                currentFlags = 0;
-                                bufferIndex = found.bufferIndex - 1;
-                                i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
-                                continue OUTER;
-                            }
-                        }
-                        if (currentFlags & LINE_START && sectionHeadingStartChars[char]) {
-                            const found = findInTrie2(SectionHeadingTrieNode, buffer, bufferIndex, bufferCount, i);
-                            if (found) {
-                                const startContainer = buffer[bufferIndex].node;
-                                const startOffset = i;
-                                if (currentStart !== -1) {
-                                    processToken(buffer[bufferIndex].node, currentStart, i);
-                                    currentStart = -1;
-                                }
-                                finalizeToken();
-                                tokens[tokenIndex++] = {
-                                    text: found.word,
-                                    flags: currentFlags | found.flags,
-                                    startContainer,
-                                    startOffset,
-                                    endContainer: buffer[found.bufferIndex].node,
-                                    endOffset: found.charIndex,
-                                };
-                                currentFlags = 0;
-                                bufferIndex = found.bufferIndex - 1;
-                                i = found.charIndex; // continue OUTER로 넘어갈 때 i++는 실행이 안된다!
-                                continue OUTER;
-                            }
-                        }
-                        if (normalizedCharMap[char]) {
-                            shouldNormalize = true;
-                        }
-                        if (currentStart === -1) {
-                            currentStart = i;
+                                    endContainer: textNodes[match.bufferIndex],
+                                    endOffset: match.charIndex,
+                                },
+                                container: currentContainer,
+                            };
+                            nextTokenFlags = 0;
+                            nodeIndex = match.bufferIndex;
+                            charIndex = match.charIndex;
+                            continue;
                         }
                     }
+                    if (sectionHeadingStartChars[char] && nextTokenFlags & 1 /* TokenFlags.LINE_START */) {
+                    }
+                    if (currentStart === -1) {
+                        currentStart = charIndex;
+                    }
                 }
-                if (currentStart !== -1) {
-                    processToken(buffer[bufferIndex].node, currentStart, textLen);
+                // ...
+                // ...
+                charIndex++;
+                if (cp > 0xffff) {
+                    charIndex++;
                 }
-                i = 0;
             }
-            if (currentToken) {
-                finalizeToken();
+            if (currentStart !== -1) {
+                processToken(textNode, currentStart, textLen);
+                currentStart = -1;
             }
-            if (nextResult.done) {
-                break;
+            nodeIndex++;
+            charIndex = 0;
+        } while (nodeIndex < textNodes.length);
+        finalizeToken();
+        textNodes.length = 0;
+        textNodeIndices.length = 0;
+    }
+    function* traverse(node) {
+        const nodeName = node.nodeName;
+        const isTextFlowContainer = TEXT_FLOW_CONTAINERS[nodeName] || node === ctx.content;
+        const isBlockElement = BLOCK_ELEMENTS[nodeName];
+        let containerCreated = false;
+        if (isBlockElement || isTextFlowContainer) {
+            nextTokenFlags |= 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+            if (isTextFlowContainer) {
+                nextTokenFlags |= 16 /* TokenFlags.CONTAINER_START */;
             }
-        }
-        console.assert(currentToken === null, "currentToken should be null at this point");
-        if (event.type === "containerStart") {
             containerStack.push(currentContainer);
-            currentContainer = event.container;
-            currentContainer.tokenStartIndex = tokenIndex;
+            currentContainer = {
+                element: node,
+                depth: (currentContainer?.depth ?? -1) + 1,
+                startTokenIndex: tokenIndex,
+                tokenCount: 0,
+                parent: currentContainer || null,
+            };
+            containerCreated = true;
         }
-        else if (event.type === "containerEnd") {
-            currentContainer.tokenCount = tokenIndex - currentContainer.tokenStartIndex;
-            currentContainer.node.dataset.tokenStart = String(currentContainer.tokenStartIndex);
-            currentContainer.node.dataset.tokenEnd = String(tokenIndex);
-            const nodeName = currentContainer.node.nodeName;
-            const firstToken = tokens[currentContainer.tokenStartIndex];
+        const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
+        if (isTokenBoundary && textNodes.length > 0) {
+            doTokenize();
+        }
+        const childNodes = node.childNodes;
+        const tokenStartIndex = tokenIndex;
+        for (let i = 0; i < childNodes.length; i++) {
+            // ++recursionCount % 31 === 0 이렇게 해도 되지만 비트연산을 쓰면 뭔가 있어 보인다. 눈꼽만큼 더 빠를걸?
+            if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 1) {
+                idleDeadline = yield;
+            }
+            const child = childNodes[i];
+            if (child.nodeType === 3) {
+                textNodes.push(child);
+                textNodeIndices.push(i);
+            }
+            else if (child.nodeType === 1) {
+                const childNodeName = child.nodeName;
+                // 재귀 호출을 안해도 되는 단순한 case
+                if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
+                    if (childNodeName === "BR" || childNodeName === "HR") {
+                        if (textNodes.length > 0) {
+                            doTokenize();
+                        }
+                        nextTokenFlags |= 2 /* TokenFlags.LINE_END */;
+                    }
+                    else if (childNodeName === "IMG") {
+                        if (textNodes.length > 0) {
+                            doTokenize();
+                        }
+                        const range = document.createRange();
+                        range.selectNode(child);
+                        tokens[tokenIndex++] = {
+                            text: child.src,
+                            flags: 65536 /* TokenFlags.IMAGE */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | nextTokenFlags,
+                            range,
+                            container: currentContainer,
+                        };
+                        nextTokenFlags = 0;
+                    }
+                    continue;
+                }
+                yield* traverse(child);
+            }
+        }
+        if (isTokenBoundary && textNodes.length > 0) {
+            doTokenize();
+        }
+        const tokenCount = tokenIndex - tokenStartIndex;
+        if (tokenCount > 0) {
+            const firstToken = tokens[tokenStartIndex];
             const lastToken = tokens[tokenIndex - 1];
-            if (currentContainer.commonFlags !== 0) {
-                for (let i = currentContainer.tokenStartIndex; i < tokenIndex; i++) {
-                    tokens[i].flags |= currentContainer.commonFlags;
+            if (nodeName === "SUP" || nodeName === "SUB") {
+                // SUP + SUP는 조인이 가능해야 하므로 NO_JOIN_PREV, NO_JOIN_NEXT 플래그를 주지 않음
+                // 예: <sup>주</sup><sup>1)</sup> 이런 거지같은 상황이 나올 수도 있다.
+                const commonFlags = nodeName === "SUP" ? 131072 /* TokenFlags.HTML_SUP */ : 262144 /* TokenFlags.HTML_SUB */;
+                for (let i = tokenStartIndex; i < tokenIndex; i++) {
+                    tokens[i].flags |= commonFlags;
                 }
             }
-            if (TEXT_FLOW_CONTAINERS[nodeName]) {
+            else if (nodeName === "TD" || nodeName === "TH") {
                 if (firstToken) {
-                    firstToken.flags |= currentFlags | CONTAINER_START | BLOCK_START | LINE_START;
+                    firstToken.flags |=
+                        1024 /* TokenFlags.TABLECELL_START */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 16 /* TokenFlags.CONTAINER_START */ | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
                 }
                 if (lastToken) {
-                    lastToken.flags |= CONTAINER_END | BLOCK_END | LINE_END;
-                }
-            }
-            else if (LINEBREAK_ELEMENTS[nodeName]) {
-                if (firstToken) {
-                    firstToken.flags |= currentFlags | LINE_START;
-                }
-                if (lastToken) {
-                    lastToken.flags |= LINE_END;
-                }
-            }
-            if (LINE_ELEMENTS[nodeName]) {
-                if (firstToken) {
-                    firstToken.flags |= currentFlags | LINE_START;
-                }
-                if (lastToken) {
-                    lastToken.flags |= LINE_END;
-                }
-            }
-            if (nodeName === "TD" || nodeName === "TH") {
-                if (firstToken) {
-                    firstToken.flags |= TABLECELL_START | NO_JOIN_PREV;
-                }
-                if (lastToken) {
-                    lastToken.flags |= TABLECELL_END | NO_JOIN_NEXT;
+                    lastToken.flags |=
+                        2048 /* TokenFlags.TABLECELL_END */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | 32 /* TokenFlags.CONTAINER_END */ | 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
                 }
             }
             else if (nodeName === "TR") {
                 if (firstToken) {
-                    firstToken.flags |= TABLEROW_START | NO_JOIN_PREV;
+                    firstToken.flags |= 256 /* TokenFlags.TABLEROW_START */;
                 }
                 if (lastToken) {
-                    lastToken.flags |= TABLEROW_END | NO_JOIN_NEXT;
+                    lastToken.flags |= 512 /* TokenFlags.TABLEROW_END */;
                 }
             }
             else if (nodeName === "TABLE") {
                 if (firstToken) {
-                    firstToken.flags |= TABLE_START;
+                    firstToken.flags |= 64 /* TokenFlags.TABLE_START */;
                 }
                 if (lastToken) {
-                    lastToken.flags |= TABLE_END;
+                    lastToken.flags |= 128 /* TokenFlags.TABLE_END */;
                 }
             }
-            currentContainer = containerStack.pop();
-            currentFlags &= ~CONTAINER_START;
-        }
-        else if (event.type === "break") {
-            if (tokenIndex > 0) {
-                tokens[tokenIndex - 1].flags |= LINE_END;
+            if (BLOCK_ELEMENTS[nodeName]) {
+                if (firstToken) {
+                    firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+                }
+                if (lastToken) {
+                    lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
+                }
+                nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
             }
-            currentFlags |= LINE_START;
+            if (node === ctx.content) {
+                firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 16 /* TokenFlags.CONTAINER_START */ | 1 /* TokenFlags.LINE_START */;
+                lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 32 /* TokenFlags.CONTAINER_END */ | 2 /* TokenFlags.LINE_END */;
+            }
         }
-        else if (event.type === "img") {
-            tokens[tokenIndex++] = {
-                text: event.src || "🖼️",
-                flags: IMAGE | NO_JOIN_PREV | NO_JOIN_NEXT | currentFlags,
-                startContainer: event.node.parentNode,
-                startOffset: currentContainer.indexInParent,
-                endContainer: event.node.parentNode,
-                endOffset: currentContainer.indexInParent + 1,
-            };
+        if (containerCreated) {
+            if (tokenCount > 0) {
+                currentContainer.startTokenIndex = tokenStartIndex;
+                currentContainer.tokenCount = tokenCount;
+                containers.set(node, currentContainer);
+            }
+            currentContainer = containerStack.pop();
         }
-        nextResult = iterator.next();
     }
-    if (currentToken) {
-        finalizeToken();
-    }
+    yield* traverse(root);
     tokens.length = tokenIndex;
-    return tokens;
+    return { tokens, containers };
 }
 //# sourceMappingURL=tokenize.js.map
 </script>
@@ -1975,24 +2360,11 @@ contenteditable 요소에 임의로 앵커 같은 태그를 삽입하거나 제�
 참고: 삽입하는 태그에 contenteditable="false" 속성을 넣어버리면 커서가 제대로 통과하지 못함.
 */
 function createEditor(container, editorName, callbacks) {
-    const { onDiffVisibilityChanged, onScroll, onTextChanged } = callbacks;
+    const { onContentChanged, onScroll } = callbacks;
     const _visibleAnchors = new Set();
-    const _visibleDiffIndices = new Set();
-    const _tokens = [];
-    const _diffRanges = [];
-    //const _ranges: Range[] = [];
-    const _diffRenderItems = [];
-    const _diffLineRects = [];
-    const _diffVisibilities = [];
-    const _anchorElements = [];
+    let _tokens = [];
+    let _containers = null;
     const _diffAnchorElements = [];
-    let _diffRectsDirty = true;
-    let _hasRenderedAny = false;
-    let _editMode = false;
-    let _canvasWidth = 0;
-    let _canvasHeight = 0;
-    let _canvasOffsetX = 0;
-    let _canvasOffsetY = 0;
     const wrapper = document.createElement("div");
     wrapper.id = editorName + "EditorWrapper";
     wrapper.classList.add("editor-wrapper");
@@ -2055,8 +2427,8 @@ function createEditor(container, editorName, callbacks) {
       <p>수작업 비교는 시간 소모적이며 오류 발생 확률이 높습니다.</p>
 
       <h3>나. 자동화 필요성</h3>
-      <p>자동화된 비교는 일관성 있는 결과를 제공합니다.</p>
-      <p>생산성과 정확성을 동시에 높일 수 있습니다.</p>
+      <p>자동화된 비교는 일간성 있는 결과를 제공합니다.</p>
+      <p>생산성과 정확성을 동시에 높일 수 있읍니다.</p>
 
       <h3>가. 입력</h3>
       <p>HTML 문서를 입력받아 필요한 내용만 추출합니다.</p>
@@ -2091,7 +2463,9 @@ function createEditor(container, editorName, callbacks) {
       <h2>1. 서론</h2>
     </td>
     <td>
+	  <p>(현행과 같음)</p>
       <p>이 문서는 문서 비교 시스템을 테스트하기 위해 작성되었습니다.</p>
+	  <p>(삭제)</p>
       <p>문서 간의 차이점을 정확하게 파악하고, 시각적으로 비교할 수 있는 기능이 요구됩니다.</p>
       <p>비교 알고리즘의 성능 및 정밀도도 주요한 관심사입니다.</p>
       <p>테스트 환경을 위한 충분한 입력이 필요합니다.</p>
@@ -2103,11 +2477,12 @@ function createEditor(container, editorName, callbacks) {
     </td>
     <td>
       <h3>가. 기존 방법의 한계</h3>
+	  
       <p>수작업 비교는 시간 소모적이며 오류 발생 확률이 높습니다.</p>
 
       <h3>나. 자동화 필요성</h3>
-      <p>자동화된 비교는 일관성 있는 결과를 제공합니다.</p>
-      <p>생산성과 정확성을 동시에 높일 수 있습니다.</p>
+      <p>자동화된 비교는 일간성 있는 결과를 제공합니다.</p>
+      <p>생산성과 정확성을 동시에 높일 수 있읍니다.</p>
     </td>
   </tr>
   <tr>
@@ -2116,7 +2491,7 @@ function createEditor(container, editorName, callbacks) {
     </td>
     <td>
       <h3>가. 입력</h3>
-      <p>HTML 문서를 입력받아 필요한 내용만 추출합니다.</p>
+      <p>HTML 문서를 입력받아 필요한 <img src="xxx"> 내용만 추출합니다.</p>
 
       <h3>나. 전처리</h3>
       <p>토큰화와 스타일 제거 등 필요한 정리를 수행합니다.</p>
@@ -2157,7 +2532,9 @@ function createEditor(container, editorName, callbacks) {
         else {
             editor.innerHTML = `<div>
   <h2>1. 서론</h2>
+  <p>hello world!</p>
   <p>이 문서는 문서 비교 시스템을 테스트하기 위해 작성되었습니다.</p>
+  
   <p>문서 간의 차이점을 정확하게 파악하고, 시각적으로 비교할 수 있는 기능이 요구됩니다.</p>
   <p>비교 알고리즘의 성능 및 정밀도도 주요한 관심사입니다.</p>
   <p>테스트 환경을 위한 충분한 입력이 필요합니다.</p>
@@ -2172,7 +2549,7 @@ function createEditor(container, editorName, callbacks) {
 
   <h2>3. 시스템 구성</h2>
   <h3>가. 입력</h3>
-  <p>HTML 문서를 입력받아 필요한 내용만 추출합니다.</p>
+  <p>HTML 문서를 입력받아 필요한 <img src="yyy"> 내용만 추출합니다.</p>
 
   <h3>나. 전처리</h3>
   <p>토큰화와 스타일 제거 등 필요한 정리를 수행합니다.</p>
@@ -2199,199 +2576,14 @@ function createEditor(container, editorName, callbacks) {
     }
     wrapper.appendChild(editor);
     container.appendChild(wrapper);
-    const renderer = (() => {
-        const DIFF_EXPAND_X = 2;
-        const DIFF_EXPAND_Y = 0;
-        const DIFF_LINE_EXPAND_Y = 1;
-        const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
-        const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
-        const diffCanvas = document.createElement("canvas");
-        const diffCanvasCtx = diffCanvas.getContext("2d");
-        wrapper.appendChild(diffCanvas);
-        const highlightCanvas = document.createElement("canvas");
-        const highlightCanvasCtx = highlightCanvas.getContext("2d");
-        wrapper.appendChild(highlightCanvas);
-        const _newlyShownDiffIndices = [];
-        const _newlyHiddenDiffIndices = [];
-        let _renderPending = false;
-        let _dirtyFlags = 0;
-        function updateLayout() {
-            const { x, y, width, height } = wrapper.getBoundingClientRect();
-            diffCanvas.width = highlightCanvas.width = _canvasWidth = width;
-            diffCanvas.height = highlightCanvas.height = _canvasHeight = height;
-            _canvasOffsetX = x;
-            _canvasOffsetY = y;
-            markDirty(7 /* RenderFlags.ALL */);
-        }
-        function markDirty(flags = 7 /* RenderFlags.ALL */) {
-            _dirtyFlags |= flags;
-            if (!_renderPending) {
-                _renderPending = true;
-                requestAnimationFrame(() => {
-                    doRender();
-                    _renderPending = false;
-                });
-            }
-        }
-        function buildDiffGeometries() {
-            const scrollTop = wrapper.scrollTop;
-            const scrollLeft = wrapper.scrollLeft;
-            const offsetX = -_canvasOffsetX + scrollLeft;
-            const offsetY = -_canvasOffsetY + scrollTop;
-            const allDiffRects = [];
-            for (let diffIndex = 0; diffIndex < _diffRenderItems.length; diffIndex++) {
-                const item = _diffRenderItems[diffIndex];
-                const rawRects = [];
-                for (const range of item.ranges) {
-                    const clientRects = range.getClientRects();
-                    for (let i = 0; i < clientRects.length; ++i) {
-                        const rect = {
-                            x: clientRects[i].x + offsetX - DIFF_EXPAND_X,
-                            y: clientRects[i].y + offsetY - DIFF_EXPAND_Y,
-                            width: clientRects[i].width + DIFF_EXPAND_X * 2,
-                            height: clientRects[i].height + DIFF_EXPAND_Y * 2,
-                        };
-                        rawRects.push(rect);
-                        allDiffRects.push(rect);
-                    }
-                }
-                item.geometry = mergeRects(rawRects, 1, 1);
-            }
-            buildDiffLineRects(allDiffRects);
-        }
-        function buildDiffLineRects(diffRects) {
-            const TOLERANCE = 1;
-            diffRects.sort((a, b) => a.y - b.y);
-            const rects = [];
-            let lineRect = null;
-            for (const rect of diffRects) {
-                const y = rect.y - DIFF_LINE_EXPAND_Y;
-                const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER + DIFF_LINE_EXPAND_Y * 2;
-                //const height = rect.height + lineExpand * 2;
-                if (lineRect === null || y > lineRect.y + lineRect.height) {
-                    lineRect = {
-                        x: 0,
-                        y: y,
-                        width: _canvasWidth - 2,
-                        height: height,
-                    };
-                    rects.push(lineRect);
-                }
-                else {
-                    lineRect.height = y + height - lineRect.y;
-                }
-            }
-            _diffLineRects.length = 0;
-            if (rects.length > 0) {
-                let current = rects[0];
-                for (let i = 1; i < rects.length; i++) {
-                    const next = rects[i];
-                    const currentBottom = current.y + current.height;
-                    const nextTop = next.y;
-                    const gap = nextTop - currentBottom;
-                    if (gap <= TOLERANCE) {
-                        const newBottom = Math.max(currentBottom, next.y + next.height);
-                        current = {
-                            x: current.x,
-                            y: current.y,
-                            width: current.width,
-                            height: newBottom - current.y,
-                        };
-                    }
-                    else {
-                        // 병합 불가: 현재까지 병합된 것 push
-                        _diffLineRects.push(current);
-                        current = next;
-                    }
-                }
-                _diffLineRects.push(current);
-            }
-        }
-        function doRender() {
-            const scrollTop = wrapper.scrollTop;
-            const scrollLeft = wrapper.scrollLeft;
-            const offsetX = -_canvasOffsetX + scrollLeft;
-            const offsetY = -_canvasOffsetY + scrollTop;
-            // console.log(editorName, "doRender", _dirtyFlags);
-            if (_dirtyFlags & 1 /* RenderFlags.DIFF */) {
-                if ((_dirtyFlags & 4 /* RenderFlags.DIFF_GEOMETRY */) !== 0) {
-                    buildDiffGeometries();
-                }
-                diffCanvasCtx.clearRect(0, 0, _canvasWidth, _canvasHeight);
-                _newlyShownDiffIndices.length = 0;
-                _newlyHiddenDiffIndices.length = 0;
-                diffCanvasCtx.fillStyle = DIFF_LINE_FILL_STYLE;
-                for (const rect of _diffLineRects) {
-                    const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                    if (y > _canvasHeight)
-                        break;
-                    if (y + height < 0)
-                        continue;
-                    diffCanvasCtx.fillRect(x, y, width, height);
-                }
-                for (let diffIndex = 0; diffIndex < _diffRenderItems.length; diffIndex++) {
-                    const item = _diffRenderItems[diffIndex];
-                    const geometry = item.geometry;
-                    let rendered = false;
-                    if (
-                    // 빠른 체크
-                    !(geometry.maxY - scrollTop < 0 ||
-                        geometry.minY - scrollTop > _canvasHeight ||
-                        geometry.maxX - scrollLeft < 0 ||
-                        geometry.minX - scrollLeft > _canvasWidth)) {
-                        diffCanvasCtx.fillStyle = item.fill;
-                        diffCanvasCtx.strokeStyle = item.stroke;
-                        for (const rect of geometry.rects) {
-                            const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                            if (y + height < 0 || y > _canvasHeight)
-                                continue;
-                            if (x + width < 0 || x > _canvasWidth)
-                                continue;
-                            diffCanvasCtx.fillRect(x, y, width, height);
-                            diffCanvasCtx.strokeRect(x, y, width, height);
-                            rendered = true;
-                        }
-                    }
-                    if (rendered) {
-                        if (!_diffVisibilities[diffIndex]) {
-                            _diffVisibilities[diffIndex] = true;
-                            _newlyShownDiffIndices.push(diffIndex);
-                        }
-                    }
-                    else {
-                        if (_diffVisibilities[diffIndex]) {
-                            _diffVisibilities[diffIndex] = false;
-                            _newlyHiddenDiffIndices.push(diffIndex);
-                        }
-                    }
-                }
-            }
-            _dirtyFlags = 0;
-            if (_newlyShownDiffIndices.length > 0 || _newlyHiddenDiffIndices.length > 0) {
-                // console.log(editorName, "onDiffVisibilityChanged", _newlyShownDiffIndices, _newlyHiddenDiffIndices);
-                const entries = [];
-                for (const index of _newlyShownDiffIndices) {
-                    entries.push({ item: index, isVisible: true });
-                }
-                for (const index of _newlyHiddenDiffIndices) {
-                    entries.push({ item: index, isVisible: false });
-                }
-                onDiffVisibilityChanged(entries);
-            }
-        }
-        return {
-            updateLayout,
-            markDirty,
-        };
-    })();
     wrapper.addEventListener("scroll", () => {
-        renderer.markDirty(1 /* RenderFlags.DIFF */);
+        // renderer.markDirty(RenderFlags.DIFF);
         onScroll(wrapper.scrollTop, wrapper.scrollLeft);
+        // const scrollTop = wrapper.scrollTop;
+        // const scrollLeft = wrapper.scrollLeft;
+        // console.log(editorName, "WRAPPER", wrapper.getBoundingClientRect(), "scrollTop", scrollTop, "scrollLeft", scrollLeft);
+        const visibleRect = wrapper.getBoundingClientRect();
     });
-    const resizeObserver = new ResizeObserver(() => {
-        renderer.updateLayout();
-    });
-    resizeObserver.observe(wrapper);
     // *** HTML 붙여넣기를 허용할 때만 사용할 코드 ***
     // 지금은 관련 코드를 다 지워버렸고 복구하려면 깃허브에서 이전 코드를 뒤져야함...
     const { observeEditor, unobserveEditor } = (() => {
@@ -2400,32 +2592,13 @@ function createEditor(container, editorName, callbacks) {
                 editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
                 return;
             }
-            // if (editor.childNodes.length === 0) {
-            // 	editor.innerHTML = INITIAL_EDITOR_HTML;
-            // 	return;
-            // }
-            // for (const mutation of mutations) {
-            // 	if (mutation.type === "childList") {
-            // 		if (mutation.addedNodes.length > 0) {
-            // 			for (const node of mutation.addedNodes) {
-            // 				if (node.nodeType === 1) {
-            // 					const el = node as HTMLElement;
-            // 					if (el.classList.contains("anchor")) {
-            // 						el.classList.remove("anchor", "padtop");
-            // 						el.style.removeProperty("--padding");
-            // 					}
-            // 				}
-            // 			}
-            // 		}
-            // 	}
-            // }
         });
         function observeEditor() {
             mutationObserver.observe(editor, {
                 childList: true,
-                subtree: true,
-                attributes: true,
-                characterData: true,
+                // subtree: true,
+                // attributes: true,
+                // characterData: true,
             });
         }
         function unobserveEditor() {
@@ -2486,261 +2659,125 @@ function createEditor(container, editorName, callbacks) {
         tokenize();
     }
     function onTokenizeDone() {
-        onTextChanged();
-    }
-    function getVisibleAnchors() {
-        return Array.from(_visibleAnchors).sort((a, b) => Number(a.dataset.pos) - Number(b.dataset.pos));
-    }
-    function scrollToDiff(diffIndex) {
-        // const diffRects = _diffRects[diffIndex];
-        // if (!diffRects) {
-        // 	return;
-        // }
-        // const diffRect = diffRects.rects[0];
-        // if (!diffRect) {
-        // 	return;
-        // }
-        // wrapper.scrollTop = diffRect.y - SCROLL_MARGIN;
+        onContentChanged();
     }
     // temp
     setTimeout(onChange, 0);
     // 앵커를 어떤식으로 추가할지
     // 1. classList에 넣고 anchor:before
     // 2. <a> 태그를 넣는다
-    const { tokenize } = (function () {
+    const tokenize = (function () {
         const _TIMEOUT = 200;
         let _callbackId = null;
-        let _startTime = 0;
         let _currentContext = null;
-        return {
-            tokenize: () => {
-                if (_currentContext) {
-                    _currentContext.cancelled = true;
+        return () => {
+            if (_callbackId !== null) {
+                // 아직 실행되지 않고 대기 중인 콜백 취소
+                cancelIdleCallback(_callbackId);
+                _callbackId = null;
+            }
+            if (_currentContext) {
+                // 이미 콜백이 실행 중이라면 다음 step에서 취소처리해야하므로...
+                _currentContext.cancelled = true;
+            }
+            const startTime = performance.now();
+            const ctx = (_currentContext = {
+                cancelled: false,
+                content: editor,
+            });
+            // 여기서 바로 generator를 생성을 해버리면 idleDeadline을 바로 넘겨줄 수가 없다.
+            // generator 내부에서 idleDeadline을 획득하려면 "성급하게" yield를 해야되는데 그러면 황금같은 유휴시간을 한번 낭비하게 됨.
+            let generator = null;
+            const step = (idleDeadline) => {
+                _callbackId = null;
+                if (ctx.cancelled) {
+                    // 어차피 단일쓰레드이므로 콜백이 실행되는 도중에는 cancelled 값이 바뀔 수는 없음!
+                    // 그래서 next()를 호출하기 전에나 한번씩 확인해주면 됨.
+                    // 다만 generator 내부에서 주기적으로 yield을 해주지 않으면 토큰화가 끝날때까지 멈출 수 없음.
+                    console.debug(editorName, "tokenize cancelled");
+                    return;
                 }
-                _startTime = performance.now();
-                const ctx = (_currentContext = {
-                    cancelled: false,
-                    content: editor,
-                    tokens: _tokens,
-                });
-                const generator = tokenize2(ctx);
-                // const generator = tokenizeGenerator(ctx);
-                const step = (idleDeadline) => {
-                    _callbackId = null;
-                    try {
-                        const { done } = generator.next(idleDeadline);
-                        if (done) {
-                            const endTime = performance.now();
-                            console.log(editorName, "tokenize done", Math.ceil(endTime - _startTime) + "ms", { _tokens });
-                            onTokenizeDone();
-                        }
-                        else {
-                            if (!ctx.cancelled) {
-                                _callbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
-                            }
-                            else {
-                                console.debug(editorName, "tokenize cancelled");
-                            }
-                        }
-                    }
-                    catch (e) {
-                        if (e.message !== "cancelled") {
-                            console.error(editorName, "tokenize error", e);
-                        }
-                    }
-                };
-                _callbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
-            },
+                if (generator === null) {
+                    generator = tokenizer(ctx, idleDeadline);
+                }
+                const { done, value } = generator.next(idleDeadline);
+                if (done) {
+                    const endTime = performance.now();
+                    ({ tokens: _tokens, containers: _containers } = value);
+                    console.log(editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
+                    onTokenizeDone();
+                }
+                else {
+                    _callbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
+                }
+            };
+            _callbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
         };
     })();
-    function update({ diffs, anchors }) {
-        const unusedAnchors = new Set();
-        for (const anchorEl of _diffAnchorElements) {
-            if (anchorEl) {
-                unusedAnchors.add(anchorEl);
-            }
+    function getOrInsertStartAnchor(tokenIndex) {
+        const token = _tokens[tokenIndex];
+        let container = token.range.startContainer;
+        let beforeNode;
+        if (container.nodeType === 3) {
+            beforeNode = container;
+            container = container.parentElement;
         }
-        for (const anchorEl of _anchorElements) {
-            if (anchorEl) {
-                unusedAnchors.add(anchorEl);
-            }
+        else {
+            container = token.range.startContainer.parentNode;
+            beforeNode = token.range.startContainer;
         }
-        // console.log(editorName, "update", { diffs, anchors, unusedAnchors, prevAnchors: Array.from(_anchorElements) });
-        _diffRenderItems.length = diffs.length;
-        _diffAnchorElements.length = diffs.length;
-        _anchorElements.length = anchors.length;
-        _diffVisibilities.length = diffs.length;
-        _diffVisibilities.fill(false);
-        function getOrCreateDiffAnchorFromInsertionPoint(point, diffIndex) {
-            if (point.existingAnchor) {
-                unusedAnchors.delete(point.existingAnchor);
-                const range = document.createRange();
-                range.selectNode(point.existingAnchor);
-                return range;
-            }
-            if (point.container.nodeType === 3) {
-                const range = document.createRange();
-                range.setStart(point.container, point.offset);
-                range.collapse(true);
-                return range;
-            }
-            const range = document.createRange();
-            range.setStart(point.container, point.offset);
-            range.collapse(true);
-            const diffAnchorEl = document.createElement("a");
-            diffAnchorEl.classList.add("anchor", "diff-anchor");
-            diffAnchorEl.dataset.diff = String(diffIndex);
-            range.insertNode(diffAnchorEl);
-            range.selectNode(diffAnchorEl);
-            _diffAnchorElements[diffIndex] = diffAnchorEl;
-            console.warn(editorName, "created diff anchor", diffAnchorEl, point);
-            return range;
-        }
-        function getInsertionPointFlagStrings(flags) {
-            const flagStrings = [];
-            if (flags & 4 /* InsertionPointFlags.BeforeTable */)
-                flagStrings.push("beforeTable");
-            if (flags & 8 /* InsertionPointFlags.AfterTable */)
-                flagStrings.push("afterTable");
-            if (flags & 16 /* InsertionPointFlags.ContainerStart */)
-                flagStrings.push("containerStart");
-            if (flags & 32 /* InsertionPointFlags.ContainerEnd */)
-                flagStrings.push("containerEnd");
-            if (flags & 64 /* InsertionPointFlags.BlockStart */)
-                flagStrings.push("blockStart");
-            if (flags & 128 /* InsertionPointFlags.BlockEnd */)
-                flagStrings.push("blockEnd");
-            if (flags & 256 /* InsertionPointFlags.TableCellStart */)
-                flagStrings.push("tableCellStart");
-            if (flags & 512 /* InsertionPointFlags.TableCellEnd */)
-                flagStrings.push("tableCellEnd");
-            if (flags & 1024 /* InsertionPointFlags.TableRowStart */)
-                flagStrings.push("tableRowStart");
-            if (flags & 2048 /* InsertionPointFlags.TableRowEnd */)
-                flagStrings.push("tableRowEnd");
-            if (flags & 4096 /* InsertionPointFlags.LineStart */)
-                flagStrings.push("lineStart");
-            if (flags & 8192 /* InsertionPointFlags.LineEnd */)
-                flagStrings.push("lineEnd");
-            return flagStrings.join(", ");
-        }
-        for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
-            const diff = diffs[diffIndex];
-            let range = null;
-            if (diff.tokenCount === 0) {
-                console.warn(editorName, "diff with no tokens", diff);
-                let bestInsertionPoint = null;
-                let bestScore = -1;
-                for (const point of yieldAnchorPointsInRange(diff.tokenIndex)) {
-                    let score = 0;
-                    if (diff.preferBlockStart && point.flags & 64 /* InsertionPointFlags.BlockStart */) {
-                        score += 1;
+        do {
+            if (BLOCK_ELEMENTS[container.nodeName]) {
+                if (beforeNode) {
+                    let anchor = beforeNode.previousSibling;
+                    if (!anchor || anchor.nodeName !== "A") {
+                        anchor = document.createElement("A");
+                        container.insertBefore(anchor, beforeNode);
                     }
-                    if (diff.preferBlockEnd && point.flags & 128 /* InsertionPointFlags.BlockEnd */) {
-                        score += 1;
-                    }
-                    if (score > bestScore || (score === bestScore && bestInsertionPoint === null)) {
-                        bestInsertionPoint = point;
-                        bestScore = score;
-                    }
-                }
-                if (bestInsertionPoint) {
-                    range = getOrCreateDiffAnchorFromInsertionPoint(bestInsertionPoint, diffIndex);
-                    const anchorEl = _diffAnchorElements[diffIndex];
-                    if (anchorEl) {
-                        anchorEl.classList.toggle("diff-anchor-block", diff.preferBlockStart && diff.preferBlockEnd);
-                    }
+                    return anchor;
                 }
             }
-            if (!range) {
-            }
-            range = createTokenRange(diff.tokenIndex, diff.tokenCount);
-            _diffRanges[diffIndex] = range;
-            const rectRanges = extractTextRanges(range);
-            console.debug(editorName, "diff rect ranges", diffIndex, rectRanges);
-            if (diff.tokenCount === 0 && rectRanges.length > 1) {
-                rectRanges.length = 1;
-            }
-            const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
-            const item = {
-                ranges: rectRanges,
-                fill: `hsl(${hue} 100% 80%)`,
-                stroke: `hsl(${hue} 100% 40% / 0.5)`,
-                geometry: null,
-            };
-            _diffRenderItems[diffIndex] = item;
-        }
-        let lastAnchorEl = null;
-        for (let anchorIndex = 0; anchorIndex < anchors.length; anchorIndex++) {
-            const anchor = anchors[anchorIndex];
-            let anchorEl = null;
-            if (anchor.diffIndex !== undefined) {
-                // const diff = diffs[anchor.diffIndex!];
-                // let range: Range;
-                // if (diff.tokenCount > 0) {
-                // 	range = _ranges[diff.tokenIndex + diff.tokenCount - 1];
-                // } else {
-                // 	range = getRangeForToken(diff.tokenIndex, 0);
-                // }
-                // if (!range) {
-                // 	console.warn("No range found for diff", diff, _ranges);
-                // 	continue;
-                // }
-                // anchorEl = locateOrInsertAnchor(range, anchor.type);
-                // anchorEl = addAnchorClassToBlockElement(range, "end");
-            }
-            else if (anchor.tokenIndex !== undefined) {
-                anchorEl = insertStartAnchor(anchor.tokenIndex);
-                // const range = getRangeForToken(anchor.tokenIndex);
-                // if (!range) {
-                // 	console.warn("No range found for token", anchor.tokenIndex, _ranges);
-                // 	continue;
-                // }
-                // anchorEl = locateOrInsertAnchor(range, anchor.type);
-            }
-            else {
-                continue;
-            }
-            if (anchorEl) {
-                // if (lastAnchorEl !== anchorEl) {
-                // 	anchorEl.classList.add("anchor");
-                // }
-                unusedAnchors.delete(anchorEl);
-                _anchorElements[anchorIndex] = lastAnchorEl = anchorEl;
-            }
-        }
-        // console.log("unusedAnchors", unusedAnchors, _anchorElements);
-        const numRemoveAnchors = removeAnchors(unusedAnchors);
-        console.warn(editorName, "removed anchors", numRemoveAnchors, unusedAnchors);
-        renderer.markDirty(1 /* RenderFlags.DIFF */ | 4 /* RenderFlags.DIFF_GEOMETRY */);
-        console.log(editorName, "update", { anchors: _anchorElements, diffs: _diffRenderItems });
+            beforeNode = container;
+            container = container.parentNode;
+        } while (container);
+        return null;
     }
+    // function getOrCreateDiffAnchorFromInsertionPoint(point: AnchorInsertionPoint, diffIndex: number): Range {
+    // 	if (point.existingAnchor) {
+    // 		const range = document.createRange();
+    // 		range.selectNode(point.existingAnchor);
+    // 		return range;
+    // 	}
+    // 	if (point.container.nodeType === 3) {
+    // 		const range = document.createRange();
+    // 		range.setStart(point.container, point.offset);
+    // 		range.collapse(true);
+    // 		return range;
+    // 	}
+    // 	const range = document.createRange();
+    // 	range.setStart(point.container, point.offset);
+    // 	range.collapse(true);
+    // 	const diffAnchorEl = document.createElement("a");
+    // 	diffAnchorEl.classList.add("anchor", "diff-anchor");
+    // 	diffAnchorEl.dataset.diff = String(diffIndex);
+    // 	range.insertNode(diffAnchorEl);
+    // 	range.selectNode(diffAnchorEl);
+    // 	_diffAnchorElements[diffIndex] = diffAnchorEl;
+    // 	console.warn(editorName, "created diff anchor", diffAnchorEl, point);
+    // 	return range;
+    // }
     return {
         name: editorName,
-        update,
-        markDirty: renderer.markDirty,
-        insertStartAnchor,
-        removeAnchors,
+        getOrInsertStartAnchor,
         wrapper,
         editor,
-        // updateText,
-        // setText,
-        scrollToDiff,
-        // saveCaret,
-        // restoreCaret,
-        getVisibleAnchors,
-        getRangeForToken: createTokenRange,
+        createTokenRange,
         scrollToOffset,
         scrollByOffset,
-        get anchors() {
-            return _anchorElements;
-        },
-        get visibleAnchors() {
-            return _visibleAnchors;
-        },
-        get visibleDiffIndices() {
-            return _visibleDiffIndices;
-        },
+        yieldAnchorPointsInRange,
+        // getOrCreateDiffAnchorFromInsertionPoint,
+        contains: wrapper.contains.bind(wrapper),
+        findTokenOverlapIndices,
         get tokens() {
             return _tokens;
         },
@@ -2768,13 +2805,13 @@ function createEditor(container, editorName, callbacks) {
         let container;
         let childIndex;
         const indexStack = [];
-        if (prevToken && nextToken && prevToken.endContainer === nextToken.startContainer && prevToken.endContainer.nodeType === 3) {
-            yield* createPoint(prevToken.endContainer, prevToken.endOffset);
+        if (prevToken && nextToken && prevToken.range.endContainer === nextToken.range.startContainer && prevToken.range.endContainer.nodeType === 3) {
+            yield* createPoint(prevToken.range.endContainer, prevToken.range.endOffset);
             return;
         }
         if (prevToken) {
-            container = prevToken.endContainer;
-            childIndex = prevToken.endOffset;
+            container = prevToken.range.endContainer;
+            childIndex = prevToken.range.endOffset;
             if (container.nodeType === 3) {
                 // 텍스트노드는 컨테이너로 지정되지 않음!
                 yield* createPoint(container, childIndex);
@@ -2787,8 +2824,8 @@ function createEditor(container, editorName, callbacks) {
             childIndex = 0;
         }
         if (nextToken) {
-            endContainer = nextToken.startContainer;
-            endOffset = nextToken.startOffset;
+            endContainer = nextToken.range.startContainer;
+            endOffset = nextToken.range.startOffset;
         }
         else {
             endContainer = editor;
@@ -2800,19 +2837,6 @@ function createEditor(container, editorName, callbacks) {
                 return;
             }
         }
-        // 문제 prevToken.endNode와 nextToken.startNode가 같은 경우
-        //
-        // console.log(
-        // 	editorName,
-        // 	"startingContainer:",
-        // 	container,
-        // 	"childIndex:",
-        // 	childIndex,
-        // 	"current:",
-        // 	container.childNodes[childIndex],
-        // 	endContainer,
-        // 	endOffset
-        // );
         while (container) {
             if (!TEXTLESS_ELEMENTS[container.nodeName]) {
                 yield* createPoint(container, childIndex);
@@ -2821,23 +2845,6 @@ function createEditor(container, editorName, callbacks) {
                 break;
             }
             let current = container.childNodes[childIndex];
-            // console.log(
-            // 	editorName,
-            // 	"current:",
-            // 	current,
-            // 	"container:",
-            // 	container,
-            // 	"childIndex:",
-            // 	childIndex,
-            // 	"endContainer:",
-            // 	endContainer,
-            // 	"endOffset:",
-            // 	endOffset,
-            // 	"prevToken:",
-            // 	prevToken,
-            // 	"nextToken:",
-            // 	nextToken
-            // );
             if (!current) {
                 current = container;
                 container = container.parentNode;
@@ -2891,8 +2898,8 @@ function createEditor(container, editorName, callbacks) {
                 if (existingAnchor && existingAnchor.nodeName !== "A") {
                     existingAnchor = null;
                 }
-                const comparePrev = prevToken ? container.compareDocumentPosition(prevToken.endContainer) : 0;
-                const compareNext = nextToken ? container.compareDocumentPosition(nextToken.startContainer) : 0;
+                const comparePrev = prevToken ? container.compareDocumentPosition(prevToken.range.endContainer) : 0;
+                const compareNext = nextToken ? container.compareDocumentPosition(nextToken.range.startContainer) : 0;
                 if (offset === 0 || !(comparePrev & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
                     if (TEXT_FLOW_CONTAINERS[container.nodeName]) {
                         flags |= 16 /* InsertionPointFlags.ContainerStart */;
@@ -2944,85 +2951,24 @@ function createEditor(container, editorName, callbacks) {
     function scrollByOffset(offset) {
         wrapper.scrollTop += offset;
     }
-    function removeAnchors(anchorElements) {
-        let count = 0;
-        for (const anchorEl of anchorElements) {
-            if (anchorEl) {
-                if (anchorEl.nodeName === "A") {
-                    anchorEl.remove();
-                }
-                else {
-                    anchorEl.classList.remove("anchor");
-                    anchorEl.style.removeProperty("--padding");
-                }
-                count++;
-            }
-        }
-        return count;
-    }
-    function insertStartAnchor(tokenIndex) {
-        let bestPoint = null;
-        let bestScore = -1;
-        for (const point of yieldAnchorPointsInRange(tokenIndex)) {
-            if (point.existingAnchor) {
-                // 이미 앵커가 있는 경우
-                return point.existingAnchor;
-            }
-            let score = 0;
-            if (point.flags & 16 /* InsertionPointFlags.ContainerStart */) {
-                score += 3;
-            }
-            else if (point.flags & 64 /* InsertionPointFlags.BlockStart */) {
-                score += 2;
-            }
-            else if (point.flags & 4096 /* InsertionPointFlags.LineStart */) {
-                score += 1;
-            }
-            if (score >= bestScore) {
-                // last anchor wins! 토큰의 시작지점과 가장 가까운 앵커 선택
-                bestPoint = point;
-                bestScore = score;
-            }
-        }
-        if (!bestPoint) {
-            return null;
-        }
-        // const el = bestPoint.container.childNodes[bestPoint.offset] as HTMLElement;
-        // if (el && BLOCK_ELEMENTS[el.nodeName]) {
-        // 	el.classList.add("anchor");
-        // 	return el; // 이미 블럭 엘리먼트가 있는 경우, 해당 엘리먼트를 앵커로 사용
-        // }
-        const anchorEl = document.createElement("A");
-        anchorEl.classList.add("anchor");
-        const range = document.createRange();
-        range.setStart(bestPoint.container, bestPoint.offset);
-        range.collapse(true);
-        range.insertNode(anchorEl);
-        return anchorEl;
-    }
-    // args는 startIndex, endIndex가 아님!
-    // args는 startIndex, count임 => 두 토큰 사이의 빈 range를 가져올 때 count = 0으로 설정
-    // 0, 0 => 토큰[0]의 앞부분
-    // 1, 0 => 토큰[0]과 토큰[1] 사이
-    // 좀 모호해보이지만...
     function createTokenRange(index, count = 1) {
         const range = document.createRange();
         if (count === 1 && index >= 0 && index < _tokens.length) {
             const token = _tokens[index];
-            range.setStart(token.startContainer, token.startOffset);
-            range.setEnd(token.endContainer, token.endOffset);
+            range.setStart(token.range.startContainer, token.range.startOffset);
+            range.setEnd(token.range.endContainer, token.range.endOffset);
         }
         else if (count > 0) {
             const startToken = _tokens[index];
             const endToken = _tokens[index + count - 1];
             if (startToken) {
-                range.setStart(startToken.startContainer, startToken.startOffset);
+                range.setStart(startToken.range.startContainer, startToken.range.startOffset);
             }
             else {
                 range.setStart(editor, 0);
             }
             if (endToken) {
-                range.setEnd(endToken.endContainer, endToken.endOffset);
+                range.setEnd(endToken.range.endContainer, endToken.range.endOffset);
             }
             else {
                 range.setEnd(editor, editor.childNodes.length);
@@ -3032,13 +2978,13 @@ function createEditor(container, editorName, callbacks) {
             const prevToken = _tokens[index - 1];
             const nextToken = _tokens[index];
             if (prevToken) {
-                range.setStart(prevToken.endContainer, prevToken.endOffset);
+                range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
             }
             else {
                 range.setStart(editor, 0);
             }
             if (nextToken) {
-                range.setEnd(nextToken.startContainer, nextToken.startOffset);
+                range.setEnd(nextToken.range.startContainer, nextToken.range.startOffset);
             }
             else {
                 range.setEnd(editor, editor.childNodes.length);
@@ -3046,102 +2992,549 @@ function createEditor(container, editorName, callbacks) {
         }
         return range;
     }
-    // editor 외부로 노출되지 않는 함수이므로 range를 clone하거나 기타 등등 할 필요 없음.
-    function extractTextRanges(sourceRange) {
-        console.log(editorName, "extractTextRanges", sourceRange);
-        // 하나의 텍스트노드 안에 범위가 있는 경우 그대로 리턴.
-        const result = [];
-        if (sourceRange.startContainer.nodeType === 3) {
-            if (sourceRange.startContainer === sourceRange.endContainer) {
-                result.push(sourceRange);
-                return result;
+    function findTokenOverlapIndices(range) {
+        let low = 0;
+        let high = _tokens.length - 1;
+        let startIndex = -1;
+        let endIndex = -1;
+        // console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
+        /*
+        comparePoint(referenceNode, offset)
+            returns
+                -1 if the point specified by the referenceNode and offset is before the start of this Range.
+                0 if the point specified by the referenceNode and offset is within this Range (including the start and end points of the range).
+                1 if the point specified by the referenceNode and offset is after the end of this Range.
+        
+        compareBoundaryPoints(how, otherRange)
+            how
+                Range.END_TO_END compares the end boundary-point of this Range to the end boundary-point of otherRange.
+                Range.END_TO_START compares the start boundary-point of this Range to the end boundary-point of otherRange.
+                Range.START_TO_END compares the end boundary-point of this Range to the start boundary-point of otherRange.
+                Range.START_TO_START compares the start boundary-point of this Range to the start boundary-point of otherRange.
+            returns
+                -1 if the specified boundary-point of this Range is before the specified boundary-point of otherRange.
+                0 if the specified boundary-point of this Range is the same as the specified boundary-point of otherRange.
+                1 if the specified boundary-point of this Range is after the specified boundary-point of otherRange.
+        */
+        const tokenRange = document.createRange();
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            const token = _tokens[mid].range;
+            tokenRange.setStart(token.startContainer, token.startOffset);
+            tokenRange.setEnd(token.endContainer, token.endOffset);
+            const c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
+            // console.debug(mid, _tokens[mid].text, c, _tokens[mid]);
+            if (c < 0) {
+                const c2 = range.compareBoundaryPoints(Range.START_TO_START, tokenRange);
+                console.debug(">>", mid, _tokens[mid].text, c2, _tokens[mid]);
+                startIndex = mid;
+                high = mid - 1; // 왼쪽으로
             }
-            const r = document.createRange();
-            r.setStart(sourceRange.startContainer, sourceRange.startOffset);
-            r.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue.length);
-            result.push(r);
-        }
-        const root = sourceRange.commonAncestorContainer;
-        const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
-        const endContainer = sourceRange.endContainer;
-        const endOffset = sourceRange.endOffset;
-        let endNode;
-        if (endContainer.nodeType === 3) {
-            endNode = endContainer;
-        }
-        else {
-            endNode = endContainer.childNodes[endOffset];
-            if (!endNode) {
-                endNode = advanceNode(endContainer, root, true);
+            else {
+                low = mid + 1; // 오른쪽으로
             }
         }
-        if (sourceRange.startContainer.nodeType === 3) {
-            walker.currentNode = advanceNode(sourceRange.startContainer, null, false);
-        }
-        else {
-            let startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset];
-            if (!startNode) {
-                startNode = advanceNode(sourceRange.startContainer, null, true);
-                if (!startNode) {
-                    return result;
-                }
-            }
-            walker.currentNode = startNode;
-        }
-        if (!walker.currentNode) {
-            console.warn(editorName, "extractTextRanges: No currentNode in walker", sourceRange);
-            return result;
-        }
-        do {
-            const currentNode = walker.currentNode;
-            if (currentNode === endNode) {
-                if (currentNode.nodeType === 3) {
-                    const r = document.createRange();
-                    r.setStart(endNode, 0);
-                    r.setEnd(endNode, endOffset);
-                    result.push(r);
-                }
-                break;
-            }
-            if (currentNode.nodeType === 3) {
-                const r = document.createRange();
-                r.setStart(currentNode, 0);
-                r.setEnd(currentNode, currentNode.nodeValue.length);
-                result.push(r);
-            }
-            else if (currentNode.nodeName === "BR") {
-                const r = document.createRange();
-                r.selectNode(currentNode);
-                result.push(r);
-            }
-            else if (currentNode.nodeName === "A") {
-                if (currentNode.childNodes.length === 0) {
-                    // const text = document.createTextNode("");
-                    // currentNode.appendChild(text); // 빈 텍스트 노드 추가
-                    // const r = document.createRange();
-                    // r.selectNodeContents(text);
-                    // result.push(r);
+        if (startIndex !== -1) {
+            low = endIndex = startIndex;
+            high = _tokens.length - 1;
+            while (low <= high) {
+                const mid = (low + high) >> 1;
+                const token = _tokens[mid].range;
+                tokenRange.setStart(token.startContainer, token.startOffset);
+                tokenRange.setEnd(token.endContainer, token.endOffset);
+                const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
+                if (c > 0) {
+                    endIndex = mid + 1;
+                    low = mid + 1; // 오른쪽으로
                 }
                 else {
-                    // if ((currentNode as HTMLElement).classList.contains("anchor")) {
-                    // 	const r = document.createRange();
-                    // 	r.selectNode(currentNode);
-                    // 	result.push(r);
-                    // }
+                    high = mid - 1; // 왼쪽으로
                 }
             }
-        } while (walker.nextNode());
-        return result;
+        }
+        // console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString(), startIndex, endIndex });
+        return [startIndex, endIndex];
+    }
+}
+const INITIAL_EDITOR_HTML = document.createElement("P");
+INITIAL_EDITOR_HTML.appendChild(document.createElement("BR"));
+class Editor2 {
+    #editorName;
+    #container;
+    #wrapper = document.createElement("div");
+    #editor = document.createElement("div");
+    #mutationObserver;
+    #tokens = [];
+    #tokenizeContext = null;
+    #tokenizeCallbackId = null;
+    #callbacks;
+    constructor(container, editorName, callbacks) {
+        this.#editorName = editorName;
+        this.#container = container;
+        this.#callbacks = callbacks;
+        this.#editor.id = editorName + "Editor";
+        this.#editor.classList.add("editor");
+        this.#editor.contentEditable = "true";
+        this.#editor.spellcheck = false;
+        this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+        this.#wrapper.id = editorName + "EditorWrapper";
+        this.#wrapper.classList.add("editor-wrapper");
+        this.#wrapper.appendChild(this.#editor);
+        this.#container.appendChild(this.#wrapper);
+        this.#mutationObserver = new MutationObserver((mutations) => this.onMutation(mutations));
+        this.observeMutation();
+        this.#wrapper.addEventListener("scroll", (e) => this.onScroll(e));
+        this.#editor.addEventListener("paste", (e) => this.onPaste(e));
+        this.#editor.addEventListener("input", () => this.onContentChange());
+        setTimeout(() => this.tokenize(), 0);
+    }
+    get name() {
+        return this.#editorName;
+    }
+    get wrapper() {
+        return this.#wrapper;
+    }
+    get editor() {
+        return this.#editor;
+    }
+    get tokens() {
+        return this.#tokens;
+    }
+    get scrollTop() {
+        return this.#wrapper.scrollTop;
+    }
+    set scrollTop(value) {
+        this.#wrapper.scrollTop = value;
+    }
+    get scrollLeft() {
+        return this.#wrapper.scrollLeft;
+    }
+    set scrollLeft(value) {
+        this.#wrapper.scrollLeft = value;
+    }
+    scrollToOffset(offset) {
+        this.#wrapper.scrollTop = offset;
+    }
+    scrollByOffset(offset) {
+        this.#wrapper.scrollTop += offset;
+    }
+    onScroll(e) { }
+    onContentChange() {
+        this.tokenize();
+    }
+    onMutation(mutations) {
+        if (this.#editor.childNodes.length === 0) {
+            this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+        }
+    }
+    observeMutation() {
+        this.#mutationObserver.observe(this.#wrapper, {
+            childList: true,
+            subtree: true,
+            attributes: true,
+            characterData: true,
+        });
+    }
+    unobserveMutation() {
+        this.#mutationObserver.disconnect();
+    }
+    onPaste(e) {
+        // 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
+        // 붙여넣기 이후 바로 추가 입력 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
+        console.time("paste");
+        e.preventDefault();
+        let rawHTML = e.clipboardData?.getData("text/html") ?? "";
+        let sanitized;
+        if (rawHTML) {
+            const START_TAG = "<!--StartFragment-->";
+            const END_TAG = "<!--EndFragment-->";
+            const startIndex = rawHTML.indexOf(START_TAG);
+            if (startIndex >= 0) {
+                const endIndex = rawHTML.lastIndexOf(END_TAG);
+                if (endIndex >= 0) {
+                    rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
+                }
+                else {
+                    rawHTML = rawHTML.slice(startIndex + START_TAG.length);
+                }
+            }
+            sanitized = sanitizeHTML(rawHTML);
+        }
+        else {
+            sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
+        }
+        // 자존심 상하지만 document.execCommand("insertHTML",...)를 써야한다.
+        // 1. 브라우저가 undo/redo 히스토리 관리를 할 수 있음.
+        // 2. 필요한 경우 브라우저가 알아서 DOM을 수정해 줌.
+        // 	예: 인라인 엘러먼트 안에 블럭 엘러먼트를 붙여넣는 경우 브라우저가 알아서 인라인 요소를 반으로 갈라서 블럭 엘러먼트를 밖으로 꺼내준다. 믿음직한가? 아니오.
+        const div = document.createElement("DIV");
+        div.appendChild(sanitized);
+        this.unobserveMutation();
+        document.execCommand("insertHTML", false, div.innerHTML);
+        this.observeMutation();
+        console.timeEnd("paste");
+    }
+    // 	const { observeEditor, unobserveEditor } = (() => {
+    // 	const mutationObserver = new MutationObserver((mutations) => {
+    // 		if (editor.childNodes.length === 0) {
+    // 			editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+    // 			return;
+    // 		}
+    // 	});
+    // 	function observeEditor() {
+    // 		mutationObserver.observe(editor, {
+    // 			childList: true,
+    // 			// subtree: true,
+    // 			// attributes: true,
+    // 			// characterData: true,
+    // 		});
+    // 	}
+    // 	function unobserveEditor() {
+    // 		mutationObserver.disconnect();
+    // 	}
+    // 	return { observeEditor, unobserveEditor };
+    // })();
+    // observeEditor();
+    findTokenOverlapIndices(range) {
+        let low = 0;
+        let high = this.#tokens.length - 1;
+        let startIndex = -1;
+        let endIndex = -1;
+        // console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
+        /*
+        comparePoint(referenceNode, offset)
+            returns
+                -1 if the point specified by the referenceNode and offset is before the start of this Range.
+                0 if the point specified by the referenceNode and offset is within this Range (including the start and end points of the range).
+                1 if the point specified by the referenceNode and offset is after the end of this Range.
+
+        compareBoundaryPoints(how, otherRange)
+            how
+                Range.END_TO_END compares the end boundary-point of this Range to the end boundary-point of otherRange.
+                Range.END_TO_START compares the start boundary-point of this Range to the end boundary-point of otherRange.
+                Range.START_TO_END compares the end boundary-point of this Range to the start boundary-point of otherRange.
+                Range.START_TO_START compares the start boundary-point of this Range to the start boundary-point of otherRange.
+            returns
+                -1 if the specified boundary-point of this Range is before the specified boundary-point of otherRange.
+                0 if the specified boundary-point of this Range is the same as the specified boundary-point of otherRange.
+                1 if the specified boundary-point of this Range is after the specified boundary-point of otherRange.
+        */
+        const tokenRange = document.createRange();
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            const token = this.#tokens[mid].range;
+            tokenRange.setStart(token.startContainer, token.startOffset);
+            tokenRange.setEnd(token.endContainer, token.endOffset);
+            const c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
+            // console.debug(mid, this.#tokens[mid].text, c, this.#tokens[mid]);
+            if (c < 0) {
+                const c2 = range.compareBoundaryPoints(Range.START_TO_START, tokenRange);
+                console.debug(">>", mid, this.#tokens[mid].text, c2, this.#tokens[mid]);
+                startIndex = mid;
+                high = mid - 1; // 왼쪽으로
+            }
+            else {
+                low = mid + 1; // 오른쪽으로
+            }
+        }
+        if (startIndex !== -1) {
+            low = endIndex = startIndex;
+            high = this.#tokens.length - 1;
+            while (low <= high) {
+                const mid = (low + high) >> 1;
+                const token = this.#tokens[mid].range;
+                tokenRange.setStart(token.startContainer, token.startOffset);
+                tokenRange.setEnd(token.endContainer, token.endOffset);
+                const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
+                if (c > 0) {
+                    endIndex = mid + 1;
+                    low = mid + 1; // 오른쪽으로
+                }
+                else {
+                    high = mid - 1; // 왼쪽으로
+                }
+            }
+        }
+        // console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString(), startIndex, endIndex });
+        return [startIndex, endIndex];
+    }
+    createTokenRange(index, count = 1) {
+        const range = document.createRange();
+        if (count === 1 && index >= 0 && index < this.#tokens.length) {
+            const token = this.#tokens[index];
+            range.setStart(token.range.startContainer, token.range.startOffset);
+            range.setEnd(token.range.endContainer, token.range.endOffset);
+        }
+        else if (count > 0) {
+            const startToken = this.#tokens[index];
+            const endToken = this.#tokens[index + count - 1];
+            if (startToken) {
+                range.setStart(startToken.range.startContainer, startToken.range.startOffset);
+            }
+            else {
+                range.setStart(this.#editor, 0);
+            }
+            if (endToken) {
+                range.setEnd(endToken.range.endContainer, endToken.range.endOffset);
+            }
+            else {
+                range.setEnd(this.#editor, this.#editor.childNodes.length);
+            }
+        }
+        else {
+            const prevToken = this.#tokens[index - 1];
+            const nextToken = this.#tokens[index];
+            if (prevToken) {
+                range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
+            }
+            else {
+                range.setStart(this.#editor, 0);
+            }
+            if (nextToken) {
+                range.setEnd(nextToken.range.startContainer, nextToken.range.startOffset);
+            }
+            else {
+                range.setEnd(this.#editor, this.#editor.childNodes.length);
+            }
+        }
+        return range;
+    }
+    tokenize() {
+        const _TIMEOUT = 200;
+        if (this.#tokenizeCallbackId !== null) {
+            // 아직 실행되지 않고 대기 중인 콜백 취소
+            cancelIdleCallback(this.#tokenizeCallbackId);
+            this.#tokenizeCallbackId = null;
+        }
+        if (this.#tokenizeContext) {
+            // 이미 콜백이 실행 중이라면 다음 step에서 취소처리해야하므로...
+            this.#tokenizeContext.cancelled = true;
+        }
+        const startTime = performance.now();
+        const ctx = (this.#tokenizeContext = {
+            cancelled: false,
+            content: this.#editor,
+        });
+        // 여기서 바로 generator를 생성을 해버리면 idleDeadline을 바로 넘겨줄 수가 없다.
+        // generator 내부에서 idleDeadline을 획득하려면 "성급하게" yield를 해야되는데 그러면 황금같은 유휴시간을 한번 낭비하게 됨.
+        let generator = null;
+        const step = (idleDeadline) => {
+            this.#tokenizeCallbackId = null;
+            if (ctx.cancelled) {
+                // 어차피 단일쓰레드이므로 콜백이 실행되는 도중에는 cancelled 값이 바뀔 수는 없음!
+                // 그래서 next()를 호출하기 전에나 한번씩 확인해주면 됨.
+                // 다만 generator 내부에서 주기적으로 yield을 해주지 않으면 토큰화가 끝날때까지 멈출 수 없음.
+                console.debug(this.#editorName, "tokenize cancelled");
+                return;
+            }
+            if (generator === null) {
+                generator = tokenizer(ctx, idleDeadline);
+            }
+            const { done, value } = generator.next(idleDeadline);
+            if (done) {
+                const endTime = performance.now();
+                ({ tokens: this.#tokens } = value);
+                console.log(this.#editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
+                this.onTokenizeDone();
+            }
+            else {
+                this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
+            }
+        };
+        this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
+    }
+    onTokenizeDone() {
+        this.#callbacks.onContentChanged();
+    }
+    getOrInsertStartAnchor(tokenIndex) {
+        const token = this.#tokens[tokenIndex];
+        let container = token.range.startContainer;
+        let beforeNode;
+        if (container.nodeType === 3) {
+            beforeNode = container;
+            container = container.parentElement;
+        }
+        else {
+            container = token.range.startContainer.parentNode;
+            beforeNode = token.range.startContainer;
+        }
+        do {
+            if (BLOCK_ELEMENTS[container.nodeName]) {
+                if (beforeNode) {
+                    let anchor = beforeNode.previousSibling;
+                    if (!anchor || anchor.nodeName !== "A") {
+                        anchor = document.createElement("A");
+                        container.insertBefore(anchor, beforeNode);
+                    }
+                    return anchor;
+                }
+            }
+            beforeNode = container;
+            container = container.parentNode;
+        } while (container);
+        return null;
+    }
+    *yieldAnchorPointsInRange(tokenIndex) {
+        const prevToken = this.#tokens[tokenIndex - 1];
+        const nextToken = this.#tokens[tokenIndex];
+        let endContainer;
+        let endOffset;
+        // let endNode: Node;
+        let lastYielded = null;
+        // console.log(editorName, "generateInsertionPointsInRange", { tokenIndex, prevToken, nextToken });
+        let container;
+        let childIndex;
+        const indexStack = [];
+        if (prevToken && nextToken && prevToken.range.endContainer === nextToken.range.startContainer && prevToken.range.endContainer.nodeType === 3) {
+            yield* createPoint(prevToken.range.endContainer, prevToken.range.endOffset);
+            return;
+        }
+        if (prevToken) {
+            container = prevToken.range.endContainer;
+            childIndex = prevToken.range.endOffset;
+            if (container.nodeType === 3) {
+                // 텍스트노드는 컨테이너로 지정되지 않음!
+                yield* createPoint(container, childIndex);
+                childIndex = Array.prototype.indexOf.call(container.parentNode.childNodes, container) + 1;
+                container = container.parentNode;
+            }
+        }
+        else {
+            container = this.#editor;
+            childIndex = 0;
+        }
+        if (nextToken) {
+            endContainer = nextToken.range.startContainer;
+            endOffset = nextToken.range.startOffset;
+        }
+        else {
+            endContainer = this.#editor;
+            endOffset = this.#editor.childNodes.length;
+        }
+        if (container === endContainer) {
+            if (container.nodeType === 3) {
+                yield* createPoint(container, childIndex);
+                return;
+            }
+        }
+        while (container) {
+            if (!TEXTLESS_ELEMENTS[container.nodeName]) {
+                yield* createPoint(container, childIndex);
+            }
+            if (container === endContainer && childIndex >= endOffset) {
+                break;
+            }
+            let current = container.childNodes[childIndex];
+            if (!current) {
+                current = container;
+                container = container.parentNode;
+                if (indexStack.length > 0) {
+                    childIndex = indexStack.pop();
+                }
+                else {
+                    if (!container || !container.childNodes) {
+                        console.warn(this.#editorName, "No childNodes in container", current, container, prevToken, nextToken);
+                    }
+                    childIndex = Array.prototype.indexOf.call(container.childNodes, current);
+                }
+                childIndex++;
+                continue;
+            }
+            if (current.nodeType === 1 && !VOID_ELEMENTS[current.nodeName]) {
+                // 주어진 childIndex에 해당하는 자식으로 들어가기
+                if (current.firstChild) {
+                    indexStack.push(childIndex);
+                    container = current;
+                    childIndex = 0;
+                    continue;
+                }
+                else {
+                    // 자식이 없더라도 요소 안에 하나의 point는 만들어야함.
+                    // firstChild 조건 체크 없이 container=current, childIndex=0으로 설정해두고 continue 해버려도 되지만
+                    // 일단 그냥 여기서 처리하고 루프 한바퀴 건너뛰자.
+                    if (!TEXTLESS_ELEMENTS[current.nodeName]) {
+                        yield* createPoint(current, 0);
+                    }
+                }
+            }
+            else if (current.nodeType === 3) {
+                if (current === endContainer) {
+                    yield* createPoint(current, endOffset);
+                    break;
+                }
+            }
+            childIndex++;
+        }
+        function* createPoint(container, offset, flags = 0) {
+            if (lastYielded && lastYielded.container === container && lastYielded.offset === offset) {
+                return;
+            }
+            let existingAnchor = null;
+            if (container.nodeType === 3) {
+                //
+            }
+            else {
+                existingAnchor = container.childNodes[offset] || null;
+                if (existingAnchor && existingAnchor.nodeName !== "A") {
+                    existingAnchor = null;
+                }
+                const comparePrev = prevToken ? container.compareDocumentPosition(prevToken.range.endContainer) : 0;
+                const compareNext = nextToken ? container.compareDocumentPosition(nextToken.range.startContainer) : 0;
+                if (offset === 0 || !(comparePrev & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
+                    if (TEXT_FLOW_CONTAINERS[container.nodeName]) {
+                        flags |= 16 /* InsertionPointFlags.ContainerStart */;
+                    }
+                    if (BLOCK_ELEMENTS[container.nodeName]) {
+                        flags |= 64 /* InsertionPointFlags.BlockStart */;
+                    }
+                    if (container.nodeName === "TD" || container.nodeName === "TH") {
+                        flags |= 256 /* InsertionPointFlags.TableCellStart */;
+                        if (container.parentNode.firstElementChild === container) {
+                            flags |= 1024 /* InsertionPointFlags.TableRowStart */;
+                        }
+                    }
+                }
+                if (offset === container.childNodes.length || !(compareNext & Node.DOCUMENT_POSITION_CONTAINED_BY)) {
+                    if (TEXT_FLOW_CONTAINERS[container.nodeName]) {
+                        flags |= 32 /* InsertionPointFlags.ContainerEnd */;
+                    }
+                    if (BLOCK_ELEMENTS[container.nodeName]) {
+                        flags |= 128 /* InsertionPointFlags.BlockEnd */;
+                    }
+                    if (container.nodeName === "TD" || container.nodeName === "TH") {
+                        flags |= 512 /* InsertionPointFlags.TableCellEnd */;
+                        if (container.parentNode.lastElementChild === container) {
+                            flags |= 2048 /* InsertionPointFlags.TableRowEnd */;
+                        }
+                    }
+                }
+                if (offset > 0) {
+                    const prevSibling = container.childNodes[offset - 1];
+                    if (prevSibling && prevSibling.nodeName === "TABLE") {
+                        flags |= 8 /* InsertionPointFlags.AfterTable */;
+                    }
+                }
+                let nextSibling = existingAnchor ? existingAnchor.nextSibling : container.childNodes[offset];
+                if (nextSibling) {
+                    if (nextSibling.nodeName === "TABLE") {
+                        flags |= 4 /* InsertionPointFlags.BeforeTable */;
+                    }
+                }
+            }
+            lastYielded = { container: container, offset, flags, existingAnchor };
+            yield lastYielded;
+        }
     }
 }
 //# sourceMappingURL=editor.js.map
 </script>
 <script>"use strict";
 function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
-    // diff index to rect array(하나의 diff가 여러개의 rect를 가질 수 있음)
-    const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
-    const DIFF_LINE_EXPAND_Y = 4;
+    const DIFF_EXPAND_X = 2;
+    const DIFF_EXPAND_Y = 0;
+    const DIFF_LINE_EXPAND_Y = 1;
     const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
+    const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
     const onDiffVisibilityChanged = callbacks.onDiffVisibilityChanged || (() => { });
     const _leftRegion = {
         editor: _leftEditor,
@@ -3154,7 +3547,8 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
         dirtyFlags: 0,
         diffRanges: null,
         diffRenderItems: null,
-        diffLineRects: null,
+        diffLineRects: [],
+        diffRectsDirty: false,
         visibleDiffIndices: new Set(),
     };
     const _rightRegion = {
@@ -3168,15 +3562,18 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
         dirtyFlags: 0,
         diffRanges: null,
         diffRenderItems: null,
-        diffLineRects: null,
+        diffLineRects: [],
+        diffRectsDirty: false,
         visibleDiffIndices: new Set(),
     };
     let _canvasX = 0;
     let _canvasY = 0;
     let _canvasWidth = 0;
     let _canvasHeight = 0;
-    let _textHighlights = null;
     let _renderPending = false;
+    let _diffs = [];
+    let _selectionHighlight = null;
+    let _selectionHighlightRects = null;
     const diffCanvas = document.createElement("canvas");
     const diffCanvasCtx = diffCanvas.getContext("2d");
     _container.appendChild(diffCanvas);
@@ -3228,52 +3625,34 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
             region.height = height;
             region.scrollTop = editor.wrapper.scrollTop;
             region.scrollLeft = editor.wrapper.scrollLeft;
-            region.diffRenderItems = null;
+            // region.diffRenderItems = null;
             region.dirtyFlags |= 7 /* RenderFlags.ALL */;
         }
-        // render();
-    }
-    function setTextHighlight(region, ranges) { }
-    function setDiffRanges(editor, ranges) {
-        const region = editor === "left" ? _leftRegion : _rightRegion;
-        region.diffRanges = ranges;
-        region.diffRenderItems = null;
-        region.dirtyFlags |= 1 /* RenderFlags.DIFF */;
+        markDirty(1 /* RenderFlags.DIFF */ | 4 /* RenderFlags.DIFF_GEOMETRY */ | 8 /* RenderFlags.LEFT_EDITOR */ | 16 /* RenderFlags.RIGHT_EDITOR */);
         render();
     }
     let _renderCounter = 0;
     function render() {
-        // if (_renderPending) {
-        // 	return;
-        // }
-        // _renderPending = true;
-        // requestAnimationFrame(() => {
-        // 	++_renderCounter;
-        // 	if (_leftRegion.dirtyFlags !== 0) {
-        // 		renderEditorRegion("left");
-        // 		_leftRegion.dirtyFlags = 0;
-        // 	}
-        // 	if (_rightRegion.dirtyFlags !== 0) {
-        // 		renderEditorRegion("right");
-        // 		_rightRegion.dirtyFlags = 0;
-        // 	}
-        // 	_renderPending = false;
-        // });
+        renderEditorRegion("left");
+        renderEditorRegion("right");
+        renderSelectionHighlight();
     }
     function renderEditorRegion(editorName) {
         const region = editorName === "left" ? _leftRegion : _rightRegion;
         if (region.dirtyFlags & 1 /* RenderFlags.DIFF */) {
-            const ctx = diffCanvasCtx;
-            const { scrollLeft, scrollTop } = region;
-            ctx.clearRect(region.x, region.y, region.width, region.height);
-            let visibleDiffIndices = region.visibleDiffIndices;
             let renderItems = region.diffRenderItems;
             if (!renderItems) {
-                buildDiffRenderItems(region);
-                console.log("buildDiffRenderItems!!:", region);
-                renderItems = region.diffRenderItems;
+                console.warn("No diff render items found for editor:", editorName);
+                return;
             }
-            // render diff lines
+            if (region.dirtyFlags & 4 /* RenderFlags.DIFF_GEOMETRY */) {
+                buildDiffGeometries(region);
+            }
+            const ctx = diffCanvasCtx;
+            const { scrollLeft, scrollTop } = region.editor;
+            console.log("rendering editor region:", editorName, "scrollLeft:", scrollLeft, "scrollTop:", scrollTop);
+            ctx.clearRect(region.x, region.y, region.width, region.height);
+            let visibleDiffIndices = region.visibleDiffIndices;
             ctx.fillStyle = DIFF_LINE_FILL_STYLE;
             console.log("diffLineRects:", region.diffLineRects);
             for (const rect of region.diffLineRects) {
@@ -3291,9 +3670,9 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
                 if (!item) {
                     continue;
                 }
-                item.renderedRect.length = 0;
-                let isVisible = !(item.maxY - scrollTop < 0 || item.minY - scrollTop > _canvasHeight) &&
-                    !(item.maxX - scrollLeft < 0 || item.minX - scrollLeft > _canvasWidth);
+                const geometry = item.geometry;
+                let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > _canvasHeight) &&
+                    !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > _canvasWidth);
                 if (isVisible) {
                     if (!visibleDiffIndices.has(diffIndex)) {
                         visibleDiffIndices.add(diffIndex);
@@ -3309,15 +3688,16 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
                 }
                 ctx.fillStyle = item.fill;
                 ctx.strokeStyle = item.stroke;
-                for (const rect of item.rects) {
+                for (const rect of geometry.rects) {
                     const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
                     if (y + height < 0 || y > _canvasHeight)
                         continue;
                     if (x + width < 0 || x > _canvasWidth)
                         continue;
+                    // console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
                     ctx.fillRect(x, y, width, height);
                     ctx.strokeRect(x, y, width, height);
-                    item.renderedRect.push(rect);
+                    // item.renderedRect.push(rect);
                 }
             }
             if (shown.length > 0 || hidden.length > 0) {
@@ -3325,59 +3705,57 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
             }
         }
     }
-    function buildDiffRenderItems(region) {
-        const rangesMap = region.diffRanges;
-        if (!rangesMap || rangesMap.length === 0) {
-            region.diffRenderItems = [];
-            region.diffLineRects = [];
-            return [];
-        }
-        const expandX = 1;
-        const expandY = 0;
-        const { left: canvasLeft, right: canvasRight } = diffCanvas.getBoundingClientRect();
-        const { x: regionX, y: regionY, width: regionWidth, height: regionHeight, scrollLeft, scrollTop } = region;
-        const offsetX = scrollLeft;
-        const offsetY = scrollTop;
-        const result = new Array(rangesMap.length);
-        const allRects = [];
-        for (let diffIndex = 0; diffIndex < rangesMap.length; ++diffIndex) {
-            const ranges = rangesMap[diffIndex];
-            const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
-            const rawRects = [];
-            for (const range of ranges) {
-                const clientRects = range.getClientRects();
-                for (let i = 0; i < clientRects.length; ++i) {
-                    const rect = {
-                        x: clientRects[i].x + offsetX - expandX,
-                        y: clientRects[i].y + offsetY - expandY,
-                        width: clientRects[i].width + expandX * 2,
-                        height: clientRects[i].height + expandY * 2,
-                    };
-                    rawRects.push(rect);
-                    allRects.push(rect);
-                }
+    function renderSelectionHighlight() {
+        console.log("Rendering selection highlight:", _selectionHighlight?.toString(), _selectionHighlight);
+        const ctx = highlightCanvasCtx;
+        ctx.clearRect(0, 0, _canvasWidth, _canvasHeight);
+        if (_selectionHighlight) {
+            if (!_selectionHighlightRects) {
+                const rawRects = extractRects(_selectionHighlight);
+                console.log("Raw selection highlight rects:", rawRects);
+                _selectionHighlightRects = mergeRects(rawRects, 1, 1);
             }
-            const merged = mergeRects(rawRects);
-            result[diffIndex] = {
-                diffIndex,
-                editor: region.editor.name,
-                minX: merged.minX,
-                minY: merged.minY,
-                maxX: merged.maxX,
-                maxY: merged.maxY,
-                rects: merged.rects,
-                fill: `hsl(${hue} 100% 80%)`,
-                stroke: `hsl(${hue} 100% 40% / 0.5)`,
-                renderedRect: [],
-            };
+            console.log("Selection highlight rects:", _selectionHighlightRects);
+            ctx.fillStyle = "rgba(128, 128, 128, 0.5)";
+            for (const rect of _selectionHighlightRects.rects) {
+                const x = Math.floor(rect.x - _canvasX), y = Math.floor(rect.y - _canvasY), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                ctx.fillRect(x, y, width, height);
+            }
         }
-        region.diffRenderItems = result;
-        buildDiffLineRects(region, allRects);
-        return result;
+    }
+    function buildDiffGeometries(region) {
+        const wrapper = region.editor.wrapper;
+        const _canvasOffsetX = _canvasX; // + region.x;
+        const _canvasOffsetY = _canvasY; // + region.y;
+        const scrollTop = wrapper.scrollTop;
+        const scrollLeft = wrapper.scrollLeft;
+        const offsetX = -_canvasOffsetX + scrollLeft;
+        const offsetY = -_canvasOffsetY + scrollTop;
+        void region.editor.wrapper.offsetWidth; // force reflow
+        const allDiffRects = [];
+        if (region.diffRenderItems) {
+            for (let diffIndex = 0; diffIndex < region.diffRenderItems.length; diffIndex++) {
+                const item = region.diffRenderItems[diffIndex];
+                const range = item.range;
+                const rawRects = extractRects(range);
+                for (const rect of rawRects) {
+                    rect.x += offsetX - DIFF_EXPAND_X;
+                    rect.y += offsetY - DIFF_EXPAND_Y;
+                    rect.width += DIFF_EXPAND_X * 2;
+                    rect.height += DIFF_EXPAND_Y * 2;
+                    allDiffRects.push(rect);
+                }
+                item.geometry = mergeRects(rawRects, 1, 1);
+            }
+        }
+        buildDiffLineRects(region, allDiffRects);
     }
     function buildDiffLineRects(region, diffRects) {
+        const TOLERANCE = 1;
+        const _diffLineRects = region.diffLineRects;
+        _diffLineRects.length = 0;
         diffRects.sort((a, b) => a.y - b.y);
-        const result = [];
+        const rects = [];
         let lineRect = null;
         for (const rect of diffRects) {
             const y = rect.y - DIFF_LINE_EXPAND_Y;
@@ -3387,61 +3765,84 @@ function createRenderer(_container, _leftEditor, _rightEditor, callbacks) {
                 lineRect = {
                     x: region.x,
                     y: y,
-                    width: region.width,
+                    width: region.width - 2,
                     height: height,
                 };
-                result.push(lineRect);
+                rects.push(lineRect);
             }
             else {
                 lineRect.height = y + height - lineRect.y;
             }
         }
-        region.diffLineRects = result;
-        console.log("diffLineRects:", result);
+        if (rects.length > 0) {
+            let current = rects[0];
+            for (let i = 1; i < rects.length; i++) {
+                const next = rects[i];
+                const currentBottom = current.y + current.height;
+                const nextTop = next.y;
+                const gap = nextTop - currentBottom;
+                if (gap <= TOLERANCE) {
+                    const newBottom = Math.max(currentBottom, next.y + next.height);
+                    current = {
+                        x: current.x,
+                        y: current.y,
+                        width: current.width,
+                        height: newBottom - current.y,
+                    };
+                }
+                else {
+                    // 병합 불가: 현재까지 병합된 것 push
+                    _diffLineRects.push(current);
+                    current = next;
+                }
+            }
+            _diffLineRects.push(current);
+        }
+        console.log("Built diff line rects:", _diffLineRects, "for editor:", region.editor.name);
     }
     updateLayout();
-    function markDirty(editor, flags) {
-        const region = editor === "left" ? _leftRegion : _rightRegion;
-        region.dirtyFlags |= flags;
-        if (region.dirtyFlags & 1 /* RenderFlags.DIFF */) {
-            region.diffRenderItems = null;
+    function markDirty(flags) {
+        const editorFlags = flags & 24 /* RenderFlags.EDITOR_MASK */;
+        if (editorFlags & 8 /* RenderFlags.LEFT_EDITOR */) {
+            _leftRegion.dirtyFlags |= flags & ~24 /* RenderFlags.EDITOR_MASK */;
+        }
+        if (editorFlags & 16 /* RenderFlags.RIGHT_EDITOR */) {
+            _rightRegion.dirtyFlags |= flags & ~24 /* RenderFlags.EDITOR_MASK */;
         }
         render();
     }
+    function setDiffs(editorName, diffs) {
+        const region = editorName === "left" ? _leftRegion : _rightRegion;
+        if (region.diffRenderItems !== diffs) {
+            region.diffRenderItems = diffs;
+            region.diffRectsDirty = true;
+            region.dirtyFlags |= 1 /* RenderFlags.DIFF */ | 4 /* RenderFlags.DIFF_GEOMETRY */;
+        }
+    }
+    function setSelectionHighlight(range) {
+        _selectionHighlight = range;
+        _selectionHighlightRects = null; // reset cached rects
+        markDirty(2 /* RenderFlags.SELECTION_HIGHLIGHT */);
+    }
+    function clearSelectionHighlight() { }
     return {
         updateLayout,
-        setDiffRanges,
         markDirty,
+        render,
+        setDiffs,
+        setSelectionHighlight,
+        clearSelectionHighlight,
     };
 }
 //# sourceMappingURL=renderer.js.map
 </script>
 <script id="worker.js" type="text/plain">"use strict";
-const LINE_START = 1 << 0; // 1
-const LINE_END = 1 << 1; // 2
-const CONTAINER_START = 1 << 2; // 4
-const CONTAINER_END = 1 << 3; // 8
-const TABLE_START = 1 << 4; // 16
-const TABLE_END = 1 << 5; // 32
-const TABLEROW_START = 1 << 6; // 64
-const TABLEROW_END = 1 << 7; // 128
-const TABLECELL_START = 1 << 8; // 256
-const TABLECELL_END = 1 << 9; // 512
-const NO_JOIN_PREV = 1 << 10; // @@@, ### 등등 // 16
-const NO_JOIN_NEXT = 1 << 11; // @@@, ### 등등 // 16
-const WILD_CARD = 1 << 12;
-const MANUAL_ANCHOR = 1 << 13; // 32. @@@, ### 등등
-const IMAGE = 1 << 14;
-const SECTION_HEADING_BIT = 15;
-const SECTION_HEADING_TYPE1 = 1 << (SECTION_HEADING_BIT + 0); // 1.
-const SECTION_HEADING_TYPE2 = 1 << (SECTION_HEADING_BIT + 1); // 가.
-const SECTION_HEADING_TYPE3 = 1 << (SECTION_HEADING_BIT + 2); // (1)
-const SECTION_HEADING_TYPE4 = 1 << (SECTION_HEADING_BIT + 3); // (가)
-const SECTION_HEADING_TYPE5 = 1 << (SECTION_HEADING_BIT + 4); // 1)
-const SECTION_HEADING_TYPE6 = 1 << (SECTION_HEADING_BIT + 5); // 가)
-const LINE_BOUNDARY = LINE_START | LINE_END;
-const CONTAINER_BOUNDARY = CONTAINER_START | CONTAINER_END;
-const SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 | SECTION_HEADING_TYPE2 | SECTION_HEADING_TYPE3 | SECTION_HEADING_TYPE4 | SECTION_HEADING_TYPE5 | SECTION_HEADING_TYPE6;
+const SECTION_HEADING_MASK = 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */ |
+    1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */ |
+    2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */ |
+    4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */ |
+    8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */ |
+    8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */;
 let _nextCtx = null;
 let _currentCtx = null;
 self.onmessage = (e) => {
@@ -3703,13 +4104,13 @@ async function runHistogramDiff(ctx) {
     let leftAnchors = [];
     let rightAnchors = [];
     for (let i = 0; i < lhsTokens.length; i++) {
-        if (lhsTokens[i].flags & MANUAL_ANCHOR) {
+        if (lhsTokens[i].flags & 32768 /* TokenFlags.MANUAL_ANCHOR */) {
             leftAnchors.push(i);
         }
     }
     if (leftAnchors.length > 0) {
         for (let i = 0; i < rhsTokens.length; i++) {
-            if (rhsTokens[i].flags & MANUAL_ANCHOR) {
+            if (rhsTokens[i].flags & 32768 /* TokenFlags.MANUAL_ANCHOR */) {
                 rightAnchors.push(i);
             }
         }
@@ -4135,12 +4536,12 @@ function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (ci === lhsLen) {
             if (i === lhsUpper)
                 return false;
-            if (lhsToken.flags & NO_JOIN_NEXT)
+            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
                 return false;
             lhsToken = leftTokens[i++];
             if (!lhsToken)
                 return false;
-            if (lhsToken.flags & NO_JOIN_PREV)
+            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
                 return false;
             ltext = lhsToken.text;
             lhsLen = ltext.length;
@@ -4149,12 +4550,12 @@ function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (cj === rhsLen) {
             if (j === rhsUpper)
                 return false;
-            if (rhsToken.flags & NO_JOIN_NEXT)
+            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
                 return false;
             rhsToken = rightTokens[j++];
             if (!rhsToken)
                 return false;
-            if (rhsToken.flags & NO_JOIN_PREV)
+            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
                 return false;
             rtext = rhsToken.text;
             rhsLen = rtext.length;
@@ -4182,12 +4583,12 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (ci < 0) {
             if (i < lhsLower)
                 return false;
-            if (lhsToken.flags & NO_JOIN_PREV)
+            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
                 return false;
             lhsToken = leftTokens[i--];
             if (!lhsToken)
                 return false;
-            if (lhsToken.flags & NO_JOIN_NEXT)
+            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
                 return false;
             ltext = lhsToken.text;
             ci = lhsToken.text.length - 1;
@@ -4195,12 +4596,12 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (cj < 0) {
             if (j < rhsLower)
                 return false;
-            if (rhsToken.flags & NO_JOIN_PREV)
+            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
                 return false;
             rhsToken = rightTokens[j--];
             if (!rhsToken)
                 return false;
-            if (rhsToken.flags & NO_JOIN_NEXT)
+            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
                 return false;
             rtext = rhsToken.text;
             cj = rhsToken.text.length - 1;
@@ -4892,7 +5293,6 @@ h6 {
 	font-size: inherit;
 }
 
-
 .bottom-padding {
 	display: block;
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
@@ -4927,12 +5327,57 @@ h6 {
 	display: block;
 	min-height: calc(1em * var(--line-height, 1.5));
 	*/
-} 
+}
 
 .diff-anchor-block {
-	/* display: block;
+}
+
+.diff-anchor-block::before {
+	/* content: "";
+	display: block;
 	min-height: calc(1em * var(--line-height, 1.5)); */
 }
+
+@keyframes fadein {
+	from {
+		opacity: 0;
+	}
+	to {
+		opacity: 1;
+	}
+}
+
+@keyframes fadeout {
+	from {
+		opacity: 1;
+	}
+	to {
+		opacity: 0;
+	}
+}
+
+.fade-in {
+	animation: fadein 0.5s forwards;
+}
+
+.fade-out {
+	animation: fadeout 0.1s forwards;
+}
+
+canvas {
+	transition: opacity 0.3s ease;
+	opacity: 1;
+}
+
+.dimmed {
+	opacity: 0.5;
+}
+
+.restored {
+	transition: none !important; /* 복원 시 즉시 반영 */
+	opacity: 1;
+}
+
 </style>
 </head>
 
@@ -4967,7 +5412,6 @@ h6 {
         document.head.appendChild(style);
     </script>
 <script>"use strict";
-// 이것저것 이어붙이는 코드 집합
 const DiffSeek = (function () {
     let _activeEditor = null;
     let _lastFocusedEditor = null;
@@ -4990,6 +5434,7 @@ const DiffSeek = (function () {
     let _lastNonRawCopyMode = "compare";
     let _diffListItemElements = [];
     let _aligned = true;
+    let _renderPending = false;
     const _anchors = [];
     const _leftBottomPadding = document.createElement("A");
     _leftBottomPadding.contentEditable = "false";
@@ -5141,8 +5586,10 @@ const DiffSeek = (function () {
         uniqueMultiplier: 1 / 0.6667,
     });
     const mainContainer = document.getElementById("main");
-    const leftEditor = createEditor(mainContainer, "left", getEditorCallbacks("left"));
-    const rightEditor = createEditor(mainContainer, "right", getEditorCallbacks("right"));
+    // const leftEditor = createEditor(mainContainer, "left", getEditorCallbacks("left"));
+    // const rightEditor = createEditor(mainContainer, "right", getEditorCallbacks("right"));
+    const leftEditor = new Editor2(mainContainer, "left", getEditorCallbacks("left"));
+    const rightEditor = new Editor2(mainContainer, "right", getEditorCallbacks("right"));
     const diffCanvas = document.createElement("canvas");
     diffCanvas.id = "diffCanvas";
     mainContainer.appendChild(diffCanvas);
@@ -5165,16 +5612,59 @@ const DiffSeek = (function () {
         onDiffVisibilityChanged,
     });
     function onDiffVisibilityChanged(editorName, shown, hidden) { }
-    function onSelectionChanged() { }
+    function onSelectionChanged() {
+        if (true)
+            return;
+        // const selection = window.getSelection();
+        // if (selection && selection.rangeCount > 0) {
+        // 	const range = selection.getRangeAt(0);
+        // 	let editor: Editor2 | null = null;
+        // 	if (leftEditor.wrapper.contains(range.commonAncestorContainer)) {
+        // 		editor = leftEditor;
+        // 	} else if (rightEditor.wrapper.contains(range.commonAncestorContainer)) {
+        // 		editor = rightEditor;
+        // 	} else {
+        // 		console.log("Selection changed outside editors:", range, range.toString());
+        // 	}
+        // 	if (editor) {
+        // 		const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(range);
+        // 		if (startTokenIndex >= 0 && endTokenIndex > startTokenIndex) {
+        // 			const [otherStartTokenIndex, otherEndTokenIndex] = mapTokenRangeToOtherSide(
+        // 				_diffContext.rawEntries!,
+        // 				editor === leftEditor ? "left" : "right",
+        // 				startTokenIndex,
+        // 				endTokenIndex
+        // 			);
+        // 			console.debug("Selection changed:", startTokenIndex, endTokenIndex, " >>>", otherStartTokenIndex, otherEndTokenIndex);
+        // 			if (otherStartTokenIndex >= 0) {
+        // 				const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
+        // 				const otherStartToken = otherEditor.tokens[otherStartTokenIndex];
+        // 				const otherEndToken = otherEditor.tokens[otherEndTokenIndex - 1];
+        // 				if (otherStartToken && otherEndToken) {
+        // 					const otherRange = document.createRange();
+        // 					otherRange.setStart(otherStartToken.range.startContainer, otherStartToken.range.startOffset);
+        // 					otherRange.setEnd(otherEndToken.range.endContainer, otherEndToken.range.endOffset);
+        // 					renderer.setSelectionHighlight(otherRange);
+        // 					return;
+        // 				}
+        // 			}
+        // 		}
+        // 	}
+        // }
+        // renderer.setSelectionHighlight(null);
+    }
     function getEditorCallbacks(editorName) {
         const pendingDiffVisibilities = new Map();
         let updateDiffVisilitiesPending = false;
         //const editor = editorName === "left" ? leftEditor : rightEditor;
         return {
-            onTextChanged: function () {
+            onContentChanged: function () {
                 editorContentsChanged[editorName] = true;
                 onSelectionChanged();
                 computeDiff();
+            },
+            onRender() {
+                //alignAnchors();
             },
             onScroll(scrollTop, _) {
                 // updateCanvas();
@@ -5184,6 +5674,15 @@ const DiffSeek = (function () {
                 const editor = editorName === "left" ? leftEditor : rightEditor;
                 const otherEditor = editor === leftEditor ? rightEditor : leftEditor;
                 otherEditor.scrollTop = scrollTop;
+                let flags = 1 /* RenderFlags.Scroll */;
+                if (editorName === "left") {
+                    flags |= 8 /* RenderFlags.LEFT_EDITOR */;
+                }
+                else {
+                    flags |= 16 /* RenderFlags.RIGHT_EDITOR */;
+                }
+                renderer.markDirty(flags);
+                render();
             },
             // 현재 화면 상에 보이는 diff 아이템들.
             onDiffVisibilityChanged: (entries) => {
@@ -5208,6 +5707,10 @@ const DiffSeek = (function () {
             },
         };
     }
+    const resizeObserver = new ResizeObserver(() => {
+        renderer.updateLayout();
+    });
+    resizeObserver.observe(mainContainer);
     function createWorker() {
         // 보안 상 new Worker("worker.js")는 실행 안됨.
         let workerURL;
@@ -5304,11 +5807,9 @@ const DiffSeek = (function () {
                 if (data.reqId === _reqId) {
                     body.classList.remove("computing");
                     _diffContext.rawEntries = data.diffs;
-                    postProcess(_diffContext);
+                    update(_diffContext);
                     _diffContext.done = true;
                     _diffContext.processTime = data.processTime;
-                    renderer.setDiffRanges("left", _diffContext.leftDiffRanges);
-                    renderer.setDiffRanges("right", _diffContext.rightDiffRanges);
                     onDiffComputed(_diffContext);
                 }
             }
@@ -5331,7 +5832,6 @@ const DiffSeek = (function () {
     // 		editor.selectTextRange(startOffset, endOffset);
     // 	}
     // }
-    function syncScrollPosition(sourceEditor) { }
     let resetHighlightId = null;
     function highlightDiff(diffIndex) {
         if (resetHighlightId !== null) {
@@ -5395,68 +5895,6 @@ const DiffSeek = (function () {
     // });
     function toggleSyncScroll() {
         _syncEditor = !_syncEditor;
-    }
-    function updateDiffList() {
-        // if (!_diffContext.done) {
-        // 	return;
-        // }
-        // const diffs = _diffContext.diffs!;
-        // const headings = _diffContext.headings ?? [];
-        // _diffListItemElements.length = 0;
-        // const fragment = document.createDocumentFragment();
-        // let headingIndex = 0;
-        // let leftPos = 0;
-        // for (let i = 0; i < diffs.length; i++) {
-        // 	const diff = diffs[i];
-        // 	const thisLeftPos = diff.left.pos;
-        // 	// 귀찮음의 정점. 대충 돌아가게만... 딱 거기까지만...
-        // 	for (let j = leftPos; j < thisLeftPos; j++) {
-        // 		for (; headingIndex < headings.length; headingIndex++) {
-        // 			const heading = headings[headingIndex];
-        // 			if (heading.left.pos > thisLeftPos) {
-        // 				break;
-        // 			}
-        // 			const li = document.createElement("LI");
-        // 			const hd = document.createElement("A");
-        // 			hd.className = "heading";
-        // 			hd.dataset.heading = headingIndex.toString();
-        // 			hd.textContent = heading.ordinalText + " " + heading.title;
-        // 			li.appendChild(hd);
-        // 			fragment.appendChild(li);
-        // 		}
-        // 	}
-        // 	const li = document.createElement("LI");
-        // 	const button = document.createElement("MARK");
-        // 	button.draggable = true;
-        // 	button.dataset.diff = i.toString();
-        // 	button.className = "diff-color" + ((i % NUM_DIFF_COLORS) + 1);
-        // 	li.appendChild(button);
-        // 	const leftText = leftEditor.sliceText(diff.left.pos, diff.left.pos + diff.left.len);
-        // 	const leftSpan = document.createElement("SPAN");
-        // 	leftSpan.textContent = leftText;
-        // 	leftSpan.classList.add("left");
-        // 	button.appendChild(leftSpan);
-        // 	const rightText = rightEditor.sliceText(diff.right.pos, diff.right.pos + diff.right.len);
-        // 	const rightSpan = document.createElement("SPAN");
-        // 	rightSpan.textContent = rightText;
-        // 	rightSpan.classList.add("right");
-        // 	button.appendChild(rightSpan);
-        // 	fragment.appendChild(li);
-        // 	_diffListItemElements[i] = li;
-        // 	leftPos = thisLeftPos;
-        // }
-        // for (; headingIndex < headings.length; headingIndex++) {
-        // 	const heading = headings[headingIndex];
-        // 	const li = document.createElement("LI");
-        // 	const hd = document.createElement("A");
-        // 	hd.className = "heading";
-        // 	hd.dataset.heading = headingIndex.toString();
-        // 	hd.textContent = heading.ordinalText + " " + heading.title;
-        // 	li.appendChild(hd);
-        // 	fragment.appendChild(li);
-        // }
-        // diffList.innerHTML = "";
-        // diffList.appendChild(fragment);
     }
     document.addEventListener("copy", (e) => {
         if (_diffContext.done === false) {
@@ -5602,8 +6040,8 @@ const DiffSeek = (function () {
     });
     function scrollToDiff(diffIndex) {
         _preventScrollSync = true;
-        leftEditor.scrollToDiff(diffIndex);
-        rightEditor.scrollToDiff(diffIndex);
+        // leftEditor.scrollToDiff(diffIndex);
+        // rightEditor.scrollToDiff(diffIndex);
         requestAnimationFrame(() => {
             _preventScrollSync = false;
         });
@@ -5621,7 +6059,6 @@ const DiffSeek = (function () {
         editor.editor.addEventListener("keydown", (e) => {
             if (e.key === " " && e.ctrlKey) {
                 // 에디터에서 편집 중 반대쪽 에디터의 스크롤 위치를 현재 에디터의 내용에 맞추...려고 시도만 해 봄.
-                syncScrollPosition(editor);
                 return;
             }
             if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
@@ -5664,22 +6101,8 @@ const DiffSeek = (function () {
         }
         editor.editor.addEventListener("click", onClick);
     }
-    function clearAnchors() {
-        for (let i = 0; i < _anchors.length; i++) {
-            const entry = _anchors[i];
-            const leftEl = entry.leftEl;
-            const rightEl = entry.rightEl;
-            leftEl.classList.remove("padtop");
-            leftEl.removeAttribute("data-anchor");
-            leftEl.style.removeProperty("--padding");
-            rightEl.classList.remove("padtop");
-            rightEl.removeAttribute("data-anchor");
-            leftEl.style.removeProperty("--padding");
-        }
-        _anchors.length = 0;
-    }
     let _resizeCancelId = null;
-    function alignAnchors() {
+    function alignAnchors(callingEditor) {
         if (_resizeCancelId !== null) {
             cancelIdleCallback(_resizeCancelId);
             //clearTimeout(_resizeCancelId);
@@ -5692,8 +6115,6 @@ const DiffSeek = (function () {
         let iteration = 0;
         do {
             changed = false;
-            const leftAnchors = leftEditor.anchors;
-            const rightAnchors = rightEditor.anchors;
             for (let i = 0; i < _anchors.length; i++) {
                 const leftScrollTop = leftEditor.wrapper.scrollTop;
                 const rightScrollTop = rightEditor.wrapper.scrollTop;
@@ -5761,6 +6182,8 @@ const DiffSeek = (function () {
         leftEditor.editor.style.removeProperty("--min-height");
         rightEditor.editor.style.removeProperty("--min-height");
         _resizeCancelId = requestAnimationFrame(() => {
+            // leftEditor.markDirty(RenderFlags.ALL);
+            // rightEditor.markDirty(RenderFlags.ALL);
             const leftHeight = leftEditor.editor.scrollHeight;
             const rightHeight = rightEditor.editor.scrollHeight;
             const maxHeight = Math.max(leftHeight, rightHeight);
@@ -5775,40 +6198,32 @@ const DiffSeek = (function () {
             else {
                 leftEditor.scrollTop = rightEditor.scrollTop;
             }
-            leftEditor.markDirty(7 /* RenderFlags.ALL */);
-            rightEditor.markDirty(7 /* RenderFlags.ALL */);
+            renderer.markDirty(24 /* RenderFlags.EDITOR_MASK */ | 4 /* RenderFlags.DIFF_GEOMETRY */);
+            renderer.render();
             _preventScrollSync = false;
         });
+        console.log("alignAnchors done:");
     }
     // 무식하게 큰 함수
     // 찝찝한데... 재미 없는 부분이라...
-    function postProcess(diffContext) {
-        // const leftText = diffContext.leftText!;
-        // const rightText = diffContext.rightText!;
+    function update(diffContext) {
         const leftTokens = diffContext.leftTokens;
         const rightTokens = diffContext.rightTokens;
         const rawEntries = diffContext.rawEntries;
+        const unusedAnchors = new Set();
+        for (const anchor of _anchors) {
+            unusedAnchors.add(anchor.leftEl);
+            unusedAnchors.add(anchor.rightEl);
+        }
         const diffs = [];
         const leftDiffs = [];
         const rightDiffs = [];
-        const leftAnchors = [];
-        const rightAnchors = [];
-        const anchors = [];
-        const sectionHeadings = [];
-        const headingStack = [];
-        const MAX_ANCHOR_SKIP = 5;
-        let anchorSkipCount = 0;
-        const leftDiffRanges = [];
-        const rightDiffRanges = [];
-        diffContext.leftDiffRanges = leftDiffRanges;
-        diffContext.rightDiffRanges = rightDiffRanges;
         let currentDiff = null;
         for (let i = 0; i < rawEntries.length; i++) {
             const entry = rawEntries[i];
             const left = entry.left;
             const right = entry.right;
             if (entry.type) {
-                // diff entry
                 if (currentDiff) {
                     console.assert(currentDiff.left.pos + currentDiff.left.len === entry.left.pos, currentDiff, entry);
                     console.assert(currentDiff.right.pos + currentDiff.right.len === entry.right.pos, currentDiff, entry);
@@ -5818,7 +6233,6 @@ const DiffSeek = (function () {
                 }
                 else {
                     currentDiff = { left: { ...entry.left }, right: { ...entry.right }, type: entry.type };
-                    //prevEntry = entry;
                 }
             }
             else {
@@ -5829,23 +6243,24 @@ const DiffSeek = (function () {
                 currentDiff = null;
                 const leftToken = leftTokens[left.pos];
                 const rightToken = rightTokens[right.pos];
-                if (leftToken.flags & rightToken.flags & (CONTAINER_START | LINE_START)) {
-                    leftAnchors.push({
-                        tokenIndex: left.pos,
-                        type: "start",
-                    });
-                    rightAnchors.push({
-                        tokenIndex: right.pos,
-                        type: "start",
-                    });
+                if (leftToken.flags & rightToken.flags & 4 /* TokenFlags.BLOCK_START */) {
+                    const leftAnchorEl = leftEditor.getOrInsertStartAnchor(left.pos);
+                    const rightAnchorEl = rightEditor.getOrInsertStartAnchor(right.pos);
+                    if (leftAnchorEl && rightAnchorEl) {
+                        _anchors.push({
+                            leftEl: leftAnchorEl,
+                            rightEl: rightAnchorEl,
+                            delta: 0,
+                        });
+                        unusedAnchors.delete(leftAnchorEl);
+                        unusedAnchors.delete(rightAnchorEl);
+                    }
                 }
             }
         }
         if (currentDiff) {
             finalizeDiff();
         }
-        let _alignAnchorCancelId = null;
-        // TODO: => finalizeDiff 로 바꾸고 args 제거
         function finalizeDiff() {
             const diffIndex = diffs.length;
             const leftIndex = currentDiff.left.pos;
@@ -5853,6 +6268,7 @@ const DiffSeek = (function () {
             const leftTokenCount = currentDiff.left.len;
             const rightTokenCount = currentDiff.right.len;
             const leftDiffItem = {
+                diffIndex,
                 tokenIndex: leftIndex,
                 tokenCount: leftTokenCount,
                 preferBlockStart: false,
@@ -5860,6 +6276,7 @@ const DiffSeek = (function () {
                 flags: 0,
             };
             const rightDiffItem = {
+                diffIndex,
                 tokenIndex: rightIndex,
                 tokenCount: rightTokenCount,
                 preferBlockStart: false,
@@ -5871,12 +6288,23 @@ const DiffSeek = (function () {
                 const leftEndToken = leftTokens[leftIndex + leftTokenCount - 1];
                 const rightToken = rightTokens[rightIndex];
                 const rightEndToken = rightTokens[rightIndex + rightTokenCount - 1];
-                if (leftToken.flags & rightToken.flags & LINE_START) {
+                if (leftToken.flags & rightToken.flags & 4 /* TokenFlags.BLOCK_START */) {
                     leftDiffItem.preferBlockStart = true;
                     rightDiffItem.preferBlockStart = true;
-                    if (leftEndToken.flags & rightEndToken.flags & LINE_END) {
+                    if (leftEndToken.flags & rightEndToken.flags & 8 /* TokenFlags.BLOCK_END */) {
                         leftDiffItem.preferBlockEnd = true;
                         rightDiffItem.preferBlockEnd = true;
+                    }
+                    const leftAnchorEl = leftEditor.getOrInsertStartAnchor(leftIndex);
+                    const rightAnchorEl = rightEditor.getOrInsertStartAnchor(rightIndex);
+                    if (leftAnchorEl && rightAnchorEl) {
+                        _anchors.push({
+                            leftEl: leftAnchorEl,
+                            rightEl: rightAnchorEl,
+                            delta: 0,
+                        });
+                        unusedAnchors.delete(leftAnchorEl);
+                        unusedAnchors.delete(rightAnchorEl);
                     }
                 }
             }
@@ -5907,16 +6335,16 @@ const DiffSeek = (function () {
                 const filledEndToken = filledTokens[filledTokenIndex + filledTokenCount - 1];
                 const emptyBeforeToken = emptyTokens[emptyTokenIndex - 1];
                 const emptyAfterToken = emptyTokens[emptyTokenIndex];
-                if (filledToken.flags & LINE_START) {
+                if (filledToken.flags & 1 /* TokenFlags.LINE_START */) {
                     filledItem.preferBlockStart = true;
-                    if (emptyBeforeToken && emptyBeforeToken.flags & LINE_END) {
+                    if (emptyBeforeToken && emptyBeforeToken.flags & 2 /* TokenFlags.LINE_END */) {
                         // empty item starts with a line end token, so it should be considered as a block start
                         emptyItem.preferBlockStart = true;
                     }
                 }
-                if (filledEndToken.flags & LINE_END) {
+                if (filledEndToken.flags & 2 /* TokenFlags.LINE_END */) {
                     filledItem.preferBlockEnd = true;
-                    if (emptyAfterToken && emptyAfterToken.flags & LINE_START) {
+                    if (emptyAfterToken && emptyAfterToken.flags & 1 /* TokenFlags.LINE_START */) {
                         // empty item ends with a line start token, so it should be considered as a block end
                         emptyItem.preferBlockEnd = true;
                     }
@@ -5925,30 +6353,56 @@ const DiffSeek = (function () {
             leftDiffs.push(leftDiffItem);
             rightDiffs.push(rightDiffItem);
         }
-        leftEditor.update({ diffs: leftDiffs, anchors: leftAnchors });
-        rightEditor.update({ diffs: rightDiffs, anchors: rightAnchors });
-        const leftAnchorEls = leftEditor.anchors;
-        const rightAnchorEls = rightEditor.anchors;
-        _anchors.length = 0;
-        for (let i = 0; i < leftAnchors.length; i++) {
-            const leftAnchor = leftAnchorEls[i];
-            const rightAnchor = rightAnchorEls[i];
-            if (!leftAnchor || !rightAnchor) {
-                continue;
-            }
-            _anchors.push({
-                leftEl: leftAnchor,
-                rightEl: rightAnchor,
-                // type : leftAnchors[i].type,
-                delta: 0,
+        // leftEditor.update({ diffs: leftDiffs, anchors: leftAnchors });
+        // rightEditor.update({ diffs: rightDiffs, anchors: rightAnchors });
+        const finalDiffsLeft = [];
+        const finalDiffsRight = [];
+        for (let diffIndex = 0; diffIndex < leftDiffs.length; diffIndex++) {
+            const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
+            const leftDiff = leftDiffs[diffIndex];
+            const rightDiff = rightDiffs[diffIndex];
+            const [leftRange, leftAnchorEl] = getDiffRange(leftEditor, leftDiff);
+            const [rightRange, rightAnchorEl] = getDiffRange(rightEditor, rightDiff);
+            finalDiffsLeft.push({
+                diffIndex,
+                range: leftRange,
+                fill: `hsl(${hue} 100% 80%)`,
+                stroke: `hsl(${hue} 100% 40% / 0.5)`,
+                geometry: null,
             });
+            finalDiffsRight.push({
+                diffIndex,
+                range: rightRange,
+                fill: `hsl(${hue} 100% 80%)`,
+                stroke: `hsl(${hue} 100% 40% / 0.5)`,
+                geometry: null,
+            });
+            if (leftAnchorEl) {
+                unusedAnchors.delete(leftAnchorEl);
+            }
+            if (rightAnchorEl) {
+                unusedAnchors.delete(rightAnchorEl);
+            }
         }
-        if (_alignAnchorCancelId !== null) {
-            cancelIdleCallback(_alignAnchorCancelId);
-            //clearTimeout(_alignAnchorCancelId);
+        renderer.setDiffs("left", finalDiffsLeft);
+        renderer.setDiffs("right", finalDiffsRight);
+        console.log("final diffs:", finalDiffsLeft, finalDiffsRight);
+        for (const anchor of unusedAnchors) {
+            anchor.remove();
         }
-        _alignAnchorCancelId = requestAnimationFrame(() => {
-            // alignAnchors();
+        render();
+    }
+    function render() {
+        if (_renderPending) {
+            return;
+        }
+        _renderPending = true;
+        renderer.markDirty(24 /* RenderFlags.EDITOR_MASK */ | 7 /* RenderFlags.ALL */);
+        requestAnimationFrame(() => {
+            renderer.render();
+            console.log("render done");
+            requestAnimationFrame(() => { });
+            _renderPending = false;
         });
     }
     _diffContext = {
@@ -5974,13 +6428,59 @@ const DiffSeek = (function () {
                 activeEditor: _activeEditor,
             };
         },
-        clearAnchors,
         compute: computeDiff,
         diffOptions: _diffOptions,
         get outputOptions() {
             return _outputOptions;
         },
     };
+    function getDiffRange(editor, diff) {
+        let range = null;
+        let anchorEl = null;
+        if (diff.tokenCount === 0) {
+            let bestInsertionPoint = null;
+            let bestScore = -1;
+            for (const point of editor.yieldAnchorPointsInRange(diff.tokenIndex)) {
+                let score = 0;
+                if (diff.preferBlockStart && point.flags & 64 /* InsertionPointFlags.BlockStart */) {
+                    score += 1;
+                }
+                if (diff.preferBlockEnd && point.flags & 128 /* InsertionPointFlags.BlockEnd */) {
+                    score += 1;
+                }
+                if (score > bestScore || (score === bestScore && bestInsertionPoint === null)) {
+                    bestInsertionPoint = point;
+                    bestScore = score;
+                }
+            }
+            if (bestInsertionPoint) {
+                [range, anchorEl] = getOrCreateDiffAnchorOrRangeFromInsertionPoint(bestInsertionPoint);
+            }
+        }
+        if (!range) {
+            range = editor.createTokenRange(diff.tokenIndex, diff.tokenCount);
+        }
+        return [range, anchorEl];
+    }
+    function getOrCreateDiffAnchorOrRangeFromInsertionPoint(point) {
+        const range = document.createRange();
+        let anchorEl = null;
+        if (point.existingAnchor) {
+            range.selectNode(point.existingAnchor);
+            anchorEl = point.existingAnchor;
+        }
+        else {
+            range.setStart(point.container, point.offset);
+            range.collapse(true);
+            if (point.container.nodeType === 1) {
+                anchorEl = document.createElement("A");
+                anchorEl.classList.add("anchor", "diff-anchor");
+                range.insertNode(anchorEl);
+                range.selectNode(anchorEl);
+            }
+        }
+        return [range, anchorEl];
+    }
 })();
 //# sourceMappingURL=main.js.map
 </script>

@@ -5,11 +5,6 @@ declare type Token = {
 	flags: number;
 };
 
-declare type Span = {
-	pos: number;
-	len: number;
-};
-
 type Rect = {
 	x: number;
 	y: number;
@@ -17,25 +12,22 @@ type Rect = {
 	height: number;
 };
 
+declare type Span = {
+	pos: number;
+	len: number;
+};
+
 declare type DiffType = 0 | 1 | 2 | 3;
 
-declare type DiffEntry = {
+declare type RawDiff = {
 	type: DiffType;
 	left: Span;
 	right: Span;
-	asBlock?: boolean;
 };
 
 declare type AnchorType = "before" | "after";
 
-declare type Anchor = {
-	type: AnchorType;
-	left: number;
-	right: number;
-	diffIndex: number | null;
-	// leftLine: number;
-	// rightLine: number;
-};
+declare type Anchor = {};
 
 declare type Anchor2 = {};
 
@@ -79,7 +71,7 @@ declare type DiffRequest = {
 declare type DiffResponse = {
 	type: "diff";
 	reqId: number;
-	diffs: DiffEntry[];
+	diffs: RawDiff[];
 	// anchors: Anchor[];
 	// leftTokenCount: number;
 	// rightTokenCount: number;
@@ -101,24 +93,14 @@ type TextRun = {
 };
 
 declare type DiffContext = {
-	reqId: number;
+	leftTokens: readonly RichToken[];
+	rightTokens: readonly RichToken[];
 	diffOptions: DiffOptions;
-	// leftTokens?: Token[];
-	// rightTokens?: Token[];
-	rawEntries?: DiffEntry[];
-	diffs?: DiffEntry[];
-	// anchors?: Anchor[];
-	headings?: SectionHeading[];
-	leftDiffRects?: Rect[][];
-	rightDiffRects?: Rect[][];
-	done: boolean;
-	processTime?: number;
-
-	leftDiffRanges?: Range[][];
-	rightDiffRanges?: Range[][];
-
-	leftTokens: readonly RichToken[] | null;
-	rightTokens: readonly RichToken[] | null;
+	rawDiffs: RawDiff[];
+	processTime: number;
+	diffs: DiffItem[];
+	anchors: AnchorPair[];
+	outdated: boolean;
 };
 
 type LineHint = {
@@ -175,14 +157,6 @@ type RenderItem = {
 	strokeStyle?: string;
 };
 
-type DiffRectSet = {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-	rects: Rect[];
-};
-
 type TextHighlightRenderItem = {
 	rects: Rect[];
 	minX: number;
@@ -202,6 +176,12 @@ type TextSelectionHighlight = {
 	renderItem?: { rects: Rect[] } & RenderBounds;
 };
 
+type RectSet = {
+	rects: Rect[];
+	fillStyle: string | null;
+	strokeStyle: string | null;
+} & RenderBounds;
+
 type RenderBounds = {
 	minX: number;
 	minY: number;
@@ -212,21 +192,17 @@ type RenderBounds = {
 // type RectsWithBoundsOptional = ({ rects: Rect[] } & RenderBounds) | ({ rects?: undefined } & RenderBoundsUndefined);
 // type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
 
-type AnchorPairs = {
+type AnchorPair = {
 	leftEl: HTMLElement;
 	rightEl: HTMLElement;
-
-	delta: number;
+	diffIndex?: number;
 };
-
-type RectSet = {
-	rects: Rect[];
-} & RenderBounds;
 
 type RichToken = {
 	text: string;
 	flags: number;
 	range: LightRange | Range;
+	lineNum: number;
 	container: RichTokenContainer;
 };
 
@@ -239,8 +215,20 @@ type RichTokenContainer = {
 };
 
 type LightRange = {
-	startContainer: Node;
+	startContainer: Text;
 	startOffset: number;
-	endContainer: Node;
-	endOffset: number;	
-}
+	endContainer: Text;
+	endOffset: number;
+};
+
+type DiffResult = {
+	diffs: RawDiff[];
+	processTime: number;
+};
+
+type DiffItem = {
+	diffIndex: number;
+	hue: number;
+	leftRange:Range;
+	rightRange: Range;
+};

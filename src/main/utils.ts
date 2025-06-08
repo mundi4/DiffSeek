@@ -1,16 +1,3 @@
-function isRectVisible(
-	top: number,
-	bottom: number,
-	left: number,
-	right: number,
-	viewportTop: number,
-	viewportLeft: number,
-	viewportWidth: number,
-	viewportHeight: number
-): boolean {
-	return bottom >= viewportTop && top <= viewportTop + viewportHeight && right >= viewportLeft && left <= viewportLeft + viewportWidth;
-}
-
 function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
 	let timeoutId: number;
 	return function (this: any, ...args: any) {
@@ -42,8 +29,7 @@ function findIndexByPos(arr: { pos: number; len: number }[], pos: number): numbe
 	return ~low;
 }
 
-function findDiffEntryRangeByPos(entries: DiffEntry[], side: "left" | "right", pos: number, endPos: number) {
-	console.log("findDiffEntryRangeByPos", { entries, side, pos, endPos });
+function findDiffEntryRangeByPos(entries: RawDiff[], side: "left" | "right", pos: number, endPos: number) {
 	let low = 0;
 	let high = entries.length - 1;
 	let mappedStart = 0;
@@ -80,8 +66,8 @@ function findDiffEntryRangeByPos(entries: DiffEntry[], side: "left" | "right", p
 	return [mappedStart, mappedEnd];
 }
 
-function mapTokenRangeToOtherSide(rawEntries: DiffEntry[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
-	console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
+function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
+	// console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
 	const otherSide = side === "left" ? "right" : "left";
 	let low = 0;
 	let high = rawEntries.length - 1;
@@ -125,6 +111,7 @@ function mapTokenRangeToOtherSide(rawEntries: DiffEntry[], side: "left" | "right
 		}
 	}
 
+	// console.warn("mapTokenRangeToOtherSide result", { mappedStart, mappedEnd });
 	return [mappedStart, mappedEnd];
 }
 
@@ -320,6 +307,33 @@ function dumpRange() {
 	} else {
 		console.log("no selection");
 	}
+}
+
+function findAdjacentTextNode(node: Node, skipEmpty = false): Text | null {
+	let root: Node = node;
+	while (root && !BLOCK_ELEMENTS[root.nodeName]) {
+		root = root.parentNode!;
+	}
+
+	let next: Node | null = advanceNode(node, root, true);
+	while (next) {
+		if (next.nodeType === 3) {
+			if (!skipEmpty || next.nodeValue!.length > 0) {
+				return next as Text;
+			}
+		} else {
+			const nextName = next.nodeName;
+			if (BLOCK_ELEMENTS[nextName]) {
+				break;
+			}
+			if (nextName === "BR" || nextName === "IMG" || nextName === "HR") {
+				break;
+			}
+		}
+		next = advanceNode(next, root);
+	}
+
+	return null;
 }
 
 function advanceNode(currentNode: Node, rootNode: Node | null = null, skipChildren = false): Node | null {
@@ -633,7 +647,7 @@ function isNodeStartInsideRange(element: Node, range: Range) {
 	return range.compareBoundaryPoints(Range.START_TO_START, elementStart) <= 0 && range.compareBoundaryPoints(Range.END_TO_START, elementStart) > 0;
 }
 
-function extractRects(sourceRange: Range): Rect[] {
+function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Rect[] {
 	// console.debug("extractRects", sourceRange);
 
 	const result: Rect[] = [];
@@ -682,7 +696,7 @@ function extractRects(sourceRange: Range): Rect[] {
 		endOffset = -1;
 	}
 
-	console.debug("extractRects", { sourceRange, startNode, endNode, endOffset });
+	// console.debug("extractRects", { sourceRange, startNode, endNode, endOffset });
 	const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
 
 	if (!startNode || !endNode) {
@@ -692,7 +706,7 @@ function extractRects(sourceRange: Range): Rect[] {
 
 	if (endNode.compareDocumentPosition(startNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
 		// startNode가 endNode보다 뒤에 있는 경우
-		console.warn("extractRects: startNode is after endNode", startNode, endNode);
+		// console.warn("extractRects: startNode is after endNode", startNode, endNode);
 		return result;
 	}
 
@@ -737,18 +751,30 @@ function extractRects(sourceRange: Range): Rect[] {
 		} else if (currentNode.nodeName === "BR") {
 			//
 		} else if (currentNode.nodeName === "A") {
-			const tempText = document.createTextNode("\u200B"); // zero-width space
-			currentNode.appendChild(tempText);
-			tempRange.selectNodeContents(tempText);
-			for (const rect of tempRange.getClientRects()) {
-				result.push({
-					x: rect.x,
-					y: rect.y,
-					width: rect.width,
-					height: rect.height,
-				});
+			if (forceAnchorRects) {
+				// 가장 확실한 방법이지만 넣었다 뺐다 잘못하면 인생 망가짐... reflow 유발 => 많이 느리다.
+				const tempText = document.createTextNode("\u200B"); // zero-width space
+				currentNode.appendChild(tempText);
+				tempRange.selectNodeContents(tempText);
+				for (const rect of tempRange.getClientRects()) {
+					result.push({
+						x: rect.x,
+						y: rect.y,
+						width: rect.width,
+						height: rect.height,
+					});
+				}
+				tempText.remove();
+			} else {
+				for (const rect of (currentNode as HTMLElement).getClientRects()) {
+					result.push({
+						x: rect.x,
+						y: rect.y,
+						width: rect.width,
+						height: rect.height,
+					});
+				}
 			}
-			tempText.remove();
 		} else if (currentNode.nodeName === "IMG") {
 			tempRange.selectNode(currentNode);
 			for (const rect of tempRange.getClientRects()) {
@@ -763,4 +789,21 @@ function extractRects(sourceRange: Range): Rect[] {
 	} while (walker.nextNode());
 
 	return result;
+}
+
+// plaintext를 복붙할 때...
+function formatPlaintext(plaintext: string) {
+	const lines = plaintext.split(/\r?\n/);
+	const fragment = document.createDocumentFragment();
+	for (const line of lines) {
+		const p = document.createElement("P");
+		if (line === "") {
+			p.appendChild(document.createElement("BR"));
+		} else {
+			p.appendChild(document.createTextNode(line));
+		}
+		fragment.appendChild(p);
+	}
+
+	return fragment;
 }

@@ -1,312 +1,295 @@
 const enum RenderFlags {
+	NONE = 0,
 	DIFF = 1 << 0,
-	SELECTION_HIGHLIGHT = 1 << 1,
-	DIFF_GEOMETRY = 1 << 2,
-	ALL = DIFF | SELECTION_HIGHLIGHT | DIFF_GEOMETRY,
-	LEFT_EDITOR = 1 << 3,
-	RIGHT_EDITOR = 1 << 4,
-	EDITOR_MASK = LEFT_EDITOR | RIGHT_EDITOR,
+	GEOMETRY = 1 << 1,
+	HIGHLIGHT_DIFF = 1 << 2,
+	HIGHLIGHT_SELECTION = 1 << 3,
+	HIGHLIGHT = HIGHLIGHT_DIFF | HIGHLIGHT_SELECTION,
+	SCROLL = DIFF | HIGHLIGHT,
+	RESIZE = DIFF | HIGHLIGHT | GEOMETRY,
+	ALL = DIFF | GEOMETRY | HIGHLIGHT,
 }
 
-type EditorRenderRegion = {
-	editor: Editor2;
-	x: number;
-	y: number;
-	width: number;
-	height: number;
-	scrollTop: number;
-	scrollLeft: number;
-	dirtyFlags: number;
-	diffRanges: Range[][] | null;
-	diffRenderItems: DiffRenderItem2[] | null;
-	diffLineRects: Rect[];
-	visibleDiffIndices: Set<number>;
-	diffRectsDirty: boolean;
-};
+const DIFF_EXPAND_X = 2;
+const DIFF_EXPAND_Y = 0;
+const DIFF_LINE_EXPAND_Y = 0;
+const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
+const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
+const SELECTION_HIGHLIGHT_FILL_STYLE = "rgba(128, 128, 128, 0.3)";
 
 type RendererCallbacks = {
-	onDiffVisibilityChanged: (editor: EditorName, shown: number[], hidden: number[]) => void;
+	diffVisibilityChanged: (entries: VisibilityChangeEntry[]) => void;
 };
 
-function createRenderer(_container: HTMLElement, _leftEditor: Editor2, _rightEditor: Editor2, callbacks: RendererCallbacks) {
-	const DIFF_EXPAND_X = 2;
-	const DIFF_EXPAND_Y = 0;
-	const DIFF_LINE_EXPAND_Y = 1;
-	const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
-	const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
+type DiffRenderItem = {
+	diffIndex: number;
+	range: Range;
+	hue: number;
+	geometry: RectSet | null;
+};
 
-	const onDiffVisibilityChanged: (editor: EditorName, shown: number[], hidden: number[]) => void = callbacks.onDiffVisibilityChanged || (() => {});
+class Renderer {
+	#container: HTMLElement;
+	#editor: Editor;
+	#canvas: HTMLCanvasElement;
+	#ctx: CanvasRenderingContext2D;
+	#shouldClearCanvas: boolean = false;
 
-	const _leftRegion: EditorRenderRegion = {
-		editor: _leftEditor,
-		x: 0,
-		y: 0,
-		width: 0,
-		height: 0,
-		scrollTop: 0,
-		scrollLeft: 0,
-		dirtyFlags: 0,
-		diffRanges: null,
-		diffRenderItems: null,
-		diffLineRects: [],
-		diffRectsDirty: false,
-		visibleDiffIndices: new Set(),
-	};
-	const _rightRegion: EditorRenderRegion = {
-		editor: _rightEditor,
-		x: 0,
-		y: 0,
-		width: 0,
-		height: 0,
-		scrollTop: 0,
-		scrollLeft: 0,
-		dirtyFlags: 0,
-		diffRanges: null,
-		diffRenderItems: null,
-		diffLineRects: [],
-		diffRectsDirty: false,
-		visibleDiffIndices: new Set(),
-	};
+	#highlightCanvas: HTMLCanvasElement;
+	#highlightCtx: CanvasRenderingContext2D;
+	#shouldClearHighlightCanvas: boolean = false;
 
-	let _canvasX: number = 0;
-	let _canvasY: number = 0;
-	let _canvasWidth: number = 0;
-	let _canvasHeight: number = 0;
-	let _renderPending: boolean = false;
+	#canvasX: number = 0;
+	#canvasY: number = 0;
+	#canvasWidth: number = 0;
+	#canvasHeight: number = 0;
 
-	let _diffs: DiffRenderItem2[] = [];
-	let _selectionHighlight: Range | null = null;
-	let _selectionHighlightRects: RectSet | null = null;
+	#diffs: DiffRenderItem[] = [];
+	#diffGeometries: RectSet[] = [];
+	#diffLineRects: Rect[] = [];
 
-	const diffCanvas = document.createElement("canvas");
-	const diffCanvasCtx = diffCanvas.getContext("2d")!;
-	_container.appendChild(diffCanvas);
+	#selectionHighlight: Range | null = null;
+	#selectionHighlightRects: RectSet | null = null;
 
-	const highlightCanvas = document.createElement("canvas");
-	const highlightCanvasCtx = highlightCanvas.getContext("2d")!;
-	_container.appendChild(highlightCanvas);
+	#dirtyFlags: number = 0;
+	#renderPending: boolean = false;
+	#visibleDiffIndices: Set<number> = new Set();
+	#callbacks: RendererCallbacks;
+	#highlightedDiffIndex: number | null = null;
 
-	const resizeObserver = new ResizeObserver((entries) => {
-		// updateLayout();
-		// render();
-	});
-	resizeObserver.observe(_container);
-	resizeObserver.observe(_leftEditor.wrapper);
-	resizeObserver.observe(_rightEditor.wrapper);
+	constructor(editor: Editor, container: HTMLElement, callbacks: RendererCallbacks) {
+		this.#editor = editor;
+		this.#container = container;
+		this.#callbacks = callbacks;
+		this.#canvas = document.createElement("canvas");
+		this.#ctx = this.#canvas.getContext("2d")!;
+		container.appendChild(this.#canvas);
 
-	function onEditorScroll(e: Event) {
-		// const editor = e.target === _leftEditor.wrapper ? _leftEditor : _rightEditor;
-		// const editorName = editor.name;
-		// const scrollTop = editor.wrapper.scrollTop;
-		// const scrollLeft = editor.wrapper.scrollLeft;
-		// const region = editorName === "left" ? _leftRegion : _rightRegion;
-		// if (region.scrollTop !== scrollTop || region.scrollLeft !== scrollLeft) {
-		// 	region.scrollTop = scrollTop;
-		// 	region.scrollLeft = scrollLeft;
-		// 	region.dirtyFlags |= RenderFlags.ALL;
-		// 	render();
-		// }
+		this.#highlightCanvas = document.createElement("canvas");
+		this.#highlightCtx = this.#highlightCanvas.getContext("2d")!;
+		container.appendChild(this.#highlightCanvas);
+
+		this.updateLayout();
 	}
-	_leftEditor.wrapper.addEventListener("scroll", onEditorScroll);
-	_rightEditor.wrapper.addEventListener("scroll", onEditorScroll);
 
-	function updateLayout() {
-		const { x, y, width, height } = _container.getBoundingClientRect();
-		if (_canvasWidth === width && _canvasHeight === height && _canvasX === x && _canvasY === y) {
+	updateLayout() {
+		const { x, y, width, height } = this.#container.getBoundingClientRect();
+		this.#canvasX = x;
+		this.#canvasY = y;
+		this.#canvasWidth = width;
+		this.#canvasHeight = height;
+
+		this.#canvas.width = width;
+		this.#canvas.height = height;
+		this.#highlightCanvas.width = width;
+		this.#highlightCanvas.height = height;
+		this.markDirty(RenderFlags.ALL);
+	}
+
+	setDiffs(diffs: DiffRenderItem[]) {
+		{
+			const entries: VisibilityChangeEntry[] = [];
+			for (let i = 0; i < this.#diffs.length; i++) {
+				entries.push({ item: i, isVisible: false });
+			}
+			this.#callbacks.diffVisibilityChanged(entries);
+		}
+		this.#diffs = diffs;
+		this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
+		this.#visibleDiffIndices.clear();
+		this.#selectionHighlight = null;
+	}
+
+	setSelectionHighlight(range: Range | null) {
+		const current = this.#selectionHighlight;
+		if (current === range) {
+			return false; // No change
+		}
+		if (
+			current &&
+			range &&
+			current.startContainer === range.startContainer &&
+			current.endContainer === range.endContainer &&
+			current.startOffset === range.startOffset &&
+			current.endOffset === range.endOffset
+		) {
+			return false; // No change in selection
+		}
+
+		this.#selectionHighlight = range;
+		this.#selectionHighlightRects = null;
+		this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
+		return true;
+	}
+
+	markDirty(flags: number) {
+		this.#dirtyFlags |= flags;
+		if (this.#renderPending) {
 			return;
 		}
-		_canvasX = x;
-		_canvasY = y;
-		_canvasWidth = width;
-		_canvasHeight = height;
-		diffCanvas.width = width;
-		diffCanvas.height = height;
-		highlightCanvas.width = width;
-		highlightCanvas.height = height;
+	}
 
-		for (const editor of [_leftEditor, _rightEditor]) {
-			const editorName = editor.name;
-			const region = editorName === "left" ? _leftRegion : _rightRegion;
-			const { x, y, width, height } = editor.wrapper.getBoundingClientRect();
-			region.x = x - _canvasX;
-			region.y = y - _canvasY;
-			region.width = width;
-			region.height = height;
-			region.scrollTop = editor.wrapper.scrollTop;
-			region.scrollLeft = editor.wrapper.scrollLeft;
-			// region.diffRenderItems = null;
-			region.dirtyFlags |= RenderFlags.ALL;
+	getDiffAtPoint(x: number, y: number): number | null {
+		// console.log("Getting diff at point:", x, y);
+		for (const diffIndex of this.#visibleDiffIndices) {
+			// console.log("Checking diff index:", diffIndex, "at point:", x, y);
+			const geometry = this.#diffGeometries[diffIndex];
+			// console.log("Geometry for diff index:", diffIndex, "is", geometry);
+			for (const rect of geometry.rects) {
+				// console.log("Checking rect:", rect, "at point:", x, y);
+				if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
+					// console.log("Found diff at index:", diffIndex);
+					return diffIndex;
+				}
+			}
+		}
+		return null;
+	}
+
+	render() {
+		if (this.#dirtyFlags & RenderFlags.DIFF) {
+			this.renderDiffs();
 		}
 
-		markDirty(RenderFlags.DIFF | RenderFlags.DIFF_GEOMETRY | RenderFlags.LEFT_EDITOR | RenderFlags.RIGHT_EDITOR);
-		render();
+		if (this.#dirtyFlags & RenderFlags.HIGHLIGHT) {
+			this.renderHighlightLayer();
+		}
+
+		this.#dirtyFlags = 0;
 	}
 
-	let _renderCounter = 0;
-	function render() {
-		renderEditorRegion("left");
-		renderEditorRegion("right");
-		renderSelectionHighlight();
-	}
+	renderDiffs() {
+		if (this.#dirtyFlags & RenderFlags.GEOMETRY) {
+			this.buildDiffGeometries();
+		}
+		// console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
 
-	function renderEditorRegion(editorName: EditorName) {
-		const region = editorName === "left" ? _leftRegion : _rightRegion;
-		if (region.dirtyFlags & RenderFlags.DIFF) {
-			let renderItems = region.diffRenderItems;
-			if (!renderItems) {
-				console.warn("No diff render items found for editor:", editorName);
-				return;
+		const ctx = this.#ctx;
+		const canvasWidth = this.#canvasWidth;
+		const canvasHeight = this.#canvasHeight;
+		const visibleDiffIndices = this.#visibleDiffIndices;
+		const visChangeEntries: VisibilityChangeEntry[] = [];
+
+		if (this.#shouldClearCanvas) {
+			ctx.clearRect(0, 0, this.#canvasWidth, this.#canvasHeight);
+			this.#shouldClearCanvas = false;
+		}
+
+		let renderedAny = false;
+		const { scrollLeft, scrollTop } = this.#container;
+
+		ctx.fillStyle = DIFF_LINE_FILL_STYLE;
+		for (const rect of this.#diffLineRects) {
+			const x = Math.floor(rect.x - scrollLeft),
+				y = Math.floor(rect.y - scrollTop),
+				width = Math.ceil(rect.width),
+				height = Math.ceil(rect.height);
+
+			if (y + height < 0) continue;
+			if (y > canvasHeight) break;
+			ctx.fillRect(x, y, width, height);
+			renderedAny = true;
+		}
+
+		const visibleIndices: Set<number> = new Set();
+
+		for (let diffIndex = 0; diffIndex < this.#diffGeometries.length; diffIndex++) {
+			const geometry = this.#diffGeometries[diffIndex];
+
+			let isVisible =
+				!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
+				!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
+
+			if (isVisible) {
+				visibleIndices.add(diffIndex);
+				if (!visibleDiffIndices.has(diffIndex)) {
+					visibleDiffIndices.add(diffIndex);
+					visChangeEntries.push({ item: diffIndex, isVisible: true });
+				}
+			} else {
+				if (visibleDiffIndices.has(diffIndex)) {
+					visibleDiffIndices.delete(diffIndex);
+					visChangeEntries.push({ item: diffIndex, isVisible: false });
+				}
+				continue;
 			}
 
-			if (region.dirtyFlags & RenderFlags.DIFF_GEOMETRY) {
-				buildDiffGeometries(region);
-			}
+			ctx.fillStyle = geometry.fillStyle!;
+			ctx.strokeStyle = geometry.strokeStyle!;
 
-			const ctx = diffCanvasCtx;
-			const { scrollLeft, scrollTop } = region.editor;
-			console.log("rendering editor region:", editorName, "scrollLeft:", scrollLeft, "scrollTop:", scrollTop);
-			ctx.clearRect(region.x, region.y, region.width, region.height);
-
-			let visibleDiffIndices = region.visibleDiffIndices;
-			ctx.fillStyle = DIFF_LINE_FILL_STYLE;
-			console.log("diffLineRects:", region.diffLineRects);
-			for (const rect of region.diffLineRects!) {
+			for (const rect of geometry.rects) {
 				const x = Math.floor(rect.x - scrollLeft),
 					y = Math.floor(rect.y - scrollTop),
 					width = Math.ceil(rect.width),
 					height = Math.ceil(rect.height);
 
-				if (y + height < 0 || y > _canvasHeight) continue;
-				if (x + width < 0 || x > _canvasWidth) continue;
+				if (y + height < 0 || y > canvasHeight) continue;
+				if (x + width < 0 || x > canvasWidth) continue;
+
+				// console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
 				ctx.fillRect(x, y, width, height);
-			}
-
-			let shown: number[] = [];
-			let hidden: number[] = [];
-
-			for (let diffIndex = 0; diffIndex < renderItems.length; ++diffIndex) {
-				const item = renderItems[diffIndex];
-				if (!item) {
-					continue;
-				}
-
-				const geometry = item.geometry!;
-
-				let isVisible =
-					!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > _canvasHeight) &&
-					!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > _canvasWidth);
-
-				if (isVisible) {
-					if (!visibleDiffIndices.has(diffIndex)) {
-						visibleDiffIndices.add(diffIndex);
-						shown.push(diffIndex);
-					}
-				} else {
-					if (visibleDiffIndices.has(diffIndex)) {
-						visibleDiffIndices.delete(diffIndex);
-						hidden.push(diffIndex);
-					}
-					continue;
-				}
-
-				ctx.fillStyle = item.fill;
-				ctx.strokeStyle = item.stroke;
-
-				for (const rect of geometry.rects) {
-					const x = Math.floor(rect.x - scrollLeft),
-						y = Math.floor(rect.y - scrollTop),
-						width = Math.ceil(rect.width),
-						height = Math.ceil(rect.height);
-
-					if (y + height < 0 || y > _canvasHeight) continue;
-					if (x + width < 0 || x > _canvasWidth) continue;
-					// console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
-					ctx.fillRect(x, y, width, height);
-					ctx.strokeRect(x, y, width, height);
-					// item.renderedRect.push(rect);
-				}
-			}
-
-			if (shown.length > 0 || hidden.length > 0) {
-				onDiffVisibilityChanged(editorName, shown, hidden);
+				ctx.strokeRect(x, y, width, height);
+				renderedAny = true;
 			}
 		}
-	}
 
-	function renderSelectionHighlight() {
-		console.log("Rendering selection highlight:", _selectionHighlight?.toString(), _selectionHighlight);
-		const ctx = highlightCanvasCtx;
-		ctx.clearRect(0, 0, _canvasWidth, _canvasHeight);
-
-		if (_selectionHighlight) {
-			if (!_selectionHighlightRects) {
-				const rawRects = extractRects(_selectionHighlight);
-				console.log("Raw selection highlight rects:", rawRects);
-				_selectionHighlightRects = mergeRects(rawRects, 1, 1);
-			}
-			console.log("Selection highlight rects:", _selectionHighlightRects);
-			ctx.fillStyle = "rgba(128, 128, 128, 0.5)";
-			for (const rect of _selectionHighlightRects.rects) {
-				const x = Math.floor(rect.x - _canvasX),
-					y = Math.floor(rect.y - _canvasY),
-					width = Math.ceil(rect.width),
-					height = Math.ceil(rect.height);
-				ctx.fillRect(x, y, width, height);
-			}
+		if (visChangeEntries.length > 0) {
+			this.#callbacks.diffVisibilityChanged(visChangeEntries);
 		}
+
+		this.#shouldClearCanvas = renderedAny;
 	}
 
-	function buildDiffGeometries(region: EditorRenderRegion) {
-		const wrapper = region.editor.wrapper;
-		const _canvasOffsetX = _canvasX; // + region.x;
-		const _canvasOffsetY = _canvasY; // + region.y;
+	buildDiffGeometries() {
+		const scrollTop = this.#container.scrollTop;
+		const scrollLeft = this.#container.scrollLeft;
+		const offsetX = -this.#canvasX + scrollLeft;
+		const offsetY = -this.#canvasY + scrollTop;
 
-		const scrollTop = wrapper.scrollTop;
-		const scrollLeft = wrapper.scrollLeft;
-		const offsetX = -_canvasOffsetX + scrollLeft;
-		const offsetY = -_canvasOffsetY + scrollTop;
-
-		void region.editor.wrapper.offsetWidth; // force reflow
+		//void this.#container.offsetWidth; // force reflow
 
 		const allDiffRects: Rect[] = [];
-		if (region.diffRenderItems) {
-			for (let diffIndex = 0; diffIndex < region.diffRenderItems.length; diffIndex++) {
-				const item = region.diffRenderItems[diffIndex];
-				const range = item.range;
-				const rawRects = extractRects(range);
-				for (const rect of rawRects) {
-					rect.x += offsetX - DIFF_EXPAND_X;
-					rect.y += offsetY - DIFF_EXPAND_Y;
-					rect.width += DIFF_EXPAND_X * 2;
-					rect.height += DIFF_EXPAND_Y * 2;
-					allDiffRects.push(rect);
-				}
-				item.geometry = mergeRects(rawRects, 1, 1);
+		this.#diffGeometries.length = this.#diffs.length;
+
+		for (let diffIndex = 0; diffIndex < this.#diffs.length; diffIndex++) {
+			const item = this.#diffs[diffIndex];
+			const range = item.range;
+			const rawRects = extractRects(range, true);
+			for (const rect of rawRects) {
+				rect.x += offsetX - DIFF_EXPAND_X;
+				rect.y += offsetY - DIFF_EXPAND_Y;
+				rect.width += DIFF_EXPAND_X * 2;
+				rect.height += DIFF_EXPAND_Y * 2;
+				allDiffRects.push(rect);
 			}
+			const mergedRects = mergeRects(rawRects, 1, 1) as RectSet;
+			mergedRects.fillStyle = `hsl(${item.hue} 100% 80%)`;
+			mergedRects.strokeStyle = `hsl(${item.hue} 100% 40% / 0.5)`;
+			this.#diffGeometries[diffIndex] = mergedRects;
+			item.geometry = mergedRects;
 		}
 
-		buildDiffLineRects(region, allDiffRects);
+		this.buildDiffLineRects(allDiffRects);
 	}
 
-	function buildDiffLineRects(region: EditorRenderRegion, diffRects: Rect[]) {
+	buildDiffLineRects(diffRects: Rect[]) {
 		const TOLERANCE = 1;
 
-		const _diffLineRects = region.diffLineRects;
-		_diffLineRects.length = 0;
+		const lineRects: Rect[] = [];
 
 		diffRects.sort((a, b) => a.y - b.y);
 		const rects: Rect[] = [];
 
+		const canvasWidth = this.#canvasWidth;
 		let lineRect: Rect | null = null;
 		for (const rect of diffRects) {
 			const y = rect.y - DIFF_LINE_EXPAND_Y;
 			const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER + DIFF_LINE_EXPAND_Y * 2;
-			//const height = rect.height + lineExpand * 2;
 			if (lineRect === null || y > lineRect.y + lineRect.height) {
 				lineRect = {
-					x: region.x,
+					x: 0,
 					y: y,
-					width: region.width - 2,
+					width: canvasWidth,
 					height: height,
 				};
 				rects.push(lineRect);
@@ -335,52 +318,145 @@ function createRenderer(_container: HTMLElement, _leftEditor: Editor2, _rightEdi
 					};
 				} else {
 					// 병합 불가: 현재까지 병합된 것 push
-					_diffLineRects.push(current);
+					lineRects.push(current);
 					current = next;
 				}
 			}
-			_diffLineRects.push(current);
+			lineRects.push(current);
 		}
 
-		console.log("Built diff line rects:", _diffLineRects, "for editor:", region.editor.name);
+		this.#diffLineRects = lineRects;
 	}
 
-	updateLayout();
+	renderHighlightLayer() {
+		// console.log("Rendering selection highlight:", this.#selectionHighlight);
 
-	function markDirty(flags: number) {
-		const editorFlags = flags & RenderFlags.EDITOR_MASK;
-		if (editorFlags & RenderFlags.LEFT_EDITOR) {
-			_leftRegion.dirtyFlags |= flags & ~RenderFlags.EDITOR_MASK;
+		const ctx = this.#highlightCtx;
+		if (this.#shouldClearHighlightCanvas) {
+			ctx.clearRect(0, 0, this.#highlightCanvas.width, this.#highlightCanvas.height);
+			this.#shouldClearHighlightCanvas = false;
 		}
-		if (editorFlags & RenderFlags.RIGHT_EDITOR) {
-			_rightRegion.dirtyFlags |= flags & ~RenderFlags.EDITOR_MASK;
+
+		const scrollTop = this.#container.scrollTop;
+		const scrollLeft = this.#container.scrollLeft;
+		const canvasWidth = this.#canvasWidth;
+		const canvasHeight = this.#canvasHeight;
+		let renderedAny = false;
+
+		if (this.#highlightedDiffIndex !== null) {
+			// console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
+			const diff = this.#diffs[this.#highlightedDiffIndex];
+			const rects = this.#diffGeometries[this.#highlightedDiffIndex];
+			if (rects) {
+				let isVisible =
+					!(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > canvasHeight) &&
+					!(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > canvasWidth);
+				if (!isVisible) {
+					return;
+				}
+
+				ctx.lineWidth = 2;
+				ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
+				// ctx.shadowColor = `hsl(${baseHue} 100% 60% / 0.8)`;
+				// ctx.shadowBlur = 20;
+
+				for (const rect of rects.rects) {
+					const x = Math.floor(rect.x - scrollLeft) - 1,
+						y = Math.floor(rect.y - scrollTop) - 1,
+						width = Math.ceil(rect.width) + 2,
+						height = Math.ceil(rect.height) + 2;
+
+					if (y + height < 0 || y > canvasHeight) continue;
+					if (x + width < 0 || x > canvasWidth) continue;
+
+					ctx.strokeRect(x, y, width, height);
+
+					// ctx.lineWidth = 2;
+					// ctx.strokeStyle = "white";
+					// ctx.shadowBlur = 0;
+					// ctx.shadowColor = "transparent";
+					// ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+
+					renderedAny = true;
+				}
+			}
+			ctx.lineWidth = 1;
+			// ctx.shadowBlur = 0;
+			// ctx.strokeStyle = "transparent";
 		}
-		render();
-	}
 
-	function setDiffs(editorName: EditorName, diffs: DiffRenderItem2[]) {
-		const region = editorName === "left" ? _leftRegion : _rightRegion;
-		if (region.diffRenderItems !== diffs) {
-			region.diffRenderItems = diffs;
-			region.diffRectsDirty = true;
-			region.dirtyFlags |= RenderFlags.DIFF | RenderFlags.DIFF_GEOMETRY;
+		if (this.#selectionHighlight) {
+			if (!this.#selectionHighlightRects || this.#dirtyFlags & RenderFlags.GEOMETRY) {
+				let start = performance.now();
+				const offsetX = -this.#canvasX + scrollLeft;
+				const offsetY = -this.#canvasY + scrollTop;
+
+				const rawRects = extractRects(this.#selectionHighlight);
+
+				let end = performance.now();
+				start = end;
+
+				const mergedRect = mergeRects(rawRects, 1, 1) as RectSet;
+				for (const rect of mergedRect.rects) {
+					rect.x += offsetX;
+					rect.y += offsetY;
+				}
+				mergedRect.minX += offsetX;
+				mergedRect.minY += offsetY;
+				mergedRect.maxX += offsetX;
+				mergedRect.maxY += offsetY;
+				mergedRect.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
+				mergedRect.strokeStyle = null;
+
+				this.#selectionHighlightRects = mergedRect;
+				// console.log("Extracted selection highlight rects in", performance.now() - start, "ms");
+			}
+			let geometry = this.#selectionHighlightRects;
+
+			let isVisible =
+				!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
+				!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
+			if (!isVisible) {
+				return;
+			}
+
+			ctx.fillStyle = geometry.fillStyle!;
+			for (const rect of geometry.rects) {
+				const x = Math.floor(rect.x - scrollLeft),
+					y = Math.floor(rect.y - scrollTop),
+					width = Math.ceil(rect.width),
+					height = Math.ceil(rect.height);
+
+				if (y + height < 0) continue;
+				if (y > canvasHeight) break;
+
+				ctx.fillRect(x, y, width, height);
+				renderedAny = true;
+			}
+		}
+
+		if (renderedAny) {
+			this.#shouldClearHighlightCanvas = true;
 		}
 	}
 
-	function setSelectionHighlight(range: Range | null) {
-		_selectionHighlight = range;
-		_selectionHighlightRects = null; // reset cached rects
-		markDirty(RenderFlags.SELECTION_HIGHLIGHT);
+	setDiffHighlight(diffIndex: number | null) {
+		if (this.#highlightedDiffIndex === diffIndex) {
+			return; // No change
+		}
+		// RECT는 필요 없음
+		let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
+		this.#highlightedDiffIndex = diffIndex;
+		let shouldShow = diffIndex !== null && this.#visibleDiffIndices.has(diffIndex);
+		this.#dirtyFlags |= RenderFlags.HIGHLIGHT_DIFF;
+		return prevShowing || shouldShow;
 	}
 
-	function clearSelectionHighlight() {}
-
-	return {
-		updateLayout,
-		markDirty,
-		render,
-		setDiffs,
-		setSelectionHighlight,
-		clearSelectionHighlight,
-	};
+	getDiffOffsetY(diffIndex: number): number | undefined {
+		const geometry = this.#diffGeometries[diffIndex];
+		if (!geometry) {
+			return undefined;
+		}
+		return geometry.minY;
+	}
 }

@@ -2,7 +2,7 @@
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
-	--status-bar-height: 22px;
+	--status-bar-height: 0px;
 	font-size: 16px;
 	--container-gap: 8px;
 	--sidebar-width: 200px;
@@ -87,6 +87,7 @@ html {
 	position: relative;
 	outline: 1px solid #ccc;
 	outline-offset: 0px;
+	overflow-anchor: none;
 }
 
 .mirror,
@@ -385,7 +386,8 @@ scrolling
 	display: block;
 }
 
-#diffList mark {
+#diffList li {
+	cursor: pointer;
 	position: relative;
 	display: block;
 	color: hsl(var(--diff-hue) 100% 20%);
@@ -703,8 +705,11 @@ h6 {
 .padtop::before {
 	content: "";
 	display: block;
-	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 	height: var(--padding, 0px);
+}
+
+.padtop.striped::before {
+	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
 
 .diff-anchor:not(p .diff-anchor)::before {

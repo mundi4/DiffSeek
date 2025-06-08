@@ -68,7 +68,6 @@ function isReddish(color: string): boolean {
 	let isRed = reddishCache.get(color);
 	if (isRed !== undefined) return isRed;
 
-	console.log("no cache hit", color);
 	const rgb = getRGB(color);
 	isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
 
@@ -76,145 +75,154 @@ function isReddish(color: string): boolean {
 	return isRed;
 }
 
-type ElementState = {
-	flags: number;
-	firstNonWhitespaceSeen: boolean;
+// const INLINE_ELEMENTS: Record<string, boolean> = {
+// 	SPAN: true,
+// 	A: true,
+// 	B: true,
+// 	I: true,
+// 	U: true,
+// 	EM: true,
+// 	STRONG: true,
+// 	S: true,
+// 	STRIKE: true,
+// 	SUB: true,
+// 	SUP: true,
+// 	SMALL: true,
+// 	BIG: true,
+// 	MARK: true,
+// 	INS: true,
+// 	DEL: true,
+// 	CODE: true,
+// 	KBD: true,
+// 	SAMP: true,
+// 	VAR: true,
+// 	DFN: true,
+// 	ABBR: true,
+// 	TIME: true,
+// 	CITE: true,
+// 	Q: true,
+// 	LABEL: true,
+// };
+
+// const LINEBREAK_ELEMENTS: Record<string, boolean> = {
+// 	DD: true,
+// 	DT: true,
+// 	DIV: true,
+// 	P: true,
+// 	H1: true,
+// 	H2: true,
+// 	H3: true,
+// 	H4: true,
+// 	H5: true,
+// 	H6: true,
+// 	UL: true,
+// 	OL: true,
+// 	LI: true,
+// 	BLOCKQUOTE: true,
+// 	FORM: true,
+// 	HEADER: true,
+// 	FOOTER: true,
+// 	ARTICLE: true,
+// 	SECTION: true,
+// 	ASIDE: true,
+// 	NAV: true,
+// 	ADDRESS: true,
+// 	FIGURE: true,
+// 	FIGCAPTION: true,
+// 	TABLE: true,
+// 	CAPTION: true,
+// 	TR: true,
+// };
+
+// const EXCLUDED_HTML_TAGS: Record<string, number> = {
+// 	SCRIPT: 1,
+// 	STYLE: 1,
+// 	IFRAME: 1,
+// 	OBJECT: 1,
+// 	EMBED: 1,
+// 	LINK: 1,
+// 	META: 1,
+// 	BASE: 1,
+// 	APPLET: 1,
+// 	FRAME: 1,
+// 	FRAMESET: 1,
+// 	NOSCRIPT: 1,
+// 	SVG: 1,
+// 	MATH: 1,
+// 	TEMPLATE: 1,
+// 	HEAD: 1,
+// };
+
+type ElementOptions = {
+	allowedAttrs?: Record<string, boolean>;
+	allowedStyles?: Record<string, boolean>;
+	replaceTag?: string;
+	void?: boolean;
 };
 
-type TextFragment = {
-	text: string;
-	flags: number;
+const DefaultElementOptions: ElementOptions = {};
+
+const AsDivElementOptions: ElementOptions = {
+	replaceTag: "DIV",
 };
 
-
-const INLINE_ELEMENTS: Record<string, boolean> = {
-	SPAN: true,
-	A: true,
-	B: true,
-	I: true,
-	U: true,
-	EM: true,
-	STRONG: true,
-	S: true,
-	STRIKE: true,
-	SUB: true,
-	SUP: true,
-	SMALL: true,
-	BIG: true,
-	MARK: true,
-	INS: true,
-	DEL: true,
-	CODE: true,
-	KBD: true,
-	SAMP: true,
-	VAR: true,
-	DFN: true,
-	ABBR: true,
-	TIME: true,
-	CITE: true,
-	Q: true,
-	LABEL: true,
+const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
+	TABLE: DefaultElementOptions,
+	TBODY: DefaultElementOptions,
+	THEAD: DefaultElementOptions,
+	TFOOT: DefaultElementOptions,
+	CAPTION: DefaultElementOptions,
+	TR: DefaultElementOptions,
+	TH: { allowedAttrs: { colspan: true, rowspan: true } },
+	TD: { allowedAttrs: { colspan: true, rowspan: true } },
+	H1: DefaultElementOptions,
+	H2: DefaultElementOptions,
+	H3: DefaultElementOptions,
+	H4: DefaultElementOptions,
+	H5: DefaultElementOptions,
+	H6: DefaultElementOptions,
+	SUP: DefaultElementOptions,
+	SUB: DefaultElementOptions,
+	EM: DefaultElementOptions,
+	I: DefaultElementOptions,
+	S: DefaultElementOptions,
+	B: DefaultElementOptions,
+	STRONG: DefaultElementOptions,
+	U: DefaultElementOptions,
+	STRIKE: DefaultElementOptions,
+	P: DefaultElementOptions,
+	UL: DefaultElementOptions,
+	OL: DefaultElementOptions,
+	LI: DefaultElementOptions,
+	DL: DefaultElementOptions,
+	DT: DefaultElementOptions,
+	DD: DefaultElementOptions,
+	DIV: DefaultElementOptions,
+	BLOCKQUOTE: DefaultElementOptions,
+	ADDRESS: DefaultElementOptions,
+	FIELDSET: DefaultElementOptions,
+	LEGEND: DefaultElementOptions,
+	MARK: DefaultElementOptions,
+	CODE: DefaultElementOptions,
+	PRE: DefaultElementOptions,
+	SMALL: DefaultElementOptions,
+	DEL: DefaultElementOptions,
+	INS: DefaultElementOptions,
+	IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+	SPAN: DefaultElementOptions,
+	LABEL: DefaultElementOptions,
+	BR: { void: true },
+	HR: { void: true },
+	FORM: AsDivElementOptions,
+	NAV: AsDivElementOptions,
+	MAIN: AsDivElementOptions,
+	HEADER: AsDivElementOptions,
+	FOOTER: AsDivElementOptions,
+	SECTION: AsDivElementOptions,
+	ARTICLE: AsDivElementOptions,
+	ASIDE: AsDivElementOptions,
+	"#document-fragment": DefaultElementOptions,
 };
-
-const LINEBREAK_ELEMENTS: Record<string, boolean> = {
-	DD: true,
-	DT: true,
-	DIV: true,
-	P: true,
-	H1: true,
-	H2: true,
-	H3: true,
-	H4: true,
-	H5: true,
-	H6: true,
-	UL: true,
-	OL: true,
-	LI: true,
-	BLOCKQUOTE: true,
-	FORM: true,
-	HEADER: true,
-	FOOTER: true,
-	ARTICLE: true,
-	SECTION: true,
-	ASIDE: true,
-	NAV: true,
-	ADDRESS: true,
-	FIGURE: true,
-	FIGCAPTION: true,
-	TABLE: true,
-	CAPTION: true,
-	TR: true,
-};
-
-const EXCLUDED_HTML_TAGS: Record<string, number> = {
-	SCRIPT: 1,
-	STYLE: 1,
-	IFRAME: 1,
-	OBJECT: 1,
-	EMBED: 1,
-	LINK: 1,
-	META: 1,
-	BASE: 1,
-	APPLET: 1,
-	FRAME: 1,
-	FRAMESET: 1,
-	NOSCRIPT: 1,
-	SVG: 1,
-	MATH: 1,
-	TEMPLATE: 1,
-	HEAD: 1,
-};
-
-const EMPTY_ATTRS = {};
-
-const ALLOWED_CONTAINER_TAGS: Record<string, Record<string, boolean>> = {
-	TABLE: EMPTY_ATTRS,
-	TBODY: EMPTY_ATTRS,
-	THEAD: EMPTY_ATTRS,
-	TFOOT: EMPTY_ATTRS,
-	CAPTION: EMPTY_ATTRS,
-	TR: EMPTY_ATTRS,
-	TH: { colspan: true, rowspan: true },
-	TD: { colspan: true, rowspan: true },
-	H1: EMPTY_ATTRS,
-	H2: EMPTY_ATTRS,
-	H3: EMPTY_ATTRS,
-	H4: EMPTY_ATTRS,
-	H5: EMPTY_ATTRS,
-	H6: EMPTY_ATTRS,
-	SUP: EMPTY_ATTRS,
-	SUB: EMPTY_ATTRS,
-	EM: EMPTY_ATTRS,
-	I: EMPTY_ATTRS,
-	S: EMPTY_ATTRS,
-	B: EMPTY_ATTRS,
-	STRONG: EMPTY_ATTRS,
-	U: EMPTY_ATTRS,
-	STRIKE: EMPTY_ATTRS,
-	P: EMPTY_ATTRS,
-	UL: EMPTY_ATTRS,
-	OL: EMPTY_ATTRS,
-	LI: EMPTY_ATTRS,
-	DL: EMPTY_ATTRS,
-	DT: EMPTY_ATTRS,
-	DD: EMPTY_ATTRS,
-	DIV: EMPTY_ATTRS,
-	HEADER: EMPTY_ATTRS,
-	FOOTER: EMPTY_ATTRS,
-	SECTION: EMPTY_ATTRS,
-	ARTICLE: EMPTY_ATTRS,
-	ASIDE: EMPTY_ATTRS,
-	BLOCKQUOTE: EMPTY_ATTRS,
-	ADDRESS: EMPTY_ATTRS,
-
-	//"#document-fragment": EMPTY_ATTRS,
-};
-
-
-
-function customTrim(str: string) {
-	return str.replace(/^[ \t\r\n\f]+|[ \t\r\n\f]+$/g, "");
-}
 
 type ContainerStackItem = {
 	node: ParentNode;
@@ -296,7 +304,22 @@ function parseIfBlock(input: string, start: number): [ConditionalBlock, number] 
 	throw new Error("Missing matching [endif]");
 }
 
+const TRIM_CHARS: Record<string, boolean> = {
+	" ": true,
+	"\n": true,
+	"\r": true,
+	"\t": true,
+	"\f": true,
+};
+
+type SanitizedNodeResult = {
+	node: Node;
+	hasText: boolean;
+	hasNonEmptyText: boolean;
+};
+
 function sanitizeHTML(rawHTML: string): Node {
+	// 보통 복붙을 하면 <!--StartFragment-->와 <!--EndFragment--> 태그로 감싸져 있다.
 	const START_TAG = "<!--StartFragment-->";
 	const END_TAG = "<!--EndFragment-->";
 	const startIndex = rawHTML.indexOf(START_TAG);
@@ -308,352 +331,149 @@ function sanitizeHTML(rawHTML: string): Node {
 			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
 		}
 	}
+	
+	// console.debug("sanitizeHTML called with rawHTML:", rawHTML);
+
+	const containerStack: ContainerStackItem[] = [];
+
+	function traverse(node: Node) {
+		if (
+			node.nodeType !== 1 && // element
+			node.nodeType !== 11 // document fragment
+		) {
+			return null;
+		}
+
+		let color: string | undefined = containerStack[containerStack.length - 1].color;
+		if (node.nodeType === 1) {
+			let colorValue = (node as HTMLElement).style?.color;
+			if (colorValue) {
+				if (colorValue === "inherit") {
+					// use parent color
+				} else {
+					if (isReddish(colorValue)) {
+						color = "red";
+					} else {
+						color = undefined!;
+					}
+				}
+			}
+		}
+
+		const elementOptions = ALLOWED_ELEMENTS[node.nodeName];
+		if (!elementOptions) {
+			return null;
+		}
+
+		let containerNode: ParentNode;
+		if (node.nodeType === 1) {
+			containerNode = document.createElement(elementOptions.replaceTag || node.nodeName);
+			if (elementOptions.allowedAttrs) {
+				for (const attr of (node as HTMLElement).attributes) {
+					if (elementOptions.allowedAttrs[attr.name]) {
+						(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
+					}
+				}
+			}
+			if (elementOptions.allowedStyles) {
+				const style = (node as HTMLElement).style;
+				for (const prop in elementOptions.allowedStyles) {
+					if (style[prop as any]) {
+						(containerNode as HTMLElement).style[prop as any] = style[prop as any];
+					}
+				}
+			}
+
+			let colorValue = (node as HTMLElement).style?.color;
+			if (colorValue) {
+				if (colorValue === "inherit") {
+					// use parent color
+				} else {
+					if (isReddish(colorValue)) {
+						color = "red";
+						(containerNode as HTMLElement).classList.add("color-red");
+					} else {
+						color = undefined!;
+					}
+				}
+			}
+		} else {
+			// document fragment
+			containerNode = document.createDocumentFragment();
+		}
+
+		// if (containerNode instanceof HTMLElement) {
+		// 	let colorValue = (node as HTMLElement).style?.color;
+		// 	if (colorValue) {
+		// 		if (colorValue === "inherit") {
+		// 			// use parent color
+		// 		} else {
+		// 			if (isReddish(colorValue)) {
+		// 				color = "red";
+		// 				(containerNode as HTMLElement).classList.add("color-red");
+		// 			} else {
+		// 				color = undefined!;
+		// 			}
+		// 		}
+		// 	}
+		// }
+
+		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
+		containerStack.push({ node: containerNode, color: color });
+
+		if (!elementOptions.void) {
+			let isTextless = TEXTLESS_ELEMENTS[node.nodeName];
+			for (const child of node.childNodes) {
+				let childResult: Node | null = null;
+	
+				if (child.nodeType === 3) {
+					if (isTextless) {
+						continue;
+					}
+					childResult = document.createTextNode(child.nodeValue!);
+				} else {
+					childResult = traverse(child);
+					if (!childResult) {
+						continue;
+					}
+				}
+	
+				containerNode.appendChild(childResult);
+			}
+		}
+
+		// containerNode.normalize();
+
+		// if (containerNode.nodeName === "P") {
+		// 	if (containerNode.childNodes.length === 0) {
+		// 		containerNode.appendChild(document.createElement("BR"));
+		// 	}
+		// } else {
+		// 	if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
+		// 		containerNode.appendChild(document.createElement("BR"));
+		// 	}
+		// }
+
+		// if (containerNode.nodeType !== 11) {
+		// }
+		containerStack.pop();
+
+		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
+			containerNode.appendChild(document.createTextNode(""));
+		}
+
+		return containerNode;
+	}
 
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
 
-	let flags = 0;
-	const containerStack: ContainerStackItem[] = [];
-
-	function traverse(node: Node) {
-		if (node.nodeType === 3) {
-			if (TEXTLESS_ELEMENTS[node.parentNode!.nodeName]) {
-				return null;
-			}
-			let text = node.nodeValue!;
-			if (TEXT_FLOW_CONTAINERS[node.parentNode!.nodeName]) {
-				text = customTrim(text);
-			}
-			if (text.length === 0) {
-				return null;
-			}
-			text = text.replace(/\n+/g, " ");
-			return document.createTextNode(text);
-		}
-
-		// if (node.nodeType === 8) {
-		// 	console.log("comment", node.nodeValue);
-		// 	const parseResult = parseIfBlock(node.nodeValue!, 0);
-		// 	console.log("parseResult", parseResult);
-		// 	return null;
-		// }
-
-		if (node.nodeType !== 1 && node.nodeType !== 11) {
-			return null;
-		}
-
-		if (EXCLUDED_HTML_TAGS[node.nodeName]) {
-			return null;
-		}
-
-		if (node.nodeName === "O:P") {
-			// if (node.childNodes.length === 1) {
-			// 	const onlyChild = node.childNodes[0];
-			// 	if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "\u00A0") {
-			// 		return document.createTextNode("");
-			// 	}
-			// }
-			return null;
-		}
-
-		if (node.nodeName === "BR") {
-			return document.createElement("BR");
-		}
-
-		if (node.nodeName === "IMG") {
-			const span = document.createElement("SPAN");
-			span.textContent = "🖼️";
-			span.className = "dsimg";
-			span.contentEditable = "false";
-			span.dataset.src = (node as HTMLImageElement).src;
-			return span;
-		}
-
-		let color: string | undefined = containerStack[containerStack.length - 1].color;
-		if (node.nodeType === 1) {
-			let colorValue = (node as HTMLElement).style?.color;
-			if (colorValue) {
-				if (colorValue === "inherit") {
-					// use parent color
-				} else {
-					if (isReddish(colorValue)) {
-						color = "red";
-					} else {
-						color = undefined!;
-					}
-				}
-			}
-		}
-
-		let containerNode: ParentNode | null = null;
-		const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
-		if (allowedAttrs) {
-			containerNode = document.createElement(node.nodeName === "P" ? "DIV" : node.nodeName);
-			for (const attr of (node as HTMLElement).attributes) {
-				if (allowedAttrs[attr.name]) {
-					(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
-				}
-			}
-		} else {
-			containerNode = document.createDocumentFragment();
-		}
-		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
-		containerStack.push({ node: containerNode, color: color });
-
-		let hasChildren = false;
-		//node.normalize();
-
-		for (const child of node.childNodes) {
-			let childResult = traverse(child);
-			if (!childResult) {
-				continue;
-			}
-
-			if (childResult.nodeType === 3) {
-				if (color) {
-					const span = document.createElement("span");
-					span.className = "color-" + color;
-					span.appendChild(childResult);
-					childResult = span;
-				}
-				// console.log("childresult:", {
-				// 	child:child,
-				// 	childResult: childResult,
-				// 	nodeName: childResult.nodeName,
-				// 	nodeType: childResult.nodeType,
-				// 	textContent: (childResult as Text).textContent,
-				// });
-			}
-
-			containerNode.appendChild(childResult);
-			if (!TEXTLESS_ELEMENTS[node.nodeName]) {
-				if (BLOCK_ELEMENTS[child.nodeName] && !BLOCK_ELEMENTS[childResult.nodeName]) {
-					// containerNode.appendChild(document.createElement("BR"));
-				}
-			}
-		}
-
-		containerNode.normalize();
-
-		if (containerNode.nodeName === "P") {
-			if (containerNode.childNodes.length === 0) {
-				containerNode.appendChild(document.createElement("BR"));
-			}
-		} else {
-			if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
-				containerNode.appendChild(document.createElement("BR"));
-			}
-		}
-
-		// if (containerNode.nodeType !== 11) {
-		// }
-		containerStack.pop();
-
-		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
-			containerNode.appendChild(document.createTextNode(""));
-		}
-
-		if (INLINE_ELEMENTS[containerNode.nodeName]) {
-			if (containerNode.childNodes.length === 0) {
-				containerNode = null;
-			} else if (containerNode.childNodes.length === 1) {
-				const onlyChild = containerNode.childNodes[0];
-				if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "") {
-					containerNode = null;
-				}
-			}
-		}
-
-		return containerNode;
-	}
-
 	const root = document.createDocumentFragment();
 	containerStack.push({ node: root, color: undefined });
 	const result = traverse(tmpl.content)!;
-	result.normalize();
-	if (result.childNodes.length === 0) {
-		result.appendChild(document.createTextNode(""));
-	}
+	// result.normalize();
+	// if (result.childNodes.length === 0) {
+	// 	result.appendChild(document.createTextNode(""));
+	// }
 	return result;
 }
-
-function sanitizeNode(content: Node): [Node, boolean] {
-	let hasBlockElements = false;
-	const containerStack: ContainerStackItem[] = [];
-
-	function traverse(node: Node) {
-		if (node.nodeType === 3) {
-			if (TEXTLESS_ELEMENTS[node.parentNode!.nodeName]) {
-				return null;
-			}
-			let text = node.nodeValue!;
-			if (TEXT_FLOW_CONTAINERS[node.parentNode!.nodeName]) {
-				text = customTrim(text);
-			}
-			if (text.length === 0) {
-				return null;
-			}
-			text = text.replace(/\n+/g, " ");
-			return document.createTextNode(text);
-		}
-
-		// if (node.nodeType === 8) {
-		// 	console.log("comment", node.nodeValue);
-		// 	const parseResult = parseIfBlock(node.nodeValue!, 0);
-		// 	console.log("parseResult", parseResult);
-		// 	return null;
-		// }
-
-		if (node.nodeType !== 1 && node.nodeType !== 11) {
-			return null;
-		}
-
-		if (EXCLUDED_HTML_TAGS[node.nodeName]) {
-			return null;
-		}
-
-		if (node.nodeName === "O:P") {
-			// if (node.childNodes.length === 1) {
-			// 	const onlyChild = node.childNodes[0];
-			// 	if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "\u00A0") {
-			// 		return document.createTextNode("");
-			// 	}
-			// }
-			return null;
-		}
-
-		if (node.nodeName === "BR") {
-			return document.createElement("BR");
-		}
-
-		if (node.nodeName === "IMG") {
-			const span = document.createElement("SPAN");
-			span.textContent = "🖼️";
-			span.className = "dsimg";
-			span.contentEditable = "false";
-			span.dataset.src = (node as HTMLImageElement).src;
-			return span;
-		}
-
-		let color: string | undefined = containerStack[containerStack.length - 1].color;
-		if (node.nodeType === 1) {
-			let colorValue = (node as HTMLElement).style?.color;
-			if (colorValue) {
-				if (colorValue === "inherit") {
-					// use parent color
-				} else {
-					if (isReddish(colorValue)) {
-						color = "red";
-					} else {
-						color = undefined!;
-					}
-				}
-			}
-		}
-
-		let containerNode: ParentNode | null = null;
-		const allowedAttrs = ALLOWED_CONTAINER_TAGS[node.nodeName];
-		if (allowedAttrs) {
-			containerNode = document.createElement(node.nodeName);
-			for (const attr of (node as HTMLElement).attributes) {
-				if (allowedAttrs[attr.name]) {
-					(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
-				}
-			}
-		} else {
-			containerNode = document.createDocumentFragment();
-		}
-		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
-		containerStack.push({ node: containerNode, color: color });
-
-		let hasChildren = false;
-		//node.normalize();
-
-		for (const child of node.childNodes) {
-			let childResult = traverse(child);
-			if (!childResult) {
-				continue;
-			}
-
-			if (childResult.nodeType === 3) {
-				if (color) {
-					const span = document.createElement("span");
-					span.className = "color-" + color;
-					span.appendChild(childResult);
-					childResult = span;
-				}
-				// console.log("childresult:", {
-				// 	child:child,
-				// 	childResult: childResult,
-				// 	nodeName: childResult.nodeName,
-				// 	nodeType: childResult.nodeType,
-				// 	textContent: (childResult as Text).textContent,
-				// });
-			}
-
-			containerNode.appendChild(childResult);
-			if (!TEXTLESS_ELEMENTS[node.nodeName]) {
-				if (BLOCK_ELEMENTS[child.nodeName] && !BLOCK_ELEMENTS[childResult.nodeName]) {
-					// containerNode.appendChild(document.createElement("BR"));
-				}
-			}
-		}
-
-		containerNode.normalize();
-
-		if (containerNode.nodeName === "P") {
-			if (containerNode.childNodes.length === 0) {
-				containerNode.appendChild(document.createElement("BR"));
-			}
-		} else {
-			if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
-				containerNode.appendChild(document.createElement("BR"));
-			}
-		}
-
-		// if (containerNode.nodeType !== 11) {
-		// }
-		containerStack.pop();
-
-		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
-			containerNode.appendChild(document.createTextNode(""));
-		}
-
-		if (INLINE_ELEMENTS[containerNode.nodeName]) {
-			if (containerNode.childNodes.length === 0) {
-				containerNode = null;
-			} else if (containerNode.childNodes.length === 1) {
-				const onlyChild = containerNode.childNodes[0];
-				if (onlyChild.nodeType === 3 && onlyChild.nodeValue === "") {
-					containerNode = null;
-				}
-			}
-		} else if (!hasBlockElements && BLOCK_ELEMENTS[containerNode.nodeName]) {
-			hasBlockElements = true;
-		}
-
-		return containerNode;
-	}
-
-	const root = document.createDocumentFragment();
-	containerStack.push({ node: root, color: undefined });
-	const result = traverse(content)!;
-	result.normalize();
-	if (result.childNodes.length === 0) {
-		result.appendChild(document.createTextNode(""));
-	}
-	return [result, hasBlockElements];
-}
-
-	function formatPlaintext(plaintext: string) {
-		const lines = plaintext.split("\n");
-
-		const fragment = document.createDocumentFragment();
-		for (const line of lines) {
-			const p = document.createElement("p");
-			p.textContent = line;
-			fragment.appendChild(p);
-		}
-
-		return fragment;
-	}

@@ -2,25 +2,25 @@ const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
 
 const enum TokenFlags {
-	LINE_START = 1 << 0,
-	LINE_END = 1 << 1,
-	BLOCK_START = 1 << 2,
-	BLOCK_END = 1 << 3,
-	CONTAINER_START = 1 << 4,
-	CONTAINER_END = 1 << 5,
-	TABLE_START = 1 << 6,
-	TABLE_END = 1 << 7,
-	TABLEROW_START = 1 << 8,
-	TABLEROW_END = 1 << 9,
-	TABLECELL_START = 1 << 10,
-	TABLECELL_END = 1 << 11,
-	NO_JOIN_PREV = 1 << 12, // @@@, ### 등등
-	NO_JOIN_NEXT = 1 << 13, // @@@, ### 등등
-	WILD_CARD = 1 << 14,
-	MANUAL_ANCHOR = 1 << 15, // 32. @@@, ### 등등
-	IMAGE = 1 << 16,
-	HTML_SUP = 1 << 17,
-	HTML_SUB = 1 << 18,
+	LINE_START = 1 << 0, // 1
+	LINE_END = 1 << 1, // 2
+	BLOCK_START = 1 << 2, // 4
+	BLOCK_END = 1 << 3, // 8
+	CONTAINER_START = 1 << 4, // 16
+	CONTAINER_END = 1 << 5, // 32
+	TABLE_START = 1 << 6, // 64
+	TABLE_END = 1 << 7, // 128
+	TABLEROW_START = 1 << 8, // 256
+	TABLEROW_END = 1 << 9, // 512
+	TABLECELL_START = 1 << 10, // 1024
+	TABLECELL_END = 1 << 11, // 2048
+	NO_JOIN_PREV = 1 << 12, // 4096 @@@, ### 등등 
+	NO_JOIN_NEXT = 1 << 13, // 8192 @@@, ### 등등 
+	WILD_CARD = 1 << 14, // 16384
+	MANUAL_ANCHOR = 1 << 15, // 32768  @@@, ### 등등 
+	IMAGE = 1 << 16, // 65536
+	HTML_SUP = 1 << 17, // 131072
+	HTML_SUB = 1 << 18, // 262144
 	SECTION_HEADING_TYPE1 = 1 << 19, // 1.
 	SECTION_HEADING_TYPE2 = 1 << 20, // 가.
 	SECTION_HEADING_TYPE3 = 1 << 21, // (1)
@@ -665,6 +665,7 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 	let currentToken: RichToken | null = null;
 	let nextTokenFlags = 0;
 	let recursionCount = 0;
+	let lineNum = 1;
 
 	const containerStack: RichTokenContainer[] = [];
 	let currentContainer: RichTokenContainer = null!;
@@ -685,6 +686,7 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 					endOffset: endOffset,
 				},
 				container: currentContainer,
+				lineNum: lineNum,
 			};
 			nextTokenFlags = 0;
 		}
@@ -772,6 +774,7 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 									endOffset: match.charIndex,
 								},
 								container: currentContainer,
+								lineNum: lineNum,
 							};
 							nextTokenFlags = 0;
 							nodeIndex = match.bufferIndex;
@@ -838,7 +841,6 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 		const tokenStartIndex = tokenIndex;
 
 		for (let i = 0; i < childNodes.length; i++) {
-			// ++recursionCount % 31 === 0 이렇게 해도 되지만 비트연산을 쓰면 뭔가 있어 보인다. 눈꼽만큼 더 빠를걸?
 			if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 1) {
 				idleDeadline = yield;
 			}
@@ -856,18 +858,21 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 						if (textNodes.length > 0) {
 							doTokenize();
 						}
-						nextTokenFlags |= TokenFlags.LINE_END;
+						nextTokenFlags |= TokenFlags.LINE_START;
+						lineNum++;
 					} else if (childNodeName === "IMG") {
 						if (textNodes.length > 0) {
 							doTokenize();
 						}
+
 						const range = document.createRange();
 						range.selectNode(child);
 						tokens[tokenIndex++] = {
-							text: (child as HTMLImageElement).src,
+							text: quickHash53ToString((child as HTMLImageElement).src),
 							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
 							range,
 							container: currentContainer,
+							lineNum: lineNum,
 						};
 						nextTokenFlags = 0;
 					}
@@ -903,6 +908,9 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 					lastToken.flags |=
 						TokenFlags.TABLECELL_END | TokenFlags.NO_JOIN_NEXT | TokenFlags.CONTAINER_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
 				}
+				if (tokenCount > 0) {
+					lineNum++;
+				}
 			} else if (nodeName === "TR") {
 				if (firstToken) {
 					firstToken.flags |= TokenFlags.TABLEROW_START;
@@ -927,6 +935,9 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 					lastToken.flags |= TokenFlags.BLOCK_END | TokenFlags.LINE_END;
 				}
 				nextTokenFlags |= TokenFlags.LINE_START;
+				if (tokenCount > 0) {
+					lineNum++;
+				}
 			}
 
 			if (node === ctx.content) {
@@ -949,4 +960,16 @@ function* tokenizer(ctx: TokinizeContext, idleDeadline: IdleDeadline): Generator
 	tokens.length = tokenIndex;
 
 	return { tokens, containers };
+}
+
+function quickHash53ToString(str: string) {
+	let hash = 0n;
+	const PRIME = 131n;
+
+	for (let i = 0; i < str.length; i++) {
+		hash = hash * PRIME + BigInt(str.charCodeAt(i));
+		hash &= 0x1fffffffffffffn; // 53비트 마스크
+	}
+
+	return hash.toString(36); // 36진수 문자열 변환
 }

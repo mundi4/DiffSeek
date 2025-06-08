@@ -7,13 +7,17 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="github" content="https://github.com/mundi4/DiffSeek">
     <title>DiffSeek</title>
+    <script id="worker.js" src="./build/worker.js" type="text/plain" inline></script>
     <script src="./build/constants.js" inline></script>
     <script src="./build/utils.js" inline></script>
+    <script src="./build/atom.js" inline></script>
     <script src="./build/sanitize.js" inline></script>
     <script src="./build/tokenize.js" inline></script>
-    <script src="./build/editor.js" inline></script>
-    <script src="./build/renderer.js" inline></script>
-    <script id="worker.js" src="./build/worker.js" type="text/plain" inline></script>
+    <script src="./build/Editor.js" inline></script>
+    <script src="./build/Renderer.js" inline></script>
+    <script src="./build/SideView.js" inline></script>
+    <script src="./build/diff.js" inline></script>
+    <script src="./build/DiffSeek.js" inline></script>
     <style id="highlightStyle">
     </style>
     <link rel="stylesheet" href="./styles.css" inline>
@@ -21,15 +25,10 @@
 
 <body>
     <div class="container">
-        <main id="main">
-            <div id="scrollSyncIndicator">🔗</div>
-            <!--leftEditor will be here -->
-            <!-- rightEditor will be here -->
-        </main>
-        <div id="sidebar">
-            <ol id="diffList"></ol>
-        </div>
+        <main id="main"></main>
+        <div id="sidebar"></div>
     </div>
+
     <div id="progress"></div>
     <div id="settingsPopup" class="popup hidden"></div>
     <script>
@@ -49,7 +48,9 @@
         style.textContent = cssText;
         document.head.appendChild(style);
     </script>
-    <script src="./build/main.js" inline></script>
+    <script>
+        window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sidebar"));
+    </script>
 </body>
 
 </html>

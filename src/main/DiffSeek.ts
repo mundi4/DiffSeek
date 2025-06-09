@@ -3,9 +3,6 @@
 const highlightedDiffIndexAtom = createAtom<number | null>("highlightedDiffIndex", null);
 const diffItemClickedEvent = createEventAtom<number>("diffItemClickedEvent");
 
-let preventScrollSync = false;
-let scrollingEditor: Editor | null = null;
-
 type EditorDiff = {
 	diffIndex: number;
 	tokenIndex: number;
@@ -68,6 +65,7 @@ function translateTokenFlagsToAnchorFlags(tokenFlags: number): AnchorFlags {
 }
 
 class DiffSeek {
+	#mainContainer: HTMLElement;
 	//#preventScrollSync = false;
 	#renderCallbackId: number | null = null;
 	#leftEditor: Editor;
@@ -81,27 +79,23 @@ class DiffSeek {
 	#diffContext: DiffContext | null = null;
 	#computeDiffCallbackId: number | null = null;
 	#diffComputedCallbackId: number | null = null;
+	#alignAnchorsCallbackId: number | null = null;
 	#anchorsAligned = false;
 	#textSelectionRange: Range | null = null;
 	#zoom = window.devicePixelRatio;
 	#sideView: SideView;
+	#syncScroll = false;
+	#scrollingEditor: Editor | null = null;
+	#lastScrolledEditor: Editor | null = null;
+	#preventScrollSync = false;
+	#activeEditor: Editor | null = null;
+	#lastActiveEditor: Editor | null = null;
 
 	highlightedDiffIndexAtom = createAtom<number | null>("highlightedDiffIndex", null);
 
-	#sideViewCallbacks: SideViewCallbacks = {
-		onDiffItemMouseOver: (diffIndex) => {
-			this.#leftEditor.setDiffHighlight(diffIndex);
-			this.#rightEditor.setDiffHighlight(diffIndex);
-			this.#requestRender();
-		},
-		onDiffItemMouseOut: () => {
-			this.#leftEditor.setDiffHighlight(null);
-			this.#rightEditor.setDiffHighlight(null);
-			this.#requestRender();
-		},
-	};
-
 	constructor(mainContainer: HTMLElement, asideContainer: HTMLElement) {
+		this.#mainContainer = mainContainer;
+
 		this.#diffOptions = {
 			algorithm: "histogram",
 			tokenization: "word",
@@ -124,9 +118,16 @@ class DiffSeek {
 			onHoverDiff: (editor, diffIndex) => this.#onEditorHoverDiff(editor, diffIndex),
 			onRender: (editor) => this.#onEditorRender(editor),
 			onScroll: (editor, scrollTop, scrollLeft) => this.#onEditorScroll(editor, scrollTop, scrollLeft),
+			onScrollEnd: (editor) => this.#onEditorScrollEnd(editor),
 			onResize: (editor) => this.#onEditorResize(editor),
 			onDiffVisibilityChanged: (editor, entries) => this.#onEditorDiffVisibilityChanged(editor, entries),
 			onRenderInvalidated: (editor, flags) => this.#onEditorRenderInvalidated(editor, flags),
+			onFocus: (editor) => {
+				this.#lastActiveEditor = this.#activeEditor = editor
+			},
+			onBlur: (editor) => {
+				this.#activeEditor = null;
+			},
 		};
 
 		this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
@@ -138,6 +139,19 @@ class DiffSeek {
 		this.setupEventListeners();
 	}
 
+	#sideViewCallbacks: SideViewCallbacks = {
+		onDiffItemMouseOver: (diffIndex) => {
+			this.#leftEditor.setDiffHighlight(diffIndex);
+			this.#rightEditor.setDiffHighlight(diffIndex);
+			this.#requestRender();
+		},
+		onDiffItemMouseOut: () => {
+			this.#leftEditor.setDiffHighlight(null);
+			this.#rightEditor.setDiffHighlight(null);
+			this.#requestRender();
+		},
+	};
+
 	private setupEventListeners() {
 		window.addEventListener("resize", () => {});
 
@@ -145,17 +159,26 @@ class DiffSeek {
 			this.#updateTextSelection();
 		});
 
-		document.addEventListener("keydown", (e) => {
-			if (e.key === "F8") {
-				this.#diffOptions.whitespace = this.#diffOptions.whitespace === "ignore" ? "normalize" : "ignore";
-			}
-			if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
-				e.preventDefault();
-				const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
-				editor.editor.focus();
-				return;
-			}
-		});
+		document.addEventListener(
+			"keydown",
+			(e) => {
+				if (e.key === "F8") {
+					this.#diffOptions.whitespace = this.#diffOptions.whitespace === "ignore" ? "normalize" : "ignore";
+				}
+				if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
+					e.preventDefault();
+					const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
+					editor.editor.focus();
+					return;
+				}
+				if (e.key === "F2") {
+					e.preventDefault();
+					this.syncScroll = !this.#syncScroll;
+					console.log("syncScroll:", this.#syncScroll);
+				}
+			},
+			true
+		);
 
 		highlightedDiffIndexAtom.subscribe((diffIndex) => {
 			this.#leftEditor.setDiffHighlight(diffIndex);
@@ -178,7 +201,7 @@ class DiffSeek {
 			// TODO
 			// 양쪽 에디터에서 해당 diff의 y좌표를 구해서 그 중 작은 값을 기준으로 스크롤 해야함.
 			// 혹은 위로 스크롤 해야되는지 아래로 스크롤 해야하는지를 확인해서...
-			this.#rightEditor.scrollToDiff(diffIndex);
+			this.scrollToDiff(diffIndex);
 		});
 	}
 
@@ -202,11 +225,24 @@ class DiffSeek {
 	}
 
 	#onEditorScroll(editor: Editor, scrollTop: number, scrollLeft: number) {
-		if (!preventScrollSync && (scrollingEditor === null || scrollingEditor === editor)) {
-			const otherEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
-			otherEditor.scrollTop = scrollTop;
+		if (this.#scrollingEditor === null) {
+			this.#lastScrolledEditor = this.#scrollingEditor = editor;
 		}
+
+		if (this.#syncScroll) {
+			if (!this.#preventScrollSync && this.#scrollingEditor === editor) {
+				const otherEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+				otherEditor.scrollTo(scrollTop, { behavior: "instant" });
+			}
+		}
+
 		this.#requestRender();
+	}
+
+	#onEditorScrollEnd(editor: Editor) {
+		if (this.#scrollingEditor === editor) {
+			this.#scrollingEditor = null;
+		}
 	}
 
 	#onEditorResize(editor: Editor) {
@@ -234,7 +270,7 @@ class DiffSeek {
 			this.#renderCallbackId = null;
 		}
 
-		if (!this.#anchorsAligned) {
+		if (this.#syncScroll && !this.#anchorsAligned) {
 			this.alignAnchors();
 		}
 		this.#renderCallbackId = requestAnimationFrame(() => {
@@ -652,6 +688,10 @@ class DiffSeek {
 			this.#_resizeCancelId = null;
 		}
 
+		if (!this.#syncScroll) {
+			return;
+		}
+
 		if (this.#anchorsAligned) {
 			return;
 		}
@@ -660,7 +700,7 @@ class DiffSeek {
 			return;
 		}
 
-		preventScrollSync = true;
+		this.#preventScrollSync = true;
 
 		const MIN_DELTA = 1;
 		const MIN_STRIPED_DELTA = 10;
@@ -696,15 +736,15 @@ class DiffSeek {
 			if (delta > 0) {
 				theEl = rightEl;
 			} else {
-				delta = -delta; // 절대값으로 변환
+				delta = -delta;
 				theEl = leftEl;
 			}
 
 			theEl.classList.add("padtop");
+			theEl.style.setProperty("--padding", `${delta}px`);
 			if (delta >= MIN_STRIPED_DELTA) {
 				theEl.classList.add("striped");
 			}
-			theEl.style.setProperty("--padding", `${delta}px`);
 		}
 
 		leftEditor.editor.style.removeProperty("--min-height");
@@ -716,19 +756,24 @@ class DiffSeek {
 			leftEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
 			rightEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
 
-			if (document.activeElement === leftEditor.editor) {
-				rightEditor.scrollTop = leftEditor.scrollTop;
+			const currentEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
+			const newScrollTop = currentEditor.scrollTop;
+			if (currentEditor === leftEditor) {
+				rightEditor.scrollTo(newScrollTop, { behavior: "instant" });
 			} else {
-				leftEditor.scrollTop = rightEditor.scrollTop;
+				leftEditor.scrollTo(newScrollTop, { behavior: "instant" });
 			}
-
-			preventScrollSync = false;
+			this.#preventScrollSync = false;
 		});
 
 		this.#anchorsAligned = true;
 	}
 
 	#cancelAllCallbacks() {
+		if (this.#alignAnchorsCallbackId !== null) {
+			cancelAnimationFrame(this.#alignAnchorsCallbackId);
+			this.#alignAnchorsCallbackId = null;
+		}
 		if (this.#computeDiffCallbackId !== null) {
 			cancelIdleCallback(this.#computeDiffCallbackId);
 			this.#computeDiffCallbackId = null;
@@ -745,5 +790,50 @@ class DiffSeek {
 		this.#anchorsAligned = false;
 		this.#leftEditor.setSelectionHighlight(null);
 		this.#rightEditor.setSelectionHighlight(null);
+	}
+
+	scrollToDiff(diffIndex: number) {
+		const leftRect = this.#leftEditor.getDiffRect(diffIndex);
+		const rightRect = this.#rightEditor.getDiffRect(diffIndex);
+		if (!leftRect || !rightRect) {
+			return;
+		}
+
+		if (this.#syncScroll) {
+			let scrollTop = Math.min(leftRect.y, rightRect.y);
+			scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
+			this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
+		} else {
+			const leftScrollTop = leftRect.y - SCROLL_MARGIN;
+			const rightScrollTop = rightRect.y - SCROLL_MARGIN;
+			this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
+			this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
+		}
+	}
+
+	get syncScroll() {
+		return this.#syncScroll;
+	}
+
+	set syncScroll(value: boolean) {
+		value = !!value;
+		if (value === this.#syncScroll) {
+			return;
+		}
+
+		this.#syncScroll = value;
+		this.#mainContainer.classList.toggle("sync-scroll", value);
+
+		if (value) {
+			if (this.#alignAnchorsCallbackId !== null) {
+				cancelAnimationFrame(this.#alignAnchorsCallbackId);
+				this.#alignAnchorsCallbackId = null;
+			}
+			this.#alignAnchorsCallbackId = requestAnimationFrame(() => {
+				this.#alignAnchorsCallbackId = null;
+				this.alignAnchors();
+			});
+			this.#requestRender();
+		}
 	}
 }

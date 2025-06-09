@@ -1,9 +1,9 @@
 :root {
+	font-size: 16px;
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
 	--status-bar-height: 0px;
-	font-size: 16px;
 	--container-gap: 8px;
 	--sidebar-width: 200px;
 	--text-container-padding-block: 4px;
@@ -45,6 +45,10 @@ html {
 	height: 20px;
 	pointer-events: none;
 	display: none;
+}
+
+.sync-scroll #scrollSyncIndicator {
+	display: block;
 }
 
 #progress {
@@ -685,9 +689,6 @@ h6 {
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
 
-.editor {
-	min-height: max(100%, var(--min-height, 100%));
-}
 
 .editor::after {
 	content: "";
@@ -702,15 +703,21 @@ h6 {
 	user-select: none;
 }
 
-.padtop::before {
+
+.sync-scroll .padtop::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 }
 
-.padtop.striped::before {
+.sync-scroll .padtop.striped::before {
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
+
+.sync-scroll .editor {
+	min-height: max(100%, var(--min-height, 100%));
+}
+
 
 .diff-anchor:not(p .diff-anchor)::before {
 	/* content: "";
@@ -766,4 +773,8 @@ canvas {
 .restored {
 	transition: none !important; /* 복원 시 즉시 반영 */
 	opacity: 1;
+}
+
+.editor p {
+	min-height: calc(0.5em * var(--line-height, 1.5));
 }

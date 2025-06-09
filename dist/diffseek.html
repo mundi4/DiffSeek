@@ -1,108 +1,4 @@
 <!DOCTYPE html>
-<!--
-# DiffSeek 
-
-### 개요
-- 정말 센스만점 이름. 중국산 DeepSeek 아님. diff를 seek함.
-- 한글자 한글자 눈으로 비교하는건 죽어도 못하겠고 죽어도 하기 싫어서.
-- 공백 무시. 공백을 완전히 무시하는건 완전히 의도된 것임. **업무매뉴얼의 줄바꿈 위치는 절대로 문장의 끝 혹은 단락의 끝과 일치하지 않음!** 공백을 전혀 무시하지 않거나 정규화(여러개의 연속된 공백을 하나로 인식)해서 비교하는 코드를 짜는게 100만배 쉽고 계산속도도 훨씬 빠름. (토글 가능: `DiffSeek.diffOptions.whitespace = "ignore" | "normalize"`)
-- 단어 단위 diff가 기본. 글자 단위 diff는 성능도 성능이지만 사람의 눈에 오히려 더 피곤하기만 함. 줄 단위의 경우도 문서마다 줄바꿈의 위치가 지멋대로라 비효율적임. (토글 가능: `DiffSeek.diffOptions.tokenization = "char" | "word" | "line"`).
-- [GitHub](https://github.com/mundi4/DiffSeek)
-
-### 구현 의도? 참고사항?
-- 양쪽에 텍스트 붙여넣고 실행버튼 딱~ 누르면 diff들이 표시되.... 
-    *왜???? 버튼을 뭐하러 눌러?*
-    **diff는 텍스트 변경시 실시간으로, 입력한 텍스트 바로 그 자리에 보여줘야 함!!** 매번 귀찮게 버튼 누르는 짓은 하고 싶지 않잖아? 솔직히 입력과 출력을 분리하는 게 더 훨씬 쉬움.
-- 실시간으로 업데이트가 일어나는 도중에도 편집을 방해하면 안됨. 미세한 딜레이라든지 의도하지 않은 커서위치 변경, 한글입력상태 복원 등등(한글입력상태 복원 방법은 없다 보면 됨. 우회하는 방법은 업데이트를 안하는것, 최소한 현재 커서가 위치한 노드에 대해서는 업데이트를 안하고 미루는 방법이 거의 유일함).
-- 업데이트마다 DOM을 완전히 싹 갈아엎지 말고 가능한 경우 기존 노드들을 재사용.
-- 편집기(그냥 단순 `<div contenteditable>`임)의 기본적인 기능(복붙,undo/redo,...)들은 되도록 브라우저에게 넘길 것. 이런 기능들은 숨쉬기와 같아서 예상대로 작동 안하는 순간 짜증 솟구침. 또한 나처럼 깐깐한 사람에게 어색함이 안느껴질만큼 제대로 구현하기는 쉽지 않음(커서위치, 텍스트선택범위, 스크롤 위치, 얼마나 많은 편집을 얼마의 딜레이 간격으로 하나의 히스토리 엔트리로 묶을 것인가, 그리고 양쪽 편집기를 왔다갔다 했을 때 등 생각보다 신경쓸 게 많음. 단순히 text만 보관하는 것으로는 어림 없음).
-- 위와 같은 이유로, 편집기와 실제 diff 하이라이트 영역(mirror)을 따로 관리하면서 1px의 오차 없이 정확하게 겹치게 만드는 얍삽한 방법을 씀. 이건 그냥 센스다. editor(see-through) → mirror
-- 크기가 큰 텍스트(5만글자 이상)를 비교할 때에도 편집기가 **충분히(아주 충분히) 반응적일 것**. 딜레이 최소화! 단순 debouncing이 아니라 그 이상이 필요(web worker, RequestIdleCallback, ...)
-- 다른 문자(문자code가 다른 경우)지만 같다고 여겨질 수 있는 경우도 처리하였지만 이건 이러한 문자들을 직접 추가해줘야함(`constants.ts/NORMALIZE_CHARS`).
-- (추가),(신설),(현행과 같음),(삭제) 등은 wildcard로 처리. 이 토큰들은 괄호 안 공백을 무시하고 절대로 중간에서 안잘리게(`(현행과`,`같음)`이 되지 않게) 만들어놨지만 아직은 딱 거기까지임.
-- diff 하이라이트 색들은 정말 **세심하게 고른** 것들임. 절대 불만을 가져서는 안됨. 빨간색 계통은 배경과 확실히 대비되지 않을 수 있기 때문에 의도적으로 제외(`constants.ts/DIFF_COLOR_HUES`).
-- 큰 워드문서에서 복붙을 할 때에 복사가 바로 되지 않는 문제가 있는데 절대적으로 MS워드의 문제임. 될때까지 붙여넣기 하면 언젠가는 된다(기다리는 동안 워드는 먹통됨).
-    - 처음엔 이전에 클립보드에 들어있던 내용이 붙여넣기 됨
-    - 재시도(`ctrl-v`) 하다보면 빈 텍스트가 붙여넣기 됨
-    - 계속... 재시도(`ctrl-v`)하다보면 결국 성공함.
-- 개정대비표vs전문, 전문vs전문, 웹전문vs전문 **전체를 한번**에 복/붙해서 비교할 수 있어야함(수십번씩 드래그,복/붙을 하는 것보다는 무조건 편함!!). 그래서 만든게  Aligned Mode
-- 엣지(혹은 크롬) 전용. 인간적으로 2025년에 ie를 왜 써야하지?
-- Heading(*1. 개요*, *(가) 어쩌고*, 등)도 찾아내서 시각적 강조를 주긴 했지만 딱 거기까지임. 애당초 원본 문서 구조가 엉망이라서 100% 정확한/의미 있는 heading을 추출하기는 어려움. 어설프게 반은 맞고 반은 틀린 정보를 제공하는 것보다는 아예 정보를 주지 않는 것이 낫다.
-- 붙여넣기는 plaintext만. html 붙여넣기도 만들어 봤지만 득보다 실이 많은 느낌(이전 버전 코드 뒤져보면 있음).
-- 좌/우 텍스트가 완전히 일치하는 경우 쌍둥이👬를 보여줌. 이건 ctrl-c가 제대로 안되었거나(손가락 힘 부족?) 워드 문제로 복붙이 제대로 되지 않은 경우에 내가 확실히 인지할 수 있도록 넣은 것임. 재미로 넣은 거 아님.
-
-### Aligned Mode
-- 이름은 맘에 안들지만 암튼 양쪽 텍스트에서 서로 대비되는 줄들의 위치를 같게 맞춰주는 기능. `F2`로 토글.
-- 양쪽 스크롤 동기화됨.
-- readonly 모드임(간단한 수정을 시도하면 기본 모드로 전환되면서 바로 수정이 적용되게는 해놨음).
-- Aligned Mode는 까만 배경임(마음에 안들지만 **기본 모드와 확실히 대비되는 느낌이 있어야 했음**).
-- 두 모드를 전환할때 선택된 텍스트의 범위를 유지하려고 노력한 부분은 칭찬 받아야 함. 생각보다 까다로움(수고했어~).
-- 컨트롤 키를 누른채로 텍스트를 클릭하면 기본 모드로 전환되면서 클릭한 위치로 커서를 옮김(수고했어~).
-- 양쪽 diff부분을 블럭단위로 표시할 수 있는 경우는 그러려고 노력(!)했음.
-- 양쪽 대비(매치)되는 부분의 위치의 차이는 padding요소를 넣어서 메꿈. TODO: 여러개의 빈줄로 인해 발생하는 위치 차이는 padding이 아니라 빈줄들을 collapse하는 쪽으로 해야 더 보기 좋을 것 같음.
-
-### 인터넷도 안되고 아무것도 없는... 있는 거라곤 브라우저, 메모장 밖에 없는 pc에서 돌려야함.
-- html + css + js는 어쩔 수 없는 선택. react? 꿈도 꾸지마. 쌩html 쌩css 쌩js로 구현
-- 당연히 웹서버 불가능이고 파일경로(`file:///...../diffseek.html`)로 열어야함. 제약 많음.
-- 섬세하고 이쁜 UI요소가 부족한 것은 절대적으로 이 때문임. 요새 누가 UI요소를 하나하나 손수 만드나...
-- 타입스크립트로 작성하고 컴파일된 js를 옮기는 건 가능.
-- 닷넷, java 런타임은 깔려있는 것 같지만 그 뿐임. sdk가 없음.
-- 아무튼 이러저러한 이유로 자바스크립트가 유일한 옵션인데 사실 웹브라우저에 익숙하지 않은 사람은 없고 기본적인 동작들은 모두 매끄럽게 구현이 다 되어있으니 어찌보면 최고/최선의 선택임.
-- 인간적으로 vscode정도는... 쓰고싶다.
-
-### 집에서 만든 코드를 회사로 옮기는 방법?
-- 워크비 쪽지/내부메일로 보내고 회사에서 열고 메모장에 붙여넣기. 고로 코드가 너무 커지면 안됨. 외부 라이브러리? 어림도 없음.
-- 다행히도 휴대폰 워크비앱 보안을 우회해서 복사/붙여넣기를 사용할 방법이 있더라(비밀 유지 필요..ㅋ 이거 막히면 더이상의 업데이트는 불가능함).
-- 옮기기 전에 하나의 파일(diffseek.html)로 합친 후에 그 파일의 내용을 옮겨야함. 빌드된 파일이 4000줄이 넘으니 두어번에 걸쳐 복붙 필요.
-- build, dist폴더를 모두 git에 포함한 것은 이러한 이유임(나눠서 복붙하다가 한두줄 빼먹은 경우에 휴대폰으로 github의 코드와 비교해봐야함).
-- .ts로부터 컴파일된 .js파일에 주석을 남겨두는 것은 회사에서 디버깅을 해야되는 경우가 있기 때문.
-- 회사에서 수정한 걸 집으로 가져가는건 쉽지 않음. 어느 부분을 어떻게 수정했는지 기억했다가 집에가서 다시 작업해야함. 오늘 먹은 반찬도 기억 안남.
-
-### 브라우저에서 웹 주소가 아닌 파일을 여는 것이기 때문에 보안상 제약이 많음.
-- 쿠키? localStorage? ... 당연히 불가 - 상태/옵션 저장하는건 절대 불가능.
-- new Worker(url) - 파일 url을 열 수 없음(그래서 worker를 쓰려면 약간의 트릭 필요)
-- 그 외 '이게 될까?' 싶은 것들은 안된다고 보면 됨
-- 스크립트로 복사/붙여넣기를 실행할 때의 경고는 엣지 설정-whitelist에 등록해서 피할 수 있기는 함. 지금은 관련 기능들을 다 지워버렸으니까 필요 없지만 다시 넣을까함(단축키로 왼쪽창/오른쪽창 선택없이 바로 붙여넣기 등)
-
-### 단축키?
-- F2 - aligned mode 토글(양쪽 줄맞춤, 스크롤 동기화, 편집 불가)
-- SHIFT-F2 - scroll sync 토글(약간의 줄맞춤, 약간의 스크롤 동기화, 편집 가능)
-- ctrl-1/ctrl-2 편집기에 포커스
-- 편집 중에 ctrl-space - 반대쪽 편집기의 스크롤 위치를 현재 편집기에 맞춤(가능한 경우)
-
-### copy mode?
-- 이건 아직 프로토타입 단계
-- raw: 그냥 보통의 ctrl-c
-- formatted: - 약간의 diff 하이라이트. 드래그 범위가 어설프게 단어 중간에서 시작되거나 끝나는 경우에는 단어의 경계(정확히는 토큰의 경계)로 맞춤
-- compare: 한쪽의 텍스트를 복사했을 때 대응되는 반대쪽 텍스트까지 같이 복사해서 포맷함(*좌:그단어, 우:저단어*)
-
-### histogram 알고리즘
-- 가장 널리 쓰이는 알고리즘 중 하나인 것 같음...?
-- 이 알고리즘에서 가장 중요한건 앵커(일치되는 기준점)를 그것도 아주 좋은놈으로 찾는 부분인 것 같은데 생각할 것이 많음. 각 섹션의 제목(1. 개요, 2. 업무처리 순서, ...)에 가중치를 주려했지만 해당 제목들은 업무매뉴얼 워드파일에서 맨 앞에 쏠려있는 경우(제목을 왼쪽 컬럼에 넣고 엔터키 수십번 눌러서 섹션을 나눈 경우)가 많아서 의미 없음. (1), (가), 1), 가)에는 적용했지만 얼마나 정확하고 효율적일지 감이 안와서 가중치를 높게 주지 않았음.
-- 그외 줄의 시작/끝 부분에 가중치, 희귀도에 가중치, 앵커 문자열 길이에 가중치.
-- 최우선순위 앵커 `@@@`, `###` (발견시 무조건 양쪽 텍스트에 나오는 이 앵커들을 순서대로 매치시킴). 좌우 문서가 너무 안맞을 때 강제로 특정위치를 매치시키고 싶을 때. 긴 문서 비교 시에 섹션 대 섹션이 매치가 잘 안될 경우 쓰면 편함.
-- 단순히 단어vs단어 뿐만 아니라 n그램(복수개의 단어 매치), n개의 단어와 m개의 단어(단어 수가 다르지만 공백을 무시하고 비교할 경우 같은 단어들)도 매치되는 경우에도 앵커로 사용하려고 노력...은 함.
-- 내 생각에 공통prefix/suffix를 스킵하는 부분 때문에 최고로 좋은 앵커를 찾을 기회를 놓치는 경우도 생길 수 있을 것 같지만 스킵 안하면 성능 개판 됨. 절대적으로 필요.
-- 일치되는 단어가 다르다고 표시되는 경우는 있을 수 있음(문서 내에 같은 단어가 여러번 나오는 경우 그 중 어느 것에 매치시킬 것인가는 알고리즘 동작에 달려있음).
-- 일치되지 않는 단어가 같다고 표시되는 경우는 당연히 없어야함(없음!).
-
-### DiffSeek.diffOptions
-정말로 정말로 really really 원한다면 브라우저 devtools 콘솔에서...
-```
-DiffSeek.diffOptions = {
-    algorithm: "histogram" | "lcs"; // ("histogram")
-	tokenization: "char" | "word" | "line"; // ("word")
-	whitespace: "ignore" | "normalize"; //("ignore")
-	useLengthBias: true | false; //(true)
-	maxGram: 4; // 1~5정도만...
-	lengthBiasFactor: 0.7; // 앵커 길이에 대한 가중치 조정
-	sectionHeadingMultiplier: 1.3333; // 1 / 0.75
-	lineStartMultiplier: 1.1764;  // 1 / 0.85
-	lineEndMultiplier: 1.1111;  // 1 / 0.9
-	uniqueMultiplier: 1.4999; // 1/ 0.6667
-}
-```
--->
 <html lang="en">
 
 <head>
@@ -899,12 +795,13 @@ const DIFF_COLOR_HUES = [
 ];
 const NUM_DIFF_COLORS = DIFF_COLOR_HUES.length;
 const LINE_TAG = "DIV";
+const BASE_FONT_SIZE = 16;
 const ANCHOR_TAG = "HR";
 const DIFF_ELEMENT_NAME = "MARK";
 const EDITOR_PADDING = 8;
 const LINE_HEIGHT = 1.5;
 const TOPBAR_HEIGHT = 0;
-const SCROLL_MARGIN = LINE_HEIGHT * 4;
+const SCROLL_MARGIN = LINE_HEIGHT * 2 * BASE_FONT_SIZE; // px
 const COMPUTE_DEBOUNCE_TIME = 200; // ms
 const FORCE_RENDER_TIMEOUT = 100; // ms
 const PROCESSING_MESSAGES = [
@@ -1883,9 +1780,42 @@ function isReddish(color) {
     reddishCache.set(color, isRed);
     return isRed;
 }
-const DefaultElementOptions = {};
+const COMMON_ALLOWED_STYLES = {
+    textAlign: true,
+    fontSize: true,
+    fontWeight: true,
+    fontStyle: true,
+    margin: true,
+    marginLeft: true,
+    marginRight: true,
+    marginTop: true,
+    marginBottom: true,
+    marginBlockStart: true,
+    marginBlockEnd: true,
+    marginBlock: true,
+    marginInlineStart: true,
+    marginInlineEnd: true,
+    marginInline: true,
+    padding: true,
+    paddingLeft: true,
+    paddingRight: true,
+    paddingTop: true,
+    paddingBottom: true,
+    paddingBlockStart: true,
+    paddingBlockEnd: true,
+    paddingBlock: true,
+    paddingInlineStart: true,
+    paddingInlineEnd: true,
+    paddingInline: true,
+};
+const DefaultElementOptions = {
+    allowedStyles: COMMON_ALLOWED_STYLES,
+};
 const AsDivElementOptions = {
     replaceTag: "DIV",
+};
+const SMART_TAG_OPTIONS = {
+    unwrap: true,
 };
 const ALLOWED_ELEMENTS = {
     TABLE: DefaultElementOptions,
@@ -1894,8 +1824,8 @@ const ALLOWED_ELEMENTS = {
     TFOOT: DefaultElementOptions,
     CAPTION: DefaultElementOptions,
     TR: DefaultElementOptions,
-    TH: { allowedAttrs: { colspan: true, rowspan: true } },
-    TD: { allowedAttrs: { colspan: true, rowspan: true } },
+    TH: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
+    TD: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
     H1: DefaultElementOptions,
     H2: DefaultElementOptions,
     H3: DefaultElementOptions,
@@ -1942,6 +1872,10 @@ const ALLOWED_ELEMENTS = {
     SECTION: AsDivElementOptions,
     ARTICLE: AsDivElementOptions,
     ASIDE: AsDivElementOptions,
+    A: {
+        replaceTag: "SPAN",
+        allowedStyles: COMMON_ALLOWED_STYLES,
+    },
     "#document-fragment": DefaultElementOptions,
 };
 function coerceColor(color) {
@@ -2014,6 +1948,9 @@ const TRIM_CHARS = {
     "\t": true,
     "\f": true,
 };
+// TODO
+// 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
+// 이 경우 <p><br></p>로 바꿔야 한다.
 function sanitizeHTML(rawHTML) {
     // 보통 복붙을 하면 <!--StartFragment-->와 <!--EndFragment--> 태그로 감싸져 있다.
     const START_TAG = "<!--StartFragment-->";
@@ -2036,99 +1973,73 @@ function sanitizeHTML(rawHTML) {
         ) {
             return null;
         }
-        let color = containerStack[containerStack.length - 1].color;
-        if (node.nodeType === 1) {
-            let colorValue = node.style?.color;
-            if (colorValue) {
-                if (colorValue === "inherit") {
-                    // use parent color
-                }
-                else {
-                    if (isReddish(colorValue)) {
-                        color = "red";
-                    }
-                    else {
-                        color = undefined;
-                    }
-                }
-            }
-        }
-        const elementOptions = ALLOWED_ELEMENTS[node.nodeName];
+        const nodeName = node.nodeName;
+        let elementOptions = ALLOWED_ELEMENTS[nodeName];
         if (!elementOptions) {
-            return null;
+            if (nodeName.startsWith("ST1:")) {
+                elementOptions = SMART_TAG_OPTIONS;
+            }
+            if (!elementOptions) {
+                return null;
+            }
         }
         let containerNode;
-        if (node.nodeType === 1) {
-            containerNode = document.createElement(elementOptions.replaceTag || node.nodeName);
-            if (elementOptions.allowedAttrs) {
-                for (const attr of node.attributes) {
-                    if (elementOptions.allowedAttrs[attr.name]) {
-                        containerNode.setAttribute(attr.name, attr.value);
-                    }
-                }
-            }
-            if (elementOptions.allowedStyles) {
-                const style = node.style;
-                for (const prop in elementOptions.allowedStyles) {
-                    if (style[prop]) {
-                        containerNode.style[prop] = style[prop];
-                    }
-                }
-            }
-            let colorValue = node.style?.color;
-            if (colorValue) {
-                if (colorValue === "inherit") {
-                    // use parent color
-                }
-                else {
-                    if (isReddish(colorValue)) {
-                        color = "red";
-                        containerNode.classList.add("color-red");
-                    }
-                    else {
-                        color = undefined;
-                    }
-                }
-            }
+        if (elementOptions.unwrap) {
+            containerNode = containerStack[containerStack.length - 1].node;
         }
         else {
-            // document fragment
-            containerNode = document.createDocumentFragment();
+            if (node.nodeType === 1) {
+                containerNode = document.createElement(elementOptions.replaceTag || nodeName);
+                if (elementOptions.allowedAttrs) {
+                    for (const attr of node.attributes) {
+                        if (elementOptions.allowedAttrs[attr.name]) {
+                            containerNode.setAttribute(attr.name, attr.value);
+                        }
+                    }
+                }
+                if (elementOptions.allowedStyles) {
+                    const style = node.style;
+                    for (const prop in elementOptions.allowedStyles) {
+                        if (style[prop]) {
+                            containerNode.style[prop] = style[prop];
+                        }
+                    }
+                }
+                let colorValue = node.style?.color;
+                if (colorValue) {
+                    if (colorValue === "inherit") {
+                        // use parent color
+                    }
+                    else {
+                        if (isReddish(colorValue)) {
+                            containerNode.classList.add("color-red");
+                        }
+                    }
+                }
+            }
+            else {
+                // document fragment
+                containerNode = document.createDocumentFragment();
+            }
+            containerStack.push({ node: containerNode });
         }
-        // if (containerNode instanceof HTMLElement) {
-        // 	let colorValue = (node as HTMLElement).style?.color;
-        // 	if (colorValue) {
-        // 		if (colorValue === "inherit") {
-        // 			// use parent color
-        // 		} else {
-        // 			if (isReddish(colorValue)) {
-        // 				color = "red";
-        // 				(containerNode as HTMLElement).classList.add("color-red");
-        // 			} else {
-        // 				color = undefined!;
-        // 			}
-        // 		}
-        // 	}
-        // }
-        //containerStack[containerStack.length - 1].node.appendChild(containerNode);
-        containerStack.push({ node: containerNode, color: color });
         if (!elementOptions.void) {
-            let isTextless = TEXTLESS_ELEMENTS[node.nodeName];
-            for (const child of node.childNodes) {
-                let childResult = null;
-                if (child.nodeType === 3) {
+            let isTextless = TEXTLESS_ELEMENTS[nodeName];
+            for (const childNode of node.childNodes) {
+                let sanitizedChild = null;
+                if (childNode.nodeType === 3) {
                     if (isTextless) {
                         continue;
                     }
-                    childResult = document.createTextNode(child.nodeValue);
+                    sanitizedChild = document.createTextNode(childNode.nodeValue);
                 }
                 else {
-                    childResult = traverse(child);
-                    if (!childResult) {
+                    sanitizedChild = traverse(childNode);
+                    if (!sanitizedChild) {
                         continue;
                     }
                 }
-                containerNode.appendChild(childResult);
+                containerNode.appendChild(sanitizedChild);
             }
         }
         // containerNode.normalize();
@@ -2137,22 +2048,24 @@ function sanitizeHTML(rawHTML) {
         // 		containerNode.appendChild(document.createElement("BR"));
         // 	}
         // } else {
-        // 	if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
+        // 	if (BLOCK_ELEMENTS[nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
         // 		containerNode.appendChild(document.createElement("BR"));
         // 	}
         // }
         // if (containerNode.nodeType !== 11) {
         // }
-        containerStack.pop();
-        if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
+        if ((elementOptions.unwrap || (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName])) && containerNode.childNodes.length === 0) {
             containerNode.appendChild(document.createTextNode(""));
+        }
+        if (!elementOptions.unwrap) {
+            containerStack.pop();
         }
         return containerNode;
     }
     const tmpl = document.createElement("template");
     tmpl.innerHTML = rawHTML;
     const root = document.createDocumentFragment();
-    containerStack.push({ node: root, color: undefined });
+    containerStack.push({ node: root });
     const result = traverse(tmpl.content);
     // result.normalize();
     // if (result.childNodes.length === 0) {
@@ -3028,19 +2941,16 @@ class Editor {
         this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
         this.#observeMutation();
         this.#wrapper.addEventListener("scroll", (e) => {
-            if (scrollingEditor === null) {
-                scrollingEditor = this;
-            }
             this.onScroll(e);
         });
-        this.#wrapper.addEventListener("scrollend", (e) => {
-            if (scrollingEditor === this) {
-                scrollingEditor = null;
-            }
+        this.#wrapper.addEventListener("scrollend", () => {
+            callbacks.onScrollEnd(this);
         });
         this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
         this.#editor.addEventListener("input", () => this.onInput());
         this.#editor.addEventListener("keydown", (e) => this.onKeyDown(e));
+        this.#editor.addEventListener("focus", () => { callbacks.onFocus(this); });
+        this.#editor.addEventListener("blur", () => { callbacks.onBlur(this); });
         //setTimeout(() => this.tokenize(), 0);
         this.#wrapper.addEventListener("mousemove", (e) => this.onMouseMove(e));
         this.#wrapper.addEventListener("mouseleave", () => {
@@ -3055,7 +2965,8 @@ class Editor {
             this.#callbacks.onResize(this);
             //this.#callbacks.onRenderInvalidated(this, RenderFlags.RESIZE);
         });
-        resizeObserver.observe(this.#wrapper);
+        // resizeObserver.observe(this.#wrapper);
+        resizeObserver.observe(this.#editor);
     }
     get name() {
         return this.#editorName;
@@ -3109,7 +3020,7 @@ class Editor {
             const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2 * fontSize;
             this.#wrapper.scrollBy({
                 top: delta,
-                behavior: "smooth",
+                behavior: "instant",
             });
         }
     }
@@ -3150,18 +3061,6 @@ class Editor {
         // console.time("paste sanitizeHTML");
         let sanitized;
         if (rawHTML) {
-            const START_TAG = "<!--StartFragment-->";
-            const END_TAG = "<!--EndFragment-->";
-            const startIndex = rawHTML.indexOf(START_TAG);
-            if (startIndex >= 0) {
-                const endIndex = rawHTML.lastIndexOf(END_TAG);
-                if (endIndex >= 0) {
-                    rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-                }
-                else {
-                    rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-                }
-            }
             sanitized = sanitizeHTML(rawHTML);
         }
         else {
@@ -3189,12 +3088,11 @@ class Editor {
         // collapsed, 즉 범위 없이 텍스트커서만 있는 경우 커서가 토큰의 맨앞이나 맨뒤에 있어도 해당 토큰이 선택된 것으로 간주함.
         // 범위가 있는 경우는 범위 밖 토큰들이 같이 선택되면 안됨!
         const collapsed = range.collapsed;
-        // HACK. 나 천잰가봐... ^o^
         // range의 끝부분이 텍스트노드의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 텍스트노드의 시작점(0)에 있는 경우
         // 그 토큰의 범위에 커서가 걸쳐있다고 봐야 맞는데(단어 앞에 커서가 있는 경우 그 단어가 선택되었다고 판단)
         // 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 의도적으로 범위를 확장시켜줘야함.
         // 단순히 <textnode><textnode>의 경우는 쉽지만
-        // <textnode><span>text</span><textnode>의 경우 span 안을 파고 들어가야함.
+        // <textnode><span><em>text</em></span><textnode>의 경우 span,em 안을 파고 들어가야함.
         if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue.length) {
             let adjText = findAdjacentTextNode(range.endContainer, true);
             if (adjText) {
@@ -3715,9 +3613,17 @@ class Editor {
         }
         return this.#renderer.setDiffHighlight(diffIndex);
     }
-    scrollToDiff(diffIndex) {
-        const SCROLL_MARGIN = 20; // 스크롤 위치가 너무 위나 아래로 치우치지 않도록 여유를 둠.
+    scrollTo(offset, options) {
+        if (this.#wrapper.scrollTop !== offset) {
+            this.#wrapper.scrollTo({
+                top: offset,
+                behavior: options?.behavior,
+            });
+        }
+    }
+    scrollToDiff(diffIndex, scrollMargin = SCROLL_MARGIN) {
         const y = this.#renderer.getDiffOffsetY(diffIndex);
+        console.log("scroll margin", scrollMargin, "y", y);
         // if (scrollingEditor === null) {
         // 	scrollingEditor = this;
         // 	this.#wrapper.addEventListener(
@@ -3731,20 +3637,13 @@ class Editor {
         // this.#beforeScroll();
         if (y !== undefined) {
             this.#wrapper.scrollTo({
-                top: y - SCROLL_MARGIN,
+                top: y - scrollMargin,
                 behavior: "smooth",
             });
         }
     }
-    #beforeScroll() {
-        if (!preventScrollSync) {
-            preventScrollSync = true;
-            const onScrollEnd = () => {
-                preventScrollSync = false;
-                window.removeEventListener("scrollend", onScrollEnd);
-            };
-            this.#wrapper.addEventListener("scrollend", onScrollEnd, { once: true });
-        }
+    getDiffRect(diffIndex) {
+        return this.#renderer.getDiffRect(diffIndex);
     }
 }
 //# sourceMappingURL=Editor.js.map
@@ -4111,6 +4010,18 @@ class Renderer {
         }
         return geometry.minY;
     }
+    getDiffRect(diffIndex) {
+        const geometry = this.#diffGeometries[diffIndex];
+        if (geometry) {
+            return {
+                x: geometry.minX,
+                y: geometry.minY,
+                width: geometry.maxX - geometry.minX,
+                height: geometry.maxY - geometry.minY,
+            };
+        }
+        return null;
+    }
 }
 //# sourceMappingURL=Renderer.js.map
 </script>
@@ -4277,8 +4188,6 @@ const computeDiffAsync = (() => {
 // 이렇게까지 하게 될지는 몰랐는데 ui요소마다 콜백을 넘기고 또 그걸 또 감싸서 자식으로 넘기고... 귀찮잖아...
 const highlightedDiffIndexAtom = createAtom("highlightedDiffIndex", null);
 const diffItemClickedEvent = createEventAtom("diffItemClickedEvent");
-let preventScrollSync = false;
-let scrollingEditor = null;
 function translateTokenFlagsToAnchorFlags(tokenFlags) {
     let flags = 0;
     if (tokenFlags & 1 /* TokenFlags.LINE_START */) {
@@ -4299,6 +4208,7 @@ function translateTokenFlagsToAnchorFlags(tokenFlags) {
     return flags;
 }
 class DiffSeek {
+    #mainContainer;
     //#preventScrollSync = false;
     #renderCallbackId = null;
     #leftEditor;
@@ -4311,24 +4221,20 @@ class DiffSeek {
     #diffContext = null;
     #computeDiffCallbackId = null;
     #diffComputedCallbackId = null;
+    #alignAnchorsCallbackId = null;
     #anchorsAligned = false;
     #textSelectionRange = null;
     #zoom = window.devicePixelRatio;
     #sideView;
+    #syncScroll = false;
+    #scrollingEditor = null;
+    #lastScrolledEditor = null;
+    #preventScrollSync = false;
+    #activeEditor = null;
+    #lastActiveEditor = null;
     highlightedDiffIndexAtom = createAtom("highlightedDiffIndex", null);
-    #sideViewCallbacks = {
-        onDiffItemMouseOver: (diffIndex) => {
-            this.#leftEditor.setDiffHighlight(diffIndex);
-            this.#rightEditor.setDiffHighlight(diffIndex);
-            this.#requestRender();
-        },
-        onDiffItemMouseOut: () => {
-            this.#leftEditor.setDiffHighlight(null);
-            this.#rightEditor.setDiffHighlight(null);
-            this.#requestRender();
-        },
-    };
     constructor(mainContainer, asideContainer) {
+        this.#mainContainer = mainContainer;
         this.#diffOptions = {
             algorithm: "histogram",
             tokenization: "word",
@@ -4350,9 +4256,16 @@ class DiffSeek {
             onHoverDiff: (editor, diffIndex) => this.#onEditorHoverDiff(editor, diffIndex),
             onRender: (editor) => this.#onEditorRender(editor),
             onScroll: (editor, scrollTop, scrollLeft) => this.#onEditorScroll(editor, scrollTop, scrollLeft),
+            onScrollEnd: (editor) => this.#onEditorScrollEnd(editor),
             onResize: (editor) => this.#onEditorResize(editor),
             onDiffVisibilityChanged: (editor, entries) => this.#onEditorDiffVisibilityChanged(editor, entries),
             onRenderInvalidated: (editor, flags) => this.#onEditorRenderInvalidated(editor, flags),
+            onFocus: (editor) => {
+                this.#lastActiveEditor = this.#activeEditor = editor;
+            },
+            onBlur: (editor) => {
+                this.#activeEditor = null;
+            },
         };
         this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
         this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
@@ -4360,6 +4273,18 @@ class DiffSeek {
         this.#sideView = new SideView(asideContainer, this.#sideViewCallbacks);
         this.setupEventListeners();
     }
+    #sideViewCallbacks = {
+        onDiffItemMouseOver: (diffIndex) => {
+            this.#leftEditor.setDiffHighlight(diffIndex);
+            this.#rightEditor.setDiffHighlight(diffIndex);
+            this.#requestRender();
+        },
+        onDiffItemMouseOut: () => {
+            this.#leftEditor.setDiffHighlight(null);
+            this.#rightEditor.setDiffHighlight(null);
+            this.#requestRender();
+        },
+    };
     setupEventListeners() {
         window.addEventListener("resize", () => { });
         document.addEventListener("selectionchange", () => {
@@ -4375,7 +4300,12 @@ class DiffSeek {
                 editor.editor.focus();
                 return;
             }
-        });
+            if (e.key === "F2") {
+                e.preventDefault();
+                this.syncScroll = !this.#syncScroll;
+                console.log("syncScroll:", this.#syncScroll);
+            }
+        }, true);
         highlightedDiffIndexAtom.subscribe((diffIndex) => {
             this.#leftEditor.setDiffHighlight(diffIndex);
             this.#rightEditor.setDiffHighlight(diffIndex);
@@ -4394,7 +4324,7 @@ class DiffSeek {
             // TODO
             // 양쪽 에디터에서 해당 diff의 y좌표를 구해서 그 중 작은 값을 기준으로 스크롤 해야함.
             // 혹은 위로 스크롤 해야되는지 아래로 스크롤 해야하는지를 확인해서...
-            this.#rightEditor.scrollToDiff(diffIndex);
+            this.scrollToDiff(diffIndex);
         });
     }
     #onEditorContentChanging(editor) {
@@ -4414,11 +4344,21 @@ class DiffSeek {
         this.#requestRender();
     }
     #onEditorScroll(editor, scrollTop, scrollLeft) {
-        if (!preventScrollSync && (scrollingEditor === null || scrollingEditor === editor)) {
-            const otherEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
-            otherEditor.scrollTop = scrollTop;
+        if (this.#scrollingEditor === null) {
+            this.#lastScrolledEditor = this.#scrollingEditor = editor;
+        }
+        if (this.#syncScroll) {
+            if (!this.#preventScrollSync && this.#scrollingEditor === editor) {
+                const otherEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+                otherEditor.scrollTo(scrollTop, { behavior: "instant" });
+            }
         }
         this.#requestRender();
+    }
+    #onEditorScrollEnd(editor) {
+        if (this.#scrollingEditor === editor) {
+            this.#scrollingEditor = null;
+        }
     }
     #onEditorResize(editor) {
         this.#anchorsAligned = false;
@@ -4440,7 +4380,7 @@ class DiffSeek {
             cancelAnimationFrame(this.#renderCallbackId);
             this.#renderCallbackId = null;
         }
-        if (!this.#anchorsAligned) {
+        if (this.#syncScroll && !this.#anchorsAligned) {
             this.alignAnchors();
         }
         this.#renderCallbackId = requestAnimationFrame(() => {
@@ -4814,13 +4754,16 @@ class DiffSeek {
             cancelIdleCallback(this.#_resizeCancelId);
             this.#_resizeCancelId = null;
         }
+        if (!this.#syncScroll) {
+            return;
+        }
         if (this.#anchorsAligned) {
             return;
         }
         if (!this.#diffContext || !this.#diffContext.anchors) {
             return;
         }
-        preventScrollSync = true;
+        this.#preventScrollSync = true;
         const MIN_DELTA = 1;
         const MIN_STRIPED_DELTA = 10;
         const leftEditor = this.#leftEditor;
@@ -4851,14 +4794,14 @@ class DiffSeek {
                 theEl = rightEl;
             }
             else {
-                delta = -delta; // 절대값으로 변환
+                delta = -delta;
                 theEl = leftEl;
             }
             theEl.classList.add("padtop");
+            theEl.style.setProperty("--padding", `${delta}px`);
             if (delta >= MIN_STRIPED_DELTA) {
                 theEl.classList.add("striped");
             }
-            theEl.style.setProperty("--padding", `${delta}px`);
         }
         leftEditor.editor.style.removeProperty("--min-height");
         rightEditor.editor.style.removeProperty("--min-height");
@@ -4868,17 +4811,23 @@ class DiffSeek {
             const maxHeight = Math.max(leftHeight, rightHeight);
             leftEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
             rightEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
-            if (document.activeElement === leftEditor.editor) {
-                rightEditor.scrollTop = leftEditor.scrollTop;
+            const currentEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
+            const newScrollTop = currentEditor.scrollTop;
+            if (currentEditor === leftEditor) {
+                rightEditor.scrollTo(newScrollTop, { behavior: "instant" });
             }
             else {
-                leftEditor.scrollTop = rightEditor.scrollTop;
+                leftEditor.scrollTo(newScrollTop, { behavior: "instant" });
             }
-            preventScrollSync = false;
+            this.#preventScrollSync = false;
         });
         this.#anchorsAligned = true;
     }
     #cancelAllCallbacks() {
+        if (this.#alignAnchorsCallbackId !== null) {
+            cancelAnimationFrame(this.#alignAnchorsCallbackId);
+            this.#alignAnchorsCallbackId = null;
+        }
         if (this.#computeDiffCallbackId !== null) {
             cancelIdleCallback(this.#computeDiffCallbackId);
             this.#computeDiffCallbackId = null;
@@ -4895,6 +4844,46 @@ class DiffSeek {
         this.#leftEditor.setSelectionHighlight(null);
         this.#rightEditor.setSelectionHighlight(null);
     }
+    scrollToDiff(diffIndex) {
+        const leftRect = this.#leftEditor.getDiffRect(diffIndex);
+        const rightRect = this.#rightEditor.getDiffRect(diffIndex);
+        if (!leftRect || !rightRect) {
+            return;
+        }
+        if (this.#syncScroll) {
+            let scrollTop = Math.min(leftRect.y, rightRect.y);
+            scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
+            this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
+        }
+        else {
+            const leftScrollTop = leftRect.y - SCROLL_MARGIN;
+            const rightScrollTop = rightRect.y - SCROLL_MARGIN;
+            this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
+            this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
+        }
+    }
+    get syncScroll() {
+        return this.#syncScroll;
+    }
+    set syncScroll(value) {
+        value = !!value;
+        if (value === this.#syncScroll) {
+            return;
+        }
+        this.#syncScroll = value;
+        this.#mainContainer.classList.toggle("sync-scroll", value);
+        if (value) {
+            if (this.#alignAnchorsCallbackId !== null) {
+                cancelAnimationFrame(this.#alignAnchorsCallbackId);
+                this.#alignAnchorsCallbackId = null;
+            }
+            this.#alignAnchorsCallbackId = requestAnimationFrame(() => {
+                this.#alignAnchorsCallbackId = null;
+                this.alignAnchors();
+            });
+            this.#requestRender();
+        }
+    }
 }
 //# sourceMappingURL=DiffSeek.js.map
 </script>
@@ -4902,11 +4891,11 @@ class DiffSeek {
     </style>
 <style>
 :root {
+	font-size: 16px;
 	--diff-hue-removed: 0;
 	--diff-hue-added: 120;
 	--diff-hue: 0;
 	--status-bar-height: 0px;
-	font-size: 16px;
 	--container-gap: 8px;
 	--sidebar-width: 200px;
 	--text-container-padding-block: 4px;
@@ -4948,6 +4937,10 @@ html {
 	height: 20px;
 	pointer-events: none;
 	display: none;
+}
+
+.sync-scroll #scrollSyncIndicator {
+	display: block;
 }
 
 #progress {
@@ -5588,9 +5581,6 @@ h6 {
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
 
-.editor {
-	min-height: max(100%, var(--min-height, 100%));
-}
 
 .editor::after {
 	content: "";
@@ -5605,15 +5595,21 @@ h6 {
 	user-select: none;
 }
 
-.padtop::before {
+
+.sync-scroll .padtop::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 }
 
-.padtop.striped::before {
+.sync-scroll .padtop.striped::before {
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
+
+.sync-scroll .editor {
+	min-height: max(100%, var(--min-height, 100%));
+}
+
 
 .diff-anchor:not(p .diff-anchor)::before {
 	/* content: "";
@@ -5671,12 +5667,16 @@ canvas {
 	opacity: 1;
 }
 
+.editor p {
+	min-height: calc(0.5em * var(--line-height, 1.5));
+}
+
 </style>
 </head>
 
 <body>
     <div class="container">
-        <main id="main"></main>
+        <main id="main"><div id="scrollSyncIndicator">🔗</div></main>
         <div id="sidebar"></div>
     </div>
 

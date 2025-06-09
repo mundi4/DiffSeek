@@ -158,12 +158,48 @@ type ElementOptions = {
 	allowedStyles?: Record<string, boolean>;
 	replaceTag?: string;
 	void?: boolean;
+	unwrap?: boolean;
 };
 
-const DefaultElementOptions: ElementOptions = {};
+const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
+	textAlign: true,
+	fontSize: true,
+	fontWeight: true,
+	fontStyle: true,
+	margin: true,
+	marginLeft: true,
+	marginRight: true,
+	marginTop: true,
+	marginBottom: true,
+	marginBlockStart: true,
+	marginBlockEnd: true,
+	marginBlock: true,
+	marginInlineStart: true,
+	marginInlineEnd: true,
+	marginInline: true,
+	padding: true,
+	paddingLeft: true,
+	paddingRight: true,
+	paddingTop: true,
+	paddingBottom: true,
+	paddingBlockStart: true,
+	paddingBlockEnd: true,
+	paddingBlock: true,
+	paddingInlineStart: true,
+	paddingInlineEnd: true,
+	paddingInline: true,
+};
+
+const DefaultElementOptions: ElementOptions = {
+	allowedStyles: COMMON_ALLOWED_STYLES,
+};
 
 const AsDivElementOptions: ElementOptions = {
 	replaceTag: "DIV",
+};
+
+const SMART_TAG_OPTIONS: ElementOptions = {
+	unwrap: true,
 };
 
 const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
@@ -173,8 +209,8 @@ const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
 	TFOOT: DefaultElementOptions,
 	CAPTION: DefaultElementOptions,
 	TR: DefaultElementOptions,
-	TH: { allowedAttrs: { colspan: true, rowspan: true } },
-	TD: { allowedAttrs: { colspan: true, rowspan: true } },
+	TH: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
+	TD: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
 	H1: DefaultElementOptions,
 	H2: DefaultElementOptions,
 	H3: DefaultElementOptions,
@@ -221,12 +257,15 @@ const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
 	SECTION: AsDivElementOptions,
 	ARTICLE: AsDivElementOptions,
 	ASIDE: AsDivElementOptions,
+	A: {
+		replaceTag: "SPAN",
+		allowedStyles: COMMON_ALLOWED_STYLES,
+	},
 	"#document-fragment": DefaultElementOptions,
 };
 
 type ContainerStackItem = {
 	node: ParentNode;
-	color?: string;
 };
 
 function coerceColor(color: string): string | undefined {
@@ -318,6 +357,10 @@ type SanitizedNodeResult = {
 	hasNonEmptyText: boolean;
 };
 
+
+// TODO
+// 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
+// 이 경우 <p><br></p>로 바꿔야 한다.
 function sanitizeHTML(rawHTML: string): Node {
 	// 보통 복붙을 하면 <!--StartFragment-->와 <!--EndFragment--> 태그로 감싸져 있다.
 	const START_TAG = "<!--StartFragment-->";
@@ -331,7 +374,7 @@ function sanitizeHTML(rawHTML: string): Node {
 			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
 		}
 	}
-	
+
 	// console.debug("sanitizeHTML called with rawHTML:", rawHTML);
 
 	const containerStack: ContainerStackItem[] = [];
@@ -344,101 +387,75 @@ function sanitizeHTML(rawHTML: string): Node {
 			return null;
 		}
 
-		let color: string | undefined = containerStack[containerStack.length - 1].color;
-		if (node.nodeType === 1) {
-			let colorValue = (node as HTMLElement).style?.color;
-			if (colorValue) {
-				if (colorValue === "inherit") {
-					// use parent color
-				} else {
-					if (isReddish(colorValue)) {
-						color = "red";
-					} else {
-						color = undefined!;
-					}
-				}
-			}
-		}
-
-		const elementOptions = ALLOWED_ELEMENTS[node.nodeName];
+		const nodeName = node.nodeName;
+		let elementOptions = ALLOWED_ELEMENTS[nodeName];
 		if (!elementOptions) {
-			return null;
+			if (nodeName.startsWith("ST1:")) {
+				elementOptions = SMART_TAG_OPTIONS;
+			}
+			if (!elementOptions) {
+				return null;
+			}
 		}
 
 		let containerNode: ParentNode;
-		if (node.nodeType === 1) {
-			containerNode = document.createElement(elementOptions.replaceTag || node.nodeName);
-			if (elementOptions.allowedAttrs) {
-				for (const attr of (node as HTMLElement).attributes) {
-					if (elementOptions.allowedAttrs[attr.name]) {
-						(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
-					}
-				}
-			}
-			if (elementOptions.allowedStyles) {
-				const style = (node as HTMLElement).style;
-				for (const prop in elementOptions.allowedStyles) {
-					if (style[prop as any]) {
-						(containerNode as HTMLElement).style[prop as any] = style[prop as any];
-					}
-				}
-			}
 
-			let colorValue = (node as HTMLElement).style?.color;
-			if (colorValue) {
-				if (colorValue === "inherit") {
-					// use parent color
-				} else {
-					if (isReddish(colorValue)) {
-						color = "red";
-						(containerNode as HTMLElement).classList.add("color-red");
-					} else {
-						color = undefined!;
+		if (elementOptions.unwrap) {
+			containerNode = containerStack[containerStack.length - 1].node;
+		} else {
+			if (node.nodeType === 1) {
+				containerNode = document.createElement(elementOptions.replaceTag || nodeName);
+				if (elementOptions.allowedAttrs) {
+					for (const attr of (node as HTMLElement).attributes) {
+						if (elementOptions.allowedAttrs[attr.name]) {
+							(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
+						}
 					}
 				}
+				if (elementOptions.allowedStyles) {
+					const style = (node as HTMLElement).style;
+					for (const prop in elementOptions.allowedStyles) {
+						if (style[prop as any]) {
+							(containerNode as HTMLElement).style[prop as any] = style[prop as any];
+						}
+					}
+				}
+
+				let colorValue = (node as HTMLElement).style?.color;
+				if (colorValue) {
+					if (colorValue === "inherit") {
+						// use parent color
+					} else {
+						if (isReddish(colorValue)) {
+							(containerNode as HTMLElement).classList.add("color-red");
+						}
+					}
+				}
+			} else {
+				// document fragment
+				containerNode = document.createDocumentFragment();
 			}
-		} else {
-			// document fragment
-			containerNode = document.createDocumentFragment();
+			containerStack.push({ node: containerNode });
 		}
 
-		// if (containerNode instanceof HTMLElement) {
-		// 	let colorValue = (node as HTMLElement).style?.color;
-		// 	if (colorValue) {
-		// 		if (colorValue === "inherit") {
-		// 			// use parent color
-		// 		} else {
-		// 			if (isReddish(colorValue)) {
-		// 				color = "red";
-		// 				(containerNode as HTMLElement).classList.add("color-red");
-		// 			} else {
-		// 				color = undefined!;
-		// 			}
-		// 		}
-		// 	}
-		// }
-
-		//containerStack[containerStack.length - 1].node.appendChild(containerNode);
-		containerStack.push({ node: containerNode, color: color });
-
 		if (!elementOptions.void) {
-			let isTextless = TEXTLESS_ELEMENTS[node.nodeName];
-			for (const child of node.childNodes) {
-				let childResult: Node | null = null;
-	
-				if (child.nodeType === 3) {
+			let isTextless = TEXTLESS_ELEMENTS[nodeName];
+			for (const childNode of node.childNodes) {
+				let sanitizedChild: Node | null = null;
+
+				if (childNode.nodeType === 3) {
 					if (isTextless) {
 						continue;
 					}
-					childResult = document.createTextNode(child.nodeValue!);
+					sanitizedChild = document.createTextNode(childNode.nodeValue!);
 				} else {
-					childResult = traverse(child);
-					if (!childResult) {
+					sanitizedChild = traverse(childNode);
+					if (!sanitizedChild) {
 						continue;
 					}
 				}
-	
-				containerNode.appendChild(childResult);
+
+				containerNode.appendChild(sanitizedChild);
 			}
 		}
 
@@ -449,17 +466,20 @@ function sanitizeHTML(rawHTML: string): Node {
 		// 		containerNode.appendChild(document.createElement("BR"));
 		// 	}
 		// } else {
-		// 	if (BLOCK_ELEMENTS[node.nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
+		// 	if (BLOCK_ELEMENTS[nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
 		// 		containerNode.appendChild(document.createElement("BR"));
 		// 	}
 		// }
 
 		// if (containerNode.nodeType !== 11) {
 		// }
-		containerStack.pop();
 
-		if (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName] && containerNode.childNodes.length === 0) {
+		if ((elementOptions.unwrap || (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName])) && containerNode.childNodes.length === 0) {
 			containerNode.appendChild(document.createTextNode(""));
+		}
+
+		if (!elementOptions.unwrap) {
+			containerStack.pop();
 		}
 
 		return containerNode;
@@ -469,7 +489,7 @@ function sanitizeHTML(rawHTML: string): Node {
 	tmpl.innerHTML = rawHTML;
 
 	const root = document.createDocumentFragment();
-	containerStack.push({ node: root, color: undefined });
+	containerStack.push({ node: root });
 	const result = traverse(tmpl.content)!;
 	// result.normalize();
 	// if (result.childNodes.length === 0) {

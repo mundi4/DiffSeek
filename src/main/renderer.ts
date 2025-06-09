@@ -459,4 +459,17 @@ class Renderer {
 		}
 		return geometry.minY;
 	}
+
+	getDiffRect(diffIndex: number): Rect | null {
+		const geometry = this.#diffGeometries[diffIndex];
+		if (geometry) {
+			return {
+				x: geometry.minX,
+				y: geometry.minY,
+				width: geometry.maxX - geometry.minX,
+				height: geometry.maxY - geometry.minY,
+			};
+		}
+		return null;
+	}
 }

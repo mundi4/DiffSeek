@@ -5,10 +5,13 @@ type EditorCallbacks = {
 	onContentChanging: (editor: Editor) => void;
 	onContentChanged: (editor: Editor) => void;
 	onScroll: (editor: Editor, scrollTop: number, scrollLeft: number) => void;
+	onScrollEnd: (editor: Editor) => void;
 	onRender: (editor: Editor) => void;
 	onHoverDiff: (editor: Editor, diffIndex: number | null) => void;
 	onRenderInvalidated: (editor: Editor, flags: RenderFlags) => void;
 	onResize: (editor: Editor) => void;
+	onFocus: (editor: Editor) => void;
+	onBlur: (editor: Editor) => void;
 };
 
 type VisibilityChangeEntry = {
@@ -68,20 +71,17 @@ class Editor {
 		this.#observeMutation();
 
 		this.#wrapper.addEventListener("scroll", (e) => {
-			if (scrollingEditor === null) {
-				scrollingEditor = this;
-			}
 			this.onScroll(e);
 		});
-		this.#wrapper.addEventListener("scrollend", (e) => {
-			if (scrollingEditor === this) {
-				scrollingEditor = null;
-			}
+		this.#wrapper.addEventListener("scrollend", () => {
+			callbacks.onScrollEnd(this);
 		});
+
 		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
 		this.#editor.addEventListener("input", () => this.onInput());
 		this.#editor.addEventListener("keydown", (e) => this.onKeyDown(e));
-
+		this.#editor.addEventListener("focus", () => { callbacks.onFocus(this); });
+		this.#editor.addEventListener("blur", () => { callbacks.onBlur(this); });
 		//setTimeout(() => this.tokenize(), 0);
 
 		this.#wrapper.addEventListener("mousemove", (e) => this.onMouseMove(e));
@@ -98,7 +98,8 @@ class Editor {
 			this.#callbacks.onResize(this);
 			//this.#callbacks.onRenderInvalidated(this, RenderFlags.RESIZE);
 		});
-		resizeObserver.observe(this.#wrapper);
+		// resizeObserver.observe(this.#wrapper);
+		resizeObserver.observe(this.#editor);
 	}
 
 	get name(): EditorName {
@@ -164,9 +165,10 @@ class Editor {
 			e.preventDefault();
 			const fontSize = parseFloat(getComputedStyle(this.#editor).fontSize);
 			const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2 * fontSize;
+			
 			this.#wrapper.scrollBy({
 				top: delta,
-				behavior: "smooth",
+				behavior: "instant",
 			});
 		}
 	}
@@ -215,17 +217,6 @@ class Editor {
 		// console.time("paste sanitizeHTML");
 		let sanitized: Node;
 		if (rawHTML) {
-			const START_TAG = "<!--StartFragment-->";
-			const END_TAG = "<!--EndFragment-->";
-			const startIndex = rawHTML.indexOf(START_TAG);
-			if (startIndex >= 0) {
-				const endIndex = rawHTML.lastIndexOf(END_TAG);
-				if (endIndex >= 0) {
-					rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-				} else {
-					rawHTML = rawHTML.slice(startIndex + START_TAG.length);
-				}
-			}
 			sanitized = sanitizeHTML(rawHTML);
 		} else {
 			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
@@ -257,12 +248,11 @@ class Editor {
 		// 범위가 있는 경우는 범위 밖 토큰들이 같이 선택되면 안됨!
 		const collapsed = range.collapsed;
 
-		// HACK. 나 천잰가봐... ^o^
 		// range의 끝부분이 텍스트노드의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 텍스트노드의 시작점(0)에 있는 경우
 		// 그 토큰의 범위에 커서가 걸쳐있다고 봐야 맞는데(단어 앞에 커서가 있는 경우 그 단어가 선택되었다고 판단)
 		// 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 의도적으로 범위를 확장시켜줘야함.
 		// 단순히 <textnode><textnode>의 경우는 쉽지만
-		// <textnode><span>text</span><textnode>의 경우 span 안을 파고 들어가야함.
+		// <textnode><span><em>text</em></span><textnode>의 경우 span,em 안을 파고 들어가야함.
 		if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue!.length) {
 			let adjText = findAdjacentTextNode(range.endContainer, true);
 			if (adjText) {
@@ -823,9 +813,18 @@ class Editor {
 		return this.#renderer.setDiffHighlight(diffIndex);
 	}
 
-	scrollToDiff(diffIndex: number) {
-		const SCROLL_MARGIN = 20; // 스크롤 위치가 너무 위나 아래로 치우치지 않도록 여유를 둠.
+	scrollTo(offset: number, options?: ScrollOptions) {
+		if (this.#wrapper.scrollTop !== offset) {
+			this.#wrapper.scrollTo({
+				top: offset,
+				behavior: options?.behavior,
+			});
+		}
+	}
+
+	scrollToDiff(diffIndex: number, scrollMargin: number = SCROLL_MARGIN) {
 		const y = this.#renderer.getDiffOffsetY(diffIndex);
+		console.log("scroll margin", scrollMargin, "y", y);
 
 		// if (scrollingEditor === null) {
 		// 	scrollingEditor = this;
@@ -841,21 +840,14 @@ class Editor {
 
 		if (y !== undefined) {
 			this.#wrapper.scrollTo({
-				top: y - SCROLL_MARGIN,
+				top: y - scrollMargin,
 				behavior: "smooth",
 			});
 		}
 	}
 
-	#beforeScroll() {
-		if (!preventScrollSync) {
-			preventScrollSync = true;
-			const onScrollEnd = () => {
-				preventScrollSync = false;
-				window.removeEventListener("scrollend", onScrollEnd);
-			};
-			this.#wrapper.addEventListener("scrollend", onScrollEnd, { once: true });
-		}
+	getDiffRect(diffIndex: number): Rect | null {
+		return this.#renderer.getDiffRect(diffIndex);
 	}
 }
 

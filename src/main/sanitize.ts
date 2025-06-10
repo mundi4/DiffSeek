@@ -357,7 +357,6 @@ type SanitizedNodeResult = {
 	hasNonEmptyText: boolean;
 };
 
-
 // TODO
 // 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
 // 이 경우 <p><br></p>로 바꿔야 한다.
@@ -390,9 +389,13 @@ function sanitizeHTML(rawHTML: string): Node {
 		const nodeName = node.nodeName;
 		let elementOptions = ALLOWED_ELEMENTS[nodeName];
 		if (!elementOptions) {
-			if (nodeName.startsWith("ST1:")) {
+			if (nodeName === "O:P" && node.childNodes.length === 1 && node.childNodes[0].nodeValue! === "\u00A0") {
+				// 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
+				return document.createElement("BR");
+			} else if (nodeName.startsWith("ST1:")) {
 				elementOptions = SMART_TAG_OPTIONS;
 			}
+
 			if (!elementOptions) {
 				return null;
 			}

@@ -34,19 +34,29 @@ type EditorAnchor = {
 const INITIAL_EDITOR_HTML = document.createElement("P");
 INITIAL_EDITOR_HTML.appendChild(document.createElement("BR"));
 
+// 만약 renderer를 Editor 인스턴스가 갖지 않고 외부로 빼낸다면...
+// 그리고 Editor는 diff에 대해서 전혀 알지 못하게 한다면...?
+// diff anchor도 외부에서 만들어야함
+// hit test도 외부에서
+// scroll to diff X
+// scrollTo, scrollBy 만 제공
+// 외부에서는 diffComputed 때 diff 범위 계산(getTokenRange 이용...)
+// renderer에 range와 셋팅된 DiffRenderItem[]을 넘겨줌
+
 class Editor {
 	#editorName: EditorName;
 	#container: HTMLElement;
 	#wrapper = document.createElement("div");
 	#editor = document.createElement("div");
 	#mutationObserver: MutationObserver;
-	#anchors: Set<HTMLElement> = new Set();
+	#anchors: HTMLElement[] = [];
 	#tokens: RichToken[] = [];
 	#tokenizeContext: TokinizeContext | null = null;
 	#tokenizeCallbackId: number | null = null;
 	#callbacks: EditorCallbacks;
 	#renderer: Renderer;
 	#hoveredDiffIndex: number | null = null;
+	#aligning: boolean = false;
 
 	constructor(container: HTMLElement, editorName: "left" | "right", callbacks: EditorCallbacks) {
 		this.#editorName = editorName;
@@ -80,8 +90,12 @@ class Editor {
 		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
 		this.#editor.addEventListener("input", () => this.onInput());
 		this.#editor.addEventListener("keydown", (e) => this.onKeyDown(e));
-		this.#editor.addEventListener("focus", () => { callbacks.onFocus(this); });
-		this.#editor.addEventListener("blur", () => { callbacks.onBlur(this); });
+		this.#editor.addEventListener("focus", () => {
+			callbacks.onFocus(this);
+		});
+		this.#editor.addEventListener("blur", () => {
+			callbacks.onBlur(this);
+		});
 		//setTimeout(() => this.tokenize(), 0);
 
 		this.#wrapper.addEventListener("mousemove", (e) => this.onMouseMove(e));
@@ -93,12 +107,7 @@ class Editor {
 			}
 		});
 
-		const resizeObserver = new ResizeObserver(() => {
-			this.#renderer.updateLayout();
-			this.#callbacks.onResize(this);
-			//this.#callbacks.onRenderInvalidated(this, RenderFlags.RESIZE);
-		});
-		// resizeObserver.observe(this.#wrapper);
+		const resizeObserver = new ResizeObserver(() => this.#onResize());
 		resizeObserver.observe(this.#editor);
 	}
 
@@ -165,7 +174,7 @@ class Editor {
 			e.preventDefault();
 			const fontSize = parseFloat(getComputedStyle(this.#editor).fontSize);
 			const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2 * fontSize;
-			
+
 			this.#wrapper.scrollBy({
 				top: delta,
 				behavior: "instant",
@@ -206,15 +215,15 @@ class Editor {
 	#onPaste(e: ClipboardEvent) {
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
-		// console.time("paste");
+		console.time("paste");
 		e.preventDefault();
 		this.#unobserveMutation();
 
-		// console.time("paste getData");
+		console.time("paste getData");
 		let rawHTML = e.clipboardData?.getData("text/html") ?? "";
-		// console.timeEnd("paste getData");
+		console.timeEnd("paste getData");
 
-		// console.time("paste sanitizeHTML");
+		console.time("paste sanitizeHTML");
 		let sanitized: Node;
 		if (rawHTML) {
 			sanitized = sanitizeHTML(rawHTML);
@@ -224,17 +233,14 @@ class Editor {
 		const div = document.createElement("DIV");
 		div.appendChild(sanitized);
 		const sanitizedHTML = div.innerHTML;
-		// console.timeEnd("paste sanitizeHTML");
+		console.timeEnd("paste sanitizeHTML");
 
-		// 자존심 상하지만 document.execCommand("insertHTML",...)를 써야한다.
-		// 1. 브라우저가 undo/redo 히스토리 관리를 할 수 있음.
-		// 2. 필요한 경우 브라우저가 알아서 DOM을 수정해 줌.
-		// 	예: 인라인 엘러먼트 안에 블럭 엘러먼트를 붙여넣는 경우 브라우저가 알아서 인라인 요소를 반으로 갈라서 블럭 엘러먼트를 밖으로 꺼내준다.
-
-		// console.time("paste execCommand");
+		// document.execCommand("insertHTML",...)는 미친게 아닌가 싶을 정도로 오래 걸린다. 농담 아님.
+		// BUT 직접 노드를 삽입하면 undo/redo 히스토리가 깨지기 때문에 자존심 상해도 어쩔 수 없이 써야함.
+		console.time("paste execCommand");
 		document.execCommand("insertHTML", false, sanitizedHTML);
-		// console.timeEnd("paste execCommand");
-		// console.timeEnd("paste");
+		console.timeEnd("paste execCommand");
+		console.timeEnd("paste");
 		this.#observeMutation();
 	}
 
@@ -424,32 +430,36 @@ class Editor {
 		}
 
 		let found = false;
+		let lastAnchor = this.#anchors[this.#anchors.length - 1];
 
 		do {
-			if (flags & AnchorFlags.PREFER_TABLE_START) {
-				if (insertPoint.nodeName === "TABLE") {
-					found = true;
-					break;
-					// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-				}
-			} else if (flags & (AnchorFlags.PREFER_TABLECELL_START | AnchorFlags.PREFER_TABLEROW_START)) {
-				if (container.nodeName === "TD" || container.nodeName === "TH") {
-					found = true;
-					break;
-					// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-				}
-			} else if (flags & AnchorFlags.PREFER_BLOCK_START) {
-				if (BLOCK_ELEMENTS[container.nodeName]) {
-					found = true;
-					break;
-					// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-				}
-			} else {
-				if (BLOCK_ELEMENTS[container.nodeName]) {
-					found = true;
-					break;
+			if (!lastAnchor || lastAnchor.compareDocumentPosition(insertPoint) & Node.DOCUMENT_POSITION_FOLLOWING) {
+				if (flags & AnchorFlags.PREFER_TABLE_START) {
+					if (insertPoint.nodeName === "TABLE") {
+						found = true;
+						break;
+						// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
+					}
+				} else if (flags & (AnchorFlags.PREFER_TABLECELL_START | AnchorFlags.PREFER_TABLEROW_START)) {
+					if (container.nodeName === "TD" || container.nodeName === "TH") {
+						found = true;
+						break;
+						// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
+					}
+				} else if (flags & AnchorFlags.PREFER_BLOCK_START) {
+					if (BLOCK_ELEMENTS[container.nodeName]) {
+						found = true;
+						break;
+						// return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
+					}
+				} else {
+					if (BLOCK_ELEMENTS[container.nodeName]) {
+						found = true;
+						break;
+					}
 				}
 			}
+
 			// if (BLOCK_ELEMENTS[container.nodeName]) {
 			// 	firstContainer = container;
 			// 	firstBeforeNode = beforeNode;
@@ -541,6 +551,11 @@ class Editor {
 	*#yieldDiffAnchorPointsInRange(tokenIndex: number) {
 		const prevToken = this.#tokens[tokenIndex - 1];
 		const nextToken = this.#tokens[tokenIndex];
+		let lastAnchorRange: Range | null = null;
+		if (this.#anchors.length > 0) {
+			lastAnchorRange = document.createRange();
+			lastAnchorRange.selectNode(this.#anchors[this.#anchors.length - 1]);
+		}
 
 		let endContainer: Node;
 		let endOffset: number;
@@ -643,8 +658,12 @@ class Editor {
 			if (lastYielded && lastYielded.container === container && lastYielded.offset === offset) {
 				return;
 			}
+			if (lastAnchorRange && lastAnchorRange.comparePoint(container, offset) <= 0) {
+				return;
+			}
 
 			let existingAnchor: HTMLElement | null = null;
+
 			if (container.nodeType === 3) {
 				return;
 			} else {
@@ -713,28 +732,11 @@ class Editor {
 		anchorEl.classList.add("diff");
 		point.container.insertBefore(anchorEl, before);
 		return anchorEl;
-
-		// const range = document.createRange();
-		// let anchorEl: HTMLElement | null = null;
-		// if (point.existingAnchor) {
-		// 	range.selectNode(point.existingAnchor);
-		// 	anchorEl = point.existingAnchor;
-		// } else {
-		// 	range.setStart(point.container, point.offset);
-		// 	range.collapse(true);
-		// 	if (point.container.nodeType === 1) {
-		// 		anchorEl = document.createElement("A");
-		// 		anchorEl.classList.add("diff");
-		// 		range.insertNode(anchorEl);
-		// 		range.selectNode(anchorEl);
-		// 	}
-		// }
-		// return [range, anchorEl];
 	}
 
-	update(updateFn: (fn: UpdateFuncs) => void) {
-		const unusedAnchors = this.#anchors;
-		this.#anchors = new Set<HTMLElement>();
+	withUpdate(updateFn: (helper: UpdateFuncs) => void) {
+		const unusedAnchors = new Set<HTMLElement>(this.#anchors);
+		this.#anchors.length = 0;
 
 		const renderItems: DiffRenderItem[] = [];
 
@@ -751,7 +753,7 @@ class Editor {
 		const getAnchor: UpdateFuncs["getAnchor"] = (tokenIndex: number, flags: number): HTMLElement | null => {
 			const el = this.#getOrInsertStartAnchor(tokenIndex, flags);
 			if (el) {
-				this.#anchors.add(el);
+				this.#anchors.push(el);
 			}
 			return el;
 		};
@@ -759,13 +761,9 @@ class Editor {
 		const getDiffAnchor: UpdateFuncs["getDiffAnchor"] = (point: InsertionPoint): HTMLElement | null => {
 			const el = this.#getDiffAnchor(point);
 			if (el) {
-				this.#anchors.add(el);
+				this.#anchors.push(el);
 			}
 			return el;
-		};
-
-		const removeAnchor: UpdateFuncs["removeAnchor"] = (anchor: HTMLElement) => {
-			this.#anchors.delete(anchor);
 		};
 
 		const getTokenRange: UpdateFuncs["getTokenRange"] = (index: number, count?: number) => {
@@ -782,14 +780,13 @@ class Editor {
 				getTokenRange,
 				getAnchor,
 				getDiffAnchor,
-				removeAnchor,
 				getDiffAnchorPointsInRange,
 			});
 		} finally {
+			for (const anchor of this.#anchors) {
+				unusedAnchors.delete(anchor);
+			}
 			for (const anchor of unusedAnchors) {
-				if (this.#anchors.has(anchor)) {
-					continue;
-				}
 				anchor.remove();
 			}
 		}
@@ -824,20 +821,6 @@ class Editor {
 
 	scrollToDiff(diffIndex: number, scrollMargin: number = SCROLL_MARGIN) {
 		const y = this.#renderer.getDiffOffsetY(diffIndex);
-		console.log("scroll margin", scrollMargin, "y", y);
-
-		// if (scrollingEditor === null) {
-		// 	scrollingEditor = this;
-		// 	this.#wrapper.addEventListener(
-		// 		"scrollend",
-		// 		() => {
-		// 			scrollingEditor = null;
-		// 		},
-		// 		{ once: true }
-		// 	);
-		// }
-		// this.#beforeScroll();
-
 		if (y !== undefined) {
 			this.#wrapper.scrollTo({
 				top: y - scrollMargin,
@@ -849,6 +832,23 @@ class Editor {
 	getDiffRect(diffIndex: number): Rect | null {
 		return this.#renderer.getDiffRect(diffIndex);
 	}
+
+	#onResize() {
+		if (this.#aligning) {
+			return;
+		}
+		this.#renderer.updateLayout();
+		this.#callbacks.onResize(this);
+	}
+
+	get height(): number {
+		return this.#wrapper.offsetHeight;
+	}
+
+	get scrollHeight(): number {
+		return this.#wrapper.scrollHeight;
+	}
+
 }
 
 type UpdateFuncs = {
@@ -857,5 +857,4 @@ type UpdateFuncs = {
 	getAnchor: (tokeinIndex: number, flags: number) => HTMLElement | null;
 	getDiffAnchor: (point: InsertionPoint) => HTMLElement | null;
 	getDiffAnchorPointsInRange: (tokenIndex: number) => Generator<InsertionPoint, void, void>;
-	removeAnchor: (anchor: HTMLElement) => void;
 };

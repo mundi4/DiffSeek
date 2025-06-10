@@ -123,7 +123,7 @@ class DiffSeek {
 			onDiffVisibilityChanged: (editor, entries) => this.#onEditorDiffVisibilityChanged(editor, entries),
 			onRenderInvalidated: (editor, flags) => this.#onEditorRenderInvalidated(editor, flags),
 			onFocus: (editor) => {
-				this.#lastActiveEditor = this.#activeEditor = editor
+				this.#lastActiveEditor = this.#activeEditor = editor;
 			},
 			onBlur: (editor) => {
 				this.#activeEditor = null;
@@ -174,7 +174,6 @@ class DiffSeek {
 				if (e.key === "F2") {
 					e.preventDefault();
 					this.syncScroll = !this.#syncScroll;
-					console.log("syncScroll:", this.#syncScroll);
 				}
 			},
 			true
@@ -432,8 +431,8 @@ class DiffSeek {
 		const anchors: AnchorPair[] = [];
 
 		// 지옥으로 간다...
-		this.#leftEditor.update((leftFn) => {
-			this.#rightEditor.update((rightFn) => {
+		this.#leftEditor.withUpdate((leftFn) => {
+			this.#rightEditor.withUpdate((rightFn) => {
 				const ANCHOR_MIN_LINE_BREAKS = 1; // 앵커를 붙일 때 최소한의 줄바꿈 수.
 				let forceStart = true;
 				let currentDiff: RawDiff | null = null;
@@ -750,6 +749,8 @@ class DiffSeek {
 		leftEditor.editor.style.removeProperty("--min-height");
 		rightEditor.editor.style.removeProperty("--min-height");
 		this.#_resizeCancelId = requestAnimationFrame(() => {
+			this.#anchorsAligned = true; // do we really need this?
+
 			const leftHeight = leftEditor.editor.scrollHeight;
 			const rightHeight = rightEditor.editor.scrollHeight;
 			const maxHeight = Math.max(leftHeight, rightHeight);
@@ -758,6 +759,8 @@ class DiffSeek {
 
 			const currentEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
 			const newScrollTop = currentEditor.scrollTop;
+	
+			this.#scrollingEditor = null;
 			if (currentEditor === leftEditor) {
 				rightEditor.scrollTo(newScrollTop, { behavior: "instant" });
 			} else {

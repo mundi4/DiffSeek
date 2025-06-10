@@ -27,9 +27,6 @@ declare type RawDiff = {
 
 declare type AnchorType = "before" | "after";
 
-declare type Anchor = {};
-
-declare type Anchor2 = {};
 
 declare type WhitespaceHandling = "ignore" | "normalize";
 

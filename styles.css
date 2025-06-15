@@ -689,7 +689,6 @@ h6 {
 	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
 
-
 .editor::after {
 	content: "";
 	display: block;
@@ -703,7 +702,6 @@ h6 {
 	user-select: none;
 }
 
-
 .sync-scroll .padtop::before {
 	content: "";
 	display: block;
@@ -711,13 +709,12 @@ h6 {
 }
 
 .sync-scroll .padtop.striped::before {
-	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
 }
 
 .sync-scroll .editor {
 	min-height: max(100%, var(--min-height, 100%));
 }
-
 
 .diff-anchor:not(p .diff-anchor)::before {
 	/* content: "";
@@ -777,4 +774,22 @@ canvas {
 
 .editor p {
 	min-height: calc(0.5em * var(--line-height, 1.5));
+}
+
+.editor u {
+	text-decoration: none;
+}
+
+.editor b,
+.editor strong {
+	font-weight: normal;
+}
+
+.editor i,
+.editor em {
+	font-style: normal;
+}
+
+a.diff {
+
 }

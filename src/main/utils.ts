@@ -1,3 +1,75 @@
+// 개정대비표와 전문에서는 빨간색만 의미 있음. 변태처럼 빨간색이 아닌 뻘건색을 써도 허용.
+const isReddish = (() => {
+	let ctx: CanvasRenderingContext2D | null = null;
+
+	const reddishCache = new Map<string, boolean>([
+		["red", true],
+		["#ff0000", true],
+		["#e60000", true],
+		["#c00000", true],
+		["rgb(255,0,0)", true],
+		["rgb(230,0,0)", true],
+		["#000000", false],
+		["#333333", false],
+		["#ffffff", false],
+		["black", false],
+		["blue", false],
+		["white", false],
+		["window", false],
+		["windowtext", false],
+	]);
+
+	function getRGB(color: string): [number, number, number] | null {
+		// #rrggbb
+		const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
+		if (hex6) {
+			const n = parseInt(hex6[1], 16);
+			return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+		}
+
+		// #rgb
+		const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
+		if (hex3) {
+			const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
+			return [r, g, b];
+		}
+
+		// rgb(...) / rgba(...)
+		const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
+		if (rgb) {
+			const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
+			if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
+		}
+
+		// fallback
+		if (!ctx) {
+			const canvas = document.createElement("canvas");
+			canvas.width = canvas.height = 1;
+			ctx = canvas.getContext("2d")!;
+		}
+
+		try {
+			ctx.clearRect(0, 0, 1, 1);
+			ctx.fillStyle = color;
+			ctx.fillRect(0, 0, 1, 1);
+			const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+			return [r, g, b];
+		} catch {
+			return null;
+		}
+	}
+
+	return (color: string) => {
+		let isRed = reddishCache.get(color);
+		if (isRed !== undefined) return isRed;
+
+		const rgb = getRGB(color);
+		isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
+		reddishCache.set(color, isRed);
+		return isRed;
+	};
+})();
+
 function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
 	let timeoutId: number;
 	return function (this: any, ...args: any) {
@@ -7,63 +79,6 @@ function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
 			func.apply(context, args);
 		}, delay);
 	};
-}
-
-function findIndexByPos(arr: { pos: number; len: number }[], pos: number): number {
-	// binary search
-	let low = 0;
-	let high = arr.length - 1;
-	while (low <= high) {
-		const mid = (low + high) >>> 1;
-		const item = arr[mid];
-		const start = item.pos,
-			end = item.pos + item.len;
-		if (start <= pos && pos < end) {
-			return mid;
-		} else if (start > pos) {
-			high = mid - 1;
-		} else if (end <= pos) {
-			low = mid + 1;
-		}
-	}
-	return ~low;
-}
-
-function findDiffEntryRangeByPos(entries: RawDiff[], side: "left" | "right", pos: number, endPos: number) {
-	let low = 0;
-	let high = entries.length - 1;
-	let mappedStart = 0;
-	let mappedEnd = 0;
-
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		const s = entries[mid][side];
-		if (pos < s.pos) {
-			high = mid - 1;
-		} else if (pos >= s.pos + s.len) {
-			low = mid + 1;
-		} else {
-			mappedStart = mid;
-			break;
-		}
-	}
-
-	low = mappedStart;
-	high = entries.length - 1;
-	while (low <= high) {
-		const mid = (low + high) >> 1;
-		const s = entries[mid][side];
-		if (endPos - 1 < s.pos) {
-			high = mid - 1;
-		} else if (endPos - 1 >= s.pos + s.len) {
-			low = mid + 1;
-		} else {
-			mappedEnd = mid + 1;
-			break;
-		}
-	}
-
-	return [mappedStart, mappedEnd];
 }
 
 function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
@@ -296,13 +311,13 @@ function dumpRange() {
 	const sel = window.getSelection()!;
 	if (sel && sel.rangeCount > 0) {
 		const range = sel.getRangeAt(0);
-		console.log("current selection", {
-			range,
-			startContainer: range.startContainer,
-			startOffset: range.startOffset,
-			endContainer: range.endContainer,
-			endOffset: range.endOffset,
-		});
+		// console.log("current selection", {
+		// 	range,
+		// 	startContainer: range.startContainer,
+		// 	startOffset: range.startOffset,
+		// 	endContainer: range.endContainer,
+		// 	endOffset: range.endOffset,
+		// });
 		return range;
 	} else {
 		console.log("no selection");
@@ -434,18 +449,6 @@ function mergeRects(rects: Rect[], toleranceX: number = 0, toleranceY: number = 
 	};
 }
 
-function isLastChildOrFollowing(container: Node, child: Node) {
-	// fast path. 여기서 얼마나 걸릴 지 모르겠지만...
-	if (container.lastChild === child || container.nextSibling === child) {
-		return true;
-	}
-
-	const range = document.createRange();
-	range.selectNode(container);
-
-	range.comparePoint;
-}
-
 function extractTextRanges(sourceRange: Range): Range[] {
 	if (sourceRange.startContainer.nodeType === 3 && sourceRange.startContainer === sourceRange.endContainer) {
 		return [sourceRange];
@@ -512,51 +515,6 @@ function extractTextRanges(sourceRange: Range): Range[] {
 	return result;
 }
 
-function findFirstTextNode(root: Node): Text | null {
-	const stack: Node[] = [root];
-
-	while (stack.length > 0) {
-		const node = stack.pop()!;
-
-		if (node.nodeType === Node.TEXT_NODE) {
-			const text = node as Text;
-			if (text.nodeValue && text.nodeValue.trim() !== "") {
-				return text;
-			}
-		}
-
-		const children = node.childNodes;
-		// 앞에서부터 순회 (0 → N)
-		for (let i = children.length - 1; i >= 0; i--) {
-			stack.push(children[i]);
-		}
-	}
-
-	return null;
-}
-
-function findLastTextNode(root: Node, skipEmpty = false): Text | null {
-	const stack: Node[] = [root];
-
-	while (stack.length > 0) {
-		const node = stack.pop()!;
-
-		if (node.nodeType === Node.TEXT_NODE) {
-			const text = node as Text;
-			if (!skipEmpty || text.nodeValue !== "") {
-				return text;
-			}
-		}
-
-		const children = node.childNodes;
-		for (let i = children.length - 1; i >= 0; i--) {
-			stack.push(children[i]);
-		}
-	}
-
-	return null;
-}
-
 function getNodesInRange(range: Range, whatToShow: number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null) {
 	const commonAncestor = range.commonAncestorContainer;
 
@@ -619,32 +577,6 @@ function getFullyContainedNodesInRange(range: Range, whatToShow: number = NodeFi
 	}
 
 	return nodes;
-}
-
-function isEmptyElement(el: HTMLElement): boolean {
-	for (const node of Array.from(el.childNodes)) {
-		if (node.nodeType === Node.TEXT_NODE) {
-			if (node.textContent?.trim()) {
-				return false; // 내용이 있는 텍스트
-			}
-		} else if (node.nodeType === Node.ELEMENT_NODE) {
-			const elem = node as HTMLElement;
-			if (elem.tagName !== "BR") {
-				return false; // <br> 외의 요소가 있음
-			}
-		} else {
-			return false; // 알 수 없는 노드 (예: 주석 등)
-		}
-	}
-	return true;
-}
-
-function isNodeStartInsideRange(element: Node, range: Range) {
-	const elementStart = document.createRange();
-	elementStart.setStartBefore(element);
-	elementStart.setEndBefore(element);
-
-	return range.compareBoundaryPoints(Range.START_TO_START, elementStart) <= 0 && range.compareBoundaryPoints(Range.END_TO_START, elementStart) > 0;
 }
 
 function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Rect[] {
@@ -806,4 +738,22 @@ function formatPlaintext(plaintext: string) {
 	}
 
 	return fragment;
+}
+
+const __rangeA = document.createRange();
+const __rangeB = document.createRange();
+function comparePoint(lhsContainer: Node, lhsOffset: number, rhsContainer: Node, rhsOffset: number): number {
+	try {
+		if (lhsContainer === rhsContainer) {
+			return lhsOffset - rhsOffset;
+		}
+
+		__rangeA.setStart(lhsContainer, lhsOffset);
+		__rangeB.setStart(rhsContainer, rhsOffset);
+
+		return __rangeA.compareBoundaryPoints(Range.START_TO_START, __rangeB);
+	} catch (err) {
+		console.warn("comparePoint failed", { lhsContainer, lhsOffset, rhsContainer, rhsOffset, err });
+		throw err;
+	}
 }

@@ -5,5 +5,5 @@
 		"**/build": true,
 		"**/.git": true
 	},
-	"liveServer.settings.port": 5527
+	"liveServer.settings.port": 5559
 }

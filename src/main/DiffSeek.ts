@@ -17,49 +17,34 @@ const enum DiffFlags {
 	PreferBlockEnd = 1 << 1,
 }
 
-const enum InsertionPointFlags {
-	// FirstChild = 1 << 0, // 첫번째 자식 1
-	// LastChild = 1 << 1, // 마지막 자식 2
-	// BeforeTable = 1 << 2, // 테이블 이전 4
-	// AfterTable = 1 << 3, // 테이블 다음 8
-	CONTAINER_START = 1 << 4, // 컨테이너 시작 16
-	CONTAINER_END = 1 << 5, // 컨테이너 끝 32
-	BLOCK_START = 1 << 6, // 블럭 시작 64
-	BLOCK_END = 1 << 7, // 블럭 끝 128
-	TABLECELL_START = 1 << 8, // 테이블 셀 시작 256
-	TABLECELL_END = 1 << 9, // 테이블 셀 끝 512
-	TABLEROW_START = 1 << 10, // 테이블 행 시작 1024
-	TABLEROW_END = 1 << 11, // 테이블 행 끝 2048
-	TABLE_START = 1 << 12, // 테이블 시작 4096
-	TABLE_END = 1 << 13, // 테이블 끝 8192
-}
+
 
 const enum AnchorFlags {
-	PREFER_LINE_START = 1 << 0,
-	PREFER_BLOCK_START = 1 << 1,
-	PREFER_CONTAINER_START = 1 << 2,
-	PREFER_TABLECELL_START = 1 << 3,
-	PREFER_TABLEROW_START = 1 << 4,
-	PREFER_TABLE_START = 1 << 5,
+	LINE_START = 1 << 0,
+	BLOCK_START = 1 << 1,
+	CONTAINER_START = 1 << 2,
+	TABLECELL_START = 1 << 3,
+	TABLEROW_START = 1 << 4, // ??
+	TABLE_START = 1 << 5,
 	AFTER_CONTAINER = 1 << 6,
 }
 
 function translateTokenFlagsToAnchorFlags(tokenFlags: number): AnchorFlags {
 	let flags = 0;
 	if (tokenFlags & TokenFlags.LINE_START) {
-		flags |= AnchorFlags.PREFER_LINE_START;
+		flags |= AnchorFlags.LINE_START;
 	}
 	if (tokenFlags & TokenFlags.CONTAINER_START) {
-		flags |= AnchorFlags.PREFER_CONTAINER_START;
+		flags |= AnchorFlags.CONTAINER_START;
 	}
 	if (tokenFlags & TokenFlags.TABLE_START) {
-		flags |= AnchorFlags.PREFER_TABLE_START;
+		flags |= AnchorFlags.TABLE_START;
 	}
-	if (tokenFlags & TokenFlags.TABLEROW_START) {
-		flags |= AnchorFlags.PREFER_TABLEROW_START;
-	}
+	// if (tokenFlags & TokenFlags.TABLEROW_START) {
+	// 	flags |= AnchorFlags.TABLEROW_START;
+	// }
 	if (tokenFlags & TokenFlags.TABLECELL_START) {
-		flags |= AnchorFlags.PREFER_TABLECELL_START;
+		flags |= AnchorFlags.TABLECELL_START;
 	}
 	return flags;
 }
@@ -90,7 +75,7 @@ class DiffSeek {
 	#preventScrollSync = false;
 	#activeEditor: Editor | null = null;
 	#lastActiveEditor: Editor | null = null;
-
+	#visibleAnchors: Set<HTMLElement> = new Set();
 	highlightedDiffIndexAtom = createAtom<number | null>("highlightedDiffIndex", null);
 
 	constructor(mainContainer: HTMLElement, asideContainer: HTMLElement) {
@@ -152,6 +137,16 @@ class DiffSeek {
 		},
 	};
 
+	#onAnchorVisibilityChanged = (editor: Editor, entries: VisibilityChangeEntry[]) => {
+		for (const entry of entries) {
+			if (entry.isVisible) {
+				this.#visibleAnchors.add(entry.item as HTMLElement);
+			} else {
+				this.#visibleAnchors.delete(entry.item as HTMLElement);
+			}
+		}
+	};
+
 	private setupEventListeners() {
 		window.addEventListener("resize", () => {});
 
@@ -164,14 +159,15 @@ class DiffSeek {
 			(e) => {
 				if (e.key === "F8") {
 					this.#diffOptions.whitespace = this.#diffOptions.whitespace === "ignore" ? "normalize" : "ignore";
-				}
-				if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
+					e.preventDefault();
+					this.#onEditorContentChanged(this.#leftEditor);
+					this.#onEditorContentChanged(this.#rightEditor);
+				} else if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
 					e.preventDefault();
 					const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
 					editor.editor.focus();
 					return;
-				}
-				if (e.key === "F2") {
+				} else if (e.key === "F2") {
 					e.preventDefault();
 					this.syncScroll = !this.#syncScroll;
 				}
@@ -272,6 +268,7 @@ class DiffSeek {
 		if (this.#syncScroll && !this.#anchorsAligned) {
 			this.alignAnchors();
 		}
+
 		this.#renderCallbackId = requestAnimationFrame(() => {
 			this.#renderCallbackId = null;
 			this.#doRender();
@@ -404,6 +401,7 @@ class DiffSeek {
 
 			diffContext.rawDiffs = result.diffs;
 			diffContext.processTime = result.processTime;
+			// console.debug("Diff computed:", result.processTime, "ms", result);
 
 			// if (this.#diffComputedCallbackId !== null) {
 			// 	cancelIdleCallback(this.#diffComputedCallbackId);
@@ -429,6 +427,7 @@ class DiffSeek {
 
 		const diffs: DiffItem[] = [];
 		const anchors: AnchorPair[] = [];
+		this.#visibleAnchors.clear();
 
 		// 지옥으로 간다...
 		this.#leftEditor.withUpdate((leftFn) => {
@@ -465,6 +464,7 @@ class DiffSeek {
 						const rightTokenFlags = rightToken.flags;
 						const commonFlags = leftTokenFlags & rightTokenFlags;
 						let anchorEligible = false;
+
 						if (commonFlags & TokenFlags.LINE_START) {
 							anchorEligible = forceStart;
 
@@ -496,16 +496,29 @@ class DiffSeek {
 
 						if (anchorEligible) {
 							forceStart = false;
-							const leftAnchorEl = leftFn.getAnchor(left.pos, translateTokenFlagsToAnchorFlags(leftTokenFlags));
-							const rightAnchorEl = rightFn.getAnchor(right.pos, translateTokenFlagsToAnchorFlags(rightTokenFlags));
-							if (leftAnchorEl && rightAnchorEl) {
-								leftAnchorEl.dataset.tokenIndex = String(left.pos);
-								rightAnchorEl.dataset.tokenIndex = String(right.pos);
-								anchors.push({
-									leftEl: leftAnchorEl,
-									rightEl: rightAnchorEl,
-								});
-							} else {
+							let anchorFlagsArr: AnchorFlags[] = [];
+							if (commonFlags & TokenFlags.TABLECELL_START) {
+								if (commonFlags & TokenFlags.TABLE_START) {
+									anchorFlagsArr.push(AnchorFlags.TABLE_START);
+								}
+								anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
+							} else if (commonFlags & TokenFlags.BLOCK_START) {
+								anchorFlagsArr.push(AnchorFlags.BLOCK_START);
+							}
+
+							for (const anchorFlags of anchorFlagsArr) {
+								const leftAnchorEl = leftFn.getAnchor(left.pos, anchorFlags);
+								const rightAnchorEl = rightFn.getAnchor(right.pos, anchorFlags);
+								// console.log("anchor???", leftAnchorEl, rightAnchorEl, anchorFlags);
+								if (leftAnchorEl && rightAnchorEl) {
+									leftAnchorEl.dataset.tokenIndex = String(left.pos);
+									rightAnchorEl.dataset.tokenIndex = String(right.pos);
+									anchors.push({
+										leftEl: leftAnchorEl,
+										rightEl: rightAnchorEl,
+										flags: anchorFlags,
+									});
+								}
 							}
 						}
 					}
@@ -585,38 +598,96 @@ class DiffSeek {
 							emptyFn = leftFn;
 						}
 
-						const filledToken = filledTokens[filledTokenIndex];
-						const filledStartFlags = filledToken.flags;
+						const filledStartToken = filledTokens[filledTokenIndex];
+						const filledStartFlags = filledStartToken.flags;
+						const filledEndToken = filledTokens[filledTokenIndex + filledTokenCount - 1];
+						const filledEndFlags = filledEndToken.flags;
 
-						let bestPoint: InsertionPoint | null = null;
-						let bestScore = 0;
-						for (const point of emptyFn.getDiffAnchorPointsInRange(emptyTokenIndex)) {
-							let score = 0;
-							if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-								score += 5;
-							} else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-								score += 4;
-							} else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
-								score += 3;
-							} else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
-								score += 2;
-							} else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
-								score += 1;
-							}
-							if (score > bestScore) {
-								bestScore = score;
-								bestPoint = point;
-							}
-						}
+						if (
+							filledStartFlags & TokenFlags.LINE_START
+							// && filledEndFlags & TokenFlags.LINE_END
+						) {
+							const sharedContainer = findCommonEdgeContainer(
+								filledStartToken.container,
+								filledTokenIndex,
+								filledEndToken.container,
+								filledTokenIndex + filledTokenCount - 1
+							);
 
-						if (bestPoint) {
-							emptyAnchor = emptyFn.getDiffAnchor(bestPoint);
-							if (emptyAnchor) {
-								if (filledStartFlags & TokenFlags.LINE_START) {
-									filledAnchor = filledFn.getAnchor(filledTokenIndex, translateTokenFlagsToAnchorFlags(filledStartFlags));
+							if (sharedContainer) {
+								// 정확한 point를 찾기는 힘들다.
+								// 거슬리지 않을 정도의 point를 찾는 것이 목표.
+								let bestPoint: AnchorInsertionPoint | null = null;
+								let bestScore = -1;
+								for (const point of emptyFn.getDiffAnchorPointsInRange(emptyTokenIndex)) {
+									let score = 0;
+									// 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
+									if (!bestPoint || bestPoint.depth > point.depth) {
+										bestPoint = point;
+									}
+									//console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
+									// break;
+
+									// if (point.flags & InsertionPointFlags.TABLE_START && filledStartFlags & TokenFlags.TABLE_START) {
+									// 	score += 5;
+									// } else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
+									// 	score += 4;
+									// } else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
+									// 	score += 3;
+									// } else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
+									// 	score += 2;
+									// } else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
+									// 	score += 1;
+									// }
+									// console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
+									// if (score > bestScore) {
+									// 	bestScore = score;
+									// 	bestPoint = point;
+									// }
+									// break;
+								}
+
+								if (bestPoint) {
+									emptyAnchor = emptyFn.getDiffAnchor(bestPoint);
+									if (emptyAnchor) {
+										if (filledStartFlags & TokenFlags.LINE_START) {
+											filledAnchor = filledFn.getAnchor(filledTokenIndex, translateTokenFlagsToAnchorFlags(filledStartFlags));
+										}
+									}
 								}
 							}
 						}
+
+						// let bestPoint: InsertionPoint | null = null;
+						// let bestScore = 0;
+						// for (const point of emptyFn.getDiffAnchorPointsInRange(emptyTokenIndex)) {
+						// 	let score = 0;
+						// 	if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
+						// 		score += 5;
+						// 	} else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
+						// 		score += 4;
+						// 	} else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
+						// 		score += 3;
+						// 	} else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
+						// 		score += 2;
+						// 	} else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
+						// 		score += 1;
+						// 	}
+						// 	console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
+						// 	if (score > bestScore) {
+						// 		bestScore = score;
+						// 		bestPoint = point;
+						// 	}
+						// }
+
+						// if (bestPoint) {
+						// 	emptyAnchor = emptyFn.getDiffAnchor(bestPoint);
+						// 	if (emptyAnchor) {
+						// 		if (filledStartFlags & TokenFlags.LINE_START) {
+						// 			filledAnchor = filledFn.getAnchor(filledTokenIndex, translateTokenFlagsToAnchorFlags(filledStartFlags));
+						// 		}
+						// 	}
+						// }
 
 						const filledRange = filledFn.getTokenRange(filledTokenIndex, filledTokenCount);
 						let emptyRange: Range | null = null;
@@ -653,6 +724,7 @@ class DiffSeek {
 							leftEl: leftAnchorEl,
 							rightEl: rightAnchorEl,
 							diffIndex,
+							flags: 0,
 						});
 					}
 					currentDiff = null;
@@ -665,12 +737,12 @@ class DiffSeek {
 		diffContext.anchors = anchors;
 
 		this.#diffContext = diffContext as DiffContext;
-		// console.log("results", diffs, anchors);
 		// this.alignAnchors();
 		this.#updateTextSelection();
 		this.#requestRender();
 
 		this.#sideView.setDiffs(diffs);
+		// console.log("results", diffs, anchors);
 	}
 
 	#_resizeCancelId: number | null = null;
@@ -681,6 +753,7 @@ class DiffSeek {
 	대안1: 화면에 렌더링되는 앵커들만 맞춰준다? 이건 현재 보이는 영역보다 위의 앵커들이 다 맞춰진 걸로 치고 거기서부터 기준점을 잡고 화면을 벗어날 때까지 앵커좌표를 맞춰가는 건데
 	      문서의 흐름이 반드시 위에서 아래로 흐르지는 않기 때문에(table) 하나의 기준점을 찾기가 어렵다.
 	*/
+
 	alignAnchors() {
 		if (this.#_resizeCancelId !== null) {
 			cancelIdleCallback(this.#_resizeCancelId);
@@ -759,7 +832,7 @@ class DiffSeek {
 
 			const currentEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
 			const newScrollTop = currentEditor.scrollTop;
-	
+
 			this.#scrollingEditor = null;
 			if (currentEditor === leftEditor) {
 				rightEditor.scrollTo(newScrollTop, { behavior: "instant" });
@@ -839,4 +912,34 @@ class DiffSeek {
 			this.#requestRender();
 		}
 	}
+
+	setContent(editorName:EditorName, contentHTML: string) {
+		const editor = editorName === "left" ? this.#leftEditor : this.#rightEditor;
+		editor.setContent(contentHTML);
+	}
+}
+
+function findCommonEdgeContainer(
+	lhsContainer: TextFlowContainer,
+	lhsTokenIndex: number,
+	rhsContainer: TextFlowContainer,
+	rhsTokenIndex: number
+): TextFlowContainer | null {
+	while (lhsContainer && rhsContainer && lhsContainer !== rhsContainer) {
+		if (lhsContainer.depth >= rhsContainer.depth) {
+			if (lhsTokenIndex === lhsContainer.startTokenIndex || lhsTokenIndex === lhsContainer.startTokenIndex + lhsContainer.tokenCount - 1) {
+				lhsContainer = lhsContainer.parent!;
+			} else {
+				break;
+			}
+		} else if (rhsContainer.depth >= lhsContainer.depth) {
+			if (rhsTokenIndex === rhsContainer.startTokenIndex || rhsTokenIndex === rhsContainer.startTokenIndex + rhsContainer.tokenCount - 1) {
+				rhsContainer = rhsContainer.parent!;
+			} else {
+				break;
+			}
+		}
+	}
+
+	return lhsContainer === rhsContainer ? lhsContainer : null;
 }

@@ -192,6 +192,7 @@ type RenderBounds = {
 type AnchorPair = {
 	leftEl: HTMLElement;
 	rightEl: HTMLElement;
+	flags: number;
 	diffIndex?: number;
 };
 
@@ -200,15 +201,15 @@ type RichToken = {
 	flags: number;
 	range: LightRange | Range;
 	lineNum: number;
-	container: RichTokenContainer;
+	container: TextFlowContainer;
 };
 
-type RichTokenContainer = {
+type TextFlowContainer = {
 	element: HTMLElement;
 	depth: number;
 	startTokenIndex: number; // 시작 토큰 인덱스
 	tokenCount: number; // 토큰 개수
-	parent: RichTokenContainer | null; // 부모 컨테이너 정보
+	parent: TextFlowContainer | null; // 부모 컨테이너 정보
 };
 
 type LightRange = {

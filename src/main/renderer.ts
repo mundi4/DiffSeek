@@ -4,6 +4,7 @@ const enum RenderFlags {
 	GEOMETRY = 1 << 1,
 	HIGHLIGHT_DIFF = 1 << 2,
 	HIGHLIGHT_SELECTION = 1 << 3,
+	LAYOUT = 1 << 4,
 	HIGHLIGHT = HIGHLIGHT_DIFF | HIGHLIGHT_SELECTION,
 	SCROLL = DIFF | HIGHLIGHT,
 	RESIZE = DIFF | HIGHLIGHT | GEOMETRY,
@@ -69,7 +70,8 @@ class Renderer {
 		this.#highlightCtx = this.#highlightCanvas.getContext("2d")!;
 		container.appendChild(this.#highlightCanvas);
 
-		this.updateLayout();
+		this.markDirty(RenderFlags.LAYOUT | RenderFlags.ALL);
+		// this.updateLayout();
 	}
 
 	updateLayout() {
@@ -83,7 +85,7 @@ class Renderer {
 		this.#canvas.height = height;
 		this.#highlightCanvas.width = width;
 		this.#highlightCanvas.height = height;
-		this.markDirty(RenderFlags.ALL);
+		this.markDirty(RenderFlags.ALL & ~RenderFlags.LAYOUT);
 	}
 
 	setDiffs(diffs: DiffRenderItem[]) {
@@ -147,6 +149,9 @@ class Renderer {
 	}
 
 	render() {
+		if (this.#dirtyFlags & RenderFlags.LAYOUT) {
+			this.updateLayout();
+		}
 		if (this.#dirtyFlags & RenderFlags.DIFF) {
 			this.renderDiffs();
 		}
@@ -155,7 +160,7 @@ class Renderer {
 			this.renderHighlightLayer();
 		}
 
-		this.#dirtyFlags = 0;
+		this.#dirtyFlags = RenderFlags.NONE;
 	}
 
 	renderDiffs() {
@@ -356,20 +361,21 @@ class Renderer {
 				}
 
 				ctx.lineWidth = 2;
-				ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
-				// ctx.shadowColor = `hsl(${baseHue} 100% 60% / 0.8)`;
-				// ctx.shadowBlur = 20;
+				ctx.fillStyle = `hsl(0 100% 80%)`;
+				ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
+				// ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
 
 				for (const rect of rects.rects) {
 					const x = Math.floor(rect.x - scrollLeft) - 1,
 						y = Math.floor(rect.y - scrollTop) - 1,
-						width = Math.ceil(rect.width) + 2,
-						height = Math.ceil(rect.height) + 2;
+						width = Math.ceil(rect.width),
+						height = Math.ceil(rect.height);
 
 					if (y + height < 0 || y > canvasHeight) continue;
 					if (x + width < 0 || x > canvasWidth) continue;
 
 					ctx.strokeRect(x, y, width, height);
+					ctx.fillRect(x, y, width, height);
 
 					// ctx.lineWidth = 2;
 					// ctx.strokeStyle = "white";

@@ -1,108 +1,31 @@
-const STYLE_NONE = 0;
-const STYLE_COLOR_RED = 1;
-const STYLE_MASK_COLOR = STYLE_COLOR_RED;
-
-const reddishCache = new Map<string, boolean>([
-	["red", true],
-	["#ff0000", true],
-	["#e60000", true],
-	["#c00000", true],
-	["rgb(255,0,0)", true],
-	["rgb(230,0,0)", true],
-	["#000000", false],
-	["#333333", false],
-	["#ffffff", false],
-	["black", false],
-	["blue", false],
-	["white", false],
-	["window", false],
-	["windowtext", false],
-]);
-
-let _ctx: CanvasRenderingContext2D | null = null;
-
-// 캔버스는 많이 느릴테니까 최대한 정규식을 우선 씀!
-// 정규식은 수명단축의 지름길이므로 절대적으로 chatgtp한테 맡기고 눈길 조차 주지 말 것.
-function getRGB(color: string): [number, number, number] | null {
-	// #rrggbb
-	const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
-	if (hex6) {
-		const n = parseInt(hex6[1], 16);
-		return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-	}
-
-	// #rgb
-	const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
-	if (hex3) {
-		const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
-		return [r, g, b];
-	}
-
-	// rgb(...) / rgba(...)
-	const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
-	if (rgb) {
-		const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
-		if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
-	}
-
-	// fallback: canvas. 아마도 많이 느릴 것...
-
-	if (!_ctx) {
-		const canvas = document.createElement("canvas");
-		canvas.width = canvas.height = 1;
-		_ctx = canvas.getContext("2d")!;
-	}
-
-	try {
-		_ctx.clearRect(0, 0, 1, 1);
-		_ctx.fillStyle = color;
-		_ctx.fillRect(0, 0, 1, 1);
-		const [r, g, b] = _ctx.getImageData(0, 0, 1, 1).data;
-		return [r, g, b];
-	} catch {
-		return null;
-	}
-}
-
-function isReddish(color: string): boolean {
-	let isRed = reddishCache.get(color);
-	if (isRed !== undefined) return isRed;
-
-	const rgb = getRGB(color);
-	isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
-
-	reddishCache.set(color, isRed);
-	return isRed;
-}
-
-// const INLINE_ELEMENTS: Record<string, boolean> = {
-// 	SPAN: true,
-// 	A: true,
-// 	B: true,
-// 	I: true,
-// 	U: true,
-// 	EM: true,
-// 	STRONG: true,
-// 	S: true,
-// 	STRIKE: true,
-// 	SUB: true,
-// 	SUP: true,
-// 	SMALL: true,
-// 	BIG: true,
-// 	MARK: true,
-// 	INS: true,
-// 	DEL: true,
-// 	CODE: true,
-// 	KBD: true,
-// 	SAMP: true,
-// 	VAR: true,
-// 	DFN: true,
-// 	ABBR: true,
-// 	TIME: true,
-// 	CITE: true,
-// 	Q: true,
-// 	LABEL: true,
-// };
+const INLINE_ELEMENTS: Record<string, boolean> = {
+	SPAN: true,
+	A: true,
+	B: true,
+	I: true,
+	U: true,
+	EM: true,
+	STRONG: true,
+	S: true,
+	STRIKE: true,
+	SUB: true,
+	SUP: true,
+	SMALL: true,
+	BIG: true,
+	MARK: true,
+	INS: true,
+	DEL: true,
+	CODE: true,
+	KBD: true,
+	SAMP: true,
+	VAR: true,
+	DFN: true,
+	ABBR: true,
+	TIME: true,
+	CITE: true,
+	Q: true,
+	LABEL: true,
+};
 
 // const LINEBREAK_ELEMENTS: Record<string, boolean> = {
 // 	DD: true,
@@ -202,79 +125,6 @@ const SMART_TAG_OPTIONS: ElementOptions = {
 	unwrap: true,
 };
 
-const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
-	TABLE: DefaultElementOptions,
-	TBODY: DefaultElementOptions,
-	THEAD: DefaultElementOptions,
-	TFOOT: DefaultElementOptions,
-	CAPTION: DefaultElementOptions,
-	TR: DefaultElementOptions,
-	TH: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
-	TD: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
-	H1: DefaultElementOptions,
-	H2: DefaultElementOptions,
-	H3: DefaultElementOptions,
-	H4: DefaultElementOptions,
-	H5: DefaultElementOptions,
-	H6: DefaultElementOptions,
-	SUP: DefaultElementOptions,
-	SUB: DefaultElementOptions,
-	EM: DefaultElementOptions,
-	I: DefaultElementOptions,
-	S: DefaultElementOptions,
-	B: DefaultElementOptions,
-	STRONG: DefaultElementOptions,
-	U: DefaultElementOptions,
-	STRIKE: DefaultElementOptions,
-	P: DefaultElementOptions,
-	UL: DefaultElementOptions,
-	OL: DefaultElementOptions,
-	LI: DefaultElementOptions,
-	DL: DefaultElementOptions,
-	DT: DefaultElementOptions,
-	DD: DefaultElementOptions,
-	DIV: DefaultElementOptions,
-	BLOCKQUOTE: DefaultElementOptions,
-	ADDRESS: DefaultElementOptions,
-	FIELDSET: DefaultElementOptions,
-	LEGEND: DefaultElementOptions,
-	MARK: DefaultElementOptions,
-	CODE: DefaultElementOptions,
-	PRE: DefaultElementOptions,
-	SMALL: DefaultElementOptions,
-	DEL: DefaultElementOptions,
-	INS: DefaultElementOptions,
-	IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
-	SPAN: DefaultElementOptions,
-	LABEL: DefaultElementOptions,
-	BR: { void: true },
-	HR: { void: true },
-	FORM: AsDivElementOptions,
-	NAV: AsDivElementOptions,
-	MAIN: AsDivElementOptions,
-	HEADER: AsDivElementOptions,
-	FOOTER: AsDivElementOptions,
-	SECTION: AsDivElementOptions,
-	ARTICLE: AsDivElementOptions,
-	ASIDE: AsDivElementOptions,
-	A: {
-		replaceTag: "SPAN",
-		allowedStyles: COMMON_ALLOWED_STYLES,
-	},
-	"#document-fragment": DefaultElementOptions,
-};
-
-type ContainerStackItem = {
-	node: ParentNode;
-};
-
-function coerceColor(color: string): string | undefined {
-	if (isReddish(color)) {
-		return "red";
-	}
-	return undefined;
-}
-
 type ConditionalBlock = {
 	condition: string;
 	children: (string | ConditionalBlock)[];
@@ -343,25 +193,71 @@ function parseIfBlock(input: string, start: number): [ConditionalBlock, number] 
 	throw new Error("Missing matching [endif]");
 }
 
-const TRIM_CHARS: Record<string, boolean> = {
-	" ": true,
-	"\n": true,
-	"\r": true,
-	"\t": true,
-	"\f": true,
+const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
+	TABLE: DefaultElementOptions,
+	TBODY: { unwrap: true },
+	THEAD: { unwrap: true },
+	TFOOT: { unwrap: true },
+	CAPTION: DefaultElementOptions,
+	TR: DefaultElementOptions,
+	TD: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
+	TH: { replaceTag: "TD", allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
+	H1: DefaultElementOptions,
+	H2: DefaultElementOptions,
+	H3: DefaultElementOptions,
+	H4: DefaultElementOptions,
+	H5: DefaultElementOptions,
+	H6: DefaultElementOptions,
+	SUP: DefaultElementOptions,
+	SUB: DefaultElementOptions,
+	EM: DefaultElementOptions,
+	I: DefaultElementOptions,
+	S: DefaultElementOptions,
+	B: DefaultElementOptions,
+	STRONG: DefaultElementOptions,
+	U: DefaultElementOptions,
+	STRIKE: DefaultElementOptions,
+	P: DefaultElementOptions,
+	UL: DefaultElementOptions,
+	OL: DefaultElementOptions,
+	LI: DefaultElementOptions,
+	DL: DefaultElementOptions,
+	DT: DefaultElementOptions,
+	DD: DefaultElementOptions,
+	DIV: DefaultElementOptions,
+	BLOCKQUOTE: DefaultElementOptions,
+	ADDRESS: DefaultElementOptions,
+	FIELDSET: DefaultElementOptions,
+	LEGEND: DefaultElementOptions,
+	MARK: DefaultElementOptions,
+	CODE: DefaultElementOptions,
+	PRE: DefaultElementOptions,
+	SMALL: DefaultElementOptions,
+	DEL: DefaultElementOptions,
+	INS: DefaultElementOptions,
+	IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+	SPAN: DefaultElementOptions,
+	LABEL: DefaultElementOptions,
+	BR: { void: true },
+	HR: { void: true },
+	FORM: AsDivElementOptions,
+	NAV: AsDivElementOptions,
+	MAIN: AsDivElementOptions,
+	HEADER: AsDivElementOptions,
+	FOOTER: AsDivElementOptions,
+	SECTION: AsDivElementOptions,
+	ARTICLE: AsDivElementOptions,
+	ASIDE: AsDivElementOptions,
+	A: {
+		replaceTag: "SPAN",
+		allowedStyles: COMMON_ALLOWED_STYLES,
+	},
+	"#document-fragment": DefaultElementOptions,
 };
 
-type SanitizedNodeResult = {
-	node: Node;
-	hasText: boolean;
-	hasNonEmptyText: boolean;
-};
-
-// TODO
-// 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
-// 이 경우 <p><br></p>로 바꿔야 한다.
+// 진짜 병목은 execCommand("insertHTML", ...)임. 이 함수는 죄가 없다.
 function sanitizeHTML(rawHTML: string): Node {
-	// 보통 복붙을 하면 <!--StartFragment-->와 <!--EndFragment--> 태그로 감싸져 있다.
+	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
 	const START_TAG = "<!--StartFragment-->";
 	const END_TAG = "<!--EndFragment-->";
 	const startIndex = rawHTML.indexOf(START_TAG);
@@ -374,9 +270,8 @@ function sanitizeHTML(rawHTML: string): Node {
 		}
 	}
 
-	// console.debug("sanitizeHTML called with rawHTML:", rawHTML);
-
-	const containerStack: ContainerStackItem[] = [];
+	const tmpl = document.createElement("template");
+	tmpl.innerHTML = rawHTML;
 
 	function traverse(node: Node) {
 		if (
@@ -390,7 +285,7 @@ function sanitizeHTML(rawHTML: string): Node {
 		let elementOptions = ALLOWED_ELEMENTS[nodeName];
 		if (!elementOptions) {
 			if (nodeName === "O:P" && node.childNodes.length === 1 && node.childNodes[0].nodeValue! === "\u00A0") {
-				// 워드에서 복붙할때 빈줄이 <p><o:p></o:p></p> 이런식으로 들어올 수도 있다
+				// 워드에서 복붙할때 빈줄이 <p><o:p>&nbsp;</o:p></p> 이런 형태로 들어올 수도 있다
 				return document.createElement("BR");
 			} else if (nodeName.startsWith("ST1:")) {
 				elementOptions = SMART_TAG_OPTIONS;
@@ -404,7 +299,7 @@ function sanitizeHTML(rawHTML: string): Node {
 		let containerNode: ParentNode;
 
 		if (elementOptions.unwrap) {
-			containerNode = containerStack[containerStack.length - 1].node;
+			containerNode = document.createDocumentFragment();
 		} else {
 			if (node.nodeType === 1) {
 				containerNode = document.createElement(elementOptions.replaceTag || nodeName);
@@ -438,7 +333,6 @@ function sanitizeHTML(rawHTML: string): Node {
 				// document fragment
 				containerNode = document.createDocumentFragment();
 			}
-			containerStack.push({ node: containerNode });
 		}
 
 		if (!elementOptions.void) {
@@ -462,37 +356,22 @@ function sanitizeHTML(rawHTML: string): Node {
 			}
 		}
 
-		// containerNode.normalize();
-
-		// if (containerNode.nodeName === "P") {
-		// 	if (containerNode.childNodes.length === 0) {
-		// 		containerNode.appendChild(document.createElement("BR"));
-		// 	}
-		// } else {
-		// 	if (BLOCK_ELEMENTS[nodeName] && !BLOCK_ELEMENTS[containerNode.nodeName]) {
-		// 		containerNode.appendChild(document.createElement("BR"));
-		// 	}
-		// }
-
-		// if (containerNode.nodeType !== 11) {
-		// }
+		if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
+			if (
+				containerNode.childNodes.length === 0 ||
+				(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
+			) {
+				console.log("removing:", (node as HTMLElement).innerHTML)
+				return null;
+			}
+		}
 
 		if ((elementOptions.unwrap || (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName])) && containerNode.childNodes.length === 0) {
 			containerNode.appendChild(document.createTextNode(""));
 		}
-
-		if (!elementOptions.unwrap) {
-			containerStack.pop();
-		}
-
 		return containerNode;
 	}
 
-	const tmpl = document.createElement("template");
-	tmpl.innerHTML = rawHTML;
-
-	const root = document.createDocumentFragment();
-	containerStack.push({ node: root });
 	const result = traverse(tmpl.content)!;
 	// result.normalize();
 	// if (result.childNodes.length === 0) {

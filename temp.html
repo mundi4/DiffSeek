@@ -62,84 +62,19 @@
 
 <body>
 
-  <p> hello     
-    <b>world</b>    
-  </p>
-  <p>world  
-
-  </p>
+  <div id="ancestor">
+    <div id="descendant"></div>
+  </div>
 
 
-  <script>function removeAttrs(node, allowedAttrs) {
-  const attrs = [...node.attributes];
-  for (const attr of attrs) {
-    if (!allowedAttrs.has(attr.name)) {
-      node.removeAttribute(attr.name);
-    }
-  }
-  // 재귀: 자식도 처리
-  for (const child of node.children) {
-    removeAttrs(child, allowedAttrs);
-  }
-}
+  <script>
+    const ancestor = document.getElementById("ancestor");
+    const descendant = document.getElementById("descendant");
 
-function createCleanNode(oldNode, allowedAttrs) {
-  const newNode = document.createElement(oldNode.tagName);
-  // 속성 복사
-  for (const attr of oldNode.attributes) {
-    if (allowedAttrs.has(attr.name)) {
-      newNode.setAttribute(attr.name, attr.value);
-    }
-  }
-  // 자식 복사 (재귀)
-  for (const child of oldNode.children) {
-    newNode.appendChild(createCleanNode(child, allowedAttrs));
-  }
-  // 텍스트 노드 복사 (간단하게)
-  newNode.textContent = oldNode.textContent;
-  return newNode;
-}
+    console.log(ancestor.compareDocumentPosition(descendant), ancestor.compareDocumentPosition(descendant) & Node.DOCUMENT_POSITION_CONTAINS); // 20  = 16 + 4
+    
 
-// 테스트용
-const allowedAttrs = new Set(['id', 'class']);
-
-function buildTestNode() {
-  const parent = document.createElement('div');
-  parent.setAttribute('data-parent', 'pval');
-  parent.setAttribute('id', 'keep-parent');
-
-  const child1 = document.createElement('span');
-  child1.setAttribute('data-child1', 'c1val');
-  child1.setAttribute('class', 'keep-child1');
-  child1.textContent = 'Child One';
-
-  const child2 = document.createElement('p');
-  child2.setAttribute('data-child2', 'c2val');
-  child2.textContent = 'Child Two';
-
-  parent.appendChild(child1);
-  parent.appendChild(child2);
-
-  return parent;
-}
-
-function testPerformance() {
-  const testNode1 = buildTestNode();
-  const testNode2 = buildTestNode();
-
-  console.time('removeAttrs');
-  removeAttrs(testNode1, allowedAttrs);
-  console.timeEnd('removeAttrs');
-
-  console.time('createCleanNode');
-  const newNode = createCleanNode(testNode2, allowedAttrs);
-  console.timeEnd('createCleanNode');
-
-  console.log('After removeAttrs:', testNode1.outerHTML);
-  console.log('After createCleanNode:', newNode.outerHTML);
-}
-
-testPerformance();
+    console.log(descendant.compareDocumentPosition(ancestor), descendant.compareDocumentPosition(ancestor) & Node.DOCUMENT_POSITION_CONTAINED_BY); // 10 = 8 + 2;
   </script>
 </body>
 

@@ -1,4 +1,3 @@
-// computeDiffAsync는 queue 방식으로 동작하지 않음!
 // 현재 진행 중인 작업이 있다면 무조건 reject/cancel하고 새 작업을 시작함
 const computeDiffAsync = (() => {
 	const worker = (() => {
@@ -46,8 +45,7 @@ const computeDiffAsync = (() => {
 
 	function computeDiffAsync(leftTokens: Token[] | null, rightTokens: Token[] | null, options: DiffOptions): Promise<DiffResult> {
 		if (_current) {
-			// 현재 컨텍스트가 있다면 일단 reject.
-			// 작업 중인 worker는 새 작업을 받으면 알아서 취소하게 되어있음
+			// 작업 중인 worker는 새 작업을 받으면 알아서 기존 작업은 취소하게 되어있으니 신경 쓸 필요 없음.
 			_current.reject(new Error("cancelled"));
 		}
 

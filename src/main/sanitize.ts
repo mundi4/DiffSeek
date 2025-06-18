@@ -57,24 +57,31 @@ const INLINE_ELEMENTS: Record<string, boolean> = {
 // 	TR: true,
 // };
 
-// const EXCLUDED_HTML_TAGS: Record<string, number> = {
-// 	SCRIPT: 1,
-// 	STYLE: 1,
-// 	IFRAME: 1,
-// 	OBJECT: 1,
-// 	EMBED: 1,
-// 	LINK: 1,
-// 	META: 1,
-// 	BASE: 1,
-// 	APPLET: 1,
-// 	FRAME: 1,
-// 	FRAMESET: 1,
-// 	NOSCRIPT: 1,
-// 	SVG: 1,
-// 	MATH: 1,
-// 	TEMPLATE: 1,
-// 	HEAD: 1,
-// };
+const EXCLUDED_HTML_TAGS: Record<string, number> = {
+	SCRIPT: 1,
+	STYLE: 1,
+	IFRAME: 1,
+	OBJECT: 1,
+	EMBED: 1,
+	LINK: 1,
+	META: 1,
+	BASE: 1,
+	APPLET: 1,
+	FRAME: 1,
+	FRAMESET: 1,
+	NOSCRIPT: 1,
+	SVG: 1,
+	MATH: 1,
+	TEMPLATE: 1,
+	HEAD: 1,
+	TITLE: 1,
+	CANVAS: 1,
+	AUDIO: 1,
+	VIDEO: 1,
+	TRACK: 1,
+	SOURCE: 1,
+	BGSOUND: 1,
+};
 
 type ElementOptions = {
 	allowedAttrs?: Record<string, boolean>;
@@ -82,6 +89,7 @@ type ElementOptions = {
 	replaceTag?: string;
 	void?: boolean;
 	unwrap?: boolean;
+	exclude?: boolean;
 };
 
 const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
@@ -89,17 +97,18 @@ const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
 	fontSize: true,
 	fontWeight: true,
 	fontStyle: true,
-	margin: true,
-	marginLeft: true,
-	marginRight: true,
-	marginTop: true,
-	marginBottom: true,
-	marginBlockStart: true,
-	marginBlockEnd: true,
-	marginBlock: true,
-	marginInlineStart: true,
-	marginInlineEnd: true,
-	marginInline: true,
+	// margin값이 음수로 들어가서 화면밖으로 나가면 골치아픔. 그걸 일일히 체크해? 그냥 무시 ㅋ
+	// margin: true,
+	// marginLeft: true,
+	// marginRight: true,
+	// marginTop: true,
+	// marginBottom: true,
+	// marginBlockStart: true,
+	// marginBlockEnd: true,
+	// marginBlock: true,
+	// marginInlineStart: true,
+	// marginInlineEnd: true,
+	// marginInline: true,
 	padding: true,
 	paddingLeft: true,
 	paddingRight: true,
@@ -125,75 +134,40 @@ const SMART_TAG_OPTIONS: ElementOptions = {
 	unwrap: true,
 };
 
-type ConditionalBlock = {
-	condition: string;
-	children: (string | ConditionalBlock)[];
+const EXCLUDED_TAG_OPTIONS: ElementOptions = {
+	exclude: true,
 };
 
-// 조건 시작 정규식 (주석 유무 상관없이, [if ...]> 또는 <![if ...]> 모두 포괄)
-const ifRegex = /(?:<!--)?<?!?\[if\s+([^\]]+?)\]>?/gi;
-// 조건 종료 정규식
-const endifRegex = /<!\[endif\](?:-->|\])?/i;
+const COMMON_INLINE_ELEMENT_OPTIONS: ElementOptions = {
+	allowedStyles: COMMON_ALLOWED_STYLES,
+	replaceTag: "SPAN",
+};
 
-/**
- * input: 파싱할 전체 문자열
- * start: 파싱 시작 위치 (무조건 [if ...]가 시작하는 위치여야 함)
- *
- * returns: [조건부 블록, 종료 위치]
- */
-function parseIfBlock(input: string, start: number): [ConditionalBlock, number] {
-	ifRegex.lastIndex = start;
-	const ifMatch = ifRegex.exec(input);
-	if (!ifMatch || ifMatch.index !== start) {
-		console.error("parseIfBlock must start at an [if] condition", { ifMatch, start, input });
-		throw new Error("parseIfBlock must start at an [if] condition");
-	}
+const ELEMENT_POLICIES: Record<string, ElementOptions> = {
+	SCRIPT: EXCLUDED_TAG_OPTIONS,
+	STYLE: EXCLUDED_TAG_OPTIONS,
+	IFRAME: EXCLUDED_TAG_OPTIONS,
+	OBJECT: EXCLUDED_TAG_OPTIONS,
+	EMBED: EXCLUDED_TAG_OPTIONS,
+	LINK: EXCLUDED_TAG_OPTIONS,
+	META: EXCLUDED_TAG_OPTIONS,
+	BASE: EXCLUDED_TAG_OPTIONS,
+	APPLET: EXCLUDED_TAG_OPTIONS,
+	FRAME: EXCLUDED_TAG_OPTIONS,
+	FRAMESET: EXCLUDED_TAG_OPTIONS,
+	NOSCRIPT: EXCLUDED_TAG_OPTIONS,
+	SVG: EXCLUDED_TAG_OPTIONS,
+	MATH: EXCLUDED_TAG_OPTIONS,
+	TEMPLATE: EXCLUDED_TAG_OPTIONS,
+	HEAD: EXCLUDED_TAG_OPTIONS,
+	TITLE: EXCLUDED_TAG_OPTIONS,
+	CANVAS: EXCLUDED_TAG_OPTIONS,
+	AUDIO: EXCLUDED_TAG_OPTIONS,
+	VIDEO: EXCLUDED_TAG_OPTIONS,
+	TRACK: EXCLUDED_TAG_OPTIONS,
+	SOURCE: EXCLUDED_TAG_OPTIONS,
+	BGSOUND: EXCLUDED_TAG_OPTIONS,
 
-	const condition = ifMatch[1].trim();
-	let cursor = ifRegex.lastIndex;
-	const children: (string | ConditionalBlock)[] = [];
-
-	while (cursor < input.length) {
-		ifRegex.lastIndex = cursor;
-		endifRegex.lastIndex = cursor;
-
-		const nextIf = ifRegex.exec(input);
-		const nextEndIf = endifRegex.exec(input);
-
-		if (nextEndIf && (!nextIf || nextEndIf.index < nextIf.index)) {
-			// endif가 먼저 나오면 현재 조건 종료
-			if (nextEndIf.index > cursor) {
-				const text = input.slice(cursor, nextEndIf.index);
-				if (text.trim()) children.push(text);
-			}
-			cursor = nextEndIf.index + nextEndIf[0].length;
-			return [{ condition, children }, cursor];
-		}
-
-		if (nextIf && nextIf.index === cursor) {
-			// 중첩된 if 조건 파싱 재귀 호출
-			console.log("parseIfBlock called at pos:", start);
-			console.log("String at start:", input.slice(start, start + 20));
-			const [childBlock, newPos] = parseIfBlock(input, cursor);
-			children.push(childBlock);
-			cursor = newPos;
-			continue;
-		}
-
-		// 일반 텍스트 추출 (다음 조건문 혹은 endif까지)
-		let nextPos = input.length;
-		if (nextIf) nextPos = Math.min(nextPos, nextIf.index);
-		if (nextEndIf) nextPos = Math.min(nextPos, nextEndIf.index);
-
-		const text = input.slice(cursor, nextPos);
-		if (text.trim()) children.push(text);
-		cursor = nextPos;
-	}
-
-	throw new Error("Missing matching [endif]");
-}
-
-const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
 	TABLE: DefaultElementOptions,
 	TBODY: { unwrap: true },
 	THEAD: { unwrap: true },
@@ -236,6 +210,7 @@ const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
 	DEL: DefaultElementOptions,
 	INS: DefaultElementOptions,
 	IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+	FONT: { replaceTag: "SPAN", allowedStyles: COMMON_ALLOWED_STYLES },
 	SPAN: DefaultElementOptions,
 	LABEL: DefaultElementOptions,
 	BR: { void: true },
@@ -255,6 +230,59 @@ const ALLOWED_ELEMENTS: Record<string, ElementOptions> = {
 	"#document-fragment": DefaultElementOptions,
 };
 
+// die. just die.
+type CharMap = Record<string, string>;
+const WINGDINGS_TRANSFORM: Record<string, CharMap> = {
+	Wingdings: {
+		"\u00DF": "🡠",
+		"\u00E0": "🡢",
+		"\u00E1": "🡡",
+		"\u00E2": "🡣",
+		"\u00E3": "🡤",
+		"\u00E4": "🡥",
+		"\u00E5": "🡧",
+		"\u00E6": "🡦",
+		"\u00E7": "🡠",
+		"\u00E8": "🡢",
+		"\u00E9": "🡡",
+		"\u00EA": "🡣",
+		"\u00EB": "🡤",
+		"\u00EC": "🡥",
+		"\u00ED": "🡧",
+		"\u00EE": "🡦",
+		"\u0080": "⓪",	
+		"\u0081": "①",
+		"\u0082": "②",
+		"\u0083": "③",
+		"\u0084": "④",
+		"\u0085": "⑤",
+		"\u0086": "⑥",
+		"\u0087": "⑦",
+		"\u0088": "⑧",
+		"\u0089": "⑨",
+		"\u008A": "⑩",
+		"\u008B": "⓿",
+		"\u008C": "❶",
+		"\u008D": "❷",
+		"\u008E": "❸",
+		"\u008F": "❹",
+		"\u0090": "❺",
+		"\u0091": "❻",
+		"\u0092": "❼",
+		"\u0093": "❽",
+		"\u0094": "❾",
+		"\u0095": "❿",
+	},
+};
+
+function transformText(input: string, charMap: CharMap): string {
+	let result = "";
+	for (const ch of input) {
+		result += charMap[ch] || ch;
+	}
+	return result;
+}
+
 // 진짜 병목은 execCommand("insertHTML", ...)임. 이 함수는 죄가 없다.
 function sanitizeHTML(rawHTML: string): Node {
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
@@ -273,6 +301,15 @@ function sanitizeHTML(rawHTML: string): Node {
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
 
+	type _States = {
+		font: string | null;
+	};
+
+	const statesStack: _States[] = [];
+	let states: _States = {
+		font: null,
+	};
+
 	function traverse(node: Node) {
 		if (
 			node.nodeType !== 1 && // element
@@ -282,56 +319,72 @@ function sanitizeHTML(rawHTML: string): Node {
 		}
 
 		const nodeName = node.nodeName;
-		let elementOptions = ALLOWED_ELEMENTS[nodeName];
+		let elementOptions = ELEMENT_POLICIES[nodeName];
+
 		if (!elementOptions) {
 			if (nodeName === "O:P" && node.childNodes.length === 1 && node.childNodes[0].nodeValue! === "\u00A0") {
 				// 워드에서 복붙할때 빈줄이 <p><o:p>&nbsp;</o:p></p> 이런 형태로 들어올 수도 있다
 				return document.createElement("BR");
 			} else if (nodeName.startsWith("ST1:")) {
+				// 워드에서 날짜 같은 값이 종종 <st1:date>태그로 표현됨. WTF?
 				elementOptions = SMART_TAG_OPTIONS;
 			}
-
 			if (!elementOptions) {
-				return null;
+				elementOptions = COMMON_INLINE_ELEMENT_OPTIONS;
 			}
 		}
 
-		let containerNode: ParentNode;
+		if (elementOptions.exclude) {
+			return null;
+		}
+		
+		statesStack.push(states);
+		states = { ...states };
 
-		if (elementOptions.unwrap) {
+		let containerNode: ParentNode;
+		if (elementOptions.unwrap || node.nodeType === 11) {
 			containerNode = document.createDocumentFragment();
 		} else {
-			if (node.nodeType === 1) {
-				containerNode = document.createElement(elementOptions.replaceTag || nodeName);
-				if (elementOptions.allowedAttrs) {
-					for (const attr of (node as HTMLElement).attributes) {
-						if (elementOptions.allowedAttrs[attr.name]) {
-							(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
-						}
-					}
-				}
-				if (elementOptions.allowedStyles) {
-					const style = (node as HTMLElement).style;
-					for (const prop in elementOptions.allowedStyles) {
-						if (style[prop as any]) {
-							(containerNode as HTMLElement).style[prop as any] = style[prop as any];
-						}
-					}
-				}
+			containerNode = document.createElement(elementOptions.replaceTag || nodeName);
 
-				let colorValue = (node as HTMLElement).style?.color;
-				if (colorValue) {
-					if (colorValue === "inherit") {
-						// use parent color
-					} else {
-						if (isReddish(colorValue)) {
-							(containerNode as HTMLElement).classList.add("color-red");
+			if (elementOptions.allowedAttrs) {
+				for (const attr of (node as HTMLElement).attributes) {
+					if (elementOptions.allowedAttrs[attr.name]) {
+						(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
+					}
+				}
+			}
+			if (elementOptions.allowedStyles) {
+				const style = (node as HTMLElement).style;
+				for (const prop in elementOptions.allowedStyles) {
+					if (style[prop as any]) {
+						(containerNode as HTMLElement).style[prop as any] = style[prop as any];
+					}
+				}
+			}
+
+			let colorValue = (node as HTMLElement).style?.color;
+			if (colorValue) {
+				if (colorValue === "inherit") {
+					// use parent color
+				} else {
+					if (isReddish(colorValue)) {
+						(containerNode as HTMLElement).classList.add("color-red");
+					}
+				}
+			}
+
+			let fontFamily = (node as HTMLElement).style?.fontFamily;
+			if (fontFamily) {
+				if (fontFamily === "inherit") {
+					// use parent font
+				} else {
+					if (fontFamily !== states.font) {
+						if (WINGDINGS_TRANSFORM[fontFamily]) {
+							states.font = fontFamily;
 						}
 					}
 				}
-			} else {
-				// document fragment
-				containerNode = document.createDocumentFragment();
 			}
 		}
 
@@ -344,7 +397,11 @@ function sanitizeHTML(rawHTML: string): Node {
 					if (isTextless) {
 						continue;
 					}
-					sanitizedChild = document.createTextNode(childNode.nodeValue!);
+					let text = childNode.nodeValue!;
+					if (states.font) {
+						text = transformText(text, WINGDINGS_TRANSFORM[states.font]!);
+					}
+					sanitizedChild = document.createTextNode(text);
 				} else {
 					sanitizedChild = traverse(childNode);
 					if (!sanitizedChild) {
@@ -356,12 +413,13 @@ function sanitizeHTML(rawHTML: string): Node {
 			}
 		}
 
+		states = statesStack.pop()!;
+
 		if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
 			if (
 				containerNode.childNodes.length === 0 ||
 				(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
 			) {
-				console.log("removing:", (node as HTMLElement).innerHTML)
 				return null;
 			}
 		}

@@ -218,49 +218,57 @@ class Editor {
 	}
 
 	#onPaste(e: ClipboardEvent) {
+		const selection = document.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!this.#editor.contains(range.commonAncestorContainer)) {
+			return;
+		}
+		
+
+		console.time("paste");
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
-		console.time("paste");
 		e.preventDefault();
 		this.#unobserveMutation();
 
-		console.time("paste getData");
 		let rawHTML = e.clipboardData?.getData("text/html") ?? "";
-		console.timeEnd("paste getData");
-
-		console.time("paste sanitizeHTML");
 		let sanitized: Node;
 		if (rawHTML) {
+			console.time("paste sanitizeHTML");
 			sanitized = sanitizeHTML(rawHTML);
+			console.timeEnd("paste sanitizeHTML");
 		} else {
 			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
 		}
-
-		console.timeEnd("paste sanitizeHTML");
-
-		console.time("paste insert contents");
 
 		// 후...
 		// document.execCommand("insertHTML", ...)를 undo/redo 히스토리가 제대로 업데이트 되지만
 		// 느리다. 미친게 아닌가 싶을 정도로 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
 		// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
-		const range = document.getSelection()?.getRangeAt(0);
-		if (range) {
-			// 눈깜빡할 속도
-			range.deleteContents();
-			range.insertNode(sanitized);
-			range.collapse(false);
-			this.onInput(); // 수동 삽입을 하면 input 이벤트가 발생하지 않음.
-		} else {
-			// 눈감고 자다 일어나서 졸린눈으로 커피 내리는 속도
+
+		// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
+		if (rawHTML.length <= 200_000) {
+			console.time("paste execCommand");
 			const div = document.createElement("DIV");
 			div.appendChild(sanitized);
 			const sanitizedHTML = div.innerHTML;
 			document.execCommand("insertHTML", false, sanitizedHTML);
+			console.timeEnd("paste execCommand");
+		} else {
+			console.time("paste replaceRange");
+			range.deleteContents();
+			range.insertNode(sanitized);
+			range.collapse(false);
+			this.onInput();
+			console.timeEnd("paste replaceRange");
 		}
-		console.timeEnd("paste insert contents");
-		console.timeEnd("paste");
+
 		this.#observeMutation();
+		console.timeEnd("paste");
 	}
 
 	findTokenOverlapIndices(range: Range): [number, number] {

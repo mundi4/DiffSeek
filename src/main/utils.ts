@@ -757,3 +757,47 @@ function comparePoint(lhsContainer: Node, lhsOffset: number, rhsContainer: Node,
 		throw err;
 	}
 }
+
+
+function tokenFlagsToString(flags: TokenFlags): string {
+	const parts: string[] = [];
+	if (flags & TokenFlags.TABLE_START) parts.push("TABLE_START");
+	if (flags & TokenFlags.TABLE_END) parts.push("TABLE_END");
+	if (flags & TokenFlags.TABLEROW_START) parts.push("TABLEROW_START");
+	if (flags & TokenFlags.TABLEROW_END) parts.push("TABLEROW_END");
+	if (flags & TokenFlags.TABLECELL_START) parts.push("TABLECELL_START");
+	if (flags & TokenFlags.TABLECELL_END) parts.push("TABLECELL_END");
+	if (flags & TokenFlags.BLOCK_START) parts.push("BLOCK_START");
+	if (flags & TokenFlags.BLOCK_END) parts.push("BLOCK_END");
+	if (flags & TokenFlags.CONTAINER_START) parts.push("CONTAINER_START");
+	if (flags & TokenFlags.CONTAINER_END) parts.push("CONTAINER_END");
+	return parts.join(", ");
+}
+
+
+function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: number): AnchorFlags {
+	endTokenFlags ??= tokenFlags;
+	let flags = 0;
+	if (tokenFlags & TokenFlags.LINE_START) {
+		flags |= AnchorFlags.LINE_START;
+	}
+	if (tokenFlags & TokenFlags.CONTAINER_START) {
+		flags |= AnchorFlags.CONTAINER_START;
+	}
+	if (tokenFlags & TokenFlags.TABLE_START) {
+		flags |= AnchorFlags.TABLE_START;
+	}
+	if (tokenFlags & TokenFlags.TABLEROW_START) {
+		flags |= AnchorFlags.TABLEROW_START;
+	}
+	if (tokenFlags & TokenFlags.TABLECELL_START) {
+		flags |= AnchorFlags.TABLECELL_START;
+	}
+	if (tokenFlags & TokenFlags.BLOCK_START) {
+		flags |= AnchorFlags.BLOCK_START;
+	}
+	if (tokenFlags & SECTION_HEADING_MASK) {
+		// flags |= AnchorFlags.SECTION_HEADING;
+	}
+	return flags;
+}

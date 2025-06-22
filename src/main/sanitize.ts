@@ -97,29 +97,6 @@ const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
 	fontSize: true,
 	fontWeight: true,
 	fontStyle: true,
-	// margin값이 음수로 들어가서 화면밖으로 나가면 골치아픔. 그걸 일일히 체크해? 그냥 무시 ㅋ
-	// margin: true,
-	// marginLeft: true,
-	// marginRight: true,
-	// marginTop: true,
-	// marginBottom: true,
-	// marginBlockStart: true,
-	// marginBlockEnd: true,
-	// marginBlock: true,
-	// marginInlineStart: true,
-	// marginInlineEnd: true,
-	// marginInline: true,
-	padding: true,
-	paddingLeft: true,
-	paddingRight: true,
-	paddingTop: true,
-	paddingBottom: true,
-	paddingBlockStart: true,
-	paddingBlockEnd: true,
-	paddingBlock: true,
-	paddingInlineStart: true,
-	paddingInlineEnd: true,
-	paddingInline: true,
 };
 
 const DefaultElementOptions: ElementOptions = {
@@ -300,6 +277,8 @@ function sanitizeHTML(rawHTML: string): Node {
 
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
+
+	console.log("rawHTML", rawHTML);
 
 	type _States = {
 		font: string | null;

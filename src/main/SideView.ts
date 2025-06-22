@@ -1,16 +1,10 @@
-type SideViewCallbacks = {
-	onDiffItemMouseOver: (diffIndex: number) => void;
-	onDiffItemMouseOut: (diffIndex: number) => void;
-};
-
 class SideView {
-	#callbacks: SideViewCallbacks;
 	#root: HTMLElement;
 	#diffListElement: HTMLElement;
 	#diffListItems: DiffListItem[] = [];
+	#highlightedDiffIndex: number | null = null;
 
-	constructor(container: HTMLElement, callbacks: SideViewCallbacks) {
-		this.#callbacks = callbacks;
+	constructor(container: HTMLElement) {
 		this.#root = document.createElement("DIV");
 
 		this.#diffListElement = document.createElement("UL");
@@ -18,17 +12,28 @@ class SideView {
 		this.#root.appendChild(this.#diffListElement);
 
 		container.appendChild(this.#root);
+
+		highlightedDiffIndexAtom.subscribe((diffIndex) => this.onHighlightedDiffIndexChange());
+		diffItemClickedEvent.subscribe((diffIndex) => {
+			const item = this.#diffListItems[diffIndex];
+			if (item) {
+				item.scrollIntoView();
+			}	
+		});
 	}
 
 	setDiffs(diffs: DiffItem[]) {
-		for (const diff of diffs) {
-		}
-
 		for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
 			const diff = diffs[diffIndex];
 			let item = this.#diffListItems[diffIndex];
 			if (!item) {
-				item = new DiffListItem(this.#diffListElement);
+				item = new DiffListItem(
+					this.#diffListElement,
+					diffIndex,
+					this.onDiffItemClick.bind(this),
+					this.onDiffItemMouseOver.bind(this),
+					this.onDiffItemMouseOut.bind(this)
+				);
 				this.#diffListItems[diffIndex] = item;
 			}
 			item.update(diff);
@@ -41,14 +46,18 @@ class SideView {
 		this.#diffListItems.length = diffs.length;
 	}
 
+	onDiffItemClick(diffIndex: number) {
+		diffItemClickedEvent.emit(diffIndex);
+	}
+
 	onDiffItemMouseOver(diffIndex: number) {
-		//this.#callbacks.onDiffItemMouseOver(diffIndex);
 		highlightedDiffIndexAtom.set(diffIndex);
 	}
 
 	onDiffItemMouseOut(diffIndex: number) {
-		highlightedDiffIndexAtom.set(null);
-		this.#callbacks.onDiffItemMouseOut(diffIndex);
+		if (highlightedDiffIndexAtom.get() === diffIndex) {
+			highlightedDiffIndexAtom.set(null);
+		}
 	}
 
 	onDiffVisibilityChange(editorName: string, entries: VisibilityChangeEntry[]) {
@@ -59,20 +68,41 @@ class SideView {
 			}
 		}
 	}
-}
 
-type DiffItemCallbacks = {
-	onMouseOver: (diffIndex: number) => void;
-	onMouseOut: (diffIndex: number) => void;
-};
+	onHighlightedDiffIndexChange() {
+		const diffIndex = highlightedDiffIndexAtom.get();
+		if (this.#highlightedDiffIndex !== diffIndex) {
+			if (this.#highlightedDiffIndex !== null) {
+				const prevItem = this.#diffListItems[this.#highlightedDiffIndex];
+				if (prevItem) {
+					prevItem.highlighted = false;
+				}
+			}
+			this.#highlightedDiffIndex = diffIndex;
+			if (diffIndex !== null) {
+				const item = this.#diffListItems[diffIndex];
+				if (item) {
+					item.highlighted = true;
+				}
+			}
+		}
+	}
+}
 
 class DiffListItem {
 	#element: HTMLElement;
 	#leftEl: HTMLElement;
 	#rightEl: HTMLElement;
 	#diff: DiffItem | null = null;
+	#highlighted: boolean = false;
 
-	constructor(listElement: HTMLElement) {
+	constructor(
+		listElement: HTMLElement,
+		diffIndex: number,
+		onClick: (diffIndex: number) => void,
+		onMouseOver: (diffIndex: number) => void,
+		onMouseOut: (diffIndex: number) => void
+	) {
 		this.#element = document.createElement("LI");
 
 		this.#leftEl = document.createElement("SPAN");
@@ -85,18 +115,26 @@ class DiffListItem {
 		this.#element.appendChild(this.#rightEl);
 		listElement.appendChild(this.#element);
 
-		// event listeners
-		this.#element.addEventListener("mouseover", () => {
-			highlightedDiffIndexAtom.set(this.#diff!.diffIndex);
-		});
+		this.#element.addEventListener("click", () => onClick(diffIndex));
+		this.#element.addEventListener("mouseover", () => onMouseOver(diffIndex));
+		this.#element.addEventListener("mouseout", () => onMouseOut(diffIndex));
+	}
 
-		this.#element.addEventListener("mouseout", () => {
-			highlightedDiffIndexAtom.set(null);
-		});
+	get highlighted(): boolean {
+		return this.#highlighted;
+	}
 
-		this.#element.addEventListener("click", () => {
-			diffItemClickedEvent.emit(this.#diff!.diffIndex);
-		});
+	set highlighted(value: boolean) {
+		value = !!value;
+		if (this.#highlighted === value) {
+			return;
+		}
+		this.#highlighted = value;
+		if (value) {
+			this.#element.classList.add("highlighted");
+		} else {
+			this.#element.classList.remove("highlighted");
+		}
 	}
 
 	update(diff: DiffItem | null) {
@@ -190,5 +228,13 @@ class DiffListItem {
 		}
 
 		return text.trimEnd();
+	}
+
+	scrollIntoView() {
+		this.#element.classList.remove("flash-once");
+		this.#element.scrollIntoView(
+			// { block: "nearest", inline: "nearest" }
+		);
+		this.#element.classList.add("flash-once");
 	}
 }

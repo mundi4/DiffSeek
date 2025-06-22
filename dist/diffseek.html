@@ -2,10 +2,10 @@
 <html lang="en">
 
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="github" content="https://github.com/mundi4/DiffSeek">
-    <title>DiffSeek</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="github" content="https://github.com/mundi4/DiffSeek">
+  <title>DiffSeek</title>
 <script id="worker.js" type="text/plain">"use strict";
 const SECTION_HEADING_MASK = 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */ |
     1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */ |
@@ -802,21 +802,6 @@ const EDITOR_PADDING = 8;
 const LINE_HEIGHT = 1.5;
 const TOPBAR_HEIGHT = 0;
 const SCROLL_MARGIN = LINE_HEIGHT * 2 * BASE_FONT_SIZE; // px
-const COMPUTE_DEBOUNCE_TIME = 200; // ms
-const FORCE_RENDER_TIMEOUT = 100; // ms
-const PROCESSING_MESSAGES = [
-    "한땀한땀 비교 중...",
-    "인내심 테스트 중...",
-    "생각 중...",
-    "재부팅 준비 중...",
-    "무한 루프 중...",
-    "머리 긁는 중...",
-    "DIFFSEEKING...",
-    "COME ON, TARS!",
-    "3... 2... 1...",
-    "99... 98... 97...",
-    "퇴근 준비 중...",
-];
 const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
 const VOID_ELEMENTS = {
     AREA: true,
@@ -854,7 +839,6 @@ const TEXTLESS_ELEMENTS = {
     HEAD: true,
     TITLE: true,
     SCRIPT: true,
-    "#document-fragment": true,
 };
 const LINE_ELEMENTS = {
     P: true,
@@ -916,6 +900,70 @@ const BLOCK_ELEMENTS = {
     "#document-fragment": true,
 };
 //# sourceMappingURL=constants.js.map
+</script>
+<script>"use strict";
+// 현재 진행 중인 작업이 있다면 무조건 reject/cancel하고 새 작업을 시작함
+const computeDiffAsync = (() => {
+    const worker = (() => {
+        let workerURL;
+        const scriptElement = document.getElementById("worker.js");
+        const workerCode = scriptElement.textContent;
+        if (workerCode.length < 10) {
+            workerURL = scriptElement.src; // "./dist/worker.js";
+        }
+        else {
+            const blob = new Blob([workerCode], { type: "application/javascript" });
+            workerURL = URL.createObjectURL(blob);
+        }
+        return new Worker(workerURL);
+    })();
+    let _reqId = 0;
+    let _current = null;
+    worker.onmessage = (e) => {
+        const data = e.data;
+        if (data.type === "diff") {
+            if (_current && data.reqId === _current.request.reqId) {
+                if (data.reqId === _current.request.reqId) {
+                    const result = {
+                        diffs: data.diffs,
+                        processTime: data.processTime,
+                    };
+                    _current.resolve(result);
+                }
+                else {
+                    // 이 경우는 worker가 이전 요청을 처리하는 도중 새 요청이 들어온 경우임
+                    _current.reject(new Error("cancelled"));
+                }
+            }
+        }
+    };
+    worker.onerror = (e) => {
+        //
+    };
+    function computeDiffAsync(leftTokens, rightTokens, options) {
+        if (_current) {
+            // 작업 중인 worker는 새 작업을 받으면 알아서 기존 작업은 취소하게 되어있으니 신경 쓸 필요 없음.
+            _current.reject(new Error("cancelled"));
+        }
+        return new Promise((resolve, reject) => {
+            const request = {
+                type: "diff",
+                reqId: ++_reqId,
+                options: { ...options },
+                leftTokens: leftTokens,
+                rightTokens: rightTokens,
+            };
+            _current = {
+                resolve,
+                reject,
+                request,
+            };
+            worker.postMessage(request);
+        });
+    }
+    return computeDiffAsync;
+})();
+//# sourceMappingURL=diff.js.map
 </script>
 <script>"use strict";
 // 개정대비표와 전문에서는 빨간색만 의미 있음. 변태처럼 빨간색이 아닌 뻘건색을 써도 허용.
@@ -1622,6 +1670,56 @@ function comparePoint(lhsContainer, lhsOffset, rhsContainer, rhsOffset) {
         throw err;
     }
 }
+function tokenFlagsToString(flags) {
+    const parts = [];
+    if (flags & 64 /* TokenFlags.TABLE_START */)
+        parts.push("TABLE_START");
+    if (flags & 128 /* TokenFlags.TABLE_END */)
+        parts.push("TABLE_END");
+    if (flags & 256 /* TokenFlags.TABLEROW_START */)
+        parts.push("TABLEROW_START");
+    if (flags & 512 /* TokenFlags.TABLEROW_END */)
+        parts.push("TABLEROW_END");
+    if (flags & 1024 /* TokenFlags.TABLECELL_START */)
+        parts.push("TABLECELL_START");
+    if (flags & 2048 /* TokenFlags.TABLECELL_END */)
+        parts.push("TABLECELL_END");
+    if (flags & 4 /* TokenFlags.BLOCK_START */)
+        parts.push("BLOCK_START");
+    if (flags & 8 /* TokenFlags.BLOCK_END */)
+        parts.push("BLOCK_END");
+    if (flags & 16 /* TokenFlags.CONTAINER_START */)
+        parts.push("CONTAINER_START");
+    if (flags & 32 /* TokenFlags.CONTAINER_END */)
+        parts.push("CONTAINER_END");
+    return parts.join(", ");
+}
+function translateTokenFlagsToAnchorFlags(tokenFlags, endTokenFlags) {
+    endTokenFlags ??= tokenFlags;
+    let flags = 0;
+    if (tokenFlags & 1 /* TokenFlags.LINE_START */) {
+        flags |= 1 /* AnchorFlags.LINE_START */;
+    }
+    if (tokenFlags & 16 /* TokenFlags.CONTAINER_START */) {
+        flags |= 4 /* AnchorFlags.CONTAINER_START */;
+    }
+    if (tokenFlags & 64 /* TokenFlags.TABLE_START */) {
+        flags |= 32 /* AnchorFlags.TABLE_START */;
+    }
+    if (tokenFlags & 256 /* TokenFlags.TABLEROW_START */) {
+        flags |= 16 /* AnchorFlags.TABLEROW_START */;
+    }
+    if (tokenFlags & 1024 /* TokenFlags.TABLECELL_START */) {
+        flags |= 8 /* AnchorFlags.TABLECELL_START */;
+    }
+    if (tokenFlags & 4 /* TokenFlags.BLOCK_START */) {
+        flags |= 2 /* AnchorFlags.BLOCK_START */;
+    }
+    if (tokenFlags & SECTION_HEADING_MASK) {
+        // flags |= AnchorFlags.SECTION_HEADING;
+    }
+    return flags;
+}
 //# sourceMappingURL=utils.js.map
 </script>
 <script>"use strict";
@@ -1640,6 +1738,9 @@ function createAtom(name, initialValue) {
             return value;
         },
         set(newValue) {
+            if (value === newValue) {
+                return;
+            }
             value = newValue;
             listeners.forEach((fn) => fn(value));
         },
@@ -1794,29 +1895,6 @@ const COMMON_ALLOWED_STYLES = {
     fontSize: true,
     fontWeight: true,
     fontStyle: true,
-    // margin값이 음수로 들어가서 화면밖으로 나가면 골치아픔. 그걸 일일히 체크해? 그냥 무시 ㅋ
-    // margin: true,
-    // marginLeft: true,
-    // marginRight: true,
-    // marginTop: true,
-    // marginBottom: true,
-    // marginBlockStart: true,
-    // marginBlockEnd: true,
-    // marginBlock: true,
-    // marginInlineStart: true,
-    // marginInlineEnd: true,
-    // marginInline: true,
-    padding: true,
-    paddingLeft: true,
-    paddingRight: true,
-    paddingTop: true,
-    paddingBottom: true,
-    paddingBlockStart: true,
-    paddingBlockEnd: true,
-    paddingBlock: true,
-    paddingInlineStart: true,
-    paddingInlineEnd: true,
-    paddingInline: true,
 };
 const DefaultElementOptions = {
     allowedStyles: COMMON_ALLOWED_STYLES,
@@ -1985,6 +2063,7 @@ function sanitizeHTML(rawHTML) {
     }
     const tmpl = document.createElement("template");
     tmpl.innerHTML = rawHTML;
+    console.log("rawHTML", rawHTML);
     const statesStack = [];
     let states = {
         font: null,
@@ -2632,14 +2711,11 @@ class Editor {
     #wrapper = document.createElement("div");
     #editor = document.createElement("div");
     #mutationObserver;
-    #anchors = [];
     #tokens = [];
     #tokenizeContext = null;
     #tokenizeCallbackId = null;
     #callbacks;
-    #renderer;
-    #hoveredDiffIndex = null;
-    #aligning = false;
+    #bottomPaddingElement = document.createElement("div");
     constructor(container, editorName, callbacks) {
         this.#editorName = editorName;
         this.#container = container;
@@ -2652,19 +2728,29 @@ class Editor {
         this.#wrapper.id = editorName + "EditorWrapper";
         this.#wrapper.classList.add("editor-wrapper");
         this.#wrapper.appendChild(this.#editor);
+        this.#bottomPaddingElement.className = "maybe-170cm-wasnt-enough";
+        this.#bottomPaddingElement.addEventListener("click", (e) => {
+            const sel = window.getSelection();
+            const range = document.createRange();
+            range.setStart(this.#editor, this.#editor.childNodes.length);
+            range.collapse(true);
+            sel?.removeAllRanges();
+            sel?.addRange(range);
+            this.#editor.focus();
+        });
+        this.#wrapper.appendChild(this.#bottomPaddingElement);
         this.#container.appendChild(this.#wrapper);
-        this.#renderer = new Renderer(this, this.#wrapper, { diffVisibilityChanged: (e) => this.onDiffVisibilityChanged(e) });
         this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
         this.#observeMutation();
         this.#wrapper.addEventListener("scroll", (e) => {
-            this.onScroll(e);
+            this.#onScroll(e);
         });
         this.#wrapper.addEventListener("scrollend", () => {
             callbacks.onScrollEnd(this);
         });
         this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
-        this.#editor.addEventListener("input", () => this.onInput());
-        this.#editor.addEventListener("keydown", (e) => this.onKeyDown(e));
+        this.#editor.addEventListener("input", () => this.#onInput());
+        this.#editor.addEventListener("keydown", (e) => this.#onKeyDown(e));
         this.#editor.addEventListener("focus", () => {
             callbacks.onFocus(this);
         });
@@ -2672,14 +2758,6 @@ class Editor {
             callbacks.onBlur(this);
         });
         //setTimeout(() => this.tokenize(), 0);
-        this.#wrapper.addEventListener("mousemove", (e) => this.onMouseMove(e));
-        this.#wrapper.addEventListener("mouseleave", () => {
-            if (this.#hoveredDiffIndex !== null) {
-                this.#hoveredDiffIndex = null;
-                this.#callbacks.onHoverDiff(this, null);
-                this.#callbacks.onRenderInvalidated(this, 12 /* RenderFlags.HIGHLIGHT */);
-            }
-        });
         const resizeObserver = new ResizeObserver(() => this.#onResize());
         resizeObserver.observe(this.#editor);
         resizeObserver.observe(this.#wrapper);
@@ -2708,26 +2786,7 @@ class Editor {
     set scrollLeft(value) {
         this.#wrapper.scrollLeft = value;
     }
-    scrollToOffset(offset) {
-        this.#wrapper.scrollTop = offset;
-    }
-    scrollByOffset(offset) {
-        this.#wrapper.scrollTop += offset;
-    }
-    onMouseMove(e) {
-        const rect = this.#wrapper.getBoundingClientRect();
-        let x = e.clientX - rect.x + this.#wrapper.scrollLeft;
-        let y = e.clientY - rect.y + this.#wrapper.scrollTop;
-        const diffIndex = this.#renderer.getDiffAtPoint(x, y);
-        if (diffIndex !== this.#hoveredDiffIndex) {
-            this.#hoveredDiffIndex = diffIndex;
-            this.#callbacks.onHoverDiff(this, diffIndex);
-        }
-    }
-    onDiffVisibilityChanged(entries) {
-        this.#callbacks.onDiffVisibilityChanged(this, entries);
-    }
-    onKeyDown(e) {
+    #onKeyDown(e) {
         if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
             // vscode나 기타 등등 코드에디터나 IDE에서 흔하게 사용하는 단축키.
             // 마우스에 손대지 않고 살짝 2-3줄 정도만 스크롤하고 싶은데 커서가 너무 멀리 있는 경우...
@@ -2740,14 +2799,15 @@ class Editor {
             });
         }
     }
-    onScroll(e) {
-        this.#renderer.markDirty(13 /* RenderFlags.SCROLL */);
+    #onScroll(e) {
         this.#callbacks.onScroll(this, this.#wrapper.scrollTop, this.#wrapper.scrollLeft);
     }
-    onInput() {
-        this.#renderer.markDirty(15 /* RenderFlags.ALL */);
+    #onInput() {
         this.#callbacks.onContentChanging(this);
-        this.tokenize();
+        this.#tokenize();
+    }
+    #onResize() {
+        this.#callbacks.onResize(this);
     }
     #onMutation(mutations) {
         if (this.#editor.childNodes.length === 0) {
@@ -2807,7 +2867,7 @@ class Editor {
             range.deleteContents();
             range.insertNode(sanitized);
             range.collapse(false);
-            this.onInput();
+            this.#onInput();
             console.timeEnd("paste replaceRange");
         }
         this.#observeMutation();
@@ -2920,7 +2980,7 @@ class Editor {
         }
         return range;
     }
-    tokenize() {
+    #tokenize() {
         const _TIMEOUT = 200;
         if (this.#tokenizeCallbackId !== null) {
             // 아직 실행되지 않고 대기 중인 콜백 취소
@@ -2971,9 +3031,10 @@ class Editor {
     #onTokenizeDone() {
         this.#callbacks.onContentChanged(this);
     }
-    #getOrInsertStartAnchor(tokenIndex, flags) {
+    getAnchorInsertionPoint(tokenIndex, flags) {
         const token = this.#tokens[tokenIndex];
         if (!token) {
+            console.warn(this.#editorName, "getAnchorInsertionPoint", "No token found for index", tokenIndex);
             return null;
         }
         let container = token.range.startContainer;
@@ -2986,69 +3047,70 @@ class Editor {
             container = token.range.startContainer.parentNode;
             insertPoint = token.range.startContainer;
         }
-        let found = false;
-        let lastAnchor = this.#anchors[this.#anchors.length - 1];
-        do {
-            if (!lastAnchor || lastAnchor.compareDocumentPosition(insertPoint) & Node.DOCUMENT_POSITION_FOLLOWING) {
-                if (flags & 32 /* AnchorFlags.TABLE_START */) {
-                    // table 앞
-                    if (insertPoint.nodeName === "TABLE") {
-                        found = true;
-                        break;
-                        // return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-                    }
-                }
-                else if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
-                    // td의 첫 자식.
-                    if (container.nodeName === "TD" || container.nodeName === "TH") {
-                        found = true;
-                        break;
-                        // return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-                    }
-                }
-                else if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
-                    if (container === this.#editor || TEXT_FLOW_CONTAINERS[container.nodeName]) {
-                        found = true;
-                        break;
-                        // return this.#getExistingOrCreateAnchor(container as HTMLElement, beforeNode as HTMLElement);
-                    }
-                }
-                else if (
-                // flags & AnchorFlags.BLOCK_START &&
-                BLOCK_ELEMENTS[container.nodeName]) {
-                    found = true;
-                    break;
+        const insertionRange = document.createRange();
+        const editor = this.#editor;
+        function pinpointWhereToSlideItIn(flags, container, insertPoint) {
+            if (flags & 32 /* AnchorFlags.TABLE_START */) {
+                if (insertPoint.nodeName === "TABLE") {
+                    insertionRange.setStartBefore(insertPoint);
+                    return true;
                 }
             }
-            // if (BLOCK_ELEMENTS[container.nodeName]) {
-            // 	firstContainer = container;
-            // 	firstBeforeNode = beforeNode;
-            // }
-            if (container === this.#editor) {
+            else if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
+                if (container.nodeName === "TD" || container.nodeName === "TH") {
+                    insertionRange.setStart(container, 0);
+                    return true;
+                }
+            }
+            else if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
+                if (container === editor || TEXT_FLOW_CONTAINERS[container.nodeName]) {
+                    insertionRange.setStart(container, 0);
+                    return true;
+                }
+            }
+            else if (BLOCK_ELEMENTS[container.nodeName]) {
+                insertionRange.setStart(container, 0);
+                return true;
+            }
+            return false;
+        }
+        function wrapBeforeInsertIfNecessary(range) {
+            const container = range.startContainer;
+            let offset = range.startOffset;
+            let node = container.childNodes[offset];
+            while (node && node.nodeName === "A") {
+                if (node.classList.contains("anchor")) {
+                    // Found valid anchor; keep range as-is
+                    break;
+                }
+                if (node.classList.contains("diff")) {
+                    // Skip this diff anchor
+                    offset += 1;
+                    node = container.childNodes[offset];
+                    continue;
+                }
+                // Unknown <a>, probably junk — bail
+                return null;
+            }
+            // Adjust range only if we skipped something
+            if (offset !== range.startOffset) {
+                range.setStart(container, offset);
+            }
+            range.collapse(true);
+            return range;
+        }
+        do {
+            if (pinpointWhereToSlideItIn(flags, container, insertPoint)) {
+                const rangeWithSafetyOn = wrapBeforeInsertIfNecessary(insertionRange);
+                return rangeWithSafetyOn;
+            }
+            if (container === editor) {
                 break;
             }
             insertPoint = container;
             container = container.parentNode;
         } while (container);
-        if (found) {
-            while (insertPoint.previousSibling) {
-                let prev = insertPoint.previousSibling;
-                if (prev.nodeName === "BR" || BLOCK_ELEMENTS[prev.nodeName]) {
-                    break;
-                }
-                if (prev.nodeType === 3 && prev.nodeValue.trim() === "") {
-                    // 빈 텍스트노드는 무시
-                    insertPoint = prev;
-                    continue;
-                }
-                break;
-            }
-            if (insertPoint && insertPoint.nodeName === "A" && insertPoint.classList.contains("diff")) {
-                insertPoint = insertPoint.nextSibling;
-            }
-            return this.#getExistingOrCreateAnchor(container, insertPoint);
-        }
-        console.warn(this.#editorName, "getOrInsertStartAnchor", "No suitable container found for anchor", {
+        console.warn(this.#editorName, "getAnchorInsertionPoint", "No suitable insertion point found for anchor", {
             tokenIndex,
             token,
             flags,
@@ -3060,16 +3122,7 @@ class Editor {
         // }
         return null;
     }
-    #getExistingOrCreateAnchor(container, beforeNode) {
-        if (beforeNode && beforeNode.nodeName === "A" && beforeNode.classList.contains("anchor")) {
-            return beforeNode;
-        }
-        let anchor = document.createElement("A");
-        anchor.classList.add("anchor");
-        container.insertBefore(anchor, beforeNode);
-        return anchor;
-    }
-    *#yieldDiffAnchorPointsInRange(tokenIndex) {
+    *yieldDiffAnchorPointsInRange(tokenIndex) {
         const prevToken = this.#tokens[tokenIndex - 1];
         const nextToken = this.#tokens[tokenIndex];
         const root = this.#editor;
@@ -3105,16 +3158,6 @@ class Editor {
         else {
             endContainer = this.#editor;
             endOffset = this.#editor.childNodes.length;
-        }
-        if (this.#anchors.length > 0) {
-            // 반드시 이전 앵커보다 뒤에서 시작해야함. 매우 중요.
-            const lastAnchor = this.#anchors[this.#anchors.length - 1];
-            const anchorParent = lastAnchor.parentNode;
-            const anchorIndex = Array.prototype.indexOf.call(anchorParent.childNodes, lastAnchor);
-            if (comparePoint(anchorParent, anchorIndex, container, childIndex) >= 0) {
-                container = anchorParent;
-                childIndex = anchorIndex + 1;
-            }
         }
         const indexStack = [];
         // sanity check
@@ -3231,84 +3274,6 @@ class Editor {
             yield { container: container, offset, flags, existingAnchor, depth };
         }
     }
-    #getDiffAnchor(point) {
-        // console.log(this.#editorName, "getDiffAnchor", point);
-        const before = point.container.childNodes[point.offset] || null;
-        // console.log(111, point.container.childNodes[1]);
-        // console.log("before:", before, before?.nodeName);
-        if (before && before.nodeName === "A" && before.classList.contains("diff")) {
-            return before;
-        }
-        const anchorEl = document.createElement("A");
-        anchorEl.classList.add("diff");
-        point.container.insertBefore(anchorEl, before);
-        return anchorEl;
-    }
-    withUpdate(updateFn) {
-        const unusedAnchors = new Set(this.#anchors);
-        this.#anchors.length = 0;
-        const renderItems = [];
-        const setDiff = (range, diff) => {
-            const renderItem = {
-                diffIndex: diff.diffIndex,
-                range,
-                hue: diff.hue,
-                geometry: null,
-            };
-            renderItems[diff.diffIndex] = renderItem;
-        };
-        const getAnchor = (tokenIndex, flags) => {
-            const el = this.#getOrInsertStartAnchor(tokenIndex, flags);
-            if (el) {
-                this.#anchors.push(el);
-            }
-            return el;
-        };
-        const getDiffAnchor = (point) => {
-            const el = this.#getDiffAnchor(point);
-            if (el) {
-                this.#anchors.push(el);
-            }
-            return el;
-        };
-        const getTokenRange = (index, count) => {
-            return this.getTokenRange(index, count);
-        };
-        const getDiffAnchorPointsInRange = (tokenIndex) => {
-            return this.#yieldDiffAnchorPointsInRange(tokenIndex);
-        };
-        try {
-            updateFn({
-                setDiff,
-                getTokenRange,
-                getAnchor,
-                getDiffAnchor,
-                getDiffAnchorPointsInRange,
-            });
-        }
-        finally {
-            for (const anchor of this.#anchors) {
-                unusedAnchors.delete(anchor);
-            }
-            for (const anchor of unusedAnchors) {
-                anchor.remove();
-            }
-        }
-        // console.log("diffs:", renderItems);
-        this.#renderer.setDiffs(renderItems);
-    }
-    render() {
-        this.#renderer.render();
-    }
-    setSelectionHighlight(range) {
-        return this.#renderer.setSelectionHighlight(range);
-    }
-    setDiffHighlight(diffIndex) {
-        if (this.#hoveredDiffIndex !== diffIndex) {
-            this.#hoveredDiffIndex = diffIndex;
-        }
-        return this.#renderer.setDiffHighlight(diffIndex);
-    }
     scrollTo(offset, options) {
         if (this.#wrapper.scrollTop !== offset) {
             this.#wrapper.scrollTo({
@@ -3317,32 +3282,25 @@ class Editor {
             });
         }
     }
-    scrollToDiff(diffIndex, scrollMargin = SCROLL_MARGIN) {
-        const y = this.#renderer.getDiffOffsetY(diffIndex);
-        if (y !== undefined) {
-            this.#wrapper.scrollTo({
-                top: y - scrollMargin,
-                behavior: "smooth",
-            });
-        }
-    }
-    getDiffRect(diffIndex) {
-        return this.#renderer.getDiffRect(diffIndex);
-    }
-    #onResize() {
-        if (this.#aligning) {
-            return;
-        }
-        this.#renderer.markDirty(16 /* RenderFlags.LAYOUT */);
-        // this.#renderer.updateLayout();
-        this.#callbacks.onResize(this);
-    }
     get height() {
         return this.#wrapper.offsetHeight;
     }
     get scrollHeight() {
         return this.#wrapper.scrollHeight;
     }
+    get contentHeight() {
+        return this.#editor.scrollHeight;
+    }
+    focus() {
+        this.#editor.focus();
+    }
+    contains(range) {
+        if (!range || !this.#editor.contains(range.startContainer) || !this.#editor.contains(range.endContainer)) {
+            return false;
+        }
+        return true;
+    }
+    // 디버깅 전용
     setContent(rawHTML) {
         this.#unobserveMutation();
         // 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
@@ -3351,55 +3309,312 @@ class Editor {
         this.#editor.innerHTML = "";
         this.#editor.appendChild(sanitized);
         this.#observeMutation();
-        this.onInput();
+        this.#onInput();
+    }
+    set height(value) {
+        const editorHeight = this.#editor.scrollHeight;
+        const lifting = value - editorHeight;
+        if (lifting < 0) {
+            console.warn("WTF? The taller the better", this.#editorName, value, editorHeight);
+            return;
+        }
+        if (lifting > 0) {
+            this.#bottomPaddingElement.style.setProperty("--height-boost", lifting + "px");
+        }
+        else {
+            this.#bottomPaddingElement.style.removeProperty("--height-boost");
+        }
+    }
+    getBoundingClientRect() {
+        return this.#wrapper.getBoundingClientRect();
     }
 }
 //# sourceMappingURL=Editor.js.map
 </script>
 <script>"use strict";
+class AnchorManager {
+    #leftEditor;
+    #rightEditor;
+    #anchorPairs = [];
+    #anchorMap = new Map();
+    #invalidated = false;
+    constructor(leftEditor, rightEditor) {
+        this.#leftEditor = leftEditor;
+        this.#rightEditor = rightEditor;
+    }
+    update(callback) {
+        this.#anchorMap.clear();
+        const oldAnchorPairs = this.#anchorPairs;
+        this.#anchorPairs = [];
+        // 앵커 추가
+        // 앵커맵 업데이트
+        const tryAddAnchorPair = this.#tryAddAnchorPair.bind(this);
+        callback({
+            tryAddAnchorPair,
+        });
+        for (const anchorPair of oldAnchorPairs) {
+            const { leftEl, rightEl } = anchorPair;
+            if (!this.#anchorMap.has(leftEl)) {
+                leftEl.remove();
+            }
+            if (!this.#anchorMap.has(rightEl)) {
+                rightEl.remove();
+            }
+        }
+        console.debug("AnchorManager.update", {
+            anchorPairs: this.#anchorPairs,
+            anchorMap: this.#anchorMap,
+        });
+    }
+    #tryAddAnchorPair(leftTokenIndex, leftFlags, rightTokenIndex, rightFlags, diffIndex) {
+        const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags);
+        if (!leftPoint) {
+            return false;
+        }
+        const rightPoint = this.#findSlideSpot(this.#rightEditor, rightTokenIndex, rightFlags);
+        if (!rightPoint) {
+            return false;
+        }
+        const leftEl = this.#slideInGently(leftPoint, leftFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
+        const rightEl = this.#slideInGently(rightPoint, rightFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
+        this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
+        return true;
+    }
+    #getLastAnchorRange(editor) {
+        let lastPair = this.#anchorPairs[this.#anchorPairs.length - 1];
+        if (lastPair) {
+            let lastAnchorRange = document.createRange();
+            lastAnchorRange.selectNode(editor === this.#leftEditor ? lastPair.leftEl : lastPair.rightEl);
+            return lastAnchorRange;
+        }
+        return null;
+    }
+    #findSlideSpot(editor, tokenIndex, flags) {
+        const lastAnchorRange = this.#getLastAnchorRange(editor);
+        if (flags & 128 /* AnchorFlags.EMPTY_DIFF */) {
+            let bestPoint = null;
+            let bestScore = -1;
+            const insertionRange = document.createRange();
+            for (const point of editor.yieldDiffAnchorPointsInRange(tokenIndex)) {
+                let score = 0;
+                // 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
+                insertionRange.setStart(point.container, point.offset);
+                if (!lastAnchorRange || lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, insertionRange) <= 0) {
+                    if (!bestPoint || bestPoint.depth > point.depth) {
+                        bestPoint = point;
+                    }
+                }
+                //console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
+                // break;
+                // if (point.flags & InsertionPointFlags.TABLE_START && filledStartFlags & TokenFlags.TABLE_START) {
+                // 	score += 5;
+                // } else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
+                // 	score += 4;
+                // } else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
+                // 	score += 3;
+                // } else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
+                // 	score += 2;
+                // } else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
+                // 	score += 1;
+                // }
+                // console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
+                // if (score > bestScore) {
+                // 	bestScore = score;
+                // 	bestPoint = point;
+                // }
+                // break;
+            }
+            if (bestPoint) {
+                const range = document.createRange();
+                range.setStart(bestPoint.container, bestPoint.offset);
+                return range;
+            }
+            return null;
+        }
+        else {
+            const range = editor.getAnchorInsertionPoint(tokenIndex, flags);
+            if (range && (!lastAnchorRange || lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, range) <= 0)) {
+                return range;
+            }
+            return null;
+        }
+    }
+    #slideInGently(insertionPoint, type) {
+        const existingAnchor = insertionPoint.startContainer.nodeType === 1 ? insertionPoint.startContainer.childNodes[insertionPoint.startOffset] : null;
+        if (existingAnchor && existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
+            return existingAnchor;
+        }
+        const newAnchor = document.createElement("A");
+        newAnchor.classList.add(type);
+        insertionPoint.insertNode(newAnchor);
+        return newAnchor;
+    }
+    addAnchorPair(leftEl, rightEl, diffIndex, flags) {
+        const pair = {
+            index: this.#anchorPairs.length,
+            leftEl,
+            rightEl,
+            diffIndex: diffIndex ?? undefined,
+            flags,
+            aligned: false,
+        };
+        this.#anchorPairs.push(pair);
+        this.#anchorMap.set(leftEl, pair);
+        this.#anchorMap.set(rightEl, pair);
+    }
+    alignAnchors(primaryEditor, containerRect) {
+        const anchors = this.#anchorPairs;
+        if (!anchors) {
+            return [false, NaN];
+        }
+        const leftEditor = this.#leftEditor;
+        const rightEditor = this.#rightEditor;
+        const firstPair = this.getFirstVisibleAnchorPair(primaryEditor, containerRect);
+        if (!firstPair) {
+            return [false, NaN];
+        }
+        const MIN_DELTA = 1;
+        const MIN_STRIPED_DELTA = 10;
+        const containerBottom = containerRect.bottom + 100;
+        const leftEditorBottomThreshold = containerBottom + leftEditor.scrollTop + 100;
+        const rightEditorBottomThreshold = containerBottom + rightEditor.scrollTop + 100;
+        let firstIndex = firstPair.index - 1;
+        if (firstIndex < 0) {
+            firstIndex = 0;
+        }
+        let dirty = false;
+        let leftY;
+        let rightY;
+        let delta;
+        for (let i = firstIndex; i < anchors.length; i++) {
+            const pair = anchors[i];
+            if (!dirty) {
+                if (pair.aligned)
+                    continue;
+                else
+                    dirty = true;
+            }
+            const { leftEl, rightEl } = pair;
+            // 먼저 리셋 해줘야함
+            leftEl.classList.remove("padtop", "striped");
+            rightEl.classList.remove("padtop", "striped");
+            leftEl.style.removeProperty("--padding");
+            rightEl.style.removeProperty("--padding");
+            pair.aligned = true;
+            leftY = leftEl.getBoundingClientRect().y;
+            rightY = rightEl.getBoundingClientRect().y;
+            leftY += leftEditor.scrollTop;
+            rightY += rightEditor.scrollTop;
+            delta = leftY - rightY;
+            if (delta > -MIN_DELTA && delta < MIN_DELTA) {
+                continue;
+            }
+            delta = Math.round(delta);
+            let theEl;
+            if (delta > 0) {
+                theEl = rightEl;
+            }
+            else {
+                delta = -delta;
+                theEl = leftEl;
+            }
+            theEl.classList.add("padtop");
+            theEl.style.setProperty("--padding", `${delta}px`);
+            if (delta >= MIN_STRIPED_DELTA) {
+                theEl.classList.add("striped");
+            }
+            if (leftY > leftEditorBottomThreshold && rightY > rightEditorBottomThreshold) {
+                break;
+            }
+        }
+        let editorHeight;
+        if (leftY !== undefined) {
+            // 마지막 앵커부터 남은 영역의 높이
+            let tailHeight = Math.max(leftEditor.contentHeight - leftY, rightEditor.contentHeight - rightY);
+            editorHeight = Math.max(leftY, rightY) + tailHeight;
+        }
+        else {
+            editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
+        }
+        this.#invalidated = false;
+        return [dirty, editorHeight];
+    }
+    findFirstVisibleAnchorIndex(editor, containerRect) {
+        const anchorPairs = this.#anchorPairs;
+        const { top: viewportTop, bottom: viewportBottom } = containerRect;
+        let low = 0;
+        let high = anchorPairs.length - 1;
+        let found = -1;
+        while (low <= high) {
+            const mid = (low + high) >> 1;
+            const { top, bottom } = editor === this.#leftEditor ? anchorPairs[mid].leftEl.getBoundingClientRect() : anchorPairs[mid].rightEl.getBoundingClientRect();
+            if (bottom < viewportTop) {
+                low = mid + 1;
+            }
+            else if (top > viewportBottom) {
+                high = mid - 1;
+            }
+            else {
+                found = mid;
+                high = mid - 1;
+            }
+        }
+        return found >= 0 ? found : ~low;
+    }
+    getFirstVisibleAnchorPair(editor, containerRect) {
+        const index = this.findFirstVisibleAnchorIndex(editor, containerRect);
+        if (index < 0) {
+            return null;
+        }
+        return this.#anchorPairs[index];
+    }
+    invalidateAllAnchors() {
+        if (this.#invalidated) {
+            return;
+        }
+        this.#invalidated = true;
+        for (const pair of this.#anchorPairs) {
+            pair.aligned = false;
+        }
+    }
+}
+//# sourceMappingURL=anchor-manager.js.map
+</script>
+<script>"use strict";
 const DIFF_EXPAND_X = 2;
-const DIFF_EXPAND_Y = 0;
+const DIFF_EXPAND_Y = 1;
 const DIFF_LINE_EXPAND_Y = 0;
 const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
-const DIFF_LINE_HEIGHT_MULTIPLIER = 1.1;
+const DIFF_LINE_HEIGHT_MULTIPLIER = 1.4;
 const SELECTION_HIGHLIGHT_FILL_STYLE = "rgba(128, 128, 128, 0.3)";
 class Renderer {
     #container;
-    #editor;
     #canvas;
     #ctx;
-    #shouldClearCanvas = false;
     #highlightCanvas;
     #highlightCtx;
-    #shouldClearHighlightCanvas = false;
+    #leftRegion;
+    #rightRegion;
     #canvasX = 0;
     #canvasY = 0;
     #canvasWidth = 0;
     #canvasHeight = 0;
-    #diffs = [];
-    #diffGeometries = [];
-    #diffLineRects = [];
-    #selectionHighlight = null;
-    #selectionHighlightRects = null;
-    #dirtyFlags = 0;
-    #renderPending = false;
-    #visibleDiffIndices = new Set();
     #callbacks;
-    #highlightedDiffIndex = null;
-    constructor(editor, container, callbacks) {
-        this.#editor = editor;
+    #renderCallbackId = null;
+    #layoutDirty = false;
+    constructor(container, leftRegion, rightRegion, callbacks) {
         this.#container = container;
-        this.#callbacks = callbacks;
         this.#canvas = document.createElement("canvas");
         this.#ctx = this.#canvas.getContext("2d");
         container.appendChild(this.#canvas);
         this.#highlightCanvas = document.createElement("canvas");
         this.#highlightCtx = this.#highlightCanvas.getContext("2d");
         container.appendChild(this.#highlightCanvas);
-        this.markDirty(16 /* RenderFlags.LAYOUT */ | 15 /* RenderFlags.ALL */);
-        // this.updateLayout();
+        this.#callbacks = callbacks;
+        this.#leftRegion = new RenderRegion("left", this, this.#ctx, this.#highlightCtx, leftRegion, callbacks);
+        this.#rightRegion = new RenderRegion("right", this, this.#ctx, this.#highlightCtx, rightRegion, callbacks);
     }
-    updateLayout() {
+    #updateLayout() {
         const { x, y, width, height } = this.#container.getBoundingClientRect();
         this.#canvasX = x;
         this.#canvasY = y;
@@ -3409,20 +3624,215 @@ class Renderer {
         this.#canvas.height = height;
         this.#highlightCanvas.width = width;
         this.#highlightCanvas.height = height;
-        this.markDirty(15 /* RenderFlags.ALL */ & ~16 /* RenderFlags.LAYOUT */);
+        this.#leftRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
+        this.#rightRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
+    }
+    #render() {
+        if (this.#renderCallbackId !== null) {
+            //console.log("already pending...");
+            // Already pending
+            // 가장 마지막에 실행되도록 기존 콜백을 취소하고 다시 등록하면 어떨까...?
+            return;
+        }
+        this.#renderCallbackId = requestAnimationFrame(() => {
+            this.#renderCallbackId = null;
+            this.#doRender();
+        });
+    }
+    #doRender() {
+        //console.log("Rendering...");
+        if (this.#layoutDirty) {
+            this.#updateLayout();
+            this.#layoutDirty = false;
+        }
+        this.#callbacks.onRender();
+        // onRender() 콜백에서 invalidateLayout()을 호출이 될 수 있을까...? 지금은 아니지만...
+        if (this.#layoutDirty) {
+            this.#updateLayout();
+            this.#layoutDirty = false;
+        }
+        this.#leftRegion.render();
+        this.#rightRegion.render();
+    }
+    invalidateAll(skipRender = false) {
+        this.#layoutDirty = true;
+        this.#leftRegion.markDirty(15 /* RenderFlags.ALL */);
+        this.#rightRegion.markDirty(15 /* RenderFlags.ALL */);
+        if (!skipRender) {
+            this.#render();
+        }
+    }
+    invalidateLayout(skipRender = false) {
+        this.#layoutDirty = true;
+        if (!skipRender) {
+            this.#render();
+        }
+    }
+    invalidateGeometries(which, skipRender = false) {
+        if (which === undefined) {
+            this.#leftRegion.markDirty(2 /* RenderFlags.GEOMETRY */);
+            this.#rightRegion.markDirty(2 /* RenderFlags.GEOMETRY */);
+        }
+        else {
+            const region = which === "left" ? this.#leftRegion : this.#rightRegion;
+            region.markDirty(2 /* RenderFlags.GEOMETRY */);
+        }
+        if (!skipRender) {
+            this.#render();
+        }
+    }
+    invalidateScroll(which, skipRender = false) {
+        if (which === undefined) {
+            this.#leftRegion.markDirty(13 /* RenderFlags.SCROLL */);
+            this.#rightRegion.markDirty(13 /* RenderFlags.SCROLL */);
+        }
+        else {
+            const region = which === "left" ? this.#leftRegion : this.#rightRegion;
+            region.markDirty(13 /* RenderFlags.SCROLL */);
+        }
+        if (!skipRender) {
+            this.#render();
+        }
     }
     setDiffs(diffs) {
-        {
-            const entries = [];
-            for (let i = 0; i < this.#diffs.length; i++) {
-                entries.push({ item: i, isVisible: false });
-            }
-            this.#callbacks.diffVisibilityChanged(entries);
+        const leftDiffs = new Array(diffs.length);
+        const rightDiffs = new Array(diffs.length);
+        for (let i = 0; i < diffs.length; i++) {
+            const diff = diffs[i];
+            const leftRange = diff.leftRange;
+            const rightRange = diff.rightRange;
+            leftDiffs[i] = {
+                diffIndex: i,
+                range: leftRange,
+                hue: diff.hue,
+                geometry: null,
+            };
+            rightDiffs[i] = {
+                diffIndex: i,
+                range: rightRange,
+                hue: diff.hue,
+                geometry: null,
+            };
         }
+        this.#leftRegion.setDiffs(leftDiffs);
+        this.#rightRegion.setDiffs(rightDiffs);
+    }
+    setDiffHighlight(diffIndex) {
+        const leftShouldRender = this.#leftRegion.setDiffHighlight(diffIndex);
+        const rightShouldRender = this.#rightRegion.setDiffHighlight(diffIndex);
+        if (leftShouldRender || rightShouldRender) {
+            this.#render();
+        }
+    }
+    setSelectionHighlight(which, range) {
+        const region = which === "left" ? this.#leftRegion : this.#rightRegion;
+        const regionOther = which === "left" ? this.#rightRegion : this.#leftRegion;
+        const shouldRender = region.setSelectionHighlight(range);
+        const shouldRenderOther = regionOther.setSelectionHighlight(null);
+        if (shouldRender || shouldRenderOther) {
+            this.#render();
+        }
+    }
+    hitTest(x, y) {
+        let region;
+        if (x >= this.#rightRegion.regionX) {
+            region = this.#rightRegion;
+            x = x - this.#rightRegion.regionX;
+        }
+        else {
+            region = this.#leftRegion;
+            x = x - this.#leftRegion.regionX;
+        }
+        return region.hitTest(x, y);
+    }
+    getDiffRect(which, diffIndex) {
+        const region = which === "left" ? this.#leftRegion : this.#rightRegion;
+        return region.getDiffRect(diffIndex);
+    }
+}
+class RenderRegion {
+    #name;
+    #renderer;
+    #diffs = [];
+    #diffGeometries = [];
+    #diffLineRects = [];
+    #selectionHighlight = null;
+    #selectionHighlightRects = null;
+    #dirtyFlags = 0 /* RenderFlags.NONE */;
+    #visibleDiffIndices = new Set();
+    #ctx;
+    #highlightCtx;
+    #regionInfo;
+    regionX = 0;
+    regionY = 0;
+    regionWidth = 0;
+    regionHeight = 0;
+    #highlightedDiffIndex = null;
+    #callbacks;
+    constructor(name, renderer, ctx, highlightCtx, regionInfo, callbacks) {
+        this.#name = name;
+        this.#renderer = renderer;
+        this.#ctx = ctx;
+        this.#highlightCtx = highlightCtx;
+        this.#regionInfo = regionInfo;
+        this.#callbacks = callbacks;
+    }
+    updateLayout(canvasX, canvasY, canvasWidth, canvasHeight) {
+        const rect = this.#regionInfo.getBoundingClientRect();
+        this.regionX = rect.x - canvasX;
+        this.regionY = rect.y - canvasY;
+        this.regionWidth = rect.width;
+        this.regionHeight = rect.height;
+        this.markDirty(15 /* RenderFlags.ALL */);
+    }
+    get name() {
+        return this.#name;
+    }
+    get diffs() {
+        return this.#diffs;
+    }
+    get diffGeometries() {
+        return this.#diffGeometries;
+    }
+    get diffLineRects() {
+        return this.#diffLineRects;
+    }
+    get selectionHighlight() {
+        return this.#selectionHighlight;
+    }
+    get selectionHighlightRects() {
+        return this.#selectionHighlightRects;
+    }
+    get dirtyFlags() {
+        return this.#dirtyFlags;
+    }
+    get visibleDiffIndices() {
+        return this.#visibleDiffIndices;
+    }
+    markDirty(flags) {
+        this.#dirtyFlags |= flags;
+    }
+    setDiffs(diffs) {
         this.#diffs = diffs;
         this.markDirty(1 /* RenderFlags.DIFF */ | 2 /* RenderFlags.GEOMETRY */);
         this.#visibleDiffIndices.clear();
         this.#selectionHighlight = null;
+    }
+    setDiffHighlight(diffIndex) {
+        if (this.#highlightedDiffIndex === diffIndex) {
+            return; // No change
+        }
+        // RECT는 필요 없음
+        let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
+        this.#highlightedDiffIndex = diffIndex;
+        let shouldShow = (diffIndex !== null && this.#visibleDiffIndices.has(diffIndex)) || (prevShowing && diffIndex === null);
+        if (prevShowing || shouldShow) {
+            this.markDirty(4 /* RenderFlags.HIGHLIGHT_DIFF */);
+            return true;
+        }
+        else {
+            return false;
+        }
     }
     setSelectionHighlight(range) {
         const current = this.#selectionHighlight;
@@ -3442,32 +3852,7 @@ class Renderer {
         this.markDirty(8 /* RenderFlags.HIGHLIGHT_SELECTION */);
         return true;
     }
-    markDirty(flags) {
-        this.#dirtyFlags |= flags;
-        if (this.#renderPending) {
-            return;
-        }
-    }
-    getDiffAtPoint(x, y) {
-        // console.log("Getting diff at point:", x, y);
-        for (const diffIndex of this.#visibleDiffIndices) {
-            // console.log("Checking diff index:", diffIndex, "at point:", x, y);
-            const geometry = this.#diffGeometries[diffIndex];
-            // console.log("Geometry for diff index:", diffIndex, "is", geometry);
-            for (const rect of geometry.rects) {
-                // console.log("Checking rect:", rect, "at point:", x, y);
-                if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
-                    // console.log("Found diff at index:", diffIndex);
-                    return diffIndex;
-                }
-            }
-        }
-        return null;
-    }
     render() {
-        if (this.#dirtyFlags & 16 /* RenderFlags.LAYOUT */) {
-            this.updateLayout();
-        }
         if (this.#dirtyFlags & 1 /* RenderFlags.DIFF */) {
             this.renderDiffs();
         }
@@ -3477,21 +3862,22 @@ class Renderer {
         this.#dirtyFlags = 0 /* RenderFlags.NONE */;
     }
     renderDiffs() {
+        this.#ctx.save();
+        this.#ctx.translate(this.regionX, this.regionY);
+        this.#ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
+        this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
         if (this.#dirtyFlags & 2 /* RenderFlags.GEOMETRY */) {
             this.buildDiffGeometries();
         }
         // console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
         const ctx = this.#ctx;
-        const canvasWidth = this.#canvasWidth;
-        const canvasHeight = this.#canvasHeight;
+        const canvasWidth = this.regionWidth;
+        const canvasHeight = this.regionHeight;
         const visibleDiffIndices = this.#visibleDiffIndices;
         const visChangeEntries = [];
-        if (this.#shouldClearCanvas) {
-            ctx.clearRect(0, 0, this.#canvasWidth, this.#canvasHeight);
-            this.#shouldClearCanvas = false;
-        }
-        let renderedAny = false;
-        const { scrollLeft, scrollTop } = this.#container;
+        ctx.clearRect(this.regionX, this.regionY, canvasWidth, canvasHeight);
+        let scrollTop = this.#regionInfo.scrollTop;
+        let scrollLeft = 0;
         ctx.fillStyle = DIFF_LINE_FILL_STYLE;
         for (const rect of this.#diffLineRects) {
             const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
@@ -3500,7 +3886,6 @@ class Renderer {
             if (y > canvasHeight)
                 break;
             ctx.fillRect(x, y, width, height);
-            renderedAny = true;
         }
         const visibleIndices = new Set();
         for (let diffIndex = 0; diffIndex < this.#diffGeometries.length; diffIndex++) {
@@ -3532,19 +3917,100 @@ class Renderer {
                 // console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
                 ctx.fillRect(x, y, width, height);
                 ctx.strokeRect(x, y, width, height);
-                renderedAny = true;
             }
         }
         if (visChangeEntries.length > 0) {
-            this.#callbacks.diffVisibilityChanged(visChangeEntries);
+            this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
         }
-        this.#shouldClearCanvas = renderedAny;
+        //this.#shouldClearCanvas = renderedAny;
+        this.#ctx.restore();
+    }
+    renderHighlightLayer() {
+        const ctx = this.#highlightCtx;
+        const canvasWidth = this.regionWidth;
+        const canvasHeight = this.regionHeight;
+        const scrollTop = this.#regionInfo.scrollTop;
+        const scrollLeft = 0;
+        this.#highlightCtx.save();
+        this.#highlightCtx.translate(this.regionX, this.regionY);
+        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
+        if (this.#highlightedDiffIndex !== null) {
+            // console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
+            const diff = this.#diffs[this.#highlightedDiffIndex];
+            const rects = this.#diffGeometries[this.#highlightedDiffIndex];
+            if (rects) {
+                let isVisible = !(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > canvasHeight) &&
+                    !(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > canvasWidth);
+                if (!isVisible) {
+                    return;
+                }
+                ctx.lineWidth = 2;
+                ctx.fillStyle = `hsl(0 100% 80%)`;
+                ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
+                // ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
+                for (const rect of rects.rects) {
+                    const x = Math.floor(rect.x - scrollLeft) - 1, y = Math.floor(rect.y - scrollTop) - 1, width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                    if (y + height < 0 || y > canvasHeight)
+                        continue;
+                    if (x + width < 0 || x > canvasWidth)
+                        continue;
+                    ctx.strokeRect(x, y, width, height);
+                    ctx.fillRect(x, y, width, height);
+                    // ctx.lineWidth = 2;
+                    // ctx.strokeStyle = "white";
+                    // ctx.shadowBlur = 0;
+                    // ctx.shadowColor = "transparent";
+                    // ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+                }
+            }
+            ctx.lineWidth = 1;
+            // ctx.shadowBlur = 0;
+            // ctx.strokeStyle = "transparent";
+        }
+        if (this.#selectionHighlight) {
+            if (!this.#selectionHighlightRects || this.#dirtyFlags & 2 /* RenderFlags.GEOMETRY */) {
+                let start = performance.now();
+                const offsetX = -this.regionX + scrollLeft;
+                const offsetY = -this.regionY + scrollTop;
+                const rawRects = extractRects(this.#selectionHighlight);
+                let end = performance.now();
+                start = end;
+                const mergedRect = mergeRects(rawRects, 1, 1);
+                for (const rect of mergedRect.rects) {
+                    rect.x += offsetX;
+                    rect.y += offsetY;
+                }
+                mergedRect.minX += offsetX;
+                mergedRect.minY += offsetY;
+                mergedRect.maxX += offsetX;
+                mergedRect.maxY += offsetY;
+                mergedRect.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
+                mergedRect.strokeStyle = null;
+                this.#selectionHighlightRects = mergedRect;
+                // console.log("Extracted selection highlight rects in", performance.now() - start, "ms");
+            }
+            let geometry = this.#selectionHighlightRects;
+            let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
+                !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
+            if (!isVisible) {
+                return;
+            }
+            ctx.fillStyle = geometry.fillStyle;
+            for (const rect of geometry.rects) {
+                const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                if (y + height < 0)
+                    continue;
+                if (y > canvasHeight)
+                    break;
+                ctx.fillRect(x, y, width, height);
+            }
+        }
+        this.#highlightCtx.restore();
     }
     buildDiffGeometries() {
-        const scrollTop = this.#container.scrollTop;
-        const scrollLeft = this.#container.scrollLeft;
-        const offsetX = -this.#canvasX + scrollLeft;
-        const offsetY = -this.#canvasY + scrollTop;
+        const scrollTop = this.#regionInfo.scrollTop;
+        const offsetX = -this.regionX;
+        const offsetY = -this.regionY + scrollTop;
         //void this.#container.offsetWidth; // force reflow
         const allDiffRects = [];
         this.#diffGeometries.length = this.#diffs.length;
@@ -3572,11 +4038,12 @@ class Renderer {
         const lineRects = [];
         diffRects.sort((a, b) => a.y - b.y);
         const rects = [];
-        const canvasWidth = this.#canvasWidth;
+        const canvasWidth = this.regionWidth;
         let lineRect = null;
         for (const rect of diffRects) {
-            const y = rect.y - DIFF_LINE_EXPAND_Y;
             const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER + DIFF_LINE_EXPAND_Y * 2;
+            const heightDelta = height - rect.height;
+            const y = rect.y - DIFF_LINE_EXPAND_Y - heightDelta / 2;
             if (lineRect === null || y > lineRect.y + lineRect.height) {
                 lineRect = {
                     x: 0,
@@ -3616,112 +4083,38 @@ class Renderer {
         }
         this.#diffLineRects = lineRects;
     }
-    renderHighlightLayer() {
-        // console.log("Rendering selection highlight:", this.#selectionHighlight);
-        const ctx = this.#highlightCtx;
-        if (this.#shouldClearHighlightCanvas) {
-            ctx.clearRect(0, 0, this.#highlightCanvas.width, this.#highlightCanvas.height);
-            this.#shouldClearHighlightCanvas = false;
+    hitTest(x, y) {
+        if (this.#dirtyFlags & (2 /* RenderFlags.GEOMETRY */ | 1 /* RenderFlags.DIFF */)) {
+            return null;
         }
-        const scrollTop = this.#container.scrollTop;
-        const scrollLeft = this.#container.scrollLeft;
-        const canvasWidth = this.#canvasWidth;
-        const canvasHeight = this.#canvasHeight;
-        let renderedAny = false;
-        if (this.#highlightedDiffIndex !== null) {
-            // console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
-            const diff = this.#diffs[this.#highlightedDiffIndex];
-            const rects = this.#diffGeometries[this.#highlightedDiffIndex];
-            if (rects) {
-                let isVisible = !(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > canvasHeight) &&
-                    !(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > canvasWidth);
-                if (!isVisible) {
-                    return;
-                }
-                ctx.lineWidth = 2;
-                ctx.fillStyle = `hsl(0 100% 80%)`;
-                ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
-                // ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
-                for (const rect of rects.rects) {
-                    const x = Math.floor(rect.x - scrollLeft) - 1, y = Math.floor(rect.y - scrollTop) - 1, width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                    if (y + height < 0 || y > canvasHeight)
-                        continue;
-                    if (x + width < 0 || x > canvasWidth)
-                        continue;
-                    ctx.strokeRect(x, y, width, height);
-                    ctx.fillRect(x, y, width, height);
-                    // ctx.lineWidth = 2;
-                    // ctx.strokeStyle = "white";
-                    // ctx.shadowBlur = 0;
-                    // ctx.shadowColor = "transparent";
-                    // ctx.strokeRect(x-1, y-1, width + 2, height + 2);
-                    renderedAny = true;
+        y += this.#regionInfo.scrollTop;
+        for (const diffIndex of this.#visibleDiffIndices) {
+            const geometry = this.#diffGeometries[diffIndex];
+            if (geometry) {
+                for (const rect of geometry.rects) {
+                    if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
+                        return diffIndex;
+                    }
                 }
             }
-            ctx.lineWidth = 1;
-            // ctx.shadowBlur = 0;
-            // ctx.strokeStyle = "transparent";
         }
-        if (this.#selectionHighlight) {
-            if (!this.#selectionHighlightRects || this.#dirtyFlags & 2 /* RenderFlags.GEOMETRY */) {
-                let start = performance.now();
-                const offsetX = -this.#canvasX + scrollLeft;
-                const offsetY = -this.#canvasY + scrollTop;
-                const rawRects = extractRects(this.#selectionHighlight);
-                let end = performance.now();
-                start = end;
-                const mergedRect = mergeRects(rawRects, 1, 1);
-                for (const rect of mergedRect.rects) {
-                    rect.x += offsetX;
-                    rect.y += offsetY;
-                }
-                mergedRect.minX += offsetX;
-                mergedRect.minY += offsetY;
-                mergedRect.maxX += offsetX;
-                mergedRect.maxY += offsetY;
-                mergedRect.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
-                mergedRect.strokeStyle = null;
-                this.#selectionHighlightRects = mergedRect;
-                // console.log("Extracted selection highlight rects in", performance.now() - start, "ms");
-            }
-            let geometry = this.#selectionHighlightRects;
-            let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
-                !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
-            if (!isVisible) {
-                return;
-            }
-            ctx.fillStyle = geometry.fillStyle;
+        return null;
+    }
+    getDiffAtPoint(x, y) {
+        // console.log("Getting diff at point:", x, y);
+        for (const diffIndex of this.#visibleDiffIndices) {
+            // console.log("Checking diff index:", diffIndex, "at point:", x, y);
+            const geometry = this.#diffGeometries[diffIndex];
+            // console.log("Geometry for diff index:", diffIndex, "is", geometry);
             for (const rect of geometry.rects) {
-                const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                if (y + height < 0)
-                    continue;
-                if (y > canvasHeight)
-                    break;
-                ctx.fillRect(x, y, width, height);
-                renderedAny = true;
+                // console.log("Checking rect:", rect, "at point:", x, y);
+                if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
+                    // console.log("Found diff at index:", diffIndex);
+                    return diffIndex;
+                }
             }
         }
-        if (renderedAny) {
-            this.#shouldClearHighlightCanvas = true;
-        }
-    }
-    setDiffHighlight(diffIndex) {
-        if (this.#highlightedDiffIndex === diffIndex) {
-            return; // No change
-        }
-        // RECT는 필요 없음
-        let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
-        this.#highlightedDiffIndex = diffIndex;
-        let shouldShow = diffIndex !== null && this.#visibleDiffIndices.has(diffIndex);
-        this.#dirtyFlags |= 4 /* RenderFlags.HIGHLIGHT_DIFF */;
-        return prevShowing || shouldShow;
-    }
-    getDiffOffsetY(diffIndex) {
-        const geometry = this.#diffGeometries[diffIndex];
-        if (!geometry) {
-            return undefined;
-        }
-        return geometry.minY;
+        return null;
     }
     getDiffRect(diffIndex) {
         const geometry = this.#diffGeometries[diffIndex];
@@ -3740,26 +4133,30 @@ class Renderer {
 </script>
 <script>"use strict";
 class SideView {
-    #callbacks;
     #root;
     #diffListElement;
     #diffListItems = [];
-    constructor(container, callbacks) {
-        this.#callbacks = callbacks;
+    #highlightedDiffIndex = null;
+    constructor(container) {
         this.#root = document.createElement("DIV");
         this.#diffListElement = document.createElement("UL");
         this.#diffListElement.id = "diffList";
         this.#root.appendChild(this.#diffListElement);
         container.appendChild(this.#root);
+        highlightedDiffIndexAtom.subscribe((diffIndex) => this.onHighlightedDiffIndexChange());
+        diffItemClickedEvent.subscribe((diffIndex) => {
+            const item = this.#diffListItems[diffIndex];
+            if (item) {
+                item.scrollIntoView();
+            }
+        });
     }
     setDiffs(diffs) {
-        for (const diff of diffs) {
-        }
         for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
             const diff = diffs[diffIndex];
             let item = this.#diffListItems[diffIndex];
             if (!item) {
-                item = new DiffListItem(this.#diffListElement);
+                item = new DiffListItem(this.#diffListElement, diffIndex, this.onDiffItemClick.bind(this), this.onDiffItemMouseOver.bind(this), this.onDiffItemMouseOut.bind(this));
                 this.#diffListItems[diffIndex] = item;
             }
             item.update(diff);
@@ -3770,13 +4167,16 @@ class SideView {
         }
         this.#diffListItems.length = diffs.length;
     }
+    onDiffItemClick(diffIndex) {
+        diffItemClickedEvent.emit(diffIndex);
+    }
     onDiffItemMouseOver(diffIndex) {
-        //this.#callbacks.onDiffItemMouseOver(diffIndex);
         highlightedDiffIndexAtom.set(diffIndex);
     }
     onDiffItemMouseOut(diffIndex) {
-        highlightedDiffIndexAtom.set(null);
-        this.#callbacks.onDiffItemMouseOut(diffIndex);
+        if (highlightedDiffIndexAtom.get() === diffIndex) {
+            highlightedDiffIndexAtom.set(null);
+        }
     }
     onDiffVisibilityChange(editorName, entries) {
         for (const entry of entries) {
@@ -3786,13 +4186,32 @@ class SideView {
             }
         }
     }
+    onHighlightedDiffIndexChange() {
+        const diffIndex = highlightedDiffIndexAtom.get();
+        if (this.#highlightedDiffIndex !== diffIndex) {
+            if (this.#highlightedDiffIndex !== null) {
+                const prevItem = this.#diffListItems[this.#highlightedDiffIndex];
+                if (prevItem) {
+                    prevItem.highlighted = false;
+                }
+            }
+            this.#highlightedDiffIndex = diffIndex;
+            if (diffIndex !== null) {
+                const item = this.#diffListItems[diffIndex];
+                if (item) {
+                    item.highlighted = true;
+                }
+            }
+        }
+    }
 }
 class DiffListItem {
     #element;
     #leftEl;
     #rightEl;
     #diff = null;
-    constructor(listElement) {
+    #highlighted = false;
+    constructor(listElement, diffIndex, onClick, onMouseOver, onMouseOut) {
         this.#element = document.createElement("LI");
         this.#leftEl = document.createElement("SPAN");
         this.#leftEl.className = "left";
@@ -3801,16 +4220,25 @@ class DiffListItem {
         this.#element.appendChild(this.#leftEl);
         this.#element.appendChild(this.#rightEl);
         listElement.appendChild(this.#element);
-        // event listeners
-        this.#element.addEventListener("mouseover", () => {
-            highlightedDiffIndexAtom.set(this.#diff.diffIndex);
-        });
-        this.#element.addEventListener("mouseout", () => {
-            highlightedDiffIndexAtom.set(null);
-        });
-        this.#element.addEventListener("click", () => {
-            diffItemClickedEvent.emit(this.#diff.diffIndex);
-        });
+        this.#element.addEventListener("click", () => onClick(diffIndex));
+        this.#element.addEventListener("mouseover", () => onMouseOver(diffIndex));
+        this.#element.addEventListener("mouseout", () => onMouseOut(diffIndex));
+    }
+    get highlighted() {
+        return this.#highlighted;
+    }
+    set highlighted(value) {
+        value = !!value;
+        if (this.#highlighted === value) {
+            return;
+        }
+        this.#highlighted = value;
+        if (value) {
+            this.#element.classList.add("highlighted");
+        }
+        else {
+            this.#element.classList.remove("highlighted");
+        }
     }
     update(diff) {
         this.#diff = diff;
@@ -3901,97 +4329,21 @@ class DiffListItem {
         }
         return text.trimEnd();
     }
+    scrollIntoView() {
+        this.#element.classList.remove("flash-once");
+        this.#element.scrollIntoView(
+        // { block: "nearest", inline: "nearest" }
+        );
+        this.#element.classList.add("flash-once");
+    }
 }
 //# sourceMappingURL=SideView.js.map
-</script>
-<script>"use strict";
-// 현재 진행 중인 작업이 있다면 무조건 reject/cancel하고 새 작업을 시작함
-const computeDiffAsync = (() => {
-    const worker = (() => {
-        let workerURL;
-        const scriptElement = document.getElementById("worker.js");
-        const workerCode = scriptElement.textContent;
-        if (workerCode.length < 10) {
-            workerURL = scriptElement.src; // "./dist/worker.js";
-        }
-        else {
-            const blob = new Blob([workerCode], { type: "application/javascript" });
-            workerURL = URL.createObjectURL(blob);
-        }
-        return new Worker(workerURL);
-    })();
-    let _reqId = 0;
-    let _current = null;
-    worker.onmessage = (e) => {
-        const data = e.data;
-        if (data.type === "diff") {
-            if (_current && data.reqId === _current.request.reqId) {
-                if (data.reqId === _current.request.reqId) {
-                    const result = {
-                        diffs: data.diffs,
-                        processTime: data.processTime,
-                    };
-                    _current.resolve(result);
-                }
-                else {
-                    // 이 경우는 worker가 이전 요청을 처리하는 도중 새 요청이 들어온 경우임
-                    _current.reject(new Error("cancelled"));
-                }
-            }
-        }
-    };
-    worker.onerror = (e) => {
-        //
-    };
-    function computeDiffAsync(leftTokens, rightTokens, options) {
-        if (_current) {
-            // 작업 중인 worker는 새 작업을 받으면 알아서 기존 작업은 취소하게 되어있으니 신경 쓸 필요 없음.
-            _current.reject(new Error("cancelled"));
-        }
-        return new Promise((resolve, reject) => {
-            const request = {
-                type: "diff",
-                reqId: ++_reqId,
-                options: { ...options },
-                leftTokens: leftTokens,
-                rightTokens: rightTokens,
-            };
-            _current = {
-                resolve,
-                reject,
-                request,
-            };
-            worker.postMessage(request);
-        });
-    }
-    return computeDiffAsync;
-})();
-//# sourceMappingURL=diff.js.map
 </script>
 <script>"use strict";
 // atoms
 // 이렇게까지 하게 될지는 몰랐는데 ui요소마다 콜백을 넘기고 또 그걸 또 감싸서 자식으로 넘기고... 귀찮잖아...
 const highlightedDiffIndexAtom = createAtom("highlightedDiffIndex", null);
 const diffItemClickedEvent = createEventAtom("diffItemClickedEvent");
-function translateTokenFlagsToAnchorFlags(tokenFlags) {
-    let flags = 0;
-    if (tokenFlags & 1 /* TokenFlags.LINE_START */) {
-        flags |= 1 /* AnchorFlags.LINE_START */;
-    }
-    if (tokenFlags & 16 /* TokenFlags.CONTAINER_START */) {
-        flags |= 4 /* AnchorFlags.CONTAINER_START */;
-    }
-    if (tokenFlags & 64 /* TokenFlags.TABLE_START */) {
-        flags |= 32 /* AnchorFlags.TABLE_START */;
-    }
-    // if (tokenFlags & TokenFlags.TABLEROW_START) {
-    // 	flags |= AnchorFlags.TABLEROW_START;
-    // }
-    if (tokenFlags & 1024 /* TokenFlags.TABLECELL_START */) {
-        flags |= 8 /* AnchorFlags.TABLECELL_START */;
-    }
-    return flags;
-}
 class DiffSeek {
     #mainContainer;
     //#preventScrollSync = false;
@@ -4006,19 +4358,21 @@ class DiffSeek {
     #diffContext = null;
     #computeDiffCallbackId = null;
     #diffComputedCallbackId = null;
-    #alignAnchorsCallbackId = null;
-    #anchorsAligned = false;
     #textSelectionRange = null;
-    #zoom = window.devicePixelRatio;
+    #zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
     #sideView;
-    #syncScroll = false;
+    #scrollSync = false;
     #scrollingEditor = null;
     #lastScrolledEditor = null;
     #preventScrollSync = false;
     #activeEditor = null;
     #lastActiveEditor = null;
-    #visibleAnchors = new Set();
-    highlightedDiffIndexAtom = createAtom("highlightedDiffIndex", null);
+    #scrollEndTimeoutId = null;
+    #lastScrolledToDiffIndex = null;
+    #anchorObserver = new IntersectionObserver((entries) => { }, {});
+    #anchorManager;
+    #resized = true;
+    #renderer;
     constructor(mainContainer, asideContainer) {
         this.#mainContainer = mainContainer;
         this.#diffOptions = {
@@ -4039,13 +4393,9 @@ class DiffSeek {
         const editorCallbacks = {
             onContentChanging: (editor) => this.#onEditorContentChanging(editor),
             onContentChanged: (editor) => this.#onEditorContentChanged(editor),
-            onHoverDiff: (editor, diffIndex) => this.#onEditorHoverDiff(editor, diffIndex),
-            onRender: (editor) => this.#onEditorRender(editor),
             onScroll: (editor, scrollTop, scrollLeft) => this.#onEditorScroll(editor, scrollTop, scrollLeft),
             onScrollEnd: (editor) => this.#onEditorScrollEnd(editor),
             onResize: (editor) => this.#onEditorResize(editor),
-            onDiffVisibilityChanged: (editor, entries) => this.#onEditorDiffVisibilityChanged(editor, entries),
-            onRenderInvalidated: (editor, flags) => this.#onEditorRenderInvalidated(editor, flags),
             onFocus: (editor) => {
                 this.#lastActiveEditor = this.#activeEditor = editor;
             },
@@ -4056,31 +4406,25 @@ class DiffSeek {
         this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
         this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
         this.#editorContentsChanged = { left: true, right: true };
-        this.#sideView = new SideView(asideContainer, this.#sideViewCallbacks);
+        this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor);
+        this.#sideView = new SideView(asideContainer);
+        const resizeObserver = new ResizeObserver(() => this.#onContainerResize());
+        resizeObserver.observe(mainContainer);
+        const rendererCallbacks = {
+            onRender: () => this.#onRender(),
+            onDiffVisibilityChanged: (region, entries) => this.#onDiffVisibilityChanged(region, entries),
+        };
+        this.#renderer = new Renderer(mainContainer, this.#leftEditor, this.#rightEditor, rendererCallbacks);
         this.setupEventListeners();
     }
-    #sideViewCallbacks = {
-        onDiffItemMouseOver: (diffIndex) => {
-            this.#leftEditor.setDiffHighlight(diffIndex);
-            this.#rightEditor.setDiffHighlight(diffIndex);
-            this.#requestRender();
-        },
-        onDiffItemMouseOut: () => {
-            this.#leftEditor.setDiffHighlight(null);
-            this.#rightEditor.setDiffHighlight(null);
-            this.#requestRender();
-        },
-    };
-    #onAnchorVisibilityChanged = (editor, entries) => {
-        for (const entry of entries) {
-            if (entry.isVisible) {
-                this.#visibleAnchors.add(entry.item);
-            }
-            else {
-                this.#visibleAnchors.delete(entry.item);
-            }
+    #onContainerResize() {
+        this.#renderer.invalidateLayout();
+    }
+    #onRender() {
+        if (this.#scrollSync) {
+            this.alignAnchors();
         }
-    };
+    }
     setupEventListeners() {
         window.addEventListener("resize", () => { });
         document.addEventListener("selectionchange", () => {
@@ -4096,62 +4440,76 @@ class DiffSeek {
             else if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
                 e.preventDefault();
                 const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
-                editor.editor.focus();
+                editor.focus();
                 return;
             }
             else if (e.key === "F2") {
                 e.preventDefault();
-                this.syncScroll = !this.#syncScroll;
+                this.syncScroll = !this.#scrollSync;
+            }
+            if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+                e.preventDefault();
+                const diffs = this.#diffContext?.diffs;
+                if (!diffs || diffs.length === 0) {
+                    return;
+                }
+                let diffIndex;
+                if (this.#lastScrolledToDiffIndex === null) {
+                    diffIndex = e.key === "ArrowUp" ? diffs.length - 1 : 0;
+                }
+                else {
+                    diffIndex = this.#lastScrolledToDiffIndex + (e.key === "ArrowUp" ? -1 : 1);
+                    if (diffIndex < 0) {
+                        diffIndex = diffs.length - 1;
+                    }
+                    else if (diffIndex >= diffs.length) {
+                        diffIndex = 0;
+                    }
+                }
+                this.#lastScrolledToDiffIndex = diffIndex;
+                // this.scrollToDiff(diffIndex);
+                diffItemClickedEvent.emit(diffIndex);
             }
         }, true);
+        this.#mainContainer.addEventListener("mousemove", (e) => {
+            const rect = this.#mainContainer.getBoundingClientRect();
+            let x = e.clientX - rect.x;
+            let y = e.clientY - rect.y;
+            const diffIndex = this.#renderer.hitTest(x, y);
+            highlightedDiffIndexAtom.set(diffIndex);
+        });
         highlightedDiffIndexAtom.subscribe((diffIndex) => {
-            this.#leftEditor.setDiffHighlight(diffIndex);
-            this.#rightEditor.setDiffHighlight(diffIndex);
-            this.#requestRender();
+            this.#renderer.setDiffHighlight(diffIndex);
         });
         diffItemClickedEvent.subscribe((diffIndex) => {
-            // let count = 2;
-            // function onScrollEnd() {
-            // 	if (--count === 0) {
-            // 		preventScrollSync = false;
-            // 	}
-            // }
-            // this.#leftEditor.wrapper.addEventListener("scrollend", onScrollEnd, { once: true });
-            // this.#rightEditor.wrapper.addEventListener("scrollend", onScrollEnd, { once: true });
-            // this.#leftEditor.scrollToDiff(diffIndex);
-            // TODO
-            // 양쪽 에디터에서 해당 diff의 y좌표를 구해서 그 중 작은 값을 기준으로 스크롤 해야함.
-            // 혹은 위로 스크롤 해야되는지 아래로 스크롤 해야하는지를 확인해서...
+            this.#lastScrolledToDiffIndex = diffIndex;
             this.scrollToDiff(diffIndex);
         });
     }
     #onEditorContentChanging(editor) {
-        this.reset();
-        this.#leftEditor.setDiffHighlight(null);
-        this.#rightEditor.setDiffHighlight(null);
-        this.#cancelAllCallbacks();
+        this.#reset();
     }
     #onEditorContentChanged(editor) {
         this.#editorContentsChanged[editor.name] = true;
-        this.#cancelAllCallbacks();
         this.#computeDiff();
     }
-    #onEditorHoverDiff(editor, diffIndex) {
-        // this.#leftEditor.setDiffHighlight(diffIndex);
-        // this.#rightEditor.setDiffHighlight(diffIndex);
-        this.#requestRender();
-    }
     #onEditorScroll(editor, scrollTop, scrollLeft) {
+        this.#renderer.invalidateScroll(editor.name);
+        if (this.#preventScrollSync) {
+            return;
+        }
         if (this.#scrollingEditor === null) {
             this.#lastScrolledEditor = this.#scrollingEditor = editor;
         }
-        if (this.#syncScroll) {
-            if (!this.#preventScrollSync && this.#scrollingEditor === editor) {
-                const otherEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
-                otherEditor.scrollTo(scrollTop, { behavior: "instant" });
+        if (this.#scrollingEditor === editor) {
+            if (this.#scrollEndTimeoutId !== null) {
+                clearTimeout(this.#scrollEndTimeoutId);
             }
+            this.#scrollEndTimeoutId = setTimeout(() => {
+                this.#onEditorScrollEnd(editor);
+                this.#scrollEndTimeoutId = null;
+            }, 100);
         }
-        this.#requestRender();
     }
     #onEditorScrollEnd(editor) {
         if (this.#scrollingEditor === editor) {
@@ -4159,37 +4517,41 @@ class DiffSeek {
         }
     }
     #onEditorResize(editor) {
-        this.#anchorsAligned = false;
-        this.#requestRender();
+        this.#anchorManager.invalidateAllAnchors();
+        this.#renderer.invalidateLayout();
     }
-    #onEditorDiffVisibilityChanged(editor, entries) {
-        this.#sideView.onDiffVisibilityChange(editor.name, entries);
+    #onDiffVisibilityChanged(region, entries) {
+        this.#sideView.onDiffVisibilityChange(region, entries);
     }
-    #onEditorRenderInvalidated(editor, flags = 0 /* RenderFlags.NONE */) {
-        this.#requestRender();
-    }
-    #onEditorRender(editor) {
-        this.#anchorsAligned = false;
-        this.#requestRender();
-    }
-    #requestRender() {
-        if (this.#renderCallbackId) {
-            // 거~의 모든 경우에 render는 가장 마지막에 일어나야 하므로 이미 예약된 콜백을 취소하고 다시 등록함.
-            cancelAnimationFrame(this.#renderCallbackId);
-            this.#renderCallbackId = null;
-        }
-        if (this.#syncScroll && !this.#anchorsAligned) {
-            this.alignAnchors();
-        }
-        this.#renderCallbackId = requestAnimationFrame(() => {
-            this.#renderCallbackId = null;
-            this.#doRender();
-        });
-    }
-    #doRender() {
-        this.#leftEditor.render();
-        this.#rightEditor.render();
-    }
+    // #requestRender() {
+    // 	console.log("Requesting render...");
+    // 	if (this.#renderCallbackId) {
+    // 		// 거~의 모든 경우에 render는 가장 마지막에 일어나야 하므로 이미 예약된 콜백을 취소하고 다시 등록함.
+    // 		cancelAnimationFrame(this.#renderCallbackId);
+    // 		this.#renderCallbackId = null;
+    // 	}
+    // 	// if (this.#resized) {
+    // 	// 	this.#resized = false;
+    // 	// 	const anchors = this.#diffContext?.anchors;
+    // 	// 	if (anchors && anchors.length > 0) {
+    // 	// 		for (const anchor of anchors) {
+    // 	// 			anchor.aligned = false;
+    // 	// 		}
+    // 	// 	}
+    // 	// }
+    // 	this.#renderCallbackId = requestAnimationFrame(() => {
+    // 		this.#renderCallbackId = null;
+    // 		this.#doRender();
+    // 	});
+    // 	this.#renderer.render();
+    // }
+    // #doRender() {
+    // 	if (this.#scrollSync) {
+    // 		this.alignAnchors();
+    // 	}
+    // 	// this.#leftEditor.render();
+    // 	// this.#rightEditor.render();
+    // }
     #updateTextSelection() {
         if (!this.#diffContext || !this.#diffContext.rawDiffs)
             return;
@@ -4199,10 +4561,10 @@ class DiffSeek {
         let targetRange = null;
         if (selection && selection.rangeCount > 0) {
             const range = selection.getRangeAt(0);
-            if (this.#leftEditor.wrapper.contains(range.commonAncestorContainer)) {
+            if (this.#leftEditor.contains(range)) {
                 editor = this.#leftEditor;
             }
-            else if (this.#rightEditor.wrapper.contains(range.commonAncestorContainer)) {
+            else if (this.#rightEditor.contains(range)) {
                 editor = this.#rightEditor;
             }
             if (editor) {
@@ -4235,15 +4597,7 @@ class DiffSeek {
             }
         }
         this.#textSelectionRange = targetRange;
-        if (targetRange) {
-            editor.setSelectionHighlight(null);
-            targetEditor.setSelectionHighlight(targetRange);
-        }
-        else {
-            this.#leftEditor.setSelectionHighlight(null);
-            this.#rightEditor.setSelectionHighlight(null);
-        }
-        this.#requestRender();
+        this.#renderer.setSelectionHighlight(targetEditor === this.#leftEditor ? "left" : "right", targetRange);
     }
     #computeDiff() {
         this.#cancelAllCallbacks();
@@ -4254,7 +4608,7 @@ class DiffSeek {
             leftTokens: leftRichTokens,
             rightTokens: rightRichTokens,
             diffOptions: options,
-            outdated: false,
+            ready: false,
         };
         this.#diffContext = diffContext;
         function buildTokenArray(richTokens) {
@@ -4301,392 +4655,212 @@ class DiffSeek {
                 if (this.#diffContext !== diffContext) {
                     return;
                 }
-                // 이게 짜증날정도로 오래 걸린다면 generator로 쪼개서 스텝 바이 스텝으로 처리해야된다.
-                // 지금은 일단 그냥 둠.
+                // 행여나 이게 짜증날 정도로 오래 걸린다면 generator로 쪼개서 쬐끔씩 처리해야하는데 지금은 일단 그냥 둠.
                 this.#onDiffComputed(diffContext);
             });
         });
     }
     #onDiffComputed(diffContext) {
+        if (this.#diffContext !== diffContext) {
+            return;
+        }
         const leftTokens = diffContext.leftTokens;
         const rightTokens = diffContext.rightTokens;
         const rawEntries = diffContext.rawDiffs;
         const diffs = [];
-        const anchors = [];
-        this.#visibleAnchors.clear();
+        highlightedDiffIndexAtom.set(null);
+        this.#lastScrolledToDiffIndex = null;
+        const leftEditor = this.#leftEditor;
+        const rightEditor = this.#rightEditor;
         // 지옥으로 간다...
-        this.#leftEditor.withUpdate((leftFn) => {
-            this.#rightEditor.withUpdate((rightFn) => {
-                const ANCHOR_MIN_LINE_BREAKS = 1; // 앵커를 붙일 때 최소한의 줄바꿈 수.
-                let forceStart = true;
-                let currentDiff = null;
-                for (let i = 0; i < rawEntries.length; i++) {
-                    const rawEntry = rawEntries[i];
-                    const left = rawEntry.left;
-                    const right = rawEntry.right;
-                    if (rawEntry.type) {
-                        if (currentDiff) {
-                            console.assert(currentDiff.left.pos + currentDiff.left.len === rawEntry.left.pos, currentDiff, rawEntry);
-                            console.assert(currentDiff.right.pos + currentDiff.right.len === rawEntry.right.pos, currentDiff, rawEntry);
-                            currentDiff.type |= rawEntry.type;
-                            currentDiff.left.len += rawEntry.left.len;
-                            currentDiff.right.len += rawEntry.right.len;
-                        }
-                        else {
-                            currentDiff = { left: { ...rawEntry.left }, right: { ...rawEntry.right }, type: rawEntry.type };
-                        }
+        this.#anchorManager.update((amFn) => {
+            const ANCHOR_MIN_LINE_BREAKS = 0; // 앵커를 붙일 때 최소한의 줄바꿈 수.
+            let forceStart = true;
+            let currentDiff = null;
+            for (let i = 0; i < rawEntries.length; i++) {
+                const rawEntry = rawEntries[i];
+                const left = rawEntry.left;
+                const right = rawEntry.right;
+                if (rawEntry.type) {
+                    if (currentDiff) {
+                        console.assert(currentDiff.left.pos + currentDiff.left.len === rawEntry.left.pos, currentDiff, rawEntry);
+                        console.assert(currentDiff.right.pos + currentDiff.right.len === rawEntry.right.pos, currentDiff, rawEntry);
+                        currentDiff.type |= rawEntry.type;
+                        currentDiff.left.len += rawEntry.left.len;
+                        currentDiff.right.len += rawEntry.right.len;
                     }
                     else {
-                        // common entry
-                        if (currentDiff) {
-                            finalizeDiff();
-                        }
-                        const leftToken = leftTokens[left.pos];
-                        const rightToken = rightTokens[right.pos];
-                        const leftTokenFlags = leftToken.flags;
-                        const rightTokenFlags = rightToken.flags;
-                        const commonFlags = leftTokenFlags & rightTokenFlags;
-                        let anchorEligible = false;
-                        if (commonFlags & 1 /* TokenFlags.LINE_START */) {
-                            anchorEligible = forceStart;
-                            if (!anchorEligible && commonFlags & 16 /* TokenFlags.CONTAINER_START */) {
-                                anchorEligible = true;
-                            }
-                            if (!anchorEligible && commonFlags & SECTION_HEADING_MASK) {
-                                anchorEligible = true;
-                            }
-                            if (!anchorEligible) {
-                                const leftPrevToken = leftTokens[left.pos - 1];
-                                const rightPrevToken = rightTokens[right.pos - 1];
-                                if ((leftTokenFlags | rightTokenFlags) &
-                                    (1024 /* TokenFlags.TABLECELL_START */ | 256 /* TokenFlags.TABLEROW_START */ | 64 /* TokenFlags.TABLE_START */ | 16 /* TokenFlags.CONTAINER_START */)) {
-                                    anchorEligible = true;
-                                }
-                                if (!anchorEligible) {
-                                    const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-                                    const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-                                    anchorEligible = l || r;
-                                }
-                            }
-                        }
-                        if (anchorEligible) {
-                            forceStart = false;
-                            let anchorFlagsArr = [];
-                            if (commonFlags & 1024 /* TokenFlags.TABLECELL_START */) {
-                                if (commonFlags & 64 /* TokenFlags.TABLE_START */) {
-                                    anchorFlagsArr.push(32 /* AnchorFlags.TABLE_START */);
-                                }
-                                anchorFlagsArr.push(8 /* AnchorFlags.TABLECELL_START */);
-                            }
-                            else if (commonFlags & 4 /* TokenFlags.BLOCK_START */) {
-                                anchorFlagsArr.push(2 /* AnchorFlags.BLOCK_START */);
-                            }
-                            for (const anchorFlags of anchorFlagsArr) {
-                                const leftAnchorEl = leftFn.getAnchor(left.pos, anchorFlags);
-                                const rightAnchorEl = rightFn.getAnchor(right.pos, anchorFlags);
-                                // console.log("anchor???", leftAnchorEl, rightAnchorEl, anchorFlags);
-                                if (leftAnchorEl && rightAnchorEl) {
-                                    leftAnchorEl.dataset.tokenIndex = String(left.pos);
-                                    rightAnchorEl.dataset.tokenIndex = String(right.pos);
-                                    anchors.push({
-                                        leftEl: leftAnchorEl,
-                                        rightEl: rightAnchorEl,
-                                        flags: anchorFlags,
-                                    });
-                                }
-                            }
-                        }
+                        currentDiff = { left: { ...rawEntry.left }, right: { ...rawEntry.right }, type: rawEntry.type };
                     }
                 }
-                if (currentDiff) {
-                    finalizeDiff();
-                }
-                function finalizeDiff() {
-                    const diffIndex = diffs.length;
-                    const leftIndex = currentDiff.left.pos;
-                    const rightIndex = currentDiff.right.pos;
-                    const leftTokenCount = currentDiff.left.len;
-                    const rightTokenCount = currentDiff.right.len;
-                    const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
-                    let leftRange;
-                    let rightRange;
-                    let leftAnchorEl = null;
-                    let rightAnchorEl = null;
-                    const leftDiffItem = {
-                        diffIndex,
-                        tokenIndex: leftIndex,
-                        tokenCount: leftTokenCount,
-                        flags: 0,
-                        hue,
-                        preferBlockStart: false,
-                    };
-                    const rightDiffItem = {
-                        diffIndex,
-                        tokenIndex: rightIndex,
-                        tokenCount: rightTokenCount,
-                        flags: 0,
-                        hue,
-                        preferBlockStart: false,
-                    };
-                    if (leftTokenCount > 0 && rightTokenCount > 0) {
-                        leftRange = leftFn.getTokenRange(leftIndex, leftTokenCount);
-                        rightRange = rightFn.getTokenRange(rightIndex, rightTokenCount);
-                        const leftToken = leftTokens[leftIndex];
-                        const rightToken = rightTokens[rightIndex];
-                        if (leftToken.flags & rightToken.flags & 1 /* TokenFlags.LINE_START */) {
-                            leftAnchorEl = leftFn.getAnchor(leftIndex, translateTokenFlagsToAnchorFlags(leftToken.flags));
-                            rightAnchorEl = rightFn.getAnchor(rightIndex, translateTokenFlagsToAnchorFlags(rightToken.flags));
+                else {
+                    // common entry
+                    if (currentDiff) {
+                        finalizeDiff();
+                    }
+                    const leftToken = leftTokens[left.pos];
+                    const rightToken = rightTokens[right.pos];
+                    const leftTokenFlags = leftToken.flags;
+                    const rightTokenFlags = rightToken.flags;
+                    const commonFlags = leftTokenFlags & rightTokenFlags;
+                    let leftAnchorFlags = 0 /* AnchorFlags.None */;
+                    let rightAnchorFlags = 0 /* AnchorFlags.None */;
+                    let anchorEligible = false;
+                    if (commonFlags & 1 /* TokenFlags.LINE_START */) {
+                        anchorEligible = forceStart;
+                        leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags);
+                        rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightTokenFlags);
+                        if (!(leftAnchorFlags & rightAnchorFlags)) {
                         }
+                        // if (!leftAnchorFlags) {
+                        // 	if (
+                        // 		(leftTokenFlags | rightTokenFlags) &
+                        // 		(TokenFlags.TABLECELL_START | TokenFlags.TABLEROW_START | TokenFlags.TABLE_START | TokenFlags.CONTAINER_START)
+                        // 	) {
+                        // 		leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags | rightTokenFlags);
+                        // 		anchorEligible = true;
+                        // 	}
+                        // 	const leftPrevToken = leftTokens[left.pos - 1];
+                        // 	const rightPrevToken = rightTokens[right.pos - 1];
+                        // 	if (!anchorEligible) {
+                        // 		const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+                        // 		const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+                        // 		anchorEligible = l || r;
+                        // 	}
+                        // }
+                    }
+                    if (anchorEligible || (leftAnchorFlags && rightAnchorFlags)) {
+                        forceStart = false;
+                        // let anchorFlagsArr: AnchorFlags[] = [];
+                        // if (commonFlags & TokenFlags.TABLECELL_START) {
+                        // 	if (commonFlags & TokenFlags.TABLE_START) {
+                        // 		anchorFlagsArr.push(AnchorFlags.TABLE_START);
+                        // 	}
+                        // 	anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
+                        // } else if (commonFlags & TokenFlags.BLOCK_START) {
+                        // 	anchorFlagsArr.push(AnchorFlags.BLOCK_START);
+                        // }
+                        // for (const anchorFlags of anchorFlagsArr) {
+                        // }
+                        amFn.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+                    }
+                }
+            }
+            if (currentDiff) {
+                finalizeDiff();
+            }
+            function finalizeDiff() {
+                const diffIndex = diffs.length;
+                const leftIndex = currentDiff.left.pos;
+                const rightIndex = currentDiff.right.pos;
+                const leftTokenCount = currentDiff.left.len;
+                const rightTokenCount = currentDiff.right.len;
+                const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
+                let leftAnchorFlags = 0 /* AnchorFlags.None */;
+                let rightAnchorFlags = 0 /* AnchorFlags.None */;
+                if (leftTokenCount > 0 && rightTokenCount > 0) {
+                    const leftToken = leftTokens[leftIndex];
+                    const rightToken = rightTokens[rightIndex];
+                    if (leftToken.flags & rightToken.flags & 1 /* TokenFlags.LINE_START */) {
+                        leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftToken.flags, leftTokens[leftIndex + leftTokenCount - 1].flags);
+                        rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightToken.flags, rightTokens[rightIndex + rightTokenCount - 1].flags);
+                    }
+                }
+                else {
+                    let filledTokens, emptyTokens;
+                    let filledTokenIndex, emptyTokenIndex;
+                    let filledTokenCount;
+                    if (leftTokenCount > 0) {
+                        filledTokens = leftTokens;
+                        filledTokenIndex = leftIndex;
+                        filledTokenCount = leftTokenCount;
+                        emptyTokenIndex = rightIndex;
+                        emptyTokens = rightTokens;
                     }
                     else {
-                        let filledItem, emptyItem;
-                        let filledTokens, emptyTokens;
-                        let filledTokenIndex, emptyTokenIndex;
-                        let filledTokenCount;
-                        let filledFn;
-                        let emptyFn;
-                        let filledAnchor = null;
-                        let emptyAnchor = null;
-                        if (leftTokenCount > 0) {
-                            filledItem = leftDiffItem;
-                            filledTokens = leftTokens;
-                            filledTokenIndex = leftIndex;
-                            filledTokenCount = leftTokenCount;
-                            filledFn = leftFn;
-                            emptyItem = rightDiffItem;
-                            emptyTokenIndex = rightIndex;
-                            emptyTokens = rightTokens;
-                            emptyFn = rightFn;
-                        }
-                        else {
-                            filledItem = rightDiffItem;
-                            filledTokens = rightTokens;
-                            filledTokenIndex = rightIndex;
-                            filledTokenCount = rightTokenCount;
-                            filledFn = rightFn;
-                            emptyItem = leftDiffItem;
-                            emptyTokens = leftTokens;
-                            emptyTokenIndex = leftIndex;
-                            emptyFn = leftFn;
-                        }
-                        const filledStartToken = filledTokens[filledTokenIndex];
-                        const filledStartFlags = filledStartToken.flags;
-                        const filledEndToken = filledTokens[filledTokenIndex + filledTokenCount - 1];
-                        const filledEndFlags = filledEndToken.flags;
-                        if (filledStartFlags & 1 /* TokenFlags.LINE_START */
-                        // && filledEndFlags & TokenFlags.LINE_END
-                        ) {
-                            const sharedContainer = findCommonEdgeContainer(filledStartToken.container, filledTokenIndex, filledEndToken.container, filledTokenIndex + filledTokenCount - 1);
-                            if (sharedContainer) {
-                                // 정확한 point를 찾기는 힘들다.
-                                // 거슬리지 않을 정도의 point를 찾는 것이 목표.
-                                let bestPoint = null;
-                                let bestScore = -1;
-                                for (const point of emptyFn.getDiffAnchorPointsInRange(emptyTokenIndex)) {
-                                    let score = 0;
-                                    // 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
-                                    if (!bestPoint || bestPoint.depth > point.depth) {
-                                        bestPoint = point;
-                                    }
-                                    //console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
-                                    // break;
-                                    // if (point.flags & InsertionPointFlags.TABLE_START && filledStartFlags & TokenFlags.TABLE_START) {
-                                    // 	score += 5;
-                                    // } else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-                                    // 	score += 4;
-                                    // } else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
-                                    // 	score += 3;
-                                    // } else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
-                                    // 	score += 2;
-                                    // } else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
-                                    // 	score += 1;
-                                    // }
-                                    // console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
-                                    // if (score > bestScore) {
-                                    // 	bestScore = score;
-                                    // 	bestPoint = point;
-                                    // }
-                                    // break;
-                                }
-                                if (bestPoint) {
-                                    emptyAnchor = emptyFn.getDiffAnchor(bestPoint);
-                                    if (emptyAnchor) {
-                                        if (filledStartFlags & 1 /* TokenFlags.LINE_START */) {
-                                            filledAnchor = filledFn.getAnchor(filledTokenIndex, translateTokenFlagsToAnchorFlags(filledStartFlags));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                        // let bestPoint: InsertionPoint | null = null;
-                        // let bestScore = 0;
-                        // for (const point of emptyFn.getDiffAnchorPointsInRange(emptyTokenIndex)) {
-                        // 	let score = 0;
-                        // 	if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-                        // 		score += 5;
-                        // 	} else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-                        // 		score += 4;
-                        // 	} else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
-                        // 		score += 3;
-                        // 	} else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
-                        // 		score += 2;
-                        // 	} else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
-                        // 		score += 1;
-                        // 	}
-                        // 	console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
-                        // 	if (score > bestScore) {
-                        // 		bestScore = score;
-                        // 		bestPoint = point;
-                        // 	}
-                        // }
-                        // if (bestPoint) {
-                        // 	emptyAnchor = emptyFn.getDiffAnchor(bestPoint);
-                        // 	if (emptyAnchor) {
-                        // 		if (filledStartFlags & TokenFlags.LINE_START) {
-                        // 			filledAnchor = filledFn.getAnchor(filledTokenIndex, translateTokenFlagsToAnchorFlags(filledStartFlags));
-                        // 		}
-                        // 	}
-                        // }
-                        const filledRange = filledFn.getTokenRange(filledTokenIndex, filledTokenCount);
-                        let emptyRange = null;
-                        if (emptyAnchor) {
-                            emptyRange = document.createRange();
-                            emptyRange.selectNode(emptyAnchor);
-                        }
-                        else {
-                            emptyRange = emptyFn.getTokenRange(emptyTokenIndex, 0);
-                        }
-                        if (leftTokenCount > 0) {
-                            leftRange = filledRange;
-                            leftAnchorEl = filledAnchor;
-                            rightRange = emptyRange;
-                            rightAnchorEl = emptyAnchor;
-                        }
-                        else {
-                            rightRange = filledRange;
-                            rightAnchorEl = filledAnchor;
-                            leftRange = emptyRange;
-                            leftAnchorEl = emptyAnchor;
-                        }
+                        filledTokens = rightTokens;
+                        filledTokenIndex = rightIndex;
+                        filledTokenCount = rightTokenCount;
+                        emptyTokens = leftTokens;
+                        emptyTokenIndex = leftIndex;
                     }
-                    leftFn.setDiff(leftRange, leftDiffItem);
-                    rightFn.setDiff(rightRange, rightDiffItem);
-                    diffs.push({
-                        diffIndex,
-                        hue,
-                        leftRange,
-                        rightRange,
-                    });
-                    if (leftAnchorEl && rightAnchorEl) {
-                        anchors.push({
-                            leftEl: leftAnchorEl,
-                            rightEl: rightAnchorEl,
-                            diffIndex,
-                            flags: 0,
-                        });
+                    const filledStartToken = filledTokens[filledTokenIndex];
+                    const filledStartFlags = filledStartToken.flags;
+                    const filledEndToken = filledTokens[filledTokenIndex + filledTokenCount - 1];
+                    const filledEndFlags = filledEndToken.flags;
+                    let filledAnchorFlags = 0 /* AnchorFlags.None */;
+                    let emptyAnchorFlags = 0 /* AnchorFlags.None */;
+                    if (filledStartFlags & 1 /* TokenFlags.LINE_START */
+                    // && filledEndFlags & TokenFlags.LINE_END
+                    ) {
+                        filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
+                        emptyAnchorFlags = 128 /* AnchorFlags.EMPTY_DIFF */;
                     }
-                    currentDiff = null;
-                    forceStart = true;
+                    if (leftTokenCount > 0) {
+                        leftAnchorFlags = filledAnchorFlags;
+                        rightAnchorFlags = emptyAnchorFlags;
+                    }
+                    else {
+                        rightAnchorFlags = filledAnchorFlags;
+                        leftAnchorFlags = emptyAnchorFlags;
+                    }
                 }
-            });
+                const leftRange = leftEditor.getTokenRange(leftIndex, leftTokenCount);
+                const rightRange = rightEditor.getTokenRange(rightIndex, rightTokenCount);
+                diffs.push({
+                    diffIndex,
+                    hue,
+                    leftRange,
+                    rightRange,
+                });
+                if (leftAnchorFlags && rightAnchorFlags) {
+                    amFn.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
+                }
+                currentDiff = null;
+                forceStart = true;
+            }
         });
         diffContext.diffs = diffs;
-        diffContext.anchors = anchors;
-        this.#diffContext = diffContext;
-        // this.alignAnchors();
-        this.#updateTextSelection();
-        this.#requestRender();
+        diffContext.ready = true;
+        this.#renderer.setDiffs(diffs);
         this.#sideView.setDiffs(diffs);
-        // console.log("results", diffs, anchors);
+        this.#updateTextSelection();
+        this.#renderer.invalidateAll();
     }
-    #_resizeCancelId = null;
-    /*
-    눈물나게 무거운 작업임. 연속적으로 reflow 발생.
-    특히 앵커가 많은 경우 브라우저가 "좀 심한데?"라고 경고를 던져주는데 딱히 대안이 없음.
-    대안1: 화면에 렌더링되는 앵커들만 맞춰준다? 이건 현재 보이는 영역보다 위의 앵커들이 다 맞춰진 걸로 치고 거기서부터 기준점을 잡고 화면을 벗어날 때까지 앵커좌표를 맞춰가는 건데
-          문서의 흐름이 반드시 위에서 아래로 흐르지는 않기 때문에(table) 하나의 기준점을 찾기가 어렵다.
-    */
     alignAnchors() {
-        if (this.#_resizeCancelId !== null) {
-            cancelIdleCallback(this.#_resizeCancelId);
-            this.#_resizeCancelId = null;
-        }
-        if (!this.#syncScroll) {
-            return;
-        }
-        if (this.#anchorsAligned) {
-            return;
-        }
-        if (!this.#diffContext || !this.#diffContext.anchors) {
+        if (!this.#diffContext?.ready) {
             return;
         }
         this.#preventScrollSync = true;
-        const MIN_DELTA = 1;
-        const MIN_STRIPED_DELTA = 10;
+        const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
-        let leftScrollTop = leftEditor.scrollTop;
-        let rightScrollTop = rightEditor.scrollTop;
-        const anchors = this.#diffContext.anchors;
-        for (let i = 0; i < anchors.length; i++) {
-            const { leftEl, rightEl } = anchors[i];
-            leftEl.classList.remove("padtop", "striped");
-            rightEl.classList.remove("padtop", "striped");
-            leftEl.style.removeProperty("--padding");
-            rightEl.style.removeProperty("--padding");
-            void this.#leftEditor.wrapper.offsetHeight; // force reflow
-            void this.#rightEditor.wrapper.offsetHeight; // force reflow
-            let leftY;
-            let rightY;
-            let delta;
-            leftY = leftEl.getBoundingClientRect().y + leftScrollTop; //leftEditor.wrapper.scrollTop;
-            rightY = rightEl.getBoundingClientRect().y + rightScrollTop; //rightEditor.wrapper.scrollTop;
-            delta = leftY - rightY;
-            if (delta > -MIN_DELTA && delta < MIN_DELTA) {
-                continue;
+        let [changed, maxContentHeight] = this.#anchorManager.alignAnchors(primaryEditor, this.#mainContainer.getBoundingClientRect());
+        if (changed) {
+            if (isNaN(maxContentHeight)) {
+                maxContentHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
             }
-            delta = Math.round(delta);
-            let theEl;
-            if (delta > 0) {
-                theEl = rightEl;
-            }
-            else {
-                delta = -delta;
-                theEl = leftEl;
-            }
-            theEl.classList.add("padtop");
-            theEl.style.setProperty("--padding", `${delta}px`);
-            if (delta >= MIN_STRIPED_DELTA) {
-                theEl.classList.add("striped");
-            }
+            leftEditor.height = maxContentHeight;
+            rightEditor.height = maxContentHeight;
+            //this.#renderer.invalidateScroll();
+            this.#renderer.invalidateGeometries();
         }
-        leftEditor.editor.style.removeProperty("--min-height");
-        rightEditor.editor.style.removeProperty("--min-height");
-        this.#_resizeCancelId = requestAnimationFrame(() => {
-            this.#anchorsAligned = true; // do we really need this?
-            const leftHeight = leftEditor.editor.scrollHeight;
-            const rightHeight = rightEditor.editor.scrollHeight;
-            const maxHeight = Math.max(leftHeight, rightHeight);
-            leftEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
-            rightEditor.editor.style.setProperty("--min-height", `${maxHeight}px`);
-            const currentEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
-            const newScrollTop = currentEditor.scrollTop;
-            this.#scrollingEditor = null;
-            if (currentEditor === leftEditor) {
-                rightEditor.scrollTo(newScrollTop, { behavior: "instant" });
-            }
-            else {
-                leftEditor.scrollTo(newScrollTop, { behavior: "instant" });
-            }
-            this.#preventScrollSync = false;
-        });
-        this.#anchorsAligned = true;
+        if (primaryEditor === leftEditor) {
+            rightEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
+        }
+        else {
+            leftEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
+        }
+        this.#scrollingEditor = null;
+        this.#preventScrollSync = false;
+        return changed;
+    }
+    #reset() {
+        this.#diffContext = null;
+        this.#textSelectionRange = null;
+        this.#cancelAllCallbacks();
     }
     #cancelAllCallbacks() {
-        if (this.#alignAnchorsCallbackId !== null) {
-            cancelAnimationFrame(this.#alignAnchorsCallbackId);
-            this.#alignAnchorsCallbackId = null;
-        }
         if (this.#computeDiffCallbackId !== null) {
             cancelIdleCallback(this.#computeDiffCallbackId);
             this.#computeDiffCallbackId = null;
@@ -4696,52 +4870,35 @@ class DiffSeek {
             this.#diffComputedCallbackId = null;
         }
     }
-    reset() {
-        this.#diffContext = null;
-        this.#textSelectionRange = null;
-        this.#anchorsAligned = false;
-        this.#leftEditor.setSelectionHighlight(null);
-        this.#rightEditor.setSelectionHighlight(null);
-    }
     scrollToDiff(diffIndex) {
-        const leftRect = this.#leftEditor.getDiffRect(diffIndex);
-        const rightRect = this.#rightEditor.getDiffRect(diffIndex);
+        const leftRect = this.#renderer.getDiffRect("left", diffIndex);
+        const rightRect = this.#renderer.getDiffRect("right", diffIndex);
         if (!leftRect || !rightRect) {
             return;
         }
-        if (this.#syncScroll) {
+        if (this.#scrollSync) {
             let scrollTop = Math.min(leftRect.y, rightRect.y);
             scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
             this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
         }
         else {
-            const leftScrollTop = leftRect.y - SCROLL_MARGIN;
-            const rightScrollTop = rightRect.y - SCROLL_MARGIN;
+            const leftScrollTop = Math.min(leftRect.y - SCROLL_MARGIN);
+            const rightScrollTop = Math.min(rightRect.y - SCROLL_MARGIN);
             this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
             this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
         }
     }
     get syncScroll() {
-        return this.#syncScroll;
+        return this.#scrollSync;
     }
     set syncScroll(value) {
         value = !!value;
-        if (value === this.#syncScroll) {
+        if (value === this.#scrollSync) {
             return;
         }
-        this.#syncScroll = value;
-        this.#mainContainer.classList.toggle("sync-scroll", value);
-        if (value) {
-            if (this.#alignAnchorsCallbackId !== null) {
-                cancelAnimationFrame(this.#alignAnchorsCallbackId);
-                this.#alignAnchorsCallbackId = null;
-            }
-            this.#alignAnchorsCallbackId = requestAnimationFrame(() => {
-                this.#alignAnchorsCallbackId = null;
-                this.alignAnchors();
-            });
-            this.#requestRender();
-        }
+        this.#scrollSync = value;
+        this.#mainContainer.classList.toggle("same-height-besties", value);
+        this.#renderer.invalidateLayout();
     }
     setContent(editorName, contentHTML) {
         const editor = editorName === "left" ? this.#leftEditor : this.#rightEditor;
@@ -4771,8 +4928,8 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
 }
 //# sourceMappingURL=DiffSeek.js.map
 </script>
-    <style id="highlightStyle">
-    </style>
+  <style id="highlightStyle">
+  </style>
 <style>
 :root {
 	font-size: 16px;
@@ -4823,10 +4980,6 @@ html {
 	display: none;
 }
 
-.sync-scroll #scrollSyncIndicator {
-	display: block;
-}
-
 #progress {
 	display: none;
 	position: fixed;
@@ -4867,18 +5020,19 @@ html {
 	position: relative;
 	outline: 1px solid #ccc;
 	outline-offset: 0px;
-	overflow-anchor: none;
+	/* overflow-anchor: none; */
 }
 
 .mirror,
 .editor {
+	position: relative;
 	border: 0;
 	min-height: 100%;
 	max-width: 100%;
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	/* font-family: "돋움체", monospace; */
+	font-family: "KB금융 본문체 Light", "돋움체", monospace;
 	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
@@ -5153,10 +5307,6 @@ scrolling
 	opacity: 0.5;
 }
 
-#diffList li:not(:last-child) {
-	margin-bottom: 6px;
-}
-
 .identical #diffList:empty::after {
 	content: "👬";
 	font-size: 128px;
@@ -5177,6 +5327,24 @@ scrolling
 	padding: 4px;
 	display: flex;
 	flex-direction: column;
+}
+
+#diffList li.highlighted {
+	--diff-hue: 0 !important;
+	cursor: pointer;
+	position: relative;
+	display: block;
+	color: hsl(var(--diff-hue) 100% 20%);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
+	border-radius: 4px;
+	padding: 4px;
+	display: flex;
+	flex-direction: column;
+}
+
+#diffList li:not(:last-child) {
+	margin-bottom: 6px;
 }
 
 #diffList span {
@@ -5460,36 +5628,28 @@ h6 {
 	font-size: inherit;
 }
 
-.bottom-padding {
-	display: block;
-	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
-}
-
-.editor::after {
-	content: "";
-	display: block;
-	height: var(--bottom-padding, 0px);
-
-	background: red repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
-}
-
 .editor a {
 	pointer-events: none;
 	user-select: none;
 }
 
-.sync-scroll .padtop::before {
+.same-height-besties #scrollSyncIndicator {
+	display: block;
+}
+
+.same-height-besties .padtop::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 }
 
-.sync-scroll .padtop.striped::before {
-	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+.same-height-besties .padtop.striped::before,
+.maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 2px, transparent 2px, transparent 4px);
 }
 
-.sync-scroll .editor {
-	min-height: max(100%, var(--min-height, 100%));
+.maybe-170cm-wasnt-enough {
+	height: var(--height-boost, 0px);
 }
 
 .diff-anchor:not(p .diff-anchor)::before {
@@ -5535,8 +5695,6 @@ h6 {
 }
 
 canvas {
-	transition: opacity 0.3s ease;
-	opacity: 1;
 }
 
 .dimmed {
@@ -5544,6 +5702,11 @@ canvas {
 }
 
 .restored {
+	transition: none !important; /* 복원 시 즉시 반영 */
+	opacity: 1;
+}
+
+canvas:not(.dimmed) {
 	transition: none !important; /* 복원 시 즉시 반영 */
 	opacity: 1;
 }
@@ -5556,183 +5719,365 @@ canvas {
 	text-decoration: none;
 }
 
-.editor b,
-.editor strong {
-	font-weight: normal;
+@keyframes flash {
+	0% {
+		background-color: white;
+	}
+	50% {
+		background-color: transparent;
+	}
+	100% {
+		background-color: white;
+	}
 }
 
-.editor i,
-.editor em {
-	font-style: normal;
+.flash-once {
+	animation: flash 0.5s ease-in-out;
 }
 
-a.diff {
-
-}
 </style>
 </head>
 
 <body>
-    <div class="container">
-        <main id="main"><div id="scrollSyncIndicator">🔗</div></main>
-        <div id="sidebar"></div>
-    </div>
+  <div class="container">
+    <main id="main">
+      <div id="scrollSyncIndicator">🔗</div>
+    </main>
+    <div id="sidebar"></div>
+  </div>
 
-    <div id="progress"></div>
-    <div id="settingsPopup" class="popup hidden"></div>
-    <script>
-        const style = document.createElement("style");
-        let cssText = ":root {\n";
-        cssText += ` --line-height: ${LINE_HEIGHT};\n`;
-        cssText += ` --topbar-height: ${TOPBAR_HEIGHT}px;\n`;
-        cssText += ` --scroll-margin: ${SCROLL_MARGIN}px;\n`;
-        cssText += ` --editor-padding: ${EDITOR_PADDING}px;\n`;
-        DIFF_COLOR_HUES.forEach((color, idx) => {
-            cssText += ` --diff-hue${idx + 1}: ${color};\n`;
-        });
-        cssText += "}\n\n";
-        DIFF_COLOR_HUES.forEach((color, idx) => {
-            cssText += `.diff-color${idx + 1} { --diff-hue: var(--diff-hue${idx + 1}); }\n`;
-        });
-        style.textContent = cssText;
-        document.head.appendChild(style);
-    </script>
-    <script>
-        window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sidebar"));
-        window.DiffSeek.setContent("left",`
+  <div id="progress"></div>
+  <div id="settingsPopup" class="popup hidden"></div>
+  <script>
+    const style = document.createElement("style");
+    let cssText = ":root {\n";
+    cssText += ` --line-height: ${LINE_HEIGHT};\n`;
+    cssText += ` --topbar-height: ${TOPBAR_HEIGHT}px;\n`;
+    cssText += ` --scroll-margin: ${SCROLL_MARGIN}px;\n`;
+    cssText += ` --editor-padding: ${EDITOR_PADDING}px;\n`;
+    DIFF_COLOR_HUES.forEach((color, idx) => {
+      cssText += ` --diff-hue${idx + 1}: ${color};\n`;
+    });
+    cssText += "}\n\n";
+    DIFF_COLOR_HUES.forEach((color, idx) => {
+      cssText += `.diff-color${idx + 1} { --diff-hue: var(--diff-hue${idx + 1}); }\n`;
+    });
+    style.textContent = cssText;
+    document.head.appendChild(style);
+  </script>
+  <script>
+    window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sidebar"));
+  </script>
+
+<script>
+
+
+    window.DiffSeek.setContent("left", `
         <table>
-  <tr>
-    <td><p>1. 개요</p></td>
-    <td>
-      <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-      <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-      <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-      <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-      <p><br></p>
-    </td>
-  </tr>
 
-  <tr>
-    <td><p>2. 업무순서</p></td>
-    <td>
-      <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-      <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-      <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-      <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-      <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-      <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-      <p><br></p>
-    </td>
-  </tr>
+<tr>
+  <td><p>1. 개요</p></td>
+  <td>
+    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+    <p><br></p>
+  </td>
+</tr>
 
-  <tr>
-    <td><p>3. 책임과 권한</p></td>
-    <td>
-      <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-      <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-      <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-      <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-      <p><br></p>
-    </td>
-  </tr>
+<tr>
+  <td><p>2. 업무순서</p></td>
+  <td>
+    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+    <p><br></p>
+  </td>
+</tr>
 
-  <tr>
-    <td><p>4. 업무절차 상세</p></td>
-    <td>
-      <p>(1) 업무 준비 단계</p>
-      <p>- 업무 계획 수립 및 자원 확보</p>
-      <p>- 관련 법규 및 내부 규정 검토</p>
+<tr>
+  <td><p>3. 책임과 권한</p></td>
+  <td>
+    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+    <p><br></p>
+  </td>
+</tr>
 
-      <p>(2) 실행 단계</p>
-      <p>- 계획에 따른 업무 수행</p>
-      <p>- 중간 점검 및 문제 해결</p>
+<tr>
+  <td><p>4. 업무절차 상세</p></td>
+  <td>
+    <p>(1) 업무 준비 단계</p>
+    <p>- 업무 계획 수립 및 자원 확보</p>
+    <p>- 관련 법규 및 내부 규정 검토</p>
+    <p>(2) 실행 단계</p>
+    <p>- 계획에 따른 업무 수행</p>
+    <p>- 중간 점검 및 문제 해결</p>
+    <p>(3) 마무리 단계</p>
+    <p>- 결과물 검토 및 승인</p>
+    <p>- 문서화 및 보관</p>
+    <p><br></p>
+  </td>
+</tr>
 
-      <p>(3) 마무리 단계</p>
-      <p>- 결과물 검토 및 승인</p>
-      <p>- 문서화 및 보관</p>
-      <p><br></p>
-    </td>
-  </tr>
+<tr>
+  <td><p>5. 문서 관리</p></td>
+  <td>
+    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+    <p><br></p>
+  </td>
+</tr>
 
-  <tr>
-    <td><p>5. 문서 관리</p></td>
-    <td>
-      <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-      <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-      <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-      <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-      <p><br></p>
-    </td>
-  </tr>
+<tr>
+  <td><p>1. 개요</p></td>
+  <td>
+    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>2. 업무순서</p></td>
+  <td>
+    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>3. 책임과 권한</p></td>
+  <td>
+    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>4. 업무절차 상세</p></td>
+  <td>
+    <p>(1) 업무 준비 단계</p>
+    <p>- 업무 계획 수립 및 자원 확보</p>
+    <p>- 관련 법규 및 내부 규정 검토</p>
+    <p>(2) 실행 단계</p>
+    <p>- 계획에 따른 업무 수행</p>
+    <p>- 중간 점검 및 문제 해결</p>
+    <p>(3) 마무리 단계</p>
+    <p>- 결과물 검토 및 승인</p>
+    <p>- 문서화 및 보관</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>5. 문서 관리</p></td>
+  <td>
+    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>1. 개요</p></td>
+  <td>
+    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>2. 업무순서</p></td>
+  <td>
+    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>3. 책임과 권한</p></td>
+  <td>
+    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>4. 업무절차 상세</p></td>
+  <td>
+    <p>(1) 업무 준비 단계</p>
+    <p>- 업무 계획 수립 및 자원 확보</p>
+    <p>- 관련 법규 및 내부 규정 검토</p>
+    <p>(2) 실행 단계</p>
+    <p>- 계획에 따른 업무 수행</p>
+    <p>- 중간 점검 및 문제 해결</p>
+    <p>(3) 마무리 단계</p>
+    <p>- 결과물 검토 및 승인</p>
+    <p>- 문서화 및 보관</p>
+    <p><br></p>
+  </td>
+</tr>
+
+<tr>
+  <td><p>5. 문서 관리</p></td>
+  <td>
+    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+    <p><br></p>
+  </td>
+</tr>
+
 </table>
+`);
 
+    window.DiffSeek.setContent("right", `<h2>1. 개요</h2>
+<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+<p><br></p>
+<h2>2. 업무순서</h2>
+<p>&nbsp;&nbsp;&nbsp;&nbsp;1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+<p>&nbsp;&nbsp;2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+<p>&nbsp;&nbsp;3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+<p>&nbsp;&nbsp;4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+<p>&nbsp;&nbsp;5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+<p>&nbsp;&nbsp;6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+<p><br></p>
+<h2>3. 책임과 권한</h2>
+<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+<p><br></p>
+<h2>4. 업무절차 상세</h2>
+<p>(1) 업무 준비 단계</p>
+<p>- 업무 계획 수립 및 자원 확보</p>
+<p>- 관련 법규 및 내부 규정 검토</p>
+<p>(2) 실행 단계</p>
+<p>- 계획에 따른 업무 수행</p>
+<p>- 중간 점검 및 문제 해결</p>
+<p>(3) 마무리 단계</p>
+<p>- 결과물 검토 및 승인</p>
+<p>- 문서화 및 보관</p>
+<p><br></p>
+<h2>5. 문서 관리</h2>
+<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+<p><br></p>
+<h2>1. 개요</h2>
+<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+<p><br></p>
+<h2>2. 업무순서</h2>
+<p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+<p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+<p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+<p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+<p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+<p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+<p><br></p>
+<h2>3. 책임과 권한</h2>
+<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+<p><br></p>
+<h2>4. 업무절차 상세</h2>
+<p>(1) 업무 준비 단계</p>
+<p>- 업무 계획 수립 및 자원 확보</p>
+<p>- 관련 법규 및 내부 규정 검토</p>
+<p>(2) 실행 단계</p>
+<p>- 계획에 따른 업무 수행</p>
+<p>- 중간 점검 및 문제 해결</p>
+<p>(3) 마무리 단계</p>
+<p>- 결과물 검토 및 승인</p>
+<p>- 문서화 및 보관</p>
+<p><br></p>
+<h2>5. 문서 관리</h2>
+<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+<p><br></p>
+<h2>1. 개요</h2>
+<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
+<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
+<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
+<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
+<p><br></p>
+<h2>2. 업무순서</h2>
+<p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
+<p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
+<p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
+<p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
+<p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
+<p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
+<p><br></p>
+<h2>3. 책임과 권한</h2>
+<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
+<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
+<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
+<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+<p><br></p>
+<h2>4. 업무절차 상세</h2>
+<p>(1) 업무 준비 단계</p>
+<p>- 업무 계획 수립 및 자원 확보</p>
+<p>- 관련 법규 및 내부 규정 검토</p>
+<p>(2) 실행 단계</p>
+<p>- 계획에 따른 업무 수행</p>
+<p>- 중간 점검 및 문제 해결</p>
+<p>(3) 마무리 단계</p>
+<p>- 결과물 검토 및 승인</p>
+<p>- 문서화 및 보관</p>
+<p><br></p>
+<h2>5. 문서 관리</h2>
+<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
+<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
+<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
+<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
+<p><br></p>
 
 `);
-        window.DiffSeek.setContent("right",`<table border="1" cellspacing="0" cellpadding="6" style="border-collapse: collapse; width: 100%; font-family: 'Malgun Gothic', sans-serif; font-size: 14px;">
-  <tr>
-    <td style="width: 20%; vertical-align: top; ">
-      <p><strong>1. 개요</strong></p>
-      <p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>
-
-      <p><strong>2. 업무순서</strong></p>
-      <p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>
-
-      <p><strong>3. 책임과 권한</strong></p>
-      <p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>
-
-      <p><strong>4. 업무절차 상세</strong></p>
-      <p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>
-
-      <p><strong>5. 문서 관리</strong></p>
-      <p><br></p><p><br></p><p><br></p><p><br></p><p><br></p>
-    </td>
-    <td style="width: 80%; vertical-align: top;">
-      <!-- 1. 개요 -->
-      <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-      <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-      <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-      <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.<br>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-      <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-      <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-      <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-      <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-      <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-
-      <p><br></p><p><br></p>
-
-      <!-- 3. 책임과 권한 -->
-      <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-      <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-      <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-      <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-
-      <p><br></p><p><br></p>
-
-      <!-- 4. 업무절차 상세 -->
-      <p>(1) 업무 준비 단계</p>
-      <p>  - 업무 계획 수립 및 자원 확보</p>
-      <p>  - 관련 법규 및 내부 규정 검토</p>
-      <p>(2) 실행 단계</p>
-      <p>  - 계획에 따른 업무 수행</p>
-      <p>  - 중간 점검 및 문제 해결</p>
-      <p>(3) 마무리 단계</p>
-      <p>  - 결과물 검토 및 승인</p>
-      <p>  - 문서화 및 보관</p>
-
-      <p><br></p><p><br></p>
-
-      <!-- 5. 문서 관리 -->
-      <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-      <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-      <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-      <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-
-      <p><br></p><p><br></p>
-    </td>
-  </tr>
-</table>
-`);
-    </script>
+  </script>
 </body>
 
 </html>

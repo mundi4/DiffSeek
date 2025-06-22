@@ -47,10 +47,6 @@ html {
 	display: none;
 }
 
-.sync-scroll #scrollSyncIndicator {
-	display: block;
-}
-
 #progress {
 	display: none;
 	position: fixed;
@@ -91,18 +87,19 @@ html {
 	position: relative;
 	outline: 1px solid #ccc;
 	outline-offset: 0px;
-	overflow-anchor: none;
+	/* overflow-anchor: none; */
 }
 
 .mirror,
 .editor {
+	position: relative;
 	border: 0;
 	min-height: 100%;
 	max-width: 100%;
 	overflow-y: visible;
 	line-height: var(--line-height);
 	scroll-padding-top: var(--scroll-margin);
-	/* font-family: "돋움체", monospace; */
+	font-family: "KB금융 본문체 Light", "돋움체", monospace;
 	font-size: 14px;
 	margin: 0;
 	overflow-y: visible;
@@ -377,10 +374,6 @@ scrolling
 	opacity: 0.5;
 }
 
-#diffList li:not(:last-child) {
-	margin-bottom: 6px;
-}
-
 .identical #diffList:empty::after {
 	content: "👬";
 	font-size: 128px;
@@ -401,6 +394,24 @@ scrolling
 	padding: 4px;
 	display: flex;
 	flex-direction: column;
+}
+
+#diffList li.highlighted {
+	--diff-hue: 0 !important;
+	cursor: pointer;
+	position: relative;
+	display: block;
+	color: hsl(var(--diff-hue) 100% 20%);
+	background-color: hsl(var(--diff-hue) 100% 80%);
+	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
+	border-radius: 4px;
+	padding: 4px;
+	display: flex;
+	flex-direction: column;
+}
+
+#diffList li:not(:last-child) {
+	margin-bottom: 6px;
 }
 
 #diffList span {
@@ -684,36 +695,28 @@ h6 {
 	font-size: inherit;
 }
 
-.bottom-padding {
-	display: block;
-	background: #fff repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
-}
-
-.editor::after {
-	content: "";
-	display: block;
-	height: var(--bottom-padding, 0px);
-
-	background: red repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
-}
-
 .editor a {
 	pointer-events: none;
 	user-select: none;
 }
 
-.sync-scroll .padtop::before {
+.same-height-besties #scrollSyncIndicator {
+	display: block;
+}
+
+.same-height-besties .padtop::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 }
 
-.sync-scroll .padtop.striped::before {
-	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 4px, hsl(0 0% 100% / 0.8) 4px, hsl(0 0% 100% / 0.8) 8px);
+.same-height-besties .padtop.striped::before,
+.maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 2px, transparent 2px, transparent 4px);
 }
 
-.sync-scroll .editor {
-	min-height: max(100%, var(--min-height, 100%));
+.maybe-170cm-wasnt-enough {
+	height: var(--height-boost, 0px);
 }
 
 .diff-anchor:not(p .diff-anchor)::before {
@@ -759,8 +762,6 @@ h6 {
 }
 
 canvas {
-	transition: opacity 0.3s ease;
-	opacity: 1;
 }
 
 .dimmed {
@@ -768,6 +769,11 @@ canvas {
 }
 
 .restored {
+	transition: none !important; /* 복원 시 즉시 반영 */
+	opacity: 1;
+}
+
+canvas:not(.dimmed) {
 	transition: none !important; /* 복원 시 즉시 반영 */
 	opacity: 1;
 }
@@ -780,16 +786,18 @@ canvas {
 	text-decoration: none;
 }
 
-.editor b,
-.editor strong {
-	font-weight: normal;
+@keyframes flash {
+	0% {
+		background-color: white;
+	}
+	50% {
+		background-color: transparent;
+	}
+	100% {
+		background-color: white;
+	}
 }
 
-.editor i,
-.editor em {
-	font-style: normal;
-}
-
-a.diff {
-
+.flash-once {
+	animation: flash 0.5s ease-in-out;
 }

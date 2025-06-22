@@ -27,7 +27,6 @@ declare type RawDiff = {
 
 declare type AnchorType = "before" | "after";
 
-
 declare type WhitespaceHandling = "ignore" | "normalize";
 
 declare type DiffAlgorithm = "lcs" | "histogram";
@@ -96,8 +95,7 @@ declare type DiffContext = {
 	rawDiffs: RawDiff[];
 	processTime: number;
 	diffs: DiffItem[];
-	anchors: AnchorPair[];
-	outdated: boolean;
+	ready: boolean;
 };
 
 type LineHint = {
@@ -190,10 +188,12 @@ type RenderBounds = {
 // type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
 
 type AnchorPair = {
+	index: number;
 	leftEl: HTMLElement;
 	rightEl: HTMLElement;
 	flags: number;
 	diffIndex?: number;
+	aligned: boolean;
 };
 
 type RichToken = {
@@ -227,6 +227,11 @@ type DiffResult = {
 type DiffItem = {
 	diffIndex: number;
 	hue: number;
-	leftRange:Range;
+	leftRange: Range;
 	rightRange: Range;
+};
+
+type VisibilityChangeEntry = {
+	item: number | string | HTMLElement;
+	isVisible: boolean;
 };

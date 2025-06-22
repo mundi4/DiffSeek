@@ -25,6 +25,9 @@ function createAtom<T>(name: string, initialValue?: T): Atom<T> {
 			return value;
 		},
 		set(newValue: T) {
+			if (value=== newValue) {
+				return;
+			}
 			value = newValue;
 			listeners.forEach((fn) => fn(value));
 		},

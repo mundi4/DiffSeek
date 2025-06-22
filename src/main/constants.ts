@@ -21,23 +21,6 @@ const LINE_HEIGHT = 1.5;
 const TOPBAR_HEIGHT = 0;
 const SCROLL_MARGIN = LINE_HEIGHT * 2 * BASE_FONT_SIZE; // px
 
-const COMPUTE_DEBOUNCE_TIME = 200; // ms
-const FORCE_RENDER_TIMEOUT = 100; // ms
-
-const PROCESSING_MESSAGES = [
-	"한땀한땀 비교 중...",
-	"인내심 테스트 중...",
-	"생각 중...",
-	"재부팅 준비 중...",
-	"무한 루프 중...",
-	"머리 긁는 중...",
-	"DIFFSEEKING...",
-	"COME ON, TARS!",
-	"3... 2... 1...",
-	"99... 98... 97...",
-	"퇴근 준비 중...",
-] as const;
-
 const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
 
 const VOID_ELEMENTS: Record<string, boolean> = {
@@ -77,7 +60,6 @@ const TEXTLESS_ELEMENTS: Record<string, boolean> = {
 	HEAD: true,
 	TITLE: true,
 	SCRIPT: true,
-	"#document-fragment": true,
 };
 
 const LINE_ELEMENTS: Record<string, boolean> = {
@@ -141,3 +123,4 @@ const BLOCK_ELEMENTS: Record<string, boolean> = {
 	//TD: true,
 	"#document-fragment": true,
 };
+

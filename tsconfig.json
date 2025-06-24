@@ -12,7 +12,7 @@
 	},
 	"include": [
 		"global.d.ts",
-		
+		"src/**/*.ts"
 	],
 	"exclude": [
 		"node_modules", // node_modules 폴더 제외

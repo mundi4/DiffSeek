@@ -11,6 +11,18 @@ const enum AnchorFlags {
 	SECTION_HEADING = 1 << 8,
 }
 
+type AnchorPair = {
+	index: number;
+	leftEl: HTMLElement;
+	rightEl: HTMLElement;
+	flags: number;
+	diffIndex?: number;
+	aligned: boolean;
+	delta: number; // delta Y
+	leftVisible: boolean; // visible in left editor
+	rightVisible: boolean; // visible in right editor
+};
+
 type AnchorRequest = {
 	leftTokenIndex?: number;
 	rightTokenIndex?: number;
@@ -27,7 +39,46 @@ class AnchorManager {
 	#rightEditor: Editor;
 	#anchorPairs: AnchorPair[] = [];
 	#anchorMap: Map<HTMLElement, AnchorPair> = new Map();
-    #invalidated: boolean = false;
+	#invalidated: boolean = false;
+	#visibilityChanged: boolean = false;
+	#numLeftVisible: number = 0;
+	#numRightVisible: number = 0;
+
+	#observer = new IntersectionObserver(
+		(entries: IntersectionObserverEntry[]) => {
+			for (const entry of entries) {
+				const visible = entry.isIntersecting;
+				const anchorEl = entry.target as HTMLElement;
+				const pair = this.#anchorMap.get(anchorEl);
+				if (!pair) {
+					console.warn("AnchorManager: Anchor element not found in map", anchorEl);
+					continue;
+				}
+				if (pair.leftEl === anchorEl) {
+					pair.leftVisible = visible;
+					if (visible) {
+						this.#numLeftVisible++;
+					} else {
+						this.#numLeftVisible--;
+					}
+				} else {
+					pair.rightVisible = visible;
+					if (visible) {
+						this.#numRightVisible++;
+					} else {
+						this.#numRightVisible--;
+					}
+				}
+			}
+			if (!this.#visibilityChanged) {
+				this.#visibilityChanged = true;
+				console.debug("AnchorManager: Visibility changed");
+			}
+		},
+		{
+			threshold: 0,
+		}
+	);
 
 	constructor(leftEditor: Editor, rightEditor: Editor) {
 		this.#leftEditor = leftEditor;
@@ -35,6 +86,10 @@ class AnchorManager {
 	}
 
 	update(callback: (funcs: AnchorManagerUpdateHelper) => void) {
+		this.#observer.disconnect();
+		this.#visibilityChanged = false;
+		this.#numLeftVisible = 0;
+		this.#numRightVisible = 0;
 		this.#anchorMap.clear();
 		const oldAnchorPairs = this.#anchorPairs;
 		this.#anchorPairs = [];
@@ -162,10 +217,15 @@ class AnchorManager {
 			diffIndex: diffIndex ?? undefined,
 			flags,
 			aligned: false,
+			delta: 0,
+			leftVisible: false,
+			rightVisible: false,
 		};
 		this.#anchorPairs.push(pair);
 		this.#anchorMap.set(leftEl, pair);
 		this.#anchorMap.set(rightEl, pair);
+		this.#observer.observe(leftEl);
+		this.#observer.observe(rightEl);
 	}
 
 	alignAnchors(primaryEditor: Editor, containerRect: DOMRect): [boolean, number] {
@@ -174,89 +234,126 @@ class AnchorManager {
 			return [false, NaN];
 		}
 
-		const leftEditor = this.#leftEditor;
-		const rightEditor = this.#rightEditor;
-
-		const firstPair = this.getFirstVisibleAnchorPair(primaryEditor, containerRect);
-		if (!firstPair) {
-			return [false, NaN];
-		}
-
 		const MIN_DELTA = 1;
 		const MIN_STRIPED_DELTA = 10;
 
-		const containerBottom = containerRect.bottom + 100;
-		const leftEditorBottomThreshold = containerBottom + leftEditor.scrollTop + 100;
-		const rightEditorBottomThreshold = containerBottom + rightEditor.scrollTop + 100;
-
-		let firstIndex = firstPair.index - 1;
-		if (firstIndex < 0) {
-			firstIndex = 0;
+		if (this.#invalidated) {
+			console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
+			this.#invalidated = false;
+			for (const pair of this.#anchorPairs) {
+				pair.aligned = false;
+				pair.delta = 0;
+			}
 		}
 
-		let dirty = false;
+		const leftEditor = this.#leftEditor;
+		const rightEditor = this.#rightEditor;
+		let leftScrollTop = leftEditor.scrollTop;
+		let rightScrollTop = rightEditor.scrollTop;
+		let lastWasAligned = false;
+		let changed = false;
+
 		let leftY: number;
 		let rightY: number;
 		let delta: number;
-		for (let i = firstIndex; i < anchors.length; i++) {
-			const pair = anchors[i];
+		let numHandled = 0;
+		let maxLeftY: number = 0;
+		let maxRightY: number = 0;
+		let dirty = false;
+		for (const pair of anchors) {
+			const visible = primaryEditor === leftEditor ? pair.leftVisible : pair.rightVisible;
+			if (!visible) {
+				if (numHandled >= (primaryEditor === leftEditor ? this.#numLeftVisible : this.#numRightVisible)) {
+					//console.debug("AnchorManager.alignAnchors: all visible anchors handled");
+					break;
+				}
+				continue;
+			}
+			numHandled++;
+
 			if (!dirty) {
-				if (pair.aligned) continue;
-				else dirty = true;
+				if (pair.aligned && numHandled > 1) {
+					continue;
+				} else {
+					dirty = true;
+				}
 			}
 
 			const { leftEl, rightEl } = pair;
+			const prevDelta = pair.delta;
 
-			// 먼저 리셋 해줘야함
-			leftEl.classList.remove("padtop", "striped");
-			rightEl.classList.remove("padtop", "striped");
-			leftEl.style.removeProperty("--padding");
-			rightEl.style.removeProperty("--padding");
-
-			pair.aligned = true;
-			leftY = leftEl.getBoundingClientRect().y;
-			rightY = rightEl.getBoundingClientRect().y;
-			leftY += leftEditor.scrollTop;
-			rightY += rightEditor.scrollTop;
+			leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+			rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
 			delta = leftY - rightY;
 
-			if (delta > -MIN_DELTA && delta < MIN_DELTA) {
-				continue;
+			if ((delta < -MIN_DELTA || delta > MIN_DELTA) && prevDelta !== 0) {
+				leftEl.classList.remove("padtop", "striped");
+				rightEl.classList.remove("padtop", "striped");
+				leftEl.style.removeProperty("--padding");
+				rightEl.style.removeProperty("--padding");
+				void leftEl.offsetHeight;
+				void rightEl.offsetHeight;
+				leftScrollTop = leftEditor.scrollTop;
+				rightScrollTop = rightEditor.scrollTop;
+				pair.delta = 0;
+				leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+				rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+				delta = leftY - rightY;
 			}
 
-			delta = Math.round(delta);
-			let theEl: HTMLElement;
-			if (delta > 0) {
-				theEl = rightEl;
+			if (delta < -MIN_DELTA || delta > MIN_DELTA) {
+				delta = Math.round(delta);
+				pair.delta = delta;
+
+				let theEl: HTMLElement;
+				if (delta > 0) {
+					theEl = rightEl;
+				} else {
+					delta = -delta;
+					theEl = leftEl;
+				}
+
+				theEl.classList.add("padtop");
+				theEl.style.setProperty("--padding", `${delta}px`);
+				if (delta >= MIN_STRIPED_DELTA) {
+					theEl.classList.add("striped");
+				}
+				void theEl.offsetHeight;
+				leftScrollTop = leftEditor.scrollTop;
+				rightScrollTop = rightEditor.scrollTop;
+			}
+
+			pair.aligned = true;
+			maxLeftY = Math.max(maxLeftY, leftY);
+			maxRightY = Math.max(maxRightY, rightY);
+			if (prevDelta !== pair.delta) {
+				// console.log("new delta", pair.delta, "prevDelta", prevDelta);
+				changed = true;
+				lastWasAligned = false;
 			} else {
-				delta = -delta;
-				theEl = leftEl;
-			}
-
-			theEl.classList.add("padtop");
-			theEl.style.setProperty("--padding", `${delta}px`);
-			if (delta >= MIN_STRIPED_DELTA) {
-				theEl.classList.add("striped");
-			}
-
-			if (leftY > leftEditorBottomThreshold && rightY > rightEditorBottomThreshold) {
-				break;
+				lastWasAligned = true;
 			}
 		}
 
 		let editorHeight;
 		if (leftY! !== undefined) {
 			// 마지막 앵커부터 남은 영역의 높이
-			let tailHeight = Math.max(leftEditor.contentHeight - leftY, rightEditor.contentHeight - rightY!);
-			editorHeight = Math.max(leftY, rightY!) + tailHeight;
+			let tailHeight = Math.max(leftEditor.contentHeight - maxLeftY, rightEditor.contentHeight - maxRightY);
+			editorHeight = Math.max(maxLeftY, maxRightY) + tailHeight;
 		} else {
 			editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
 		}
 
-        this.#invalidated = false;
-		return [dirty, editorHeight];
+		return [changed, editorHeight];
 	}
 
+	invalidate() {
+		this.#invalidated = true;
+	}
+
+	// 문제가 있다.
+	// 앵커는 문서 상의 순서로 정렬되어 있지만
+	// 문서 상의 순서가 반드시 y좌표의 순서와 일치하는 건 아니다(테이블 셀들).
 	findFirstVisibleAnchorIndex(editor: Editor, containerRect: DOMRect): number {
 		const anchorPairs = this.#anchorPairs;
 		const { top: viewportTop, bottom: viewportBottom } = containerRect;
@@ -289,14 +386,4 @@ class AnchorManager {
 		}
 		return this.#anchorPairs[index];
 	}
-
-    invalidateAllAnchors() {
-        if (this.#invalidated) {
-            return;
-        }
-        this.#invalidated = true;
-        for (const pair of this.#anchorPairs) {
-            pair.aligned = false;
-        }
-    }
 }

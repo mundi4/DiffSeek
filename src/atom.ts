@@ -25,7 +25,7 @@ function createAtom<T>(name: string, initialValue?: T): Atom<T> {
 			return value;
 		},
 		set(newValue: T) {
-			if (value=== newValue) {
+			if (value === newValue) {
 				return;
 			}
 			value = newValue;

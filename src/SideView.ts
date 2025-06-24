@@ -186,6 +186,8 @@ class DiffListItem {
 			startNode = range.startContainer.childNodes[range.startOffset]! || range.startContainer;
 			walker.currentNode = currentNode = startNode;
 		} else {
+
+			console.error("Invalid start container", range.cloneRange(), this.#diff);
 			throw new Error("Invalid start container");
 		}
 

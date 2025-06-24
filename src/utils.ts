@@ -796,7 +796,7 @@ function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: nu
 	if (tokenFlags & TokenFlags.BLOCK_START) {
 		flags |= AnchorFlags.BLOCK_START;
 	}
-	if (tokenFlags & SECTION_HEADING_MASK) {
+	if (tokenFlags & TokenFlags.SECTION_HEADING_MASK) {
 		// flags |= AnchorFlags.SECTION_HEADING;
 	}
 	return flags;

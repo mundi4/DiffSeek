@@ -7,12 +7,6 @@
   <meta name="github" content="https://github.com/mundi4/DiffSeek">
   <title>DiffSeek</title>
 <script id="worker.js" type="text/plain">"use strict";
-const SECTION_HEADING_MASK = 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */ |
-    1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */ |
-    2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */ |
-    4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */ |
-    8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */ |
-    8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */;
 let _nextCtx = null;
 let _currentCtx = null;
 self.onmessage = (e) => {
@@ -781,6 +775,7 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
 //# sourceMappingURL=worker.js.map
 </script>
 <script>"use strict";
+const DIFFSEEK_DEBUG = true;
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
 // 인접한 색상과 너무 가깝지 않도록 아주 CAREFUL하게 고른 순서. 과학이다.
@@ -1715,7 +1710,7 @@ function translateTokenFlagsToAnchorFlags(tokenFlags, endTokenFlags) {
     if (tokenFlags & 4 /* TokenFlags.BLOCK_START */) {
         flags |= 2 /* AnchorFlags.BLOCK_START */;
     }
-    if (tokenFlags & SECTION_HEADING_MASK) {
+    if (tokenFlags & 16252928 /* TokenFlags.SECTION_HEADING_MASK */) {
         // flags |= AnchorFlags.SECTION_HEADING;
     }
     return flags;
@@ -2187,12 +2182,6 @@ function sanitizeHTML(rawHTML) {
 <script>"use strict";
 const MANUAL_ANCHOR1 = "@@@";
 const MANUAL_ANCHOR2 = "###";
-const SECTION_HEADING_MASK = 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */ |
-    1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */ |
-    2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */ |
-    4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */ |
-    8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */ |
-    8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */;
 // const normalizeChars: { [ch: string]: string } = {};
 const spaceChars = {
     " ": true,
@@ -2716,6 +2705,7 @@ class Editor {
     #tokenizeCallbackId = null;
     #callbacks;
     #bottomPaddingElement = document.createElement("div");
+    #prevWidth = 0;
     constructor(container, editorName, callbacks) {
         this.#editorName = editorName;
         this.#container = container;
@@ -2807,7 +2797,11 @@ class Editor {
         this.#tokenize();
     }
     #onResize() {
-        this.#callbacks.onResize(this);
+        const newWidth = this.#editor.getBoundingClientRect().width;
+        if (this.#prevWidth !== newWidth) {
+            this.#prevWidth = newWidth;
+            this.#callbacks.onResize(this);
+        }
     }
     #onMutation(mutations) {
         if (this.#editor.childNodes.length === 0) {
@@ -2966,6 +2960,7 @@ class Editor {
             }
         }
         else {
+            // count === 0
             const prevToken = this.#tokens[index - 1];
             if (prevToken) {
                 range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
@@ -2976,7 +2971,10 @@ class Editor {
             if (nextToken) {
                 range.setStart(nextToken.range.startContainer, 0);
                 range.setEnd(nextToken.range.startContainer, 0);
+                return range;
             }
+            range.setStart(this.#editor, 0);
+            range.setEnd(this.#editor, this.#editor.childNodes.length);
         }
         return range;
     }
@@ -3329,7 +3327,7 @@ class Editor {
         return this.#wrapper.getBoundingClientRect();
     }
 }
-//# sourceMappingURL=Editor.js.map
+//# sourceMappingURL=editor.js.map
 </script>
 <script>"use strict";
 class AnchorManager {
@@ -3338,11 +3336,53 @@ class AnchorManager {
     #anchorPairs = [];
     #anchorMap = new Map();
     #invalidated = false;
+    #visibilityChanged = false;
+    #numLeftVisible = 0;
+    #numRightVisible = 0;
+    #observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+            const visible = entry.isIntersecting;
+            const anchorEl = entry.target;
+            const pair = this.#anchorMap.get(anchorEl);
+            if (!pair) {
+                console.warn("AnchorManager: Anchor element not found in map", anchorEl);
+                continue;
+            }
+            if (pair.leftEl === anchorEl) {
+                pair.leftVisible = visible;
+                if (visible) {
+                    this.#numLeftVisible++;
+                }
+                else {
+                    this.#numLeftVisible--;
+                }
+            }
+            else {
+                pair.rightVisible = visible;
+                if (visible) {
+                    this.#numRightVisible++;
+                }
+                else {
+                    this.#numRightVisible--;
+                }
+            }
+        }
+        if (!this.#visibilityChanged) {
+            this.#visibilityChanged = true;
+            console.debug("AnchorManager: Visibility changed");
+        }
+    }, {
+        threshold: 0,
+    });
     constructor(leftEditor, rightEditor) {
         this.#leftEditor = leftEditor;
         this.#rightEditor = rightEditor;
     }
     update(callback) {
+        this.#observer.disconnect();
+        this.#visibilityChanged = false;
+        this.#numLeftVisible = 0;
+        this.#numRightVisible = 0;
         this.#anchorMap.clear();
         const oldAnchorPairs = this.#anchorPairs;
         this.#anchorPairs = [];
@@ -3457,88 +3497,130 @@ class AnchorManager {
             diffIndex: diffIndex ?? undefined,
             flags,
             aligned: false,
+            delta: 0,
+            leftVisible: false,
+            rightVisible: false,
         };
         this.#anchorPairs.push(pair);
         this.#anchorMap.set(leftEl, pair);
         this.#anchorMap.set(rightEl, pair);
+        this.#observer.observe(leftEl);
+        this.#observer.observe(rightEl);
     }
     alignAnchors(primaryEditor, containerRect) {
         const anchors = this.#anchorPairs;
         if (!anchors) {
             return [false, NaN];
         }
-        const leftEditor = this.#leftEditor;
-        const rightEditor = this.#rightEditor;
-        const firstPair = this.getFirstVisibleAnchorPair(primaryEditor, containerRect);
-        if (!firstPair) {
-            return [false, NaN];
-        }
         const MIN_DELTA = 1;
         const MIN_STRIPED_DELTA = 10;
-        const containerBottom = containerRect.bottom + 100;
-        const leftEditorBottomThreshold = containerBottom + leftEditor.scrollTop + 100;
-        const rightEditorBottomThreshold = containerBottom + rightEditor.scrollTop + 100;
-        let firstIndex = firstPair.index - 1;
-        if (firstIndex < 0) {
-            firstIndex = 0;
+        if (this.#invalidated) {
+            console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
+            this.#invalidated = false;
+            for (const pair of this.#anchorPairs) {
+                pair.aligned = false;
+                pair.delta = 0;
+            }
         }
-        let dirty = false;
+        const leftEditor = this.#leftEditor;
+        const rightEditor = this.#rightEditor;
+        let leftScrollTop = leftEditor.scrollTop;
+        let rightScrollTop = rightEditor.scrollTop;
+        let lastWasAligned = false;
+        let changed = false;
         let leftY;
         let rightY;
         let delta;
-        for (let i = firstIndex; i < anchors.length; i++) {
-            const pair = anchors[i];
-            if (!dirty) {
-                if (pair.aligned)
-                    continue;
-                else
-                    dirty = true;
-            }
-            const { leftEl, rightEl } = pair;
-            // 먼저 리셋 해줘야함
-            leftEl.classList.remove("padtop", "striped");
-            rightEl.classList.remove("padtop", "striped");
-            leftEl.style.removeProperty("--padding");
-            rightEl.style.removeProperty("--padding");
-            pair.aligned = true;
-            leftY = leftEl.getBoundingClientRect().y;
-            rightY = rightEl.getBoundingClientRect().y;
-            leftY += leftEditor.scrollTop;
-            rightY += rightEditor.scrollTop;
-            delta = leftY - rightY;
-            if (delta > -MIN_DELTA && delta < MIN_DELTA) {
+        let numHandled = 0;
+        let maxLeftY = 0;
+        let maxRightY = 0;
+        let dirty = false;
+        for (const pair of anchors) {
+            const visible = primaryEditor === leftEditor ? pair.leftVisible : pair.rightVisible;
+            if (!visible) {
+                if (numHandled >= (primaryEditor === leftEditor ? this.#numLeftVisible : this.#numRightVisible)) {
+                    //console.debug("AnchorManager.alignAnchors: all visible anchors handled");
+                    break;
+                }
                 continue;
             }
-            delta = Math.round(delta);
-            let theEl;
-            if (delta > 0) {
-                theEl = rightEl;
+            numHandled++;
+            if (!dirty) {
+                if (pair.aligned && numHandled > 1) {
+                    continue;
+                }
+                else {
+                    dirty = true;
+                }
+            }
+            const { leftEl, rightEl } = pair;
+            const prevDelta = pair.delta;
+            leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+            rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+            delta = leftY - rightY;
+            if ((delta < -MIN_DELTA || delta > MIN_DELTA) && prevDelta !== 0) {
+                leftEl.classList.remove("padtop", "striped");
+                rightEl.classList.remove("padtop", "striped");
+                leftEl.style.removeProperty("--padding");
+                rightEl.style.removeProperty("--padding");
+                void leftEl.offsetHeight;
+                void rightEl.offsetHeight;
+                leftScrollTop = leftEditor.scrollTop;
+                rightScrollTop = rightEditor.scrollTop;
+                pair.delta = 0;
+                leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+                rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+                delta = leftY - rightY;
+            }
+            if (delta < -MIN_DELTA || delta > MIN_DELTA) {
+                delta = Math.round(delta);
+                pair.delta = delta;
+                let theEl;
+                if (delta > 0) {
+                    theEl = rightEl;
+                }
+                else {
+                    delta = -delta;
+                    theEl = leftEl;
+                }
+                theEl.classList.add("padtop");
+                theEl.style.setProperty("--padding", `${delta}px`);
+                if (delta >= MIN_STRIPED_DELTA) {
+                    theEl.classList.add("striped");
+                }
+                void theEl.offsetHeight;
+                leftScrollTop = leftEditor.scrollTop;
+                rightScrollTop = rightEditor.scrollTop;
+            }
+            pair.aligned = true;
+            maxLeftY = Math.max(maxLeftY, leftY);
+            maxRightY = Math.max(maxRightY, rightY);
+            if (prevDelta !== pair.delta) {
+                // console.log("new delta", pair.delta, "prevDelta", prevDelta);
+                changed = true;
+                lastWasAligned = false;
             }
             else {
-                delta = -delta;
-                theEl = leftEl;
-            }
-            theEl.classList.add("padtop");
-            theEl.style.setProperty("--padding", `${delta}px`);
-            if (delta >= MIN_STRIPED_DELTA) {
-                theEl.classList.add("striped");
-            }
-            if (leftY > leftEditorBottomThreshold && rightY > rightEditorBottomThreshold) {
-                break;
+                lastWasAligned = true;
             }
         }
         let editorHeight;
         if (leftY !== undefined) {
             // 마지막 앵커부터 남은 영역의 높이
-            let tailHeight = Math.max(leftEditor.contentHeight - leftY, rightEditor.contentHeight - rightY);
-            editorHeight = Math.max(leftY, rightY) + tailHeight;
+            let tailHeight = Math.max(leftEditor.contentHeight - maxLeftY, rightEditor.contentHeight - maxRightY);
+            editorHeight = Math.max(maxLeftY, maxRightY) + tailHeight;
         }
         else {
             editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
         }
-        this.#invalidated = false;
-        return [dirty, editorHeight];
+        return [changed, editorHeight];
     }
+    invalidate() {
+        this.#invalidated = true;
+    }
+    // 문제가 있다.
+    // 앵커는 문서 상의 순서로 정렬되어 있지만
+    // 문서 상의 순서가 반드시 y좌표의 순서와 일치하는 건 아니다(테이블 셀들).
     findFirstVisibleAnchorIndex(editor, containerRect) {
         const anchorPairs = this.#anchorPairs;
         const { top: viewportTop, bottom: viewportBottom } = containerRect;
@@ -3568,19 +3650,11 @@ class AnchorManager {
         }
         return this.#anchorPairs[index];
     }
-    invalidateAllAnchors() {
-        if (this.#invalidated) {
-            return;
-        }
-        this.#invalidated = true;
-        for (const pair of this.#anchorPairs) {
-            pair.aligned = false;
-        }
-    }
 }
 //# sourceMappingURL=anchor-manager.js.map
 </script>
 <script>"use strict";
+const REGION_FLAGS_SHIFT = 10;
 const DIFF_EXPAND_X = 2;
 const DIFF_EXPAND_Y = 1;
 const DIFF_LINE_EXPAND_Y = 0;
@@ -3602,6 +3676,7 @@ class Renderer {
     #callbacks;
     #renderCallbackId = null;
     #layoutDirty = false;
+    #nextRenderFlags = 0 /* RenderFlags.NONE */;
     constructor(container, leftRegion, rightRegion, callbacks) {
         this.#container = container;
         this.#canvas = document.createElement("canvas");
@@ -3626,6 +3701,7 @@ class Renderer {
         this.#highlightCanvas.height = height;
         this.#leftRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
         this.#rightRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
+        return true;
     }
     #render() {
         if (this.#renderCallbackId !== null) {
@@ -3634,62 +3710,81 @@ class Renderer {
             // 가장 마지막에 실행되도록 기존 콜백을 취소하고 다시 등록하면 어떨까...?
             return;
         }
-        this.#renderCallbackId = requestAnimationFrame(() => {
+        this.#renderCallbackId = requestAnimationFrame((ts) => {
             this.#renderCallbackId = null;
-            this.#doRender();
+            this.#doRender(ts);
         });
     }
-    #doRender() {
-        //console.log("Rendering...");
-        if (this.#layoutDirty) {
-            this.#updateLayout();
-            this.#layoutDirty = false;
+    #renderFlagsToString(flags) {
+        const parts = [];
+        if (flags & 1 /* RenderFlags.LAYOUT */)
+            parts.push("LAYOUT");
+        if (flags & 32 /* RenderFlags.DIFF_LAYER */)
+            parts.push("DIFF_LAYER");
+        if (flags & 64 /* RenderFlags.HIGHLIGHT_LAYER */)
+            parts.push("HIGHLIGHT_LAYER");
+        if (flags & 128 /* RenderFlags.GEOMETRY */)
+            parts.push("GEOMETRY");
+        if (flags & 96 /* RenderFlags.SCROLL */)
+            parts.push("SCROLL");
+        if (flags & 224 /* RenderFlags.RESIZE */)
+            parts.push("RESIZE");
+        return parts.join(", ") || "NONE";
+    }
+    #doRender(ts) {
+        const layoutFlags = this.#nextRenderFlags & 1 /* RenderFlags.LAYOUT_MASK */;
+        let leftRegionFlags = this.#nextRenderFlags & 224 /* RenderFlags.REGION_MASK */;
+        let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 224 /* RenderFlags.REGION_MASK */;
+        this.#nextRenderFlags = 0 /* RenderFlags.NONE */; // Reset flags
+        if (DIFFSEEK_DEBUG) {
+            console.debug(`[Renderer] Rendering at ${ts}ms with flags: ${this.#renderFlagsToString(this.#nextRenderFlags)} (layout: ${this.#renderFlagsToString(layoutFlags)}, left: ${this.#renderFlagsToString(leftRegionFlags)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`);
         }
         this.#callbacks.onRender();
-        // onRender() 콜백에서 invalidateLayout()을 호출이 될 수 있을까...? 지금은 아니지만...
-        if (this.#layoutDirty) {
-            this.#updateLayout();
-            this.#layoutDirty = false;
+        if (layoutFlags & 1 /* RenderFlags.LAYOUT */) {
+            if (this.#updateLayout()) {
+                leftRegionFlags |= 224 /* RenderFlags.REGION_MASK */;
+                rightRegionFlags |= 224 /* RenderFlags.REGION_MASK */;
+            }
         }
-        this.#leftRegion.render();
-        this.#rightRegion.render();
+        this.#leftRegion.render(leftRegionFlags);
+        this.#rightRegion.render(rightRegionFlags);
+        if (this.#nextRenderFlags !== 0 /* RenderFlags.NONE */) {
+            // If there are still flags to render, schedule another render
+            this.#render();
+        }
     }
     invalidateAll(skipRender = false) {
-        this.#layoutDirty = true;
-        this.#leftRegion.markDirty(15 /* RenderFlags.ALL */);
-        this.#rightRegion.markDirty(15 /* RenderFlags.ALL */);
+        this.#nextRenderFlags = 1 /* RenderFlags.LAYOUT_MASK */ | 224 /* RenderFlags.REGION_MASK */ | (224 /* RenderFlags.REGION_MASK */ << REGION_FLAGS_SHIFT);
         if (!skipRender) {
             this.#render();
         }
     }
     invalidateLayout(skipRender = false) {
-        this.#layoutDirty = true;
+        this.#nextRenderFlags |= 1 /* RenderFlags.LAYOUT_MASK */;
         if (!skipRender) {
             this.#render();
         }
+    }
+    invalidateDiffLayer(which, skipRender = false) {
+        return this.#invalidateRegion(32 /* RenderFlags.DIFF_LAYER */, which, skipRender);
+    }
+    invalidateHighlightLayer(which, skipRender = false) {
+        return this.#invalidateRegion(64 /* RenderFlags.HIGHLIGHT_LAYER */, which, skipRender);
     }
     invalidateGeometries(which, skipRender = false) {
-        if (which === undefined) {
-            this.#leftRegion.markDirty(2 /* RenderFlags.GEOMETRY */);
-            this.#rightRegion.markDirty(2 /* RenderFlags.GEOMETRY */);
-        }
-        else {
-            const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-            region.markDirty(2 /* RenderFlags.GEOMETRY */);
-        }
-        if (!skipRender) {
-            this.#render();
-        }
+        return this.#invalidateRegion(128 /* RenderFlags.GEOMETRY */ | 32 /* RenderFlags.DIFF_LAYER */ | 64 /* RenderFlags.HIGHLIGHT_LAYER */, which, skipRender);
     }
     invalidateScroll(which, skipRender = false) {
-        if (which === undefined) {
-            this.#leftRegion.markDirty(13 /* RenderFlags.SCROLL */);
-            this.#rightRegion.markDirty(13 /* RenderFlags.SCROLL */);
+        return this.#invalidateRegion(96 /* RenderFlags.SCROLL */, which, skipRender);
+    }
+    #invalidateRegion(flags, which, skipRender = false) {
+        if (which === "right") {
+            flags <<= REGION_FLAGS_SHIFT;
         }
-        else {
-            const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-            region.markDirty(13 /* RenderFlags.SCROLL */);
+        else if (!which) {
+            flags |= flags << REGION_FLAGS_SHIFT;
         }
+        this.#nextRenderFlags |= flags;
         if (!skipRender) {
             this.#render();
         }
@@ -3716,30 +3811,47 @@ class Renderer {
         }
         this.#leftRegion.setDiffs(leftDiffs);
         this.#rightRegion.setDiffs(rightDiffs);
+        this.invalidateAll();
     }
     setDiffHighlight(diffIndex) {
-        const leftShouldRender = this.#leftRegion.setDiffHighlight(diffIndex);
-        const rightShouldRender = this.#rightRegion.setDiffHighlight(diffIndex);
-        if (leftShouldRender || rightShouldRender) {
-            this.#render();
+        if (this.#leftRegion.setDiffHighlight(diffIndex)) {
+            this.invalidateHighlightLayer("left");
+            this.invalidateGeometries("left");
+        }
+        if (this.#rightRegion.setDiffHighlight(diffIndex)) {
+            this.invalidateHighlightLayer("right");
+            this.invalidateGeometries("right");
         }
     }
     setSelectionHighlight(which, range) {
-        const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-        const regionOther = which === "left" ? this.#rightRegion : this.#leftRegion;
-        const shouldRender = region.setSelectionHighlight(range);
-        const shouldRenderOther = regionOther.setSelectionHighlight(null);
-        if (shouldRender || shouldRenderOther) {
-            this.#render();
+        let leftRange = null;
+        let rightRange = null;
+        if (which === "left") {
+            leftRange = range;
+        }
+        else if (which === "right") {
+            rightRange = range;
+        }
+        if (this.#leftRegion.setSelectionHighlight(leftRange)) {
+            this.invalidateHighlightLayer("left");
+        }
+        if (this.#rightRegion.setSelectionHighlight(rightRange)) {
+            this.invalidateHighlightLayer("right");
         }
     }
     hitTest(x, y) {
         let region;
         if (x >= this.#rightRegion.regionX) {
+            if ((this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 128 /* RenderFlags.GEOMETRY */) {
+                return null;
+            }
             region = this.#rightRegion;
             x = x - this.#rightRegion.regionX;
         }
         else {
+            if (this.#nextRenderFlags & 128 /* RenderFlags.GEOMETRY */) {
+                return null;
+            }
             region = this.#leftRegion;
             x = x - this.#leftRegion.regionX;
         }
@@ -3758,7 +3870,7 @@ class RenderRegion {
     #diffLineRects = [];
     #selectionHighlight = null;
     #selectionHighlightRects = null;
-    #dirtyFlags = 0 /* RenderFlags.NONE */;
+    //dirtyFlags: RenderFlags = RenderFlags.NONE;
     #visibleDiffIndices = new Set();
     #ctx;
     #highlightCtx;
@@ -3783,7 +3895,7 @@ class RenderRegion {
         this.regionY = rect.y - canvasY;
         this.regionWidth = rect.width;
         this.regionHeight = rect.height;
-        this.markDirty(15 /* RenderFlags.ALL */);
+        return true;
     }
     get name() {
         return this.#name;
@@ -3803,31 +3915,28 @@ class RenderRegion {
     get selectionHighlightRects() {
         return this.#selectionHighlightRects;
     }
-    get dirtyFlags() {
-        return this.#dirtyFlags;
-    }
     get visibleDiffIndices() {
         return this.#visibleDiffIndices;
     }
-    markDirty(flags) {
-        this.#dirtyFlags |= flags;
-    }
+    // markDirty(flags: RenderFlags) {
+    // 	this.dirtyFlags |= flags;
+    // }
     setDiffs(diffs) {
         this.#diffs = diffs;
-        this.markDirty(1 /* RenderFlags.DIFF */ | 2 /* RenderFlags.GEOMETRY */);
+        // this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
         this.#visibleDiffIndices.clear();
         this.#selectionHighlight = null;
     }
     setDiffHighlight(diffIndex) {
-        if (this.#highlightedDiffIndex === diffIndex) {
-            return; // No change
-        }
+        // if (this.#highlightedDiffIndex === diffIndex) {
+        // 	return; // No change
+        // }
         // RECT는 필요 없음
         let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
         this.#highlightedDiffIndex = diffIndex;
         let shouldShow = (diffIndex !== null && this.#visibleDiffIndices.has(diffIndex)) || (prevShowing && diffIndex === null);
         if (prevShowing || shouldShow) {
-            this.markDirty(4 /* RenderFlags.HIGHLIGHT_DIFF */);
+            // this.markDirty(RenderFlags.HIGHLIGHT_DIFF);
             return true;
         }
         else {
@@ -3849,33 +3958,31 @@ class RenderRegion {
         }
         this.#selectionHighlight = range;
         this.#selectionHighlightRects = null;
-        this.markDirty(8 /* RenderFlags.HIGHLIGHT_SELECTION */);
+        // this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
         return true;
     }
-    render() {
-        if (this.#dirtyFlags & 1 /* RenderFlags.DIFF */) {
-            this.renderDiffs();
+    render(dirtyFlags) {
+        if (dirtyFlags & 32 /* RenderFlags.DIFF_LAYER */) {
+            this.renderDiffLayer(dirtyFlags);
         }
-        if (this.#dirtyFlags & 12 /* RenderFlags.HIGHLIGHT */) {
-            this.renderHighlightLayer();
+        if (dirtyFlags & 64 /* RenderFlags.HIGHLIGHT_LAYER */) {
+            this.renderHighlightLayer(dirtyFlags);
         }
-        this.#dirtyFlags = 0 /* RenderFlags.NONE */;
     }
-    renderDiffs() {
-        this.#ctx.save();
-        this.#ctx.translate(this.regionX, this.regionY);
-        this.#ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-        this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
-        if (this.#dirtyFlags & 2 /* RenderFlags.GEOMETRY */) {
+    renderDiffLayer(dirtyFlags) {
+        const ctx = this.#ctx;
+        ctx.save();
+        ctx.translate(this.regionX, this.regionY);
+        ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
+        //this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
+        if (dirtyFlags & 128 /* RenderFlags.GEOMETRY */) {
             this.buildDiffGeometries();
         }
         // console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
-        const ctx = this.#ctx;
         const canvasWidth = this.regionWidth;
         const canvasHeight = this.regionHeight;
         const visibleDiffIndices = this.#visibleDiffIndices;
         const visChangeEntries = [];
-        ctx.clearRect(this.regionX, this.regionY, canvasWidth, canvasHeight);
         let scrollTop = this.#regionInfo.scrollTop;
         let scrollLeft = 0;
         ctx.fillStyle = DIFF_LINE_FILL_STYLE;
@@ -3923,17 +4030,17 @@ class RenderRegion {
             this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
         }
         //this.#shouldClearCanvas = renderedAny;
-        this.#ctx.restore();
+        ctx.restore();
     }
-    renderHighlightLayer() {
+    renderHighlightLayer(dirtyFlags) {
         const ctx = this.#highlightCtx;
+        ctx.save();
+        ctx.translate(this.regionX, this.regionY);
+        ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
         const canvasWidth = this.regionWidth;
         const canvasHeight = this.regionHeight;
         const scrollTop = this.#regionInfo.scrollTop;
         const scrollLeft = 0;
-        this.#highlightCtx.save();
-        this.#highlightCtx.translate(this.regionX, this.regionY);
-        ctx.clearRect(0, 0, canvasWidth, canvasHeight);
         if (this.#highlightedDiffIndex !== null) {
             // console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
             const diff = this.#diffs[this.#highlightedDiffIndex];
@@ -3968,7 +4075,7 @@ class RenderRegion {
             // ctx.strokeStyle = "transparent";
         }
         if (this.#selectionHighlight) {
-            if (!this.#selectionHighlightRects || this.#dirtyFlags & 2 /* RenderFlags.GEOMETRY */) {
+            if (!this.#selectionHighlightRects || dirtyFlags & 128 /* RenderFlags.GEOMETRY */) {
                 let start = performance.now();
                 const offsetX = -this.regionX + scrollLeft;
                 const offsetY = -this.regionY + scrollTop;
@@ -4005,7 +4112,7 @@ class RenderRegion {
                 ctx.fillRect(x, y, width, height);
             }
         }
-        this.#highlightCtx.restore();
+        ctx.restore();
     }
     buildDiffGeometries() {
         const scrollTop = this.#regionInfo.scrollTop;
@@ -4084,9 +4191,10 @@ class RenderRegion {
         this.#diffLineRects = lineRects;
     }
     hitTest(x, y) {
-        if (this.#dirtyFlags & (2 /* RenderFlags.GEOMETRY */ | 1 /* RenderFlags.DIFF */)) {
-            return null;
-        }
+        // TODO renderer에서 호출하기 전에 확인해서 처리할 것
+        // if (this.dirtyFlags & (RenderFlags.GEOMETRY | RenderFlags.DIFF)) {
+        // 	return null;
+        // }
         y += this.#regionInfo.scrollTop;
         for (const diffIndex of this.#visibleDiffIndices) {
             const geometry = this.#diffGeometries[diffIndex];
@@ -4129,7 +4237,7 @@ class RenderRegion {
         return null;
     }
 }
-//# sourceMappingURL=Renderer.js.map
+//# sourceMappingURL=renderer.js.map
 </script>
 <script>"use strict";
 class SideView {
@@ -4285,6 +4393,7 @@ class DiffListItem {
             walker.currentNode = currentNode = startNode;
         }
         else {
+            console.error("Invalid start container", range.cloneRange(), this.#diff);
             throw new Error("Invalid start container");
         }
         if (range.endContainer.nodeType === 3) {
@@ -4361,7 +4470,7 @@ class DiffSeek {
     #textSelectionRange = null;
     #zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
     #sideView;
-    #scrollSync = false;
+    #scrollSyncEnabled = false;
     #scrollingEditor = null;
     #lastScrolledEditor = null;
     #preventScrollSync = false;
@@ -4421,8 +4530,8 @@ class DiffSeek {
         this.#renderer.invalidateLayout();
     }
     #onRender() {
-        if (this.#scrollSync) {
-            this.alignAnchors();
+        if (this.#scrollSyncEnabled) {
+            this.syncScroll();
         }
     }
     setupEventListeners() {
@@ -4445,7 +4554,7 @@ class DiffSeek {
             }
             else if (e.key === "F2") {
                 e.preventDefault();
-                this.syncScroll = !this.#scrollSync;
+                this.scrollSyncEnabled = !this.#scrollSyncEnabled;
             }
             if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
                 e.preventDefault();
@@ -4479,6 +4588,7 @@ class DiffSeek {
             highlightedDiffIndexAtom.set(diffIndex);
         });
         highlightedDiffIndexAtom.subscribe((diffIndex) => {
+            console.debug("Highlighted diff index changed:", diffIndex);
             this.#renderer.setDiffHighlight(diffIndex);
         });
         diffItemClickedEvent.subscribe((diffIndex) => {
@@ -4517,7 +4627,13 @@ class DiffSeek {
         }
     }
     #onEditorResize(editor) {
-        this.#anchorManager.invalidateAllAnchors();
+        // console.debug("Editor resized:", editor.name, editor.contentHeight);
+        if (!this.#anchorAligning) {
+            this.#anchorManager.invalidate();
+        }
+        else {
+            console.debug("Anchor aligning in progress, skipping resize handling for", editor.name);
+        }
         this.#renderer.invalidateLayout();
     }
     #onDiffVisibilityChanged(region, entries) {
@@ -4825,9 +4941,9 @@ class DiffSeek {
         this.#renderer.setDiffs(diffs);
         this.#sideView.setDiffs(diffs);
         this.#updateTextSelection();
-        this.#renderer.invalidateAll();
     }
-    alignAnchors() {
+    #anchorAligning = false;
+    syncScroll() {
         if (!this.#diffContext?.ready) {
             return;
         }
@@ -4835,6 +4951,7 @@ class DiffSeek {
         const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
+        this.#anchorAligning = true;
         let [changed, maxContentHeight] = this.#anchorManager.alignAnchors(primaryEditor, this.#mainContainer.getBoundingClientRect());
         if (changed) {
             if (isNaN(maxContentHeight)) {
@@ -4843,8 +4960,10 @@ class DiffSeek {
             leftEditor.height = maxContentHeight;
             rightEditor.height = maxContentHeight;
             //this.#renderer.invalidateScroll();
+            void this.#mainContainer.offsetHeight;
             this.#renderer.invalidateGeometries();
         }
+        this.#anchorAligning = false;
         if (primaryEditor === leftEditor) {
             rightEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
         }
@@ -4859,6 +4978,9 @@ class DiffSeek {
         this.#diffContext = null;
         this.#textSelectionRange = null;
         this.#cancelAllCallbacks();
+        this.#renderer.setDiffHighlight(null);
+        this.#renderer.setSelectionHighlight("left", null);
+        this.#renderer.setSelectionHighlight("right", null);
     }
     #cancelAllCallbacks() {
         if (this.#computeDiffCallbackId !== null) {
@@ -4876,7 +4998,7 @@ class DiffSeek {
         if (!leftRect || !rightRect) {
             return;
         }
-        if (this.#scrollSync) {
+        if (this.#scrollSyncEnabled) {
             let scrollTop = Math.min(leftRect.y, rightRect.y);
             scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
             this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
@@ -4888,17 +5010,18 @@ class DiffSeek {
             this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
         }
     }
-    get syncScroll() {
-        return this.#scrollSync;
+    get scrollSyncEnabled() {
+        return this.#scrollSyncEnabled;
     }
-    set syncScroll(value) {
+    set scrollSyncEnabled(value) {
         value = !!value;
-        if (value === this.#scrollSync) {
+        if (value === this.#scrollSyncEnabled) {
             return;
         }
-        this.#scrollSync = value;
-        this.#mainContainer.classList.toggle("same-height-besties", value);
+        this.#scrollSyncEnabled = value;
+        this.#anchorManager.invalidate();
         this.#renderer.invalidateLayout();
+        this.#mainContainer.classList.toggle("same-height-besties", value);
     }
     setContent(editorName, contentHTML) {
         const editor = editorName === "left" ? this.#leftEditor : this.#rightEditor;
@@ -5773,308 +5896,64 @@ canvas:not(.dimmed) {
 
 
     window.DiffSeek.setContent("left", `
-        <table>
-
-<tr>
-  <td><p>1. 개요</p></td>
-  <td>
-    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>2. 업무순서</p></td>
-  <td>
-    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>3. 책임과 권한</p></td>
-  <td>
-    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>4. 업무절차 상세</p></td>
-  <td>
-    <p>(1) 업무 준비 단계</p>
-    <p>- 업무 계획 수립 및 자원 확보</p>
-    <p>- 관련 법규 및 내부 규정 검토</p>
-    <p>(2) 실행 단계</p>
-    <p>- 계획에 따른 업무 수행</p>
-    <p>- 중간 점검 및 문제 해결</p>
-    <p>(3) 마무리 단계</p>
-    <p>- 결과물 검토 및 승인</p>
-    <p>- 문서화 및 보관</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>5. 문서 관리</p></td>
-  <td>
-    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>1. 개요</p></td>
-  <td>
-    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>2. 업무순서</p></td>
-  <td>
-    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>3. 책임과 권한</p></td>
-  <td>
-    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>4. 업무절차 상세</p></td>
-  <td>
-    <p>(1) 업무 준비 단계</p>
-    <p>- 업무 계획 수립 및 자원 확보</p>
-    <p>- 관련 법규 및 내부 규정 검토</p>
-    <p>(2) 실행 단계</p>
-    <p>- 계획에 따른 업무 수행</p>
-    <p>- 중간 점검 및 문제 해결</p>
-    <p>(3) 마무리 단계</p>
-    <p>- 결과물 검토 및 승인</p>
-    <p>- 문서화 및 보관</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>5. 문서 관리</p></td>
-  <td>
-    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>1. 개요</p></td>
-  <td>
-    <p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-    <p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-    <p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-    <p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>2. 업무순서</p></td>
-  <td>
-    <p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-    <p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-    <p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-    <p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-    <p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-    <p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>3. 책임과 권한</p></td>
-  <td>
-    <p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-    <p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-    <p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-    <p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>4. 업무절차 상세</p></td>
-  <td>
-    <p>(1) 업무 준비 단계</p>
-    <p>- 업무 계획 수립 및 자원 확보</p>
-    <p>- 관련 법규 및 내부 규정 검토</p>
-    <p>(2) 실행 단계</p>
-    <p>- 계획에 따른 업무 수행</p>
-    <p>- 중간 점검 및 문제 해결</p>
-    <p>(3) 마무리 단계</p>
-    <p>- 결과물 검토 및 승인</p>
-    <p>- 문서화 및 보관</p>
-    <p><br></p>
-  </td>
-</tr>
-
-<tr>
-  <td><p>5. 문서 관리</p></td>
-  <td>
-    <p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-    <p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-    <p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-    <p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-    <p><br></p>
-  </td>
-</tr>
-
-</table>
+       <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐름을 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
 `);
 
-    window.DiffSeek.setContent("right", `<h2>1. 개요</h2>
-<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-<p><br></p>
-<h2>2. 업무순서</h2>
-<p>&nbsp;&nbsp;&nbsp;&nbsp;1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-<p>&nbsp;&nbsp;2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-<p>&nbsp;&nbsp;3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-<p>&nbsp;&nbsp;4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-<p>&nbsp;&nbsp;5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-<p>&nbsp;&nbsp;6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-<p><br></p>
-<h2>3. 책임과 권한</h2>
-<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-<p><br></p>
-<h2>4. 업무절차 상세</h2>
-<p>(1) 업무 준비 단계</p>
-<p>- 업무 계획 수립 및 자원 확보</p>
-<p>- 관련 법규 및 내부 규정 검토</p>
-<p>(2) 실행 단계</p>
-<p>- 계획에 따른 업무 수행</p>
-<p>- 중간 점검 및 문제 해결</p>
-<p>(3) 마무리 단계</p>
-<p>- 결과물 검토 및 승인</p>
-<p>- 문서화 및 보관</p>
-<p><br></p>
-<h2>5. 문서 관리</h2>
-<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-<p><br></p>
-<h2>1. 개요</h2>
-<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-<p><br></p>
-<h2>2. 업무순서</h2>
-<p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-<p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-<p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-<p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-<p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-<p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-<p><br></p>
-<h2>3. 책임과 권한</h2>
-<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-<p><br></p>
-<h2>4. 업무절차 상세</h2>
-<p>(1) 업무 준비 단계</p>
-<p>- 업무 계획 수립 및 자원 확보</p>
-<p>- 관련 법규 및 내부 규정 검토</p>
-<p>(2) 실행 단계</p>
-<p>- 계획에 따른 업무 수행</p>
-<p>- 중간 점검 및 문제 해결</p>
-<p>(3) 마무리 단계</p>
-<p>- 결과물 검토 및 승인</p>
-<p>- 문서화 및 보관</p>
-<p><br></p>
-<h2>5. 문서 관리</h2>
-<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-<p><br></p>
-<h2>1. 개요</h2>
-<p>본 문서는 당사 업무 프로세스에 대한 전반적인 이해를 돕기 위해 작성되었습니다. 관련 부서 및 담당자의 업무 수행 기준을 명확히 하고, 업무 효율성을 극대화하는 데 목적이 있습니다.</p>
-<p>업무 프로세스는 체계적으로 설계되어 있으며, 각 단계는 명확한 역할과 책임 하에 수행됩니다. 이를 통해 반복되는 오류를 최소화하고, 부서 간 협업을 원활히 합니다.</p>
-<p>본 매뉴얼은 모든 업무 담당자가 쉽게 이해할 수 있도록 구성되었으며, 업무 수행 시 참고 자료로 활용됩니다.</p>
-<p>업무 수행 과정에서 발생할 수 있는 문제에 대한 해결 방안도 포함되어 있어 실무에 도움을 줍니다.</p>
-<p><br></p>
-<h2>2. 업무순서</h2>
-<p>1) 업무 시작 전 준비 사항을 철저히 점검하여 관련 자료와 도구를 확보합니다.</p>
-<p>2) 단계별 업무 절차에 따라 업무를 진행하며, 발생하는 문제는 즉시 보고 및 해결합니다.</p>
-<p>3) 업무 중간 결과물을 주기적으로 검토하여 품질을 유지합니다.</p>
-<p>4) 업무 완료 후 최종 결과물을 승인받아 문서화합니다.</p>
-<p>5) 후속 조치 사항은 관련 부서와 협의하여 신속히 처리합니다.</p>
-<p>6) 업무 과정에서 발생하는 모든 사항은 기록으로 남겨 향후 검토 및 개선에 활용됩니다.</p>
-<p><br></p>
-<h2>3. 책임과 권한</h2>
-<p>가. 각 부서의 책임과 권한은 명확히 구분되어 있습니다.</p>
-<p>나. 업무 수행 중 발생하는 문제에 대해 책임 있는 부서가 신속히 대응합니다.</p>
-<p>다. 업무 권한은 관련 법규 및 회사 정책에 따라 정해지며, 이를 준수해야 합니다.</p>
-<p>라. 담당자는 업무 수행 시 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
-<p><br></p>
-<h2>4. 업무절차 상세</h2>
-<p>(1) 업무 준비 단계</p>
-<p>- 업무 계획 수립 및 자원 확보</p>
-<p>- 관련 법규 및 내부 규정 검토</p>
-<p>(2) 실행 단계</p>
-<p>- 계획에 따른 업무 수행</p>
-<p>- 중간 점검 및 문제 해결</p>
-<p>(3) 마무리 단계</p>
-<p>- 결과물 검토 및 승인</p>
-<p>- 문서화 및 보관</p>
-<p><br></p>
-<h2>5. 문서 관리</h2>
-<p>가. 모든 업무 관련 문서는 체계적으로 관리되어야 합니다.</p>
-<p>나. 문서의 생성, 수정, 보관, 폐기에 관한 절차를 준수해야 합니다.</p>
-<p>다. 전자 문서와 종이 문서 모두 보안 및 접근 권한을 관리합니다.</p>
-<p>라. 문서의 버전 관리를 통해 최신 정보를 유지합니다.</p>
-<p><br></p>
+if (true)
+    window.DiffSeek.setContent("right", `
+    <table>
+  <tr>
+    <td>
+      <p>1. 개요</p>
+      <p><br></p>
+      <p>2. 작업 흐름</p>
+      <p><br></p>
+      <p>3. 역할과 권한</p>
+      <p><br></p>
+      <p>4. 프로세스 세부 단계</p>
+      <p><br></p>
+      <p>5. 문서화 및 보관</p>
+      <p><br></p>
+    </td>
+    <td>
+      <p>이 문서는 우리 회사의 전반적인 업무 흐름을 이해하는 데 도움을 주기 위한 가이드입니다.</p>
+      <p>부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p>
+      <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다.</p>
+      <p>이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p>
+      <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p>
+      <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p>
+      <p><br></p>
+      <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p>
+      <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p>
+      <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p>
+      <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p>
+      <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p>
+      <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p>
+      <p><br></p>
+      <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p>
+      <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p>
+      <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p>
+      <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p>
+      <p><br></p>
+      <p>(1) 사전 준비</p>
+      <p>- 업무 범위 설정 및 자원 점검</p>
+      <p>- 관련 법규 및 사내 정책 검토</p>
+      <p>(2) 실행</p>
+      <p>- 계획에 따라 작업 수행</p>
+      <p>- 이슈 발생 시 실시간 대응</p>
+      <p>(3) 종료</p>
+      <p>- 결과 검토 및 문서화</p>
+      <p>- 산출물 보관 및 후속 관리</p>
+      <p><br></p>
+      <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p>
+      <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p>
+      <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p>
+      <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p>
+      <p><br></p>
+    </td>
+  </tr>
+</table>
+
 
 `);
   </script>

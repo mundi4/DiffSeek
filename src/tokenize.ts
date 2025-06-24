@@ -27,15 +27,14 @@ const enum TokenFlags {
 	SECTION_HEADING_TYPE4 = 1 << 22, // (가)
 	SECTION_HEADING_TYPE5 = 1 << 23, // 1)
 	SECTION_HEADING_TYPE6 = 1 << 23, // 가)
-}
 
-const SECTION_HEADING_MASK =
-	TokenFlags.SECTION_HEADING_TYPE1 |
-	TokenFlags.SECTION_HEADING_TYPE2 |
-	TokenFlags.SECTION_HEADING_TYPE3 |
-	TokenFlags.SECTION_HEADING_TYPE4 |
-	TokenFlags.SECTION_HEADING_TYPE5 |
-	TokenFlags.SECTION_HEADING_TYPE6;
+	SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 |
+		SECTION_HEADING_TYPE2 |
+		SECTION_HEADING_TYPE3 |
+		SECTION_HEADING_TYPE4 |
+		SECTION_HEADING_TYPE5 |
+		SECTION_HEADING_TYPE6,
+}
 
 // const normalizeChars: { [ch: string]: string } = {};
 
@@ -600,4 +599,3 @@ function quickHash53ToString(str: string) {
 	}
 	return hash.toString(36); // 36진수 문자열 변환
 }
-

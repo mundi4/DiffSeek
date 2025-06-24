@@ -52,6 +52,7 @@ class Editor {
 	#tokenizeCallbackId: number | null = null;
 	#callbacks: EditorCallbacks;
 	#bottomPaddingElement: HTMLElement = document.createElement("div");
+	#prevWidth: number = 0;
 
 	constructor(container: HTMLElement, editorName: "left" | "right", callbacks: EditorCallbacks) {
 		this.#editorName = editorName;
@@ -166,7 +167,11 @@ class Editor {
 	}
 
 	#onResize() {
-		this.#callbacks.onResize(this);
+		const newWidth = this.#editor.getBoundingClientRect().width;
+		if (this.#prevWidth !== newWidth) {
+			this.#prevWidth = newWidth;
+			this.#callbacks.onResize(this);
+		}
 	}
 
 	#onMutation(mutations: MutationRecord[]) {
@@ -336,6 +341,8 @@ class Editor {
 				range.setEnd(this.#editor, this.#editor.childNodes.length);
 			}
 		} else {
+			// count === 0
+
 			const prevToken = this.#tokens[index - 1];
 			if (prevToken) {
 				range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
@@ -346,7 +353,10 @@ class Editor {
 			if (nextToken) {
 				range.setStart(nextToken.range.startContainer, 0);
 				range.setEnd(nextToken.range.startContainer, 0);
+				return range;
 			}
+			range.setStart(this.#editor, 0);
+			range.setEnd(this.#editor, this.#editor.childNodes.length);
 		}
 		return range;
 	}
@@ -742,6 +752,7 @@ class Editor {
 	getBoundingClientRect(): DOMRect {
 		return this.#wrapper.getBoundingClientRect();
 	}
+
 }
 
 type EditorRegionInfo = {

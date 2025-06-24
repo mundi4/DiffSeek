@@ -1,39 +1,3 @@
-const enum TokenFlags {
-	LINE_START = 1 << 0,
-	LINE_END = 1 << 1,
-	BLOCK_START = 1 << 2,
-	BLOCK_END = 1 << 3,
-	CONTAINER_START = 1 << 4,
-	CONTAINER_END = 1 << 5,
-	TABLE_START = 1 << 6,
-	TABLE_END = 1 << 7,
-	TABLEROW_START = 1 << 8,
-	TABLEROW_END = 1 << 9,
-	TABLECELL_START = 1 << 10,
-	TABLECELL_END = 1 << 11,
-	NO_JOIN_PREV = 1 << 12, // @@@, ### 등등
-	NO_JOIN_NEXT = 1 << 13, // @@@, ### 등등
-	WILD_CARD = 1 << 14,
-	MANUAL_ANCHOR = 1 << 15, // 32. @@@, ### 등등
-	IMAGE = 1 << 16,
-	HTML_SUP = 1 << 17,
-	HTML_SUB = 1 << 18,
-	SECTION_HEADING_TYPE1 = 1 << 19, // 1.
-	SECTION_HEADING_TYPE2 = 1 << 20, // 가.
-	SECTION_HEADING_TYPE3 = 1 << 21, // (1)
-	SECTION_HEADING_TYPE4 = 1 << 22, // (가)
-	SECTION_HEADING_TYPE5 = 1 << 23, // 1)
-	SECTION_HEADING_TYPE6 = 1 << 23, // 가)
-}
-
-const SECTION_HEADING_MASK =
-	TokenFlags.SECTION_HEADING_TYPE1 |
-	TokenFlags.SECTION_HEADING_TYPE2 |
-	TokenFlags.SECTION_HEADING_TYPE3 |
-	TokenFlags.SECTION_HEADING_TYPE4 |
-	TokenFlags.SECTION_HEADING_TYPE5 |
-	TokenFlags.SECTION_HEADING_TYPE6;
-
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
 

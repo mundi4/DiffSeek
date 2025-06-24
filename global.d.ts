@@ -187,14 +187,6 @@ type RenderBounds = {
 // type RectsWithBoundsOptional = ({ rects: Rect[] } & RenderBounds) | ({ rects?: undefined } & RenderBoundsUndefined);
 // type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
 
-type AnchorPair = {
-	index: number;
-	leftEl: HTMLElement;
-	rightEl: HTMLElement;
-	flags: number;
-	diffIndex?: number;
-	aligned: boolean;
-};
 
 type RichToken = {
 	text: string;

@@ -1,18 +1,19 @@
 const enum RenderFlags {
 	NONE = 0,
-	DIFF = 1 << 0,
-	GEOMETRY = 1 << 1,
-	HIGHLIGHT_DIFF = 1 << 2,
-	HIGHLIGHT_SELECTION = 1 << 3,
-	//LAYOUT = 1 << 4,
+	// LAYOUT FLAGS
+	LAYOUT = 1,
 
-	HIGHLIGHT = HIGHLIGHT_DIFF | HIGHLIGHT_SELECTION,
-	SCROLL = DIFF | HIGHLIGHT,
-	RESIZE = DIFF | HIGHLIGHT | GEOMETRY,
-	ALL = DIFF | GEOMETRY | HIGHLIGHT,
-	LEFT_REGION = 1 << 10,
-	RIGHT_REGION = 1 << 11,
+	// REGIONAL FLAGS
+	DIFF_LAYER = 1 << 5,
+	HIGHLIGHT_LAYER = 1 << 6,
+	GEOMETRY = 1 << 7,
+
+	SCROLL = DIFF_LAYER | HIGHLIGHT_LAYER,
+	RESIZE = SCROLL | GEOMETRY,
+	LAYOUT_MASK = LAYOUT,
+	REGION_MASK = DIFF_LAYER | HIGHLIGHT_LAYER | GEOMETRY,
 }
+const REGION_FLAGS_SHIFT = 10;
 
 const DIFF_EXPAND_X = 2;
 const DIFF_EXPAND_Y = 1;
@@ -49,6 +50,7 @@ class Renderer {
 	#callbacks: RendererCallbacks;
 	#renderCallbackId: number | null = null;
 	#layoutDirty: boolean = false;
+	#nextRenderFlags: RenderFlags = RenderFlags.NONE;
 
 	constructor(container: HTMLElement, leftRegion: EditorRegionInfo, rightRegion: EditorRegionInfo, callbacks: RendererCallbacks) {
 		this.#container = container;
@@ -78,6 +80,7 @@ class Renderer {
 
 		this.#leftRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
 		this.#rightRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
+		return true;
 	}
 
 	#render() {
@@ -88,68 +91,92 @@ class Renderer {
 			return;
 		}
 
-		this.#renderCallbackId = requestAnimationFrame(() => {
+		this.#renderCallbackId = requestAnimationFrame((ts) => {
 			this.#renderCallbackId = null;
-			this.#doRender();
+			this.#doRender(ts);
 		});
 	}
 
-	#doRender() {
-		//console.log("Rendering...");
-		if (this.#layoutDirty) {
-			this.#updateLayout();
-			this.#layoutDirty = false;
+	#renderFlagsToString(flags: RenderFlags): string {
+		const parts: string[] = [];
+		if (flags & RenderFlags.LAYOUT) parts.push("LAYOUT");
+		if (flags & RenderFlags.DIFF_LAYER) parts.push("DIFF_LAYER");
+		if (flags & RenderFlags.HIGHLIGHT_LAYER) parts.push("HIGHLIGHT_LAYER");
+		if (flags & RenderFlags.GEOMETRY) parts.push("GEOMETRY");
+		if (flags & RenderFlags.SCROLL) parts.push("SCROLL");
+		if (flags & RenderFlags.RESIZE) parts.push("RESIZE");
+		return parts.join(", ") || "NONE";
+	}
+
+	#doRender(ts: number) {
+		const layoutFlags = this.#nextRenderFlags & RenderFlags.LAYOUT_MASK;
+		let leftRegionFlags = this.#nextRenderFlags & RenderFlags.REGION_MASK;
+		let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
+		this.#nextRenderFlags = RenderFlags.NONE; // Reset flags
+
+		if (DIFFSEEK_DEBUG) {
+			console.debug(
+				`[Renderer] Rendering at ${ts}ms with flags: ${this.#renderFlagsToString(this.#nextRenderFlags)} (layout: ${this.#renderFlagsToString(
+					layoutFlags
+				)}, left: ${this.#renderFlagsToString(leftRegionFlags)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`
+			);
 		}
 
 		this.#callbacks.onRender();
 
-		// onRender() 콜백에서 invalidateLayout()을 호출이 될 수 있을까...? 지금은 아니지만...
-		if (this.#layoutDirty) {
-			this.#updateLayout();
-			this.#layoutDirty = false;
+		if (layoutFlags & RenderFlags.LAYOUT) {
+			if (this.#updateLayout()) {
+				leftRegionFlags |= RenderFlags.REGION_MASK;
+				rightRegionFlags |= RenderFlags.REGION_MASK;
+			}
 		}
 
-		this.#leftRegion.render();
-		this.#rightRegion.render();
+		this.#leftRegion.render(leftRegionFlags);
+		this.#rightRegion.render(rightRegionFlags);
+
+		if (this.#nextRenderFlags !== RenderFlags.NONE) {
+			// If there are still flags to render, schedule another render
+			this.#render();
+		}
 	}
 
 	invalidateAll(skipRender: boolean = false) {
-		this.#layoutDirty = true;
-		this.#leftRegion.markDirty(RenderFlags.ALL);
-		this.#rightRegion.markDirty(RenderFlags.ALL);
+		this.#nextRenderFlags = RenderFlags.LAYOUT_MASK | RenderFlags.REGION_MASK | (RenderFlags.REGION_MASK << REGION_FLAGS_SHIFT);
 		if (!skipRender) {
 			this.#render();
 		}
 	}
 
 	invalidateLayout(skipRender: boolean = false) {
-		this.#layoutDirty = true;
+		this.#nextRenderFlags |= RenderFlags.LAYOUT_MASK;
 		if (!skipRender) {
 			this.#render();
 		}
+	}
+
+	invalidateDiffLayer(which?: "left" | "right", skipRender: boolean = false) {
+		return this.#invalidateRegion(RenderFlags.DIFF_LAYER, which, skipRender);
+	}
+
+	invalidateHighlightLayer(which?: "left" | "right", skipRender: boolean = false) {
+		return this.#invalidateRegion(RenderFlags.HIGHLIGHT_LAYER, which, skipRender);
 	}
 
 	invalidateGeometries(which?: "left" | "right", skipRender: boolean = false) {
-		if (which === undefined) {
-			this.#leftRegion.markDirty(RenderFlags.GEOMETRY);
-			this.#rightRegion.markDirty(RenderFlags.GEOMETRY);
-		} else {
-			const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-			region.markDirty(RenderFlags.GEOMETRY);
-		}
-		if (!skipRender) {
-			this.#render();
-		}
+		return this.#invalidateRegion(RenderFlags.GEOMETRY | RenderFlags.DIFF_LAYER | RenderFlags.HIGHLIGHT_LAYER, which, skipRender);
 	}
 
 	invalidateScroll(which?: "left" | "right", skipRender: boolean = false) {
-		if (which === undefined) {
-			this.#leftRegion.markDirty(RenderFlags.SCROLL);
-			this.#rightRegion.markDirty(RenderFlags.SCROLL);
-		} else {
-			const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-			region.markDirty(RenderFlags.SCROLL);
+		return this.#invalidateRegion(RenderFlags.SCROLL, which, skipRender);
+	}
+
+	#invalidateRegion(flags: RenderFlags, which?: "left" | "right", skipRender: boolean = false) {
+		if (which === "right") {
+			flags <<= REGION_FLAGS_SHIFT;
+		} else if (!which) {
+			flags |= flags << REGION_FLAGS_SHIFT;
 		}
+		this.#nextRenderFlags |= flags;
 		if (!skipRender) {
 			this.#render();
 		}
@@ -180,32 +207,49 @@ class Renderer {
 
 		this.#leftRegion.setDiffs(leftDiffs);
 		this.#rightRegion.setDiffs(rightDiffs);
+		this.invalidateAll();
 	}
 
 	setDiffHighlight(diffIndex: number | null) {
-		const leftShouldRender = this.#leftRegion.setDiffHighlight(diffIndex);
-		const rightShouldRender = this.#rightRegion.setDiffHighlight(diffIndex);
-		if (leftShouldRender || rightShouldRender) {
-			this.#render();
+		if (this.#leftRegion.setDiffHighlight(diffIndex)) {
+			this.invalidateHighlightLayer("left");
+			this.invalidateGeometries("left");
+		}
+		if (this.#rightRegion.setDiffHighlight(diffIndex)) {
+			this.invalidateHighlightLayer("right");
+			this.invalidateGeometries("right");
 		}
 	}
 
 	setSelectionHighlight(which: "left" | "right", range: Range | null) {
-		const region = which === "left" ? this.#leftRegion : this.#rightRegion;
-		const regionOther = which === "left" ? this.#rightRegion : this.#leftRegion;
-		const shouldRender = region.setSelectionHighlight(range);
-		const shouldRenderOther = regionOther.setSelectionHighlight(null);
-		if (shouldRender || shouldRenderOther) {
-			this.#render();
+		let leftRange: Range | null = null;
+		let rightRange: Range | null = null;
+		if (which === "left") {
+			leftRange = range;
+		} else if (which === "right") {
+			rightRange = range;
+		}
+
+		if (this.#leftRegion.setSelectionHighlight(leftRange)) {
+			this.invalidateHighlightLayer("left");
+		}
+		if (this.#rightRegion.setSelectionHighlight(rightRange)) {
+			this.invalidateHighlightLayer("right");
 		}
 	}
 
-	hitTest(x: number, y: number) {
+	hitTest(x: number, y: number): number | null {
 		let region;
 		if (x >= this.#rightRegion.regionX) {
+			if ((this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.GEOMETRY) {
+				return null;
+			}
 			region = this.#rightRegion;
 			x = x - this.#rightRegion.regionX;
 		} else {
+			if (this.#nextRenderFlags & RenderFlags.GEOMETRY) {
+				return null;
+			}
 			region = this.#leftRegion;
 			x = x - this.#leftRegion.regionX;
 		}
@@ -226,7 +270,7 @@ class RenderRegion {
 	#diffLineRects: Rect[] = [];
 	#selectionHighlight: Range | null = null;
 	#selectionHighlightRects: RectSet | null = null;
-	#dirtyFlags: RenderFlags = RenderFlags.NONE;
+	//dirtyFlags: RenderFlags = RenderFlags.NONE;
 	#visibleDiffIndices: Set<number> = new Set();
 	#ctx: CanvasRenderingContext2D;
 	#highlightCtx: CanvasRenderingContext2D;
@@ -260,7 +304,7 @@ class RenderRegion {
 		this.regionY = rect.y - canvasY;
 		this.regionWidth = rect.width;
 		this.regionHeight = rect.height;
-		this.markDirty(RenderFlags.ALL);
+		return true;
 	}
 
 	get name() {
@@ -287,35 +331,31 @@ class RenderRegion {
 		return this.#selectionHighlightRects;
 	}
 
-	get dirtyFlags() {
-		return this.#dirtyFlags;
-	}
-
 	get visibleDiffIndices() {
 		return this.#visibleDiffIndices;
 	}
 
-	markDirty(flags: RenderFlags) {
-		this.#dirtyFlags |= flags;
-	}
+	// markDirty(flags: RenderFlags) {
+	// 	this.dirtyFlags |= flags;
+	// }
 
 	setDiffs(diffs: DiffRenderItem[]) {
 		this.#diffs = diffs;
-		this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
+		// this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
 		this.#visibleDiffIndices.clear();
 		this.#selectionHighlight = null;
 	}
 
 	setDiffHighlight(diffIndex: number | null) {
-		if (this.#highlightedDiffIndex === diffIndex) {
-			return; // No change
-		}
+		// if (this.#highlightedDiffIndex === diffIndex) {
+		// 	return; // No change
+		// }
 		// RECT는 필요 없음
 		let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
 		this.#highlightedDiffIndex = diffIndex;
 		let shouldShow = (diffIndex !== null && this.#visibleDiffIndices.has(diffIndex)) || (prevShowing && diffIndex === null);
 		if (prevShowing || shouldShow) {
-			this.markDirty(RenderFlags.HIGHLIGHT_DIFF);
+			// this.markDirty(RenderFlags.HIGHLIGHT_DIFF);
 			return true;
 		} else {
 			return false;
@@ -340,40 +380,36 @@ class RenderRegion {
 
 		this.#selectionHighlight = range;
 		this.#selectionHighlightRects = null;
-		this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
+		// this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
 		return true;
 	}
 
-	render() {
-		if (this.#dirtyFlags & RenderFlags.DIFF) {
-			this.renderDiffs();
+	render(dirtyFlags: RenderFlags) {
+		if (dirtyFlags & RenderFlags.DIFF_LAYER) {
+			this.renderDiffLayer(dirtyFlags);
 		}
 
-		if (this.#dirtyFlags & RenderFlags.HIGHLIGHT) {
-			this.renderHighlightLayer();
+		if (dirtyFlags & RenderFlags.HIGHLIGHT_LAYER) {
+			this.renderHighlightLayer(dirtyFlags);
 		}
-
-		this.#dirtyFlags = RenderFlags.NONE;
 	}
 
-	renderDiffs() {
-		this.#ctx.save();
-		this.#ctx.translate(this.regionX, this.regionY);
-		this.#ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-		this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
+	renderDiffLayer(dirtyFlags: RenderFlags) {
+		const ctx = this.#ctx;
+		ctx.save();
+		ctx.translate(this.regionX, this.regionY);
+		ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
+		//this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
 
-		if (this.#dirtyFlags & RenderFlags.GEOMETRY) {
+		if (dirtyFlags & RenderFlags.GEOMETRY) {
 			this.buildDiffGeometries();
 		}
 		// console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
 
-		const ctx = this.#ctx;
 		const canvasWidth = this.regionWidth;
 		const canvasHeight = this.regionHeight;
 		const visibleDiffIndices = this.#visibleDiffIndices;
 		const visChangeEntries: VisibilityChangeEntry[] = [];
-
-		ctx.clearRect(this.regionX, this.regionY, canvasWidth, canvasHeight);
 
 		let scrollTop = this.#regionInfo.scrollTop;
 		let scrollLeft = 0;
@@ -436,19 +472,20 @@ class RenderRegion {
 		}
 
 		//this.#shouldClearCanvas = renderedAny;
-		this.#ctx.restore();
+		ctx.restore();
 	}
 
-	renderHighlightLayer() {
+	renderHighlightLayer(dirtyFlags: RenderFlags) {
 		const ctx = this.#highlightCtx;
+		ctx.save();
+		ctx.translate(this.regionX, this.regionY);
+		ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
+
 		const canvasWidth = this.regionWidth;
 		const canvasHeight = this.regionHeight;
 		const scrollTop = this.#regionInfo.scrollTop;
 		const scrollLeft = 0;
 
-		this.#highlightCtx.save();
-		this.#highlightCtx.translate(this.regionX, this.regionY);
-		ctx.clearRect(0, 0, canvasWidth, canvasHeight);
 		if (this.#highlightedDiffIndex !== null) {
 			// console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
 			const diff = this.#diffs[this.#highlightedDiffIndex];
@@ -491,7 +528,7 @@ class RenderRegion {
 		}
 
 		if (this.#selectionHighlight) {
-			if (!this.#selectionHighlightRects || this.#dirtyFlags & RenderFlags.GEOMETRY) {
+			if (!this.#selectionHighlightRects || dirtyFlags & RenderFlags.GEOMETRY) {
 				let start = performance.now();
 				const offsetX = -this.regionX + scrollLeft;
 				const offsetY = -this.regionY + scrollTop;
@@ -539,7 +576,7 @@ class RenderRegion {
 			}
 		}
 
-		this.#highlightCtx.restore();
+		ctx.restore();
 	}
 
 	buildDiffGeometries() {
@@ -631,9 +668,10 @@ class RenderRegion {
 	}
 
 	hitTest(x: number, y: number) {
-		if (this.#dirtyFlags & (RenderFlags.GEOMETRY | RenderFlags.DIFF)) {
-			return null;
-		}
+		// TODO renderer에서 호출하기 전에 확인해서 처리할 것
+		// if (this.dirtyFlags & (RenderFlags.GEOMETRY | RenderFlags.DIFF)) {
+		// 	return null;
+		// }
 
 		y += this.#regionInfo.scrollTop;
 		for (const diffIndex of this.#visibleDiffIndices) {

@@ -21,7 +21,7 @@ class DiffSeek {
 	#textSelectionRange: Range | null = null;
 	#zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
 	#sideView: SideView;
-	#scrollSync = false;
+	#scrollSyncEnabled = false;
 	#scrollingEditor: Editor | null = null;
 	#lastScrolledEditor: Editor | null = null;
 	#preventScrollSync = false;
@@ -92,8 +92,8 @@ class DiffSeek {
 	}
 
 	#onRender() {
-		if (this.#scrollSync) {
-			this.alignAnchors();
+		if (this.#scrollSyncEnabled) {
+			this.syncScroll();
 		}
 	}
 
@@ -119,7 +119,7 @@ class DiffSeek {
 					return;
 				} else if (e.key === "F2") {
 					e.preventDefault();
-					this.syncScroll = !this.#scrollSync;
+					this.scrollSyncEnabled = !this.#scrollSyncEnabled;
 				}
 				if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 					e.preventDefault();
@@ -156,6 +156,7 @@ class DiffSeek {
 		});
 
 		highlightedDiffIndexAtom.subscribe((diffIndex) => {
+			console.debug("Highlighted diff index changed:", diffIndex);
 			this.#renderer.setDiffHighlight(diffIndex);
 		});
 
@@ -203,7 +204,12 @@ class DiffSeek {
 	}
 
 	#onEditorResize(editor: Editor) {
-		this.#anchorManager.invalidateAllAnchors();
+		// console.debug("Editor resized:", editor.name, editor.contentHeight);
+		if (!this.#anchorAligning) {
+			this.#anchorManager.invalidate();
+		} else {
+			console.debug("Anchor aligning in progress, skipping resize handling for", editor.name);
+		}
 		this.#renderer.invalidateLayout();
 	}
 
@@ -559,19 +565,21 @@ class DiffSeek {
 		this.#renderer.setDiffs(diffs);
 		this.#sideView.setDiffs(diffs);
 		this.#updateTextSelection();
-		this.#renderer.invalidateAll();
 	}
 
-	alignAnchors() {
+	#anchorAligning = false;
+	syncScroll() {
 		if (!this.#diffContext?.ready) {
 			return;
 		}
+
 
 		this.#preventScrollSync = true;
 		const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
 		const leftEditor = this.#leftEditor;
 		const rightEditor = this.#rightEditor;
 
+		this.#anchorAligning = true;
 		let [changed, maxContentHeight] = this.#anchorManager.alignAnchors(primaryEditor, this.#mainContainer.getBoundingClientRect());
 		if (changed) {
 			if (isNaN(maxContentHeight)) {
@@ -580,8 +588,10 @@ class DiffSeek {
 			leftEditor.height = maxContentHeight;
 			rightEditor.height = maxContentHeight;
 			//this.#renderer.invalidateScroll();
+			void this.#mainContainer.offsetHeight;
 			this.#renderer.invalidateGeometries();
 		}
+		this.#anchorAligning = false;
 
 		if (primaryEditor === leftEditor) {
 			rightEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
@@ -598,6 +608,9 @@ class DiffSeek {
 		this.#diffContext = null;
 		this.#textSelectionRange = null;
 		this.#cancelAllCallbacks();
+		this.#renderer.setDiffHighlight(null);
+		this.#renderer.setSelectionHighlight("left", null);
+		this.#renderer.setSelectionHighlight("right", null);
 	}
 
 	#cancelAllCallbacks() {
@@ -618,7 +631,7 @@ class DiffSeek {
 			return;
 		}
 
-		if (this.#scrollSync) {
+		if (this.#scrollSyncEnabled) {
 			let scrollTop = Math.min(leftRect.y, rightRect.y);
 			scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
 			this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
@@ -630,19 +643,20 @@ class DiffSeek {
 		}
 	}
 
-	get syncScroll() {
-		return this.#scrollSync;
+	get scrollSyncEnabled() {
+		return this.#scrollSyncEnabled;
 	}
 
-	set syncScroll(value: boolean) {
+	set scrollSyncEnabled(value: boolean) {
 		value = !!value;
-		if (value === this.#scrollSync) {
+		if (value === this.#scrollSyncEnabled) {
 			return;
 		}
 
-		this.#scrollSync = value;
-		this.#mainContainer.classList.toggle("same-height-besties", value);
+		this.#scrollSyncEnabled = value;
+		this.#anchorManager.invalidate();
 		this.#renderer.invalidateLayout();
+		this.#mainContainer.classList.toggle("same-height-besties", value);
 	}
 
 	setContent(editorName: EditorName, contentHTML: string) {

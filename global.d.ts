@@ -27,7 +27,6 @@ declare type RawDiff = {
 
 declare type AnchorType = "before" | "after";
 
-declare type WhitespaceHandling = "ignore" | "normalize";
 
 declare type DiffAlgorithm = "lcs" | "histogram";
 
@@ -36,10 +35,11 @@ declare type DiffAlgorithm = "lcs" | "histogram";
 // declare const TOKENIZE_BY_LINE: 3;
 declare type TokenizationMode = "char" | "word" | "line";
 
+declare type WhitespaceHandling = "ignore" | "normalize" | "onlyAtEdge";
 declare type DiffOptions = {
 	algorithm: DiffAlgorithm;
 	tokenization: TokenizationMode;
-	whitespace: WhitespaceHandling;
+	ignoreWhitespace: WhitespaceHandling;
 
 	greedyMatch?: boolean;
 	useLengthBias?: boolean;
@@ -172,9 +172,9 @@ type TextSelectionHighlight = {
 };
 
 type RectSet = {
-	rects: Rect[];
-	fillStyle: string | null;
-	strokeStyle: string | null;
+	rects: Rect[] | null;
+	// fillStyle: string | null;
+	// strokeStyle: string | null;
 } & RenderBounds;
 
 type RenderBounds = {

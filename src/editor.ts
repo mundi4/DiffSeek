@@ -11,6 +11,7 @@ type EditorCallbacks = {
 	onResize: (editor: Editor) => void;
 	onFocus: (editor: Editor) => void;
 	onBlur: (editor: Editor) => void;
+	onClick: (editor: Editor, event: MouseEvent) => void;
 };
 
 type AnchorInsertionPoint = {
@@ -53,6 +54,9 @@ class Editor {
 	#callbacks: EditorCallbacks;
 	#bottomPaddingElement: HTMLElement = document.createElement("div");
 	#prevWidth: number = 0;
+	#readonly: boolean = false;
+	#aboveOverlay: HTMLElement = document.createElement("div");
+	#belowOverlay: HTMLElement = document.createElement("div");
 
 	constructor(container: HTMLElement, editorName: "left" | "right", callbacks: EditorCallbacks) {
 		this.#editorName = editorName;
@@ -65,9 +69,16 @@ class Editor {
 		this.#editor.spellcheck = false;
 		this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
 
+		this.#aboveOverlay.className = "eyes-up-here " + editorName;
+		this.#aboveOverlay.style.opacity = "0";
+		this.#belowOverlay.className = "peach-below " + editorName;
+		this.#belowOverlay.style.opacity = "0";
+
 		this.#wrapper.id = editorName + "EditorWrapper";
 		this.#wrapper.classList.add("editor-wrapper");
 		this.#wrapper.appendChild(this.#editor);
+		this.#wrapper.appendChild(this.#aboveOverlay);
+		this.#wrapper.appendChild(this.#belowOverlay);
 
 		this.#bottomPaddingElement.className = "maybe-170cm-wasnt-enough";
 		this.#bottomPaddingElement.addEventListener("click", (e) => {
@@ -96,6 +107,9 @@ class Editor {
 
 		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
 		this.#editor.addEventListener("input", () => this.#onInput());
+		this.#editor.addEventListener("click", (e) => {
+			callbacks.onClick(this, e);
+		});
 		this.#editor.addEventListener("keydown", (e) => this.#onKeyDown(e));
 		this.#editor.addEventListener("focus", () => {
 			callbacks.onFocus(this);
@@ -114,16 +128,28 @@ class Editor {
 		return this.#editorName;
 	}
 
+	get readonly(): boolean {
+		return this.#readonly;
+	}
+
+	set readonly(value: boolean) {
+		if (this.#readonly === value) {
+			return;
+		}
+		this.#readonly = value;
+		this.#editor.contentEditable = value ? "false" : "true";
+	}
+
+	get tokens(): readonly RichToken[] {
+		return this.#tokens;
+	}
+
 	get wrapper() {
 		return this.#wrapper;
 	}
 
 	get editor() {
 		return this.#editor;
-	}
-
-	get tokens(): readonly RichToken[] {
-		return this.#tokens;
 	}
 
 	get scrollTop(): number {
@@ -155,6 +181,22 @@ class Editor {
 				behavior: "instant",
 			});
 		}
+
+		if (e.altKey && (e.key === "2" || e.key === "3")) {
+			const selection = document.getSelection();
+			if (!selection || selection.rangeCount === 0) {
+				return;
+			}
+
+			const range = selection.getRangeAt(0);
+			if (!this.#editor.contains(range.commonAncestorContainer)) {
+				return;
+			}
+
+			e.preventDefault();
+			const html = e.key === "2" ? "<hr data-manual-anchor='A' class=\"manual-anchor\">" : "<hr data-manual-anchor='B' class=\"manual-anchor\">";
+			document.execCommand("insertHTML", false, html); // 줄바꿈 추가
+		}
 	}
 
 	#onScroll(e: Event) {
@@ -167,10 +209,17 @@ class Editor {
 	}
 
 	#onResize() {
-		const newWidth = this.#editor.getBoundingClientRect().width;
+		const rect = this.#editor.getBoundingClientRect();
+		const newWidth = rect.width;
+
 		if (this.#prevWidth !== newWidth) {
 			this.#prevWidth = newWidth;
 			this.#callbacks.onResize(this);
+
+			this.#aboveOverlay.style.left = `${rect.left}px`;
+			this.#belowOverlay.style.left = `${rect.left}px`;
+			this.#aboveOverlay.style.width = `${this.#wrapper.clientWidth}px`;
+			this.#belowOverlay.style.width = `${this.#wrapper.clientWidth}px`;
 		}
 	}
 
@@ -428,98 +477,73 @@ class Editor {
 			return null;
 		}
 
-		let container: Node = token.range.startContainer;
-		let insertPoint: Node;
-		if (container.nodeType === 3) {
-			insertPoint = container;
-			container = container.parentElement!;
-		} else {
-			container = token.range.startContainer.parentNode!;
-			insertPoint = token.range.startContainer;
-		}
-
 		const insertionRange: Range = document.createRange();
 		const editor = this.#editor;
-		function pinpointWhereToSlideItIn(flags: AnchorFlags, container: Node, insertPoint: Node): boolean {
-			if (flags & AnchorFlags.TABLE_START) {
-				if (insertPoint.nodeName === "TABLE") {
-					insertionRange.setStartBefore(insertPoint);
-					return true;
-				}
-			} else if (flags & AnchorFlags.TABLECELL_START) {
-				if (container.nodeName === "TD" || container.nodeName === "TH") {
-					insertionRange.setStart(container, 0);
-					return true;
+
+		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
+			const anchorEl = token.range.startContainer.childNodes[token.range.startOffset] as HTMLElement;
+			insertionRange.setStartBefore(anchorEl);
+			insertionRange.collapse(true);
+			return insertionRange;
+		}
+
+		let container: Node = token.range.startContainer;
+		let insertionOffset: number = token.range.startOffset;
+		if (container.nodeType === 3) {
+			insertionOffset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
+			container = container.parentElement!;
+		}
+
+		let containerNodeName = container.nodeName;
+		do {
+			if (flags & AnchorFlags.TABLECELL_START) {
+				if (containerNodeName === "TD") {
+					insertionRange.setStart(container, insertionOffset);
+					insertionRange.collapse(true);
+					return insertionRange;
 				}
 			} else if (flags & AnchorFlags.CONTAINER_START) {
-				if (container === editor || TEXT_FLOW_CONTAINERS[container.nodeName]) {
-					insertionRange.setStart(container, 0);
-					return true;
+				if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
+					insertionRange.setStart(container, insertionOffset);
+					insertionRange.collapse(true);
+					return insertionRange;
 				}
-			} else if (BLOCK_ELEMENTS[container.nodeName]) {
-				insertionRange.setStart(container, 0);
-				return true;
+			} else if (flags & AnchorFlags.BLOCK_START) {
+				if (BLOCK_ELEMENTS[containerNodeName]) {
+					insertionRange.setStart(container, insertionOffset);
+					insertionRange.collapse(true);
+					return insertionRange;
+				}
+			} else {
+				const currentNode = container.childNodes[insertionOffset] as HTMLElement;
+				const currentNodeName = currentNode.nodeName;
+				if (currentNodeName === "BR") {
+					// <BR>이 토큰이 범위에 들어있을 리는 없기 때문에 이건 토큰 앞에 있는 노드임
+					// BLOCK_START 조건이 없다면 <BR> 뒤에 앵커 삽입
+					if (!(flags & AnchorFlags.BLOCK_START)) {
+						insertionRange.setStartAfter(currentNode);
+						insertionRange.collapse(true);
+						return insertionRange;
+					}
+				}
 			}
-			return false;
-		}
-
-		function wrapBeforeInsertIfNecessary(range: Range): Range | null {
-			const container = range.startContainer;
-			let offset = range.startOffset;
-			let node = container.childNodes[offset] as HTMLElement | null;
-
-			while (node && node.nodeName === "A") {
-				if (node.classList.contains("anchor")) {
-					// Found valid anchor; keep range as-is
+			insertionOffset--;
+			if (insertionOffset < 0) {
+				// We reached the start of the container, so we need to move up to the parent node.
+				if (container === editor) {
+					// If we are at the editor root, we cannot go further up.
 					break;
 				}
-
-				if (node.classList.contains("diff")) {
-					// Skip this diff anchor
-					offset += 1;
-					node = container.childNodes[offset] as HTMLElement | null;
-					continue;
-				}
-
-				// Unknown <a>, probably junk — bail
-				return null;
+				insertionOffset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
+				container = container.parentNode!;
+				containerNodeName = container.nodeName;
 			}
+		} while (comparePoint(token.range.startContainer, token.range.startOffset, container, insertionOffset) >= 0);
 
-			// Adjust range only if we skipped something
-			if (offset !== range.startOffset) {
-				range.setStart(container, offset);
-			}
-
-			range.collapse(true);
-			return range;
-		}
-
-		do {
-			if (pinpointWhereToSlideItIn(flags, container, insertPoint)) {
-				const rangeWithSafetyOn = wrapBeforeInsertIfNecessary(insertionRange);
-				return rangeWithSafetyOn;
-			}
-			if (container === editor) {
-				break;
-			}
-			insertPoint = container;
-			container = container.parentNode!;
-		} while (container);
-
-		console.warn(this.#editorName, "getAnchorInsertionPoint", "No suitable insertion point found for anchor", {
-			tokenIndex,
-			token,
-			flags,
-			beforeNode: insertPoint,
-			container,
-		});
-		// if (firstContainer && firstBeforeNode) {
-		// 	return this.#getExistingOrCreateAnchor(firstContainer as HTMLElement, firstBeforeNode);
-		// }
 		return null;
 	}
 
-	*yieldDiffAnchorPointsInRange(tokenIndex: number) {
+	*yieldDiffAnchorPointsInRange(tokenIndex: number): Generator<AnchorInsertionPoint> {
 		const prevToken = this.#tokens[tokenIndex - 1];
 		const nextToken = this.#tokens[tokenIndex];
 		const root = this.#editor;
@@ -753,6 +777,24 @@ class Editor {
 		return this.#wrapper.getBoundingClientRect();
 	}
 
+	// 앵커를 에디터가 추적을 하긴 해야한다.
+	// 그래야 앵커와 앵커 사이의 어떤 토큰들이 들어있는지 파악이 가능하다.
+	// 그리고 그 토큰들을 사용해서 앵커와 앵커 사이에 어떤 diff가 있는지 파악 가능
+	// 그리고 alignAnchors()가 되었을때 화면상 첫앵커와 끝앵커 사이의 diff geometries를 invalidate할 수 있다.
+	// TODO
+	removeDanglingAnchors() {}
+
+	forceReflow() {
+		// force reflow
+		this.#wrapper.style.display = "none";
+		this.#wrapper.offsetHeight; // force reflow
+		this.#wrapper.style.display = "";
+	}
+
+	toggleDirectionalOverlays(above: boolean, below: boolean) {
+		this.#aboveOverlay.style.opacity = above ? "1" : "0";
+		this.#belowOverlay.style.opacity = below ? "1" : "0";
+	}
 }
 
 type EditorRegionInfo = {

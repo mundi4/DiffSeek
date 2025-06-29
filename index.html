@@ -14,22 +14,53 @@
   <script src="./build/trie.js" inline></script>
   <script src="./build/sanitize.js" inline></script>
   <script src="./build/tokenize.js" inline></script>
-  <script src="./build/Editor.js" inline></script>
+  <script src="./build/editor.js" inline></script>
   <script src="./build/anchor-manager.js" inline></script>
-  <script src="./build/Renderer.js" inline></script>
-  <script src="./build/SideView.js" inline></script>
+  <script src="./build/renderer.js" inline></script>
+  <script src="./build/side-view.js" inline></script>
+  <script src="./build/fetish-selector.js" inline></script>
   <script src="./build/DiffSeek.js" inline></script>
-  <style id="highlightStyle">
-  </style>
   <link rel="stylesheet" href="./styles.css" inline>
 </head>
 
 <body>
   <div class="container">
     <main id="main">
-      <div id="scrollSyncIndicator">🔗</div>
     </main>
-    <div id="sidebar"></div>
+    <div id="sidebar">
+      <div id="sideview"></div>
+      <div id="fetish-selector">
+        <div class="left">
+          <button id="syncToggleBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z">
+              </path>
+            </svg>
+          </button>
+
+          <button id="whitespaceToggleBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="M10.896 2H8.75V.75a.75.75 0 0 0-1.5 0V2H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896A.25.25 0 0 0 10.896 2ZM8.75 15.25a.75.75 0 0 1-1.5 0V14H5.104a.25.25 0 0 1-.177-.427l2.896-2.896a.25.25 0 0 1 .354 0l2.896 2.896a.25.25 0 0 1-.177.427H8.75v1.25Zm-6.5-6.5a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM6 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 6 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM12 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 12 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5Z"
+                transform="rotate(90 8 8)" />
+            </svg>
+          </button>
+        </div>
+        <div class="right">
+          <button id="sidebarExpandBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="m4.177 7.823 2.396-2.396A.25.25 0 0 1 7 5.604v4.792a.25.25 0 0 1-.427.177L4.177 8.177a.25.25 0 0 1 0-.354Z">
+              </path>
+              <path
+                d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25H9.5v-13Zm12.5 13a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25H11v13Z">
+              </path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="progress"></div>
@@ -52,24 +83,23 @@
     document.head.appendChild(style);
   </script>
   <script>
-    window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sidebar"));
+    window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sideview"));
   </script>
 
-<script>
-
-
-    window.DiffSeek.setContent("left", `
+  <script>
+    if (false) {
+      window.DiffSeek.setContent("left", `
        <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐름을 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
 `);
 
-if (true)
-    window.DiffSeek.setContent("right", `
+
+      window.DiffSeek.setContent("right", `
     <table>
   <tr>
     <td>
       <p>1. 개요</p>
       <p><br></p>
-      <p>2. 작업 흐름</p>
+      <p>2. <span style="color:red;">작업 흐름</span></p>
       <p><br></p>
       <p>3. 역할과 권한</p>
       <p><br></p>
@@ -116,9 +146,8 @@ if (true)
     </td>
   </tr>
 </table>
-
-
 `);
+    }
   </script>
 </body>
 

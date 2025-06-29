@@ -278,7 +278,7 @@ function sanitizeHTML(rawHTML: string): Node {
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
 
-	console.log("rawHTML", rawHTML);
+	// console.debug("rawHTML", rawHTML);
 
 	type _States = {
 		font: string | null;

@@ -70,17 +70,6 @@ const isReddish = (() => {
 	};
 })();
 
-function debounce(func: { (): void; apply?: any }, delay: number | undefined) {
-	let timeoutId: number;
-	return function (this: any, ...args: any) {
-		const context = this;
-		clearTimeout(timeoutId);
-		timeoutId = setTimeout(function () {
-			func.apply(context, args);
-		}, delay);
-	};
-}
-
 function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
 	// console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
 	const otherSide = side === "left" ? "right" : "left";
@@ -130,140 +119,6 @@ function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right",
 	return [mappedStart, mappedEnd];
 }
 
-function buildOutputHTMLFromRuns(text: string, textRuns: TextRun[], options: OutputOptions): string {
-	let inDiff = false;
-	let result = options.htmlPre ? "<pre>" : "";
-
-	for (const run of textRuns) {
-		if (run.type === "DIFF") {
-			const diffIndex = run.dataIndex!;
-			// result += "<mark>";
-			const color = DIFF_COLOR_HUES[diffIndex % DIFF_COLOR_HUES.length];
-			result += `<mark style="background-color: hsl(${color}, 100%, 80%);">`;
-			inDiff = true;
-		} else if (run.type === "DIFF_END") {
-			if (inDiff) {
-				// result += "</mark>";
-				result += "</mark>";
-				inDiff = false;
-			}
-		} else if (run.type === "CHARS") {
-			result += escapeHTML(text.slice(run.pos, run.pos + run.len));
-		} else if (run.type === "LINEBREAK") {
-			result += "<br/>";
-		}
-	}
-
-	if (inDiff) result += "</mark>";
-	if (options.htmlPre) result += "</pre>";
-	// result += "<br/>";
-	return result;
-}
-
-function buildOutputPlainText(leftText: string, leftRuns: TextRun[], rightText: string, rightRuns: TextRun[], options: OutputOptions = {}): string {
-	const leftLabel = options.leftLabel ?? "Left";
-	const rightLabel = options.rightLabel ?? "Right";
-	const leftBody = buildOutputPlainTextFromRuns(leftText, leftRuns, options);
-	const rightBody = buildOutputPlainTextFromRuns(rightText, rightRuns, options);
-	return `${leftLabel}: ${leftBody}\n${rightLabel}: ${rightBody}\n`;
-}
-
-function buildOutputPlainTextFromRuns(text: string, textRuns: TextRun[], options: OutputOptions): string {
-	const format = options.textFormat ?? 0;
-
-	let result = "";
-	let inDiff = false;
-
-	let markStart;
-	let markEnd;
-
-	if (format === 1) {
-		markStart = "**";
-		markEnd = "**";
-	} else if (format === 2) {
-		markStart = "[[ ";
-		markEnd = " ]]";
-	} else {
-		markStart = "";
-		markEnd = "";
-	}
-
-	for (const run of textRuns) {
-		if (run.type === "DIFF") {
-			if (format !== 0 && !inDiff) {
-				result += markStart;
-				inDiff = true;
-			}
-		} else if (run.type === "DIFF_END") {
-			if (format !== 0 && inDiff) {
-				result += markEnd;
-				inDiff = false;
-			}
-		} else if (run.type === "CHARS") {
-			result += text.slice(run.pos, run.pos + run.len);
-		} else if (run.type === "LINEBREAK") {
-			result += "\n";
-		}
-	}
-
-	if (inDiff && format !== 0) result += markEnd;
-
-	return result;
-}
-
-function buildOutputHTML(leftText: string, leftRuns: TextRun[], rightText: string, rightRuns: TextRun[], options: OutputOptions = {}): string {
-	const leftLabel = options.leftLabel ?? "Left";
-	const rightLabel = options.rightLabel ?? "Right";
-	const htmlFormat = options.htmlFormat ?? "div";
-
-	if (htmlFormat === "table") {
-		// Default: table format
-		return `<table border="1" cellpadding="8" cellspacing="0">
-  <thead>
-    <tr><th>${escapeHTML(leftLabel)}</th><th>${escapeHTML(rightLabel)}</th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></td>
-      <td><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></td>
-    </tr>
-  </tbody>
-</table>`.trim();
-	}
-	if (htmlFormat === "dl") {
-		return `<dl>
-  <dt>${escapeHTML(leftLabel)}</dt>
-  <dd><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></dd>
-  <dt>${escapeHTML(rightLabel)}</dt>
-  <dd><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></dd>
-</dl>`.trim();
-	}
-
-	return `<div>
-<div><strong>${escapeHTML(leftLabel)}:</strong> ${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</div>
-<div><strong>${escapeHTML(rightLabel)}:</strong> ${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</div>
-</div>`.trim();
-}
-
-function escapeHTML(str: string): string {
-	return str.replace(/[&<>"]|'/g, (char) => {
-		switch (char) {
-			case "&":
-				return "&amp;";
-			case "<":
-				return "&lt;";
-			case ">":
-				return "&gt;";
-			case '"':
-				return "&quot;";
-			case "'":
-				return "&#039;";
-			default:
-				return char;
-		}
-	});
-}
-
 function parseOrdinalNumber(ordinalText: string): number {
 	const norm = ordinalText.replace(/[\(\)\.]/g, "");
 	if (/^\d+$/.test(norm)) {
@@ -274,54 +129,6 @@ function parseOrdinalNumber(ordinalText: string): number {
 		return idx + 1;
 	}
 	return NaN;
-}
-
-function findFirstNodeAfter(root: Node, after: Node): Node | null {
-	let current: Node | null = after;
-	while (current && current !== root) {
-		if (current.nextSibling) {
-			return current.nextSibling;
-		} else {
-			current = current.parentNode;
-		}
-	}
-	return null;
-}
-
-function getTextOffsetOfNode(root: HTMLElement, node: Node, end: boolean = false) {
-	const filter = node.nodeType === 3 ? NodeFilter.SHOW_TEXT : NodeFilter.SHOW_ALL;
-	let walker = document.createTreeWalker(root, filter, null);
-	let pos = 0;
-	let currentNode;
-	while ((currentNode = walker.nextNode())) {
-		if (currentNode === node && !end) {
-			break;
-		}
-		if (currentNode.nodeType === 3) {
-			pos += currentNode.nodeValue!.length;
-		}
-		if (currentNode === node && end) {
-			break;
-		}
-	}
-	return pos;
-}
-
-function dumpRange() {
-	const sel = window.getSelection()!;
-	if (sel && sel.rangeCount > 0) {
-		const range = sel.getRangeAt(0);
-		// console.log("current selection", {
-		// 	range,
-		// 	startContainer: range.startContainer,
-		// 	startOffset: range.startOffset,
-		// 	endContainer: range.endContainer,
-		// 	endOffset: range.endOffset,
-		// });
-		return range;
-	} else {
-		console.log("no selection");
-	}
 }
 
 function findAdjacentTextNode(node: Node, skipEmpty = false): Text | null {
@@ -379,14 +186,6 @@ function retreatNode(currentNode: Node): Node | null {
 	}
 
 	return currentNode.parentNode;
-}
-
-function findNextAncestorSibling(node: Node | null, rootNode?: Node): Node | null {
-	while (node && node !== rootNode) {
-		if (node.nextSibling) return node.nextSibling;
-		node = node.parentNode;
-	}
-	return null;
 }
 
 function mergeRects(rects: Rect[], toleranceX: number = 0, toleranceY: number = 0): { minX: number; minY: number; maxX: number; maxY: number; rects: Rect[] } {
@@ -447,136 +246,6 @@ function mergeRects(rects: Rect[], toleranceX: number = 0, toleranceY: number = 
 		maxY,
 		rects: merged,
 	};
-}
-
-function extractTextRanges(sourceRange: Range): Range[] {
-	if (sourceRange.startContainer.nodeType === 3 && sourceRange.startContainer === sourceRange.endContainer) {
-		return [sourceRange];
-	}
-
-	const root = sourceRange.commonAncestorContainer;
-	const result: Range[] = [];
-
-	const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
-
-	let startNode: Node;
-	let endNode: Node;
-	let currentNode: Node | null;
-
-	if (sourceRange.startContainer.nodeType === 3) {
-		const r = document.createRange();
-		r.setStart(sourceRange.startContainer, sourceRange.startOffset);
-		r.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue!.length);
-		result.push(r);
-		walker.currentNode = sourceRange.startContainer;
-		currentNode = walker.nextNode();
-	} else if (sourceRange.startContainer.nodeType === 1) {
-		startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset]! || sourceRange.startContainer;
-		walker.currentNode = currentNode = startNode;
-	} else {
-		throw new Error("Invalid start container");
-	}
-
-	if (sourceRange.endContainer.nodeType === 3) {
-		endNode = sourceRange.endContainer;
-	} else if (sourceRange.endContainer.nodeType === 1) {
-		if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
-			endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
-		} else {
-			endNode = advanceNode(sourceRange.endContainer, root, true)!;
-		}
-	} else {
-		throw new Error("Invalid end container");
-	}
-
-	while (currentNode && currentNode !== endNode) {
-		if (currentNode.nodeType === 3) {
-			const r = document.createRange();
-			r.selectNodeContents(currentNode);
-			result.push(r);
-		} else {
-			if (currentNode.nodeName === "BR") {
-				const r = document.createRange();
-				r.selectNode(currentNode);
-				result.push(r);
-			}
-			// do nothing for now
-		}
-		currentNode = walker.nextNode();
-	}
-
-	if (sourceRange.endContainer.nodeType === 3) {
-		const r = document.createRange();
-		r.setStart(sourceRange.endContainer, 0);
-		r.setEnd(sourceRange.endContainer, sourceRange.endOffset);
-		result.push(r);
-	}
-
-	return result;
-}
-
-function getNodesInRange(range: Range, whatToShow: number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null) {
-	const commonAncestor = range.commonAncestorContainer;
-
-	const walker = document.createTreeWalker(commonAncestor, whatToShow, filter);
-
-	walker.currentNode = range.startContainer;
-
-	const nodes = [];
-
-	let node: Node | null = walker.currentNode;
-
-	while (node) {
-		const nodeRange = document.createRange();
-		nodeRange.selectNodeContents(node);
-
-		const startsBeforeEnd = nodeRange.compareBoundaryPoints(Range.END_TO_START, range) < 0;
-		const endsAfterStart = nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
-
-		if (startsBeforeEnd && endsAfterStart) {
-			nodes.push(node);
-		} else if (!startsBeforeEnd) {
-			// 이미 범위를 지난 경우 break
-			break;
-		}
-
-		node = walker.nextNode();
-	}
-
-	return nodes;
-}
-
-function getFullyContainedNodesInRange(range: Range, whatToShow: number = NodeFilter.SHOW_ALL, filter: NodeFilter | null = null): Node[] {
-	const walker = document.createTreeWalker(range.commonAncestorContainer, whatToShow, filter);
-
-	walker.currentNode = range.startContainer;
-
-	const nodes: Node[] = [];
-	let node: Node | null = walker.currentNode;
-
-	while (node) {
-		const nodeRange = document.createRange();
-
-		try {
-			nodeRange.selectNode(node);
-		} catch {
-			// 텍스트 노드 등 selectNode 실패 시에는 selectNodeContents
-			nodeRange.selectNodeContents(node);
-		}
-
-		const startsAfterOrAt = nodeRange.compareBoundaryPoints(Range.START_TO_START, range) >= 0;
-		const endsBeforeOrAt = nodeRange.compareBoundaryPoints(Range.END_TO_END, range) <= 0;
-
-		if (startsAfterOrAt && endsBeforeOrAt) {
-			nodes.push(node);
-		} else if (!startsAfterOrAt && nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0) {
-			break; // 앞으로는 포함될 가능성 없음
-		}
-
-		node = walker.nextNode();
-	}
-
-	return nodes;
 }
 
 function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Rect[] {
@@ -683,7 +352,7 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 		} else if (currentNode.nodeName === "BR") {
 			//
 		} else if (currentNode.nodeName === "A") {
-			if (forceAnchorRects) {
+			if (forceAnchorRects && (currentNode as HTMLElement).classList.contains("diff")) {
 				// 가장 확실한 방법이지만 넣었다 뺐다 잘못하면 인생 망가짐... reflow 유발 => 많이 느리다.
 				const tempText = document.createTextNode("\u200B"); // zero-width space
 				currentNode.appendChild(tempText);
@@ -691,20 +360,23 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 				for (const rect of tempRange.getClientRects()) {
 					result.push({
 						x: rect.x,
-						y: rect.y,
+						y: rect.y - 1.5,
 						width: rect.width,
-						height: rect.height,
+						height: rect.height + 3,
 					});
 				}
 				tempText.remove();
 			} else {
-				for (const rect of (currentNode as HTMLElement).getClientRects()) {
-					result.push({
-						x: rect.x,
-						y: rect.y,
-						width: rect.width,
-						height: rect.height,
-					});
+				if ((currentNode as HTMLElement).classList.contains("manual-anchor")) {
+					tempRange.selectNode(currentNode as HTMLElement);
+					for (const rect of (currentNode as HTMLElement).getClientRects()) {
+						result.push({
+							x: rect.x,
+							y: rect.y,
+							width: rect.width,
+							height: rect.height,
+						});
+					}
 				}
 			}
 		} else if (currentNode.nodeName === "IMG") {
@@ -758,7 +430,6 @@ function comparePoint(lhsContainer: Node, lhsOffset: number, rhsContainer: Node,
 	}
 }
 
-
 function tokenFlagsToString(flags: TokenFlags): string {
 	const parts: string[] = [];
 	if (flags & TokenFlags.TABLE_START) parts.push("TABLE_START");
@@ -773,7 +444,6 @@ function tokenFlagsToString(flags: TokenFlags): string {
 	if (flags & TokenFlags.CONTAINER_END) parts.push("CONTAINER_END");
 	return parts.join(", ");
 }
-
 
 function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: number): AnchorFlags {
 	endTokenFlags ??= tokenFlags;
@@ -800,4 +470,8 @@ function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: nu
 		// flags |= AnchorFlags.SECTION_HEADING;
 	}
 	return flags;
+}
+
+function cycleWhitespace(mode: WhitespaceHandling): WhitespaceHandling {
+	return mode === "ignore" ? "normalize" : mode === "normalize" ? "onlyAtEdge" : "ignore";
 }

@@ -1,5 +1,5 @@
-const MANUAL_ANCHOR1 = "@@@";
-const MANUAL_ANCHOR2 = "###";
+const MANUAL_ANCHOR1 = "🔗@";
+const MANUAL_ANCHOR2 = "🔗#";
 
 const enum TokenFlags {
 	LINE_START = 1 << 0, // 1
@@ -176,11 +176,11 @@ for (let i = 0; i < HANGUL_ORDER.length; i++) {
 const SectionHeadingTrieNode = sectionHeadingTrie.root;
 const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
 
-const manualAnchorTrie = createTrie(false);
-manualAnchorTrie.insert(MANUAL_ANCHOR1, TokenFlags.MANUAL_ANCHOR);
-manualAnchorTrie.insert(MANUAL_ANCHOR2, TokenFlags.MANUAL_ANCHOR);
-const manualAnchorTrieNode = manualAnchorTrie.root;
-const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
+// const manualAnchorTrie = createTrie(false);
+// manualAnchorTrie.insert(MANUAL_ANCHOR1, TokenFlags.MANUAL_ANCHOR);
+// manualAnchorTrie.insert(MANUAL_ANCHOR2, TokenFlags.MANUAL_ANCHOR);
+// const manualAnchorTrieNode = manualAnchorTrie.root;
+// const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 
 function normalize(text: string): string {
 	let result = "";
@@ -193,7 +193,6 @@ function normalize(text: string): string {
 			result += char;
 		}
 	}
-
 	return result;
 }
 
@@ -299,7 +298,7 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 		return null;
 	}
 
-	function doTokenize() {
+	function doTokenizeText() {
 		console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
 		let nodeIndex = 0;
 		let charIndex = 0;
@@ -358,7 +357,7 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 							continue OUTER;
 						}
 					}
-					if (sectionHeadingStartChars[char] && nextTokenFlags & TokenFlags.LINE_START) {
+					if (sectionHeadingStartChars[char] && nextTokenFlags & TokenFlags.LINE_START && !currentToken && currentStart === -1) {
 						const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
 						if (match) {
 							const startContainer = textNode;
@@ -446,7 +445,7 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 
 		const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
 		if (isTokenBoundary && textNodeBuf.length > 0) {
-			doTokenize();
+			doTokenizeText();
 		}
 
 		const childNodes = node.childNodes;
@@ -466,15 +465,40 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 
 				// 재귀 호출을 안해도 되는 단순한 case
 				if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
-					if (childNodeName === "BR" || childNodeName === "HR") {
+					if (childNodeName === "A") {
+						// IGNORE THIS
+					} else if (childNodeName === "BR" || childNodeName === "HR") {
 						if (textNodeBuf.length > 0) {
-							doTokenize();
+							doTokenizeText();
 						}
 						nextTokenFlags |= TokenFlags.LINE_START;
 						lineNum++;
+						if (childNodeName === "HR" && (child as HTMLAnchorElement).classList.contains("manual-anchor")) {
+							if (textNodeBuf.length > 0) {
+								doTokenizeText();
+							}
+							const range = document.createRange();
+							range.selectNode(child);
+							currentToken = {
+								text: (child as HTMLAnchorElement).dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
+								flags:
+									TokenFlags.MANUAL_ANCHOR |
+									TokenFlags.NO_JOIN_PREV |
+									TokenFlags.NO_JOIN_NEXT |
+									nextTokenFlags |
+									TokenFlags.LINE_START |
+									TokenFlags.LINE_END,
+								range,
+								container: currentContainer,
+								lineNum: lineNum,
+							};
+							nextTokenFlags = 0;
+							// console.log("manual anchor found", currentToken.text, currentToken.range);
+							finalizeToken();
+						}
 					} else if (childNodeName === "IMG") {
 						if (textNodeBuf.length > 0) {
-							doTokenize();
+							doTokenizeText();
 						}
 
 						const range = document.createRange();
@@ -497,7 +521,7 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 		}
 
 		if (isTokenBoundary && textNodeBuf.length > 0) {
-			doTokenize();
+			doTokenizeText();
 		}
 
 		const tokenEndIndex = tokenIndex;

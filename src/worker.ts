@@ -391,9 +391,10 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 	const useLengthBias = !!ctx.options.useLengthBias;
 	const maxGram = ctx.options.maxGram || 1;
-	const useMatchPrefix = ctx.options.whitespace === "ignore";
+	const useMatchPrefix = ctx.options.ignoreWhitespace !== "normalize";
+	const onlyAtEdge = ctx.options.ignoreWhitespace === "onlyAtEdge";
 	const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
-	const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
+	const delimiter = useMatchPrefix ? "" : "\u0000";
 
 	const freq: Record<string, number> = {};
 	for (let n = 1; n <= maxLen; n++) {
@@ -492,7 +493,7 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				}
 
 				if (useMatchPrefix && ltext.length !== rtext.length && ltext[0] === rtext[0]) {
-					const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper);
+					const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper, onlyAtEdge);
 					if (match) {
 						const matchedGrams = Math.min(match[0], match[1]);
 						if (lhsLen + match[0] <= maxLen && rhsLen + match[1] <= maxLen && nGrams + matchedGrams <= maxGram) {
@@ -632,7 +633,7 @@ async function diffCore(
 		lhsUpper,
 		rhsLower,
 		rhsUpper,
-		ctx.options.tokenization === "word" ? ctx.options.whitespace : "normalize",
+		ctx.options.tokenization === "word" ? ctx.options.ignoreWhitespace : "normalize",
 		consumeDirections
 	);
 
@@ -698,7 +699,7 @@ function consumeCommonEdges(
 	lhsUpper: number,
 	rhsLower: number,
 	rhsUpper: number,
-	whitespace: WhitespaceHandling = "ignore",
+	whitespace: WhitespaceHandling = "onlyAtEdge",
 	consumeDirections: 0 | 1 | 2 | 3 = 3
 ): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: RawDiff[], tail: RawDiff[]] {
 	const head: RawDiff[] = [];
@@ -717,10 +718,10 @@ function consumeCommonEdges(
 				lhsLower++;
 				rhsLower++;
 			} else if (
-				whitespace === "ignore" &&
+				whitespace !== "normalize" &&
 				lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
 				lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
-				(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+				(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))
 			) {
 				head.push({
 					type: 0,
@@ -753,10 +754,10 @@ function consumeCommonEdges(
 				lhsUpper--;
 				rhsUpper--;
 			} else if (
-				whitespace === "ignore" &&
+				whitespace !== "normalize" &&
 				lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
 				lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
-				(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))
+				(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))
 			) {
 				tail.push({
 					type: 0,
@@ -786,7 +787,8 @@ function matchPrefixTokens(
 	lhsUpper: number,
 	rightTokens: Token[],
 	rhsLower: number,
-	rhsUpper: number
+	rhsUpper: number,
+	allowJoinOnlyAtLineBoundary: boolean
 ): false | [leftMatched: number, rightMatched: number] {
 	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
 
@@ -818,11 +820,21 @@ function matchPrefixTokens(
 
 		if (ci === lhsLen) {
 			if (i === lhsUpper) return false;
-			if (lhsToken.flags & TokenFlags.NO_JOIN_NEXT) return false;
+			if (
+				lhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
+				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			lhsToken = leftTokens[i++];
 			if (!lhsToken) return false;
-			if (lhsToken.flags & TokenFlags.NO_JOIN_PREV) return false;
+			if (
+				lhsToken.flags & TokenFlags.NO_JOIN_PREV ||
+				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			ltext = lhsToken.text;
 			lhsLen = ltext.length;
@@ -830,11 +842,21 @@ function matchPrefixTokens(
 		}
 		if (cj === rhsLen) {
 			if (j === rhsUpper) return false;
-			if (rhsToken.flags & TokenFlags.NO_JOIN_NEXT) return false;
+			if (
+				rhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
+				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			rhsToken = rightTokens[j++];
 			if (!rhsToken) return false;
-			if (rhsToken.flags & TokenFlags.NO_JOIN_PREV) return false;
+			if (
+				rhsToken.flags & TokenFlags.NO_JOIN_PREV ||
+				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			rtext = rhsToken.text;
 			rhsLen = rtext.length;
@@ -849,7 +871,8 @@ function matchSuffixTokens(
 	lhsUpper: number,
 	rightTokens: Token[],
 	rhsLower: number,
-	rhsUpper: number
+	rhsUpper: number,
+	allowJoinOnlyAtLineBoundary: boolean
 ): false | [leftMatched: number, rightMatched: number] {
 	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
 
@@ -877,22 +900,42 @@ function matchSuffixTokens(
 
 		if (ci < 0) {
 			if (i < lhsLower) return false;
-			if (lhsToken.flags & TokenFlags.NO_JOIN_PREV) return false;
+			if (
+				lhsToken.flags & TokenFlags.NO_JOIN_PREV ||
+				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			lhsToken = leftTokens[i--];
 			if (!lhsToken) return false;
-			if (lhsToken.flags & TokenFlags.NO_JOIN_NEXT) return false;
+			if (
+				lhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
+				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			ltext = lhsToken.text;
 			ci = lhsToken.text.length - 1;
 		}
 		if (cj < 0) {
 			if (j < rhsLower) return false;
-			if (rhsToken.flags & TokenFlags.NO_JOIN_PREV) return false;
+			if (
+				rhsToken.flags & TokenFlags.NO_JOIN_PREV ||
+				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			rhsToken = rightTokens[j--];
 			if (!rhsToken) return false;
-			if (rhsToken.flags & TokenFlags.NO_JOIN_NEXT) return false;
+			if (
+				rhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
+				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
+			) {
+				return false;
+			}
 
 			rtext = rhsToken.text;
 			cj = rhsToken.text.length - 1;

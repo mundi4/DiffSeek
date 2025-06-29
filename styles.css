@@ -6,9 +6,18 @@
 	--status-bar-height: 0px;
 	--container-gap: 8px;
 	--sidebar-width: 200px;
+	--sidebar-width-collapsed: 90px;
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
 }
+
+/*
+#121212	#e0e0e0
+#1e1e1e	#dcdcdc
+#0f1117	#cfd8dc
+#1a1a2e	#eeeeee
+#101820	#f5f5f5
+*/
 
 * {
 	margin: 0;
@@ -26,6 +35,10 @@ html {
 	/* font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; */
 }
 
+body.sidebar-collapsed {
+	--sidebar-width: var(--sidebar-width-collapsed);
+}
+
 .container {
 	display: grid;
 	/* grid-template-rows: var(--topbar-height) 1fr; */
@@ -36,15 +49,8 @@ html {
 	position: relative;
 }
 
-#scrollSyncIndicator {
-	position: absolute;
-	left: calc(50% - 10px);
-	z-index: 1000;
-	top: calc(50% - 10px);
-	width: 20px;
-	height: 20px;
-	pointer-events: none;
-	display: none;
+.sidebar-collapsed .container {
+	grid-template-columns: 1fr var(--sidebar-width-collapsed);
 }
 
 #progress {
@@ -75,9 +81,10 @@ html {
 }
 
 #sidebar {
-	overflow-y: auto;
-	background: #eee;
-	padding: 8px;
+	position: relative;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
 }
 
 .editor-wrapper {
@@ -87,40 +94,13 @@ html {
 	position: relative;
 	outline: 1px solid #ccc;
 	outline-offset: 0px;
+	z-index: 1;
 	/* overflow-anchor: none; */
 }
 
-.mirror,
-.editor {
-	position: relative;
-	border: 0;
-	min-height: 100%;
-	max-width: 100%;
-	overflow-y: visible;
-	line-height: var(--line-height);
-	scroll-padding-top: var(--scroll-margin);
+#main {
 	font-family: "KB금융 본문체 Light", "돋움체", monospace;
 	font-size: 14px;
-	margin: 0;
-	overflow-y: visible;
-	/* white-space: pre-wrap; */
-	word-break: break-all;
-	overflow-wrap: anywhere;
-	max-width: 100%;
-	width: 100%;
-	outline: none;
-	padding: var(--editor-padding);
-	/* scroll-margin: var(--scroll-margin); */
-}
-
-.mirror div,
-.editor div {
-	min-height: var(--line-height);
-}
-
-.editor {
-	z-index: 2;
-	color: #333;
 }
 
 #main > canvas {
@@ -131,210 +111,35 @@ html {
 	width: calc(100vw - var(--sidebar-width) - var(--container-gap, 0px));
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
-	z-index: -1;
+	z-index: 0;
 	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
-.editor-wrapper canvas {
-	position: fixed;
-	bottom: var(--status-bar-height, 0px);
-	width: calc((100vw - var(--sidebar-width) - var(--container-gap, 0px)) / 2);
-	height: calc(100vh - var(--status-bar-height, 0px));
-	pointer-events: none;
-	z-index: -2;
-	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
-}
-
-.editor-wrapper canvas.highlight {
-	z-index: -1;
-	opacity: 0.3;
-}
-
-.editor-wrapper:focus-within .editor {
+.editor:focus-within {
 	color: #000;
 }
 
-.mirror {
-	background: hsl(0 0% 80% / 0.3);
-	transition: background 0.3s ease, color 0.3s ease;
-	z-index: -99;
-	position: absolute;
-	top: 0;
-	left: 0;
-	pointer-events: none;
-	color: transparent;
-	/* color: rgba(0, 0, 0, 0.1);
-	background-color: #f8f8f8; */
+.same-height-besties .editor:focus-within {
+	color: #fff;
 }
 
-.edit .editor-wrapper:focus-within .mirror {
-	background: transparent;
+/* 모드	배경색	글자색	특징
+기본	#fdfdfd	#222	일반 읽기/편집
+zen	#fcfaf5	#3a2f1f	정갈하고 부드러움
+readonly-lite	#e2dfdb	#292421	더 집중되고 구분 확실
+full-dark	#121212	#eee	다크팬용 (X for now) */
+
+#main.same-height-besties {
+	background-color: #fef8e7;
+	color: #2f2b20;
+
+	background-color: #f5f0e6;
+	color: #2f2a24;
+	/* color: #f5f5f5; */
+	/* font-size: 14px;
+	line-height: 1.7; */
 }
 
-.aligned .editor {
-	display: none;
-}
-
-.aligned .mirror {
-	background: transparent;
-	position: static;
-	color: #ccc;
-	background-color: #000;
-	cursor: text;
-	pointer-events: auto;
-	caret-color: white;
-}
-
-.edit .mirror {
-	height: unset !important;
-}
-
-.edit .mirror * {
-	height: unset !important;
-	color: unset !important;
-}
-
-.mirror div {
-	line-height: var(--line-height);
-	min-height: var(--line-height);
-	display: contents;
-}
-
-mark {
-	background-color: inherit;
-	color: inherit;
-}
-
-mark {
-	line-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-}
-
-mark:not(:empty) {
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-}
-
-mark:empty {
-	position: relative;
-	outline: none;
-	background-color: unset;
-	vertical-align: top;
-	min-height: 20px;
-	display: inline-block; /* inline-block으로 안해두면 높이 1px이 모자르게 된다. 묻지마... */
-}
-
-mark:empty::after {
-	position: absolute;
-	content: "";
-	top: 0px;
-	left: 0px;
-	height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
-	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
-	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-	width: 3px;
-	display: inline-block;
-}
-
-.aligned mark {
-	color: #000;
-}
-/* .diff:empty {
-	position: relative;
-	min-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-} */
-
-/* mark:empty::after {
-	position: absolute;
-	content: "";
-	min-height: var(--line-height);
-	top: 0;
-	left: 0;
-	width: 2px;
-	display: inline-block;
-	background-color: hsl(var(--diff-hue), 100%, 80%);
-	outline: 1px solid hsl(var(--diff-hue), 100%, 40%);
-} */
-
-/* non empty diff */
-
-/*
-empty diff
-공간을 전혀 차지하지 않으면서도 visual이 있어야함
-*/
-/* .diff:empty {
-	display: inline-block;
-	position: relative;
-	vertical-align: bottom;
-} */
-
-/* .diff:empty::after {
-	content: "";
-	display: inline-block;
-	background-color: hsl(var(--diff-hue) 100% 80%);
-	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	position: absolute;
-	top: 0;
-	width: 2px;
-	height: var(--line-height);
-} */
-
-/* .mirror > div:has(mark:not(.block)),
-hr[data-type="diffEnd"] {
-	background-color: hsl(0 75% 95%);
-} */
-
-hr {
-	border: 0;
-	height: 0;
-	display: inline;
-	pointer-events: none;
-}
-
-.aligned hr.expanded {
-	display: block;
-}
-
-.aligned hr {
-	background: black
-		repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
-}
-
-.aligned hr[data-type="after"] {
-	background: hsl(0 75% 25% / 0.25)
-		repeating-linear-gradient(135deg, hsl(0 100% 88% / 0.15) 0px, hsl(0 100% 88% / 0.15) 4px, hsl(0 100% 100% / 0.05) 4px, hsl(0 100% 100% / 0.05) 8px);
-}
-
-.aligned .mirror > div:has(mark) {
-	background-color: hsl(0 75% 25% / 0.75);
-}
-
-/*
-줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
-diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
-당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
-고민 필요
-*/
-.aligned hr[data-type="after"] + span {
-	display: block;
-	background: black;
-}
-
-.edit .mirror > div:has(mark) {
-	background-color: hsl(0 100% 90%);
-}
-
-.aligned span {
-	z-index: 1;
-	background: transparent;
-}
-/*
-scrolling
-*/
 #main {
 	overflow: hidden;
 	overflow-y: hidden;
@@ -342,18 +147,6 @@ scrolling
 
 .editor-wrapper {
 	overflow-y: scroll;
-}
-
-@keyframes highlightAnimation {
-	0% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
-	50% {
-		background-color: white;
-	}
-	100% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
 }
 
 #diffList {
@@ -420,7 +213,7 @@ scrolling
 	margin-bottom: 1px;
 	white-space: nowrap;
 	overflow: hidden;
-	text-overflow: ellipsis;
+
 	padding: 4px 2px;
 	text-decoration: none;
 	padding-inline: 4px;
@@ -431,8 +224,12 @@ scrolling
 	content: "💭";
 }
 
-#diffList .left::before,
-#diffList .right::before {
+body:not(.sidebar-collapsed) #diffList span {
+	text-overflow: ellipsis;
+}
+
+body:not(.sidebar-collapsed) #diffList .left::before,
+body:not(.sidebar-collapsed) #diffList .right::before {
 	display: inline-block;
 	justify-content: center;
 	padding-inline: 3px;
@@ -450,340 +247,139 @@ scrolling
 	/* content: "◀️"; */
 }
 
-#diffList .left-visible .left::before,
-#diffList .right-visible .right::before {
-	opacity: 1;
-}
-
-#diffList .right::before {
+body:not(.sidebar-collapsed) #diffList .right::before {
 	content: "R" !important;
 	/* content: "▶️" !important; */
 }
 
-.edit hr {
-	height: 0 !important;
+body:not(.sidebar-collapsed) #diffList .left-visible .left::before,
+body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
+	opacity: 1;
 }
 
-/* 의미없다
-.aligned .mirror > div:hover {
-	background-color: hsl(0 30% 30% / 0.3);
-	
-} */
-
-#rightAnchor12-after {
-	display: inline;
+.editor {
+	position: relative;
+	border: 0;
+	min-height: 100%;
+	max-width: 100%;
+	overflow-y: visible;
+	line-height: var(--line-height);
+	scroll-padding-top: var(--scroll-margin);
+	margin: 0;
+	overflow-y: visible;
+	word-break: break-all;
+	overflow-wrap: anywhere;
+	max-width: 100%;
+	width: 100%;
+	outline: none;
+	padding: var(--editor-padding);
+	z-index: 1;
+	/* scroll-margin: var(--scroll-margin); */
 }
-
-sup,
-.sup {
-	vertical-align: super;
-	font-size: smaller;
-}
-
-sub,
-.sub {
-	vertical-align: sub;
-	font-size: smaller;
-}
-
-.red {
-	color: hsl(0 100% 40%);
-	font-weight: bold;
-}
-
-.aligned .red {
-	color: hsl(0 100% 40%) !important;
-}
-
-:root {
-	--statusbar-bg: #f0f0f0;
-	--statusbar-fg: #333;
-	--statusbar-hover: rgba(0, 0, 0, 0.05);
-}
-
-body.aligned {
-	--statusbar-bg: #1e1e1e;
-	--statusbar-fg: #ccc;
-	--statusbar-hover: rgba(255, 255, 255, 0.08);
-}
-
-#statusbar {
-	height: 22px;
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 0 10px;
-	font-size: 12px;
-	background: var(--statusbar-bg);
-	color: var(--statusbar-fg);
-	border-top: 1px solid rgba(0, 0, 0, 0.1);
-	user-select: none;
-	transition: background 0.3s ease, color 0.3s ease;
-}
-
-.status-left,
-.status-right {
-	display: flex;
-	gap: 16px;
-	align-items: center;
-}
-
-.status-item {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	white-space: nowrap;
-}
-
-.status-item.clickable {
-	cursor: pointer;
-	padding: 2px 6px;
-	border-radius: 4px;
-	transition: background 0.2s ease;
-}
-
-.status-item.clickable:hover {
-	background: var(--statusbar-hover);
-}
-
-.value {
-	font-weight: 500;
-}
-
-#statusbar {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 0 10px;
-	height: var(--status-bar-height);
-	background: #1e1e1e;
-	color: #ccc;
-}
-
-.status-bar-left,
-.status-bar-right,
-.status-bar-center {
-	display: flex;
-	align-items: center;
-}
-
-.status-bar-left {
-	justify-content: flex-start;
-}
-
-.status-bar-right {
-	justify-content: flex-end;
-}
-
-.status-bar-center {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-grow: 1;
-	text-align: center;
-}
-
-.status-item {
-	margin: 0 10px;
-}
-.status-item.status-item.clickable {
-	cursor: pointer;
-}
-
-.status-item.disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-.status-item span {
-	font-weight: bold;
-}
-
-#settingsPopup {
-	position: absolute;
-	background: #2d2d2d;
-	color: #ccc;
-	font-size: 12px;
-	border: 1px solid #444;
-	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-	min-width: 150px;
-	z-index: -98;
-	display: none;
-}
-
-.popup div {
-	padding: 6px 12px;
-	cursor: pointer;
-}
-
-.edit .mirror {
-	display: none !important;
-}
-
-.aligned canvas {
-	display: none !important;
-}
-
-.popup div:hover {
-	background: #3a3a3a;
-}
-
-.hidden {
-	display: none;
-}
-
-.popup .selected {
-	background: #3a3a3a;
-	color: #fff;
-	font-weight: bold;
-}
-
-.editor-wrapper h6 {
-	all: unset;
-}
-
-.edit .editor-wrapper h6 {
-	all: unset;
-	text-decoration-color: #000;
-}
-
-.aligned .editor-wrapper h6 {
-	color: #fff;
-	font-weight: bold;
-}
-
-/* .edit .mirror br {
-	display: none;
-}
-
-.aligned .mirror {
-	white-space: normal;
-}
-
-.aligned .mirror div {
-	display: contents;;
-} */
 
 .editor table {
 	border-collapse: collapse;
 	border-spacing: 0;
 }
 
-.editor th,
 .editor td {
 	vertical-align: top;
-	border: 1px solid #000;
+	border: 1px solid #666;
 	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
-	user-select: none;
+}
+.editor ul,
+.editor ol {
+	margin: 0;
+	padding: 0;
+	list-style-position: inside;
 }
 
-.editor p:empty::before {
+.same-height-besties .editor td {
+	border: 1px solid #444;
+}
+
+/* .editor p:empty::before {
 	content: "\00a0";
-}
+} */
 
-.color-red {
+.editor .color-red {
 	color: hsl(0 100% 40%);
 	font-weight: bold;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+.editor h1,
+.editor h2,
+.editor h3,
+.editor h4,
+.editor h5,
+.editor h6 {
 	font-size: inherit;
+	font-weight: bold;
+}
+
+.editor p {
+	line-height: inherit;
+	min-height: 1em;
+}
+
+.editor u {
+	text-decoration: none;
+}
+
+.editor sup {
+	vertical-align: super;
+	font-size: smaller;
+}
+
+.editor sub {
+	vertical-align: sub;
+	font-size: smaller;
 }
 
 .editor a {
 	pointer-events: none;
 	user-select: none;
+	display: none;
 }
 
-.same-height-besties #scrollSyncIndicator {
-	display: block;
+.editor table {
+	table-layout: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+	max-width: 100%;
 }
 
-.same-height-besties .padtop::before {
+.editor td {
+	vertical-align: top;
+	border: 1px solid #666;
+	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
+}
+.editor ul,
+.editor ol {
+	margin: 0;
+	padding: 0;
+	list-style-position: inside;
+}
+
+.same-height-besties .editor a {
+	display: revert;
+}
+
+.same-height-besties .padtop:not(.manual-anchor)::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
+	user-select: none;
 }
 
 .same-height-besties .padtop.striped::before,
-.maybe-170cm-wasnt-enough {
-	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 2px, transparent 2px, transparent 4px);
+.same-height-besties .maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
+	opacity: 0.75;
 }
 
-.maybe-170cm-wasnt-enough {
+.same-height-besties .maybe-170cm-wasnt-enough {
 	height: var(--height-boost, 0px);
-}
-
-.diff-anchor:not(p .diff-anchor)::before {
-	/* content: "";
-	display: block;
-	min-height: calc(1em * var(--line-height, 1.5));
-	*/
-}
-
-.diff-anchor-block {
-}
-
-.diff-anchor-block::before {
-	/* content: "";
-	display: block;
-	min-height: calc(1em * var(--line-height, 1.5)); */
-}
-
-@keyframes fadein {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-@keyframes fadeout {
-	from {
-		opacity: 1;
-	}
-	to {
-		opacity: 0;
-	}
-}
-
-.fade-in {
-	animation: fadein 0.5s forwards;
-}
-
-.fade-out {
-	animation: fadeout 0.1s forwards;
-}
-
-canvas {
-}
-
-.dimmed {
-	opacity: 0.5;
-}
-
-.restored {
-	transition: none !important; /* 복원 시 즉시 반영 */
-	opacity: 1;
-}
-
-canvas:not(.dimmed) {
-	transition: none !important; /* 복원 시 즉시 반영 */
-	opacity: 1;
-}
-
-.editor p {
-	min-height: calc(0.5em * var(--line-height, 1.5));
-}
-
-.editor u {
-	text-decoration: none;
 }
 
 @keyframes flash {
@@ -800,4 +396,142 @@ canvas:not(.dimmed) {
 
 .flash-once {
 	animation: flash 0.5s ease-in-out;
+}
+
+.manual-anchor {
+	display: block;
+	margin-block: 0.5rem;
+	height: 2px;
+	background-color: hsl(180 80% 80% / 0.5);
+
+	display: block;
+}
+
+a.diff.block {
+	display: inline-block;
+	height: 1em;
+	width: 1px;
+}
+
+#fetish-selector {
+	flex: 0 0 auto;
+	width: 100%;
+	padding: 6px;
+	background: rgba(250, 250, 250, 0.95);
+	border-top: 1px solid #ddd;
+	display: flex;
+
+	box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+	justify-content: space-between;
+}
+
+#fetish-selector .left,
+#fetish-selector .right {
+	display: flex;
+	gap: 2px;
+}
+
+#fetish-selector button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+
+	border-radius: 6px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	cursor: pointer;
+	transition: background 0.2s;
+	background: transparent;
+}
+
+#fetish-selector button:focus {
+	outline: none;
+}
+
+#fetish-selector button:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+#fetish-selector button svg {
+	fill: #ccc;
+}
+
+#sideview {
+	flex: 1 1 0%;
+	overflow-x: hidden;
+	overflow-y: auto;
+	background: #eee;
+	padding: 8px;
+}
+
+#syncToggleBtn.active,
+#sidebarExpandBtn.active {
+	background-color: #3b82f6;
+}
+
+#syncToggleBtn.active svg,
+#sidebarExpandBtn.active svg {
+	fill: #fff;
+}
+
+#whitespaceToggleBtn.mode-ignore {
+	background-color: #ef4444;
+}
+#whitespaceToggleBtn.mode-ignore svg {
+	fill: #fff;
+}
+
+#whitespaceToggleBtn.mode-onlyAtEdge {
+	background-color: #f59e0b;
+}
+#whitespaceToggleBtn.mode-onlyAtEdge svg {
+	fill: #fff8e1;
+}
+
+#whitespaceToggleBtn.mode-normalize {
+	background-color: transparent;
+}
+
+#whitespaceToggleBtn.mode-normalize svg {
+	fill: #ccc;
+}
+
+.eyes-up-here,
+.peach-below {
+	position: fixed;
+	left: 0;
+	right: 0;
+	height: 20px;
+	line-height: 20px;
+	color: #fff;
+	background: #ef444477;
+	pointer-events: none;
+	z-index: 999;
+	transition: opacity 0.3s ease, background-color 0.3s ease;
+	text-align: center;
+}
+
+.eyes-up-here::before,
+.peach-below::before {
+	font-size: 16px;
+	display: inline-block;
+}
+
+.eyes-up-here {
+	top: 0;
+}
+
+.eyes-up-here::before {
+	content: "⬆ ⬆ ⬆";
+}
+
+.peach-below {
+	bottom: 0;
+}
+
+.peach-below::before {
+	content: "⬇ ⬇ ⬇";
 }

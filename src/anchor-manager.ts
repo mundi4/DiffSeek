@@ -9,6 +9,7 @@ const enum AnchorFlags {
 	AFTER_CONTAINER = 1 << 6,
 	EMPTY_DIFF = 1 << 7,
 	SECTION_HEADING = 1 << 8,
+	MANUAL_ANCHOR = 1 << 9,
 }
 
 type AnchorPair = {
@@ -31,7 +32,14 @@ type AnchorRequest = {
 };
 
 type AnchorManagerUpdateHelper = {
-	tryAddAnchorPair: (leftTokenIndex: number, leftFlags: AnchorFlags, rightTokenIndex: number, rightFlags: AnchorFlags, diffIndex?: number) => boolean;
+	tryAddAnchorPair: (
+		leftTokenIndex: number,
+		leftFlags: AnchorFlags,
+		rightTokenIndex: number,
+		rightFlags: AnchorFlags,
+		diffIndex?: number
+	) => AnchorPair | null;
+	addAnchorEls: (leftEl: HTMLElement, rightEl: HTMLElement, diffIndex: number | null, flags: AnchorFlags) => AnchorPair;
 };
 
 class AnchorManager {
@@ -40,56 +48,58 @@ class AnchorManager {
 	#anchorPairs: AnchorPair[] = [];
 	#anchorMap: Map<HTMLElement, AnchorPair> = new Map();
 	#invalidated: boolean = false;
-	#visibilityChanged: boolean = false;
-	#numLeftVisible: number = 0;
-	#numRightVisible: number = 0;
+	#leftVisiblePairs: Set<AnchorPair> = new Set();
+	#rightVisiblePairs: Set<AnchorPair> = new Set();
+	#observerPristine: boolean = false;
+	#pendingPairs: AnchorPair[] | null = null;
+	#observerCallback: () => void;
 
 	#observer = new IntersectionObserver(
 		(entries: IntersectionObserverEntry[]) => {
+			// console.debug("AnchorManager: IntersectionObserver entries", entries);
 			for (const entry of entries) {
-				const visible = entry.isIntersecting;
 				const anchorEl = entry.target as HTMLElement;
 				const pair = this.#anchorMap.get(anchorEl);
 				if (!pair) {
-					console.warn("AnchorManager: Anchor element not found in map", anchorEl);
 					continue;
 				}
+
+				const nowVisible = entry.isIntersecting;
+				let visiblePairs: Set<AnchorPair>;
 				if (pair.leftEl === anchorEl) {
-					pair.leftVisible = visible;
-					if (visible) {
-						this.#numLeftVisible++;
-					} else {
-						this.#numLeftVisible--;
-					}
+					visiblePairs = this.#leftVisiblePairs;
 				} else {
-					pair.rightVisible = visible;
-					if (visible) {
-						this.#numRightVisible++;
-					} else {
-						this.#numRightVisible--;
-					}
+					visiblePairs = this.#rightVisiblePairs;
+				}
+
+				if (nowVisible) {
+					visiblePairs.add(pair);
+				} else {
+					visiblePairs.delete(pair);
 				}
 			}
-			if (!this.#visibilityChanged) {
-				this.#visibilityChanged = true;
-				console.debug("AnchorManager: Visibility changed");
+			if (this.#observerPristine) {
+				this.#observerPristine = false;
+				this.#observerCallback();
 			}
 		},
 		{
 			threshold: 0,
+			rootMargin: "100px 0px 100px 0px", // 100px margin to avoid flickering
 		}
 	);
 
-	constructor(leftEditor: Editor, rightEditor: Editor) {
+	constructor(leftEditor: Editor, rightEditor: Editor, observerCallback: () => void) {
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
+		this.#observerCallback = observerCallback;
 	}
 
 	update(callback: (funcs: AnchorManagerUpdateHelper) => void) {
+		this.#leftVisiblePairs.clear();
+		this.#rightVisiblePairs.clear();
+		this.#observerPristine = true;
 		this.#observer.disconnect();
-		this.#visibilityChanged = false;
-		this.#numLeftVisible = 0;
-		this.#numRightVisible = 0;
 		this.#anchorMap.clear();
 		const oldAnchorPairs = this.#anchorPairs;
 		this.#anchorPairs = [];
@@ -98,9 +108,10 @@ class AnchorManager {
 		// 앵커맵 업데이트
 
 		const tryAddAnchorPair = this.#tryAddAnchorPair.bind(this);
-
+		const addAnchorEls = this.addAnchorPair.bind(this);
 		callback({
 			tryAddAnchorPair,
+			addAnchorEls,
 		});
 
 		for (const anchorPair of oldAnchorPairs) {
@@ -113,26 +124,73 @@ class AnchorManager {
 			}
 		}
 
-		console.debug("AnchorManager.update", {
-			anchorPairs: this.#anchorPairs,
-			anchorMap: this.#anchorMap,
-		});
+		// console.debug("AnchorManager.update", {
+		// 	anchorPairs: this.#anchorPairs,
+		// 	anchorMap: this.#anchorMap,
+		// 	numLeftVisible: this.#leftVisiblePairs.size,
+		// 	numRightVisible: this.#rightVisiblePairs.size,
+		// });
+	}
+
+	#anchorFlagsToString(flags: AnchorFlags): string {
+		const flagsArray: string[] = [];
+		if (flags & AnchorFlags.LINE_START) {
+			flagsArray.push("LINE_START");
+		}
+		if (flags & AnchorFlags.BLOCK_START) {
+			flagsArray.push("BLOCK_START");
+		}
+		if (flags & AnchorFlags.CONTAINER_START) {
+			flagsArray.push("CONTAINER_START");
+		}
+		if (flags & AnchorFlags.TABLECELL_START) {
+			flagsArray.push("TABLECELL_START");
+		}
+		if (flags & AnchorFlags.TABLEROW_START) {
+			flagsArray.push("TABLEROW_START");
+		}
+		if (flags & AnchorFlags.TABLE_START) {
+			flagsArray.push("TABLE_START");
+		}
+		if (flags & AnchorFlags.AFTER_CONTAINER) {
+			flagsArray.push("AFTER_CONTAINER");
+		}
+		if (flags & AnchorFlags.EMPTY_DIFF) {
+			flagsArray.push("EMPTY_DIFF");
+		}
+		if (flags & AnchorFlags.SECTION_HEADING) {
+			flagsArray.push("SECTION_HEADING");
+		}
+		if (flagsArray.length === 0) {
+			return "None";
+		}
+		return flagsArray.join(" | ");
 	}
 
 	#tryAddAnchorPair(leftTokenIndex: number, leftFlags: AnchorFlags, rightTokenIndex: number, rightFlags: AnchorFlags, diffIndex?: number) {
 		const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags);
 		if (!leftPoint) {
-			return false;
+			// console.warn("AnchorManager: No valid left anchor point found for token index", leftTokenIndex, "with flags", this.#anchorFlagsToString(leftFlags));
+			// console.debug("AnchorManager:
+			return null;
 		}
 		const rightPoint = this.#findSlideSpot(this.#rightEditor, rightTokenIndex, rightFlags);
 		if (!rightPoint) {
-			return false;
+			// console.warn("AnchorManager: No valid right anchor point found for token index", rightTokenIndex, "with flags", this.#anchorFlagsToString(rightFlags));
+			return null;
 		}
+
+		// console.debug(
+		// 	"AnchorManager: tryAddAnchorPair",
+		// 	this.#anchorPairs.length,
+		// 	`leftTokenIndex: ${leftTokenIndex}, leftFlags: ${this.#anchorFlagsToString(
+		// 		leftFlags
+		// 	)}, rightTokenIndex: ${rightTokenIndex}, rightFlags: ${this.#anchorFlagsToString(rightFlags)}, diffIndex: ${diffIndex}`
+		// );
 
 		const leftEl = this.#slideInGently(leftPoint, leftFlags & AnchorFlags.EMPTY_DIFF ? "diff" : "anchor");
 		const rightEl = this.#slideInGently(rightPoint, rightFlags & AnchorFlags.EMPTY_DIFF ? "diff" : "anchor");
-		this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
-		return true;
+		return this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
 	}
 
 	#getLastAnchorRange(editor: Editor): Range | null {
@@ -205,6 +263,7 @@ class AnchorManager {
 		}
 		const newAnchor = document.createElement("A");
 		newAnchor.classList.add(type);
+		newAnchor.contentEditable = "false";
 		insertionPoint.insertNode(newAnchor);
 		return newAnchor;
 	}
@@ -224,87 +283,56 @@ class AnchorManager {
 		this.#anchorPairs.push(pair);
 		this.#anchorMap.set(leftEl, pair);
 		this.#anchorMap.set(rightEl, pair);
-		this.#observer.observe(leftEl);
-		this.#observer.observe(rightEl);
+		if (leftEl.nodeName === "A") {
+			this.#observer.observe(leftEl);
+		}
+		if (rightEl.nodeName === "A") {
+			this.#observer.observe(rightEl);
+		}
+		leftEl.dataset.anchorIndex = pair.index.toString();
+		rightEl.dataset.anchorIndex = pair.index.toString();
+		if (diffIndex !== null) {
+			leftEl.dataset.diffIndex = diffIndex.toString();
+			rightEl.dataset.diffIndex = diffIndex.toString();
+		} else {
+			delete leftEl.dataset.diffIndex;
+			delete rightEl.dataset.diffIndex;
+		}
+		return pair;
 	}
 
-	alignAnchors(primaryEditor: Editor, containerRect: DOMRect): [boolean, number] {
-		const anchors = this.#anchorPairs;
-		if (!anchors) {
-			return [false, NaN];
-		}
+	doAlingAnchors(pairs: AnchorPair[]): number {
+		// console.debug("AnchorManager.doAlingPairs: aligning pairs", pairs.length);
 
 		const MIN_DELTA = 1;
 		const MIN_STRIPED_DELTA = 10;
-
-		if (this.#invalidated) {
-			console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
-			this.#invalidated = false;
-			for (const pair of this.#anchorPairs) {
-				pair.aligned = false;
-				pair.delta = 0;
-			}
-		}
 
 		const leftEditor = this.#leftEditor;
 		const rightEditor = this.#rightEditor;
 		let leftScrollTop = leftEditor.scrollTop;
 		let rightScrollTop = rightEditor.scrollTop;
-		let lastWasAligned = false;
-		let changed = false;
+		let changeCount = 0;
 
-		let leftY: number;
-		let rightY: number;
-		let delta: number;
-		let numHandled = 0;
-		let maxLeftY: number = 0;
-		let maxRightY: number = 0;
-		let dirty = false;
-		for (const pair of anchors) {
-			const visible = primaryEditor === leftEditor ? pair.leftVisible : pair.rightVisible;
-			if (!visible) {
-				if (numHandled >= (primaryEditor === leftEditor ? this.#numLeftVisible : this.#numRightVisible)) {
-					//console.debug("AnchorManager.alignAnchors: all visible anchors handled");
-					break;
-				}
-				continue;
-			}
-			numHandled++;
-
-			if (!dirty) {
-				if (pair.aligned && numHandled > 1) {
-					continue;
-				} else {
-					dirty = true;
-				}
-			}
-
+		// 초기화
+		for (const pair of pairs) {
 			const { leftEl, rightEl } = pair;
-			const prevDelta = pair.delta;
+			rightEl.classList.remove("padtop", "striped");
+			rightEl.style.removeProperty("--padding");
+			leftEl.classList.remove("padtop", "striped");
+			leftEl.style.removeProperty("--padding");
+		}
+		leftEditor.forceReflow();
+		rightEditor.forceReflow();
 
-			leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
-			rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
-			delta = leftY - rightY;
+		rightScrollTop = rightEditor.scrollTop;
+		leftScrollTop = leftEditor.scrollTop;
 
-			if ((delta < -MIN_DELTA || delta > MIN_DELTA) && prevDelta !== 0) {
-				leftEl.classList.remove("padtop", "striped");
-				rightEl.classList.remove("padtop", "striped");
-				leftEl.style.removeProperty("--padding");
-				rightEl.style.removeProperty("--padding");
-				void leftEl.offsetHeight;
-				void rightEl.offsetHeight;
-				leftScrollTop = leftEditor.scrollTop;
-				rightScrollTop = rightEditor.scrollTop;
-				pair.delta = 0;
-				leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
-				rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
-				delta = leftY - rightY;
-			}
-
+		for (const pair of pairs) {
+			const { leftEl, rightEl } = pair;
+			let leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+			let rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+			let delta = Math.round(leftY - rightY);
 			if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-				delta = Math.round(delta);
-				pair.delta = delta;
-
 				let theEl: HTMLElement;
 				if (delta > 0) {
 					theEl = rightEl;
@@ -321,30 +349,51 @@ class AnchorManager {
 				void theEl.offsetHeight;
 				leftScrollTop = leftEditor.scrollTop;
 				rightScrollTop = rightEditor.scrollTop;
+				changeCount++;
 			}
+		}
+		return changeCount;
+	}
 
-			pair.aligned = true;
-			maxLeftY = Math.max(maxLeftY, leftY);
-			maxRightY = Math.max(maxRightY, rightY);
-			if (prevDelta !== pair.delta) {
-				// console.log("new delta", pair.delta, "prevDelta", prevDelta);
-				changed = true;
-				lastWasAligned = false;
-			} else {
-				lastWasAligned = true;
+	alignPendingAnchors() {
+		if (this.#pendingPairs) {
+			// console.debug("AnchorManager.alignPendingAnchors: aligning pending pairs", this.#pendingPairs.length);
+			this.doAlingAnchors(this.#pendingPairs);
+			this.#pendingPairs = null;
+		}
+	}
+
+	alignAnchors(primaryEditor: Editor, containerRect: DOMRect): [boolean, number] {
+		// if (isScrolling) {
+		// 	return [false, NaN];
+		// }
+		const anchors = this.#anchorPairs;
+		if (!anchors) {
+			return [false, NaN];
+		}
+
+		const startTime = performance.now();
+		const MIN_DELTA = 1;
+		const MIN_STRIPED_DELTA = 10;
+
+		if (this.#invalidated) {
+			// console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
+			this.#invalidated = false;
+			for (const pair of this.#anchorPairs) {
+				pair.aligned = false;
+				pair.delta = 0;
 			}
 		}
 
-		let editorHeight;
-		if (leftY! !== undefined) {
-			// 마지막 앵커부터 남은 영역의 높이
-			let tailHeight = Math.max(leftEditor.contentHeight - maxLeftY, rightEditor.contentHeight - maxRightY);
-			editorHeight = Math.max(maxLeftY, maxRightY) + tailHeight;
-		} else {
-			editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
-		}
+		let changedCount = this.doAlingAnchors(anchors);
+		// console.debug("AnchorManager.alignAnchors: aligned pairs", changedCount);
 
-		return [changed, editorHeight];
+		//console.log("numHandled", numHandled, this.#numLeftVisible, this.#numRightVisible);
+		let editorHeight = Math.max(this.#leftEditor.contentHeight, this.#rightEditor.contentHeight);
+
+		const endTime = performance.now();
+		// console.debug(`AnchorManager.alignAnchors: aligned ${changedCount} pairs in ${endTime - startTime}ms, editorHeight: ${editorHeight}`);
+		return [changedCount > 0, editorHeight];
 	}
 
 	invalidate() {

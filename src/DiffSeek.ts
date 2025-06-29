@@ -1,47 +1,52 @@
 // atoms
 // 이렇게까지 하게 될지는 몰랐는데 ui요소마다 콜백을 넘기고 또 그걸 또 감싸서 자식으로 넘기고... 귀찮잖아...
+
 const highlightedDiffIndexAtom = createAtom<number | null>("highlightedDiffIndex", null);
 const diffItemClickedEvent = createEventAtom<number>("diffItemClickedEvent");
+const syncModeAtom = createAtom<boolean>("syncMode", false);
+const whitespaceHandlingAtom = createAtom<WhitespaceHandling>("whitespaceHandling", "onlyAtEdge");
+const sidebarExpandedAtom = createAtom<boolean>("sidebarExpanded", true);
 
 class DiffSeek {
 	#mainContainer: HTMLElement;
-	//#preventScrollSync = false;
-	#renderCallbackId: number | null = null;
 	#leftEditor: Editor;
 	#rightEditor: Editor;
-	#editorContentsChanged: Record<EditorName, boolean> = {
-		left: false,
-		right: false,
-	};
+	#renderer: Renderer;
 
 	#diffOptions: DiffOptions;
 	#diffContext: DiffContext | null = null;
-	#computeDiffCallbackId: number | null = null;
-	#diffComputedCallbackId: number | null = null;
 	#textSelectionRange: Range | null = null;
+
 	#zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
 	#sideView: SideView;
-	#scrollSyncEnabled = false;
+	#syncMode = false;
+
 	#scrollingEditor: Editor | null = null;
 	#lastScrolledEditor: Editor | null = null;
 	#preventScrollSync = false;
 	#activeEditor: Editor | null = null;
 	#lastActiveEditor: Editor | null = null;
 	#scrollEndTimeoutId: number | null = null;
+
 	#lastScrolledToDiffIndex: number | null = null;
-
-	#anchorObserver = new IntersectionObserver((entries) => {}, {});
 	#anchorManager: AnchorManager;
-	#resized = true;
-	#renderer: Renderer;
 
-	constructor(mainContainer: HTMLElement, asideContainer: HTMLElement) {
+	#editorContentsChanged: Record<EditorName, boolean> = {
+		left: false,
+		right: false,
+	};
+
+	#computeDiffCallbackId: number | null = null;
+	#diffComputedCallbackId: number | null = null;
+	#fetishSelector = new FetishSelector(document.querySelector("#fetish-selector")!);
+
+	constructor(mainContainer: HTMLElement, sideViewContainer: HTMLElement) {
 		this.#mainContainer = mainContainer;
 
 		this.#diffOptions = {
 			algorithm: "histogram",
 			tokenization: "word",
-			whitespace: "ignore",
+			ignoreWhitespace: "ignore",
 			greedyMatch: false,
 			useLengthBias: true,
 			maxGram: 4,
@@ -66,40 +71,139 @@ class DiffSeek {
 			onBlur: (editor) => {
 				this.#activeEditor = null;
 			},
+			onClick: (editor, event) => {
+				this.onEditorClick(editor, event);
+			},
 		};
 
 		this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
 		this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
 		this.#editorContentsChanged = { left: true, right: true };
-		this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor);
+		this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor, () => {
+			//this.alignAnchors();
+		});
 
-		this.#sideView = new SideView(asideContainer);
+		this.#sideView = new SideView(sideViewContainer);
 
-		const resizeObserver = new ResizeObserver(() => this.#onContainerResize());
+		let lastContainerWidth: number = 0;
+		const resizeObserver = new ResizeObserver(([entry]) => {
+			const rect = {
+				x: entry.contentRect.x,
+				y: entry.contentRect.y,
+				width: entry.contentRect.width,
+				height: entry.contentRect.height,
+			};
+			this.#renderer.invalidateLayout(rect);
+			if (lastContainerWidth !== rect.width) {
+				lastContainerWidth = rect.width;
+				this.#anchorManager.invalidate();
+				this.alignAnchors();
+			}
+		});
 		resizeObserver.observe(mainContainer);
 
 		const rendererCallbacks: RendererCallbacks = {
-			onRender: () => this.#onRender(),
+			onRender: (time: number) => this.#onRender(time),
 			onDiffVisibilityChanged: (region, entries) => this.#onDiffVisibilityChanged(region, entries),
 		};
 
 		this.#renderer = new Renderer(mainContainer, this.#leftEditor, this.#rightEditor, rendererCallbacks);
 		this.setupEventListeners();
+
+		syncModeAtom.subscribe((syncMode) => {
+			if (syncMode !== this.syncMode) {
+				this.syncMode = syncMode;
+			}
+		});
+
+		whitespaceHandlingAtom.subscribe((whitespace) => {
+			if (whitespace !== this.whitespace) {
+				this.whitespace = whitespace;
+			}
+		});
+
+		sidebarExpandedAtom.subscribe((expanded) => {
+			document.body.classList.toggle("sidebar-collapsed", !expanded);
+		});
+
+		syncModeAtom.set(this.#syncMode);
+		whitespaceHandlingAtom.set(this.#diffOptions.ignoreWhitespace);
+		sidebarExpandedAtom.set(true);
 	}
 
-	#onContainerResize() {
-		this.#renderer.invalidateLayout();
+	// #onContainerResize() {
+	// 	console.warn("Container resized, invalidating layout.");
+	// 	this.#renderer.invalidateLayout();
+	// }
+
+	#onRender(time: number) {
+		// if (this.syncMode) {
+		// 	this.syncScroll(time, this.#scrollingEditor !== null);
+		// }
 	}
 
-	#onRender() {
-		if (this.#scrollSyncEnabled) {
-			this.syncScroll();
+	get syncMode() {
+		return this.#syncMode;
+	}
+
+	set syncMode(value: boolean) {
+		value = !!value;
+		if (value === this.#syncMode) {
+			return;
+		}
+
+		let currentSelectionRange: Range | null = null;
+		if (!value) {
+			// currently in sync mode
+			const selection = window.getSelection();
+			if (selection && selection.rangeCount > 0) {
+				currentSelectionRange = selection.getRangeAt(0);
+			}
+		}
+
+		this.#syncMode = value;
+		syncModeAtom.set(value);
+		this.#mainContainer.classList.toggle("same-height-besties", value);
+		this.#renderer.guideLineEnabled = value;
+		// this.#renderer.darkMode = value;
+		this.#leftEditor.readonly = value;
+		this.#rightEditor.readonly = value;
+
+		if (value) {
+			this.alignAnchors(true);
+		} else {
+			const activeEditor = this.#activeEditor ?? this.#lastActiveEditor;
+			if (activeEditor) {
+				activeEditor.focus();
+			}
+			if (currentSelectionRange) {
+				const selection = window.getSelection();
+				if (selection) {
+					selection.removeAllRanges();
+					selection.addRange(currentSelectionRange);
+				}
+			}
+		}
+		this.#renderer.invalidateGeometries();
+	}
+
+	get whitespace(): "ignore" | "normalize" | "onlyAtEdge" {
+		return this.#diffOptions.ignoreWhitespace;
+	}
+
+	set whitespace(value: "ignore" | "normalize" | "onlyAtEdge") {
+		if (value !== "ignore" && value !== "normalize" && value !== "onlyAtEdge") {
+			throw new Error("Invalid whitespace option: " + value);
+		}
+		if (this.#diffOptions.ignoreWhitespace !== value) {
+			this.#diffOptions.ignoreWhitespace = value;
+			this.#onEditorContentChanged(this.#leftEditor);
+			this.#onEditorContentChanged(this.#rightEditor);
+			whitespaceHandlingAtom.set(value);
 		}
 	}
 
 	private setupEventListeners() {
-		window.addEventListener("resize", () => {});
-
 		document.addEventListener("selectionchange", () => {
 			this.#updateTextSelection();
 		});
@@ -107,20 +211,22 @@ class DiffSeek {
 		document.addEventListener(
 			"keydown",
 			(e) => {
-				if (e.key === "F8") {
-					this.#diffOptions.whitespace = this.#diffOptions.whitespace === "ignore" ? "normalize" : "ignore";
+				if (e.key === "F2") {
 					e.preventDefault();
-					this.#onEditorContentChanged(this.#leftEditor);
-					this.#onEditorContentChanged(this.#rightEditor);
+					this.syncMode = !this.#syncMode;
+				} else if (e.key === "F8") {
+					e.preventDefault();
+					this.whitespace = cycleWhitespace(this.whitespace);
 				} else if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
 					e.preventDefault();
 					const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
 					editor.focus();
 					return;
-				} else if (e.key === "F2") {
+				} else if (e.key === "F9") {
 					e.preventDefault();
-					this.scrollSyncEnabled = !this.#scrollSyncEnabled;
+					sidebarExpandedAtom.set(!sidebarExpandedAtom.get());
 				}
+
 				if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
 					e.preventDefault();
 					const diffs = this.#diffContext?.diffs;
@@ -147,18 +253,18 @@ class DiffSeek {
 			true
 		);
 
-		this.#mainContainer.addEventListener("mousemove", (e) => {
-			const rect = this.#mainContainer.getBoundingClientRect();
-			let x = e.clientX - rect.x;
-			let y = e.clientY - rect.y;
-			const diffIndex = this.#renderer.hitTest(x, y);
-			highlightedDiffIndexAtom.set(diffIndex);
-		});
+		// this.#mainContainer.addEventListener("mousemove", (e) => {
+		// 	const rect = this.#mainContainer.getBoundingClientRect();
+		// 	let x = e.clientX - rect.x;
+		// 	let y = e.clientY - rect.y;
+		// 	this.#renderer.updateCursorPosition(x, y);
+		// });
 
-		highlightedDiffIndexAtom.subscribe((diffIndex) => {
-			console.debug("Highlighted diff index changed:", diffIndex);
-			this.#renderer.setDiffHighlight(diffIndex);
-		});
+		// this.#mainContainer.addEventListener("mouseleave", () => {
+		// 	this.#renderer.updateCursorPosition(NaN, NaN);
+		// });
+
+		highlightedDiffIndexAtom.subscribe((diffIndex) => this.updateDiffIndicatorOverlay());
 
 		diffItemClickedEvent.subscribe((diffIndex) => {
 			this.#lastScrolledToDiffIndex = diffIndex;
@@ -175,18 +281,51 @@ class DiffSeek {
 		this.#computeDiff();
 	}
 
+	updateDiffIndicatorOverlay() {
+		const diffIndex = highlightedDiffIndexAtom.get();
+		this.#renderer.setDiffHighlight(diffIndex);
+
+		let leftAbove = false,
+			leftBelow = false,
+			rightAbove = false,
+			rightBelow = false;
+		if (diffIndex !== null) {
+			const leftRect = this.#renderer.getDiffRect("left", diffIndex);
+			if (leftRect) {
+				if (leftRect.y > this.#leftEditor.scrollTop + this.#leftEditor.height) {
+					leftBelow = true;
+				} else if (leftRect.y + leftRect.height < this.#leftEditor.scrollTop) {
+					leftAbove = true;
+				}
+			}
+			const rightRect = this.#renderer.getDiffRect("right", diffIndex);
+			if (rightRect) {
+				if (rightRect.y > this.#rightEditor.scrollTop + this.#rightEditor.height) {
+					rightBelow = true;
+				} else if (rightRect.y + rightRect.height < this.#rightEditor.scrollTop) {
+					rightAbove = true;
+				}
+			}
+		}
+		this.#leftEditor.toggleDirectionalOverlays(leftAbove, leftBelow);
+		this.#rightEditor.toggleDirectionalOverlays(rightAbove, rightBelow);
+	}
+
+	onEditorClick(editor: Editor, event: MouseEvent) {
+		// console.debug("Editor clicked:", editor.name, event, this.#syncMode, event.altKey);
+		if (event.altKey) {
+			if (this.syncMode) {
+				event.preventDefault();
+				this.syncMode = false;
+			}
+		}
+	}
+
 	#onEditorScroll(editor: Editor, scrollTop: number, scrollLeft: number) {
 		this.#renderer.invalidateScroll(editor.name);
 
-		if (this.#preventScrollSync) {
-			return;
-		}
-
 		if (this.#scrollingEditor === null) {
 			this.#lastScrolledEditor = this.#scrollingEditor = editor;
-		}
-
-		if (this.#scrollingEditor === editor) {
 			if (this.#scrollEndTimeoutId !== null) {
 				clearTimeout(this.#scrollEndTimeoutId);
 			}
@@ -195,65 +334,37 @@ class DiffSeek {
 				this.#scrollEndTimeoutId = null;
 			}, 100);
 		}
+
+		if (this.#syncMode && this.#scrollingEditor === editor) {
+			this.syncScroll(editor);
+		}
 	}
 
 	#onEditorScrollEnd(editor: Editor) {
 		if (this.#scrollingEditor === editor) {
+			if (this.#scrollEndTimeoutId !== null) {
+				clearTimeout(this.#scrollEndTimeoutId);
+				this.#scrollEndTimeoutId = null;
+			}
 			this.#scrollingEditor = null;
 		}
 	}
 
 	#onEditorResize(editor: Editor) {
-		// console.debug("Editor resized:", editor.name, editor.contentHeight);
 		if (!this.#anchorAligning) {
 			this.#anchorManager.invalidate();
-		} else {
-			console.debug("Anchor aligning in progress, skipping resize handling for", editor.name);
 		}
-		this.#renderer.invalidateLayout();
 	}
 
 	#onDiffVisibilityChanged(region: "left" | "right", entries: VisibilityChangeEntry[]) {
 		this.#sideView.onDiffVisibilityChange(region, entries);
+		this.updateDiffIndicatorOverlay();
 	}
 
-	// #requestRender() {
-	// 	console.log("Requesting render...");
-	// 	if (this.#renderCallbackId) {
-	// 		// 거~의 모든 경우에 render는 가장 마지막에 일어나야 하므로 이미 예약된 콜백을 취소하고 다시 등록함.
-	// 		cancelAnimationFrame(this.#renderCallbackId);
-	// 		this.#renderCallbackId = null;
-	// 	}
-
-	// 	// if (this.#resized) {
-	// 	// 	this.#resized = false;
-	// 	// 	const anchors = this.#diffContext?.anchors;
-	// 	// 	if (anchors && anchors.length > 0) {
-	// 	// 		for (const anchor of anchors) {
-	// 	// 			anchor.aligned = false;
-	// 	// 		}
-	// 	// 	}
-	// 	// }
-
-	// 	this.#renderCallbackId = requestAnimationFrame(() => {
-	// 		this.#renderCallbackId = null;
-	// 		this.#doRender();
-	// 	});
-
-	// 	this.#renderer.render();
-	// }
-
-	// #doRender() {
-	// 	if (this.#scrollSync) {
-	// 		this.alignAnchors();
-	// 	}
-
-	// 	// this.#leftEditor.render();
-	// 	// this.#rightEditor.render();
-	// }
-
 	#updateTextSelection() {
-		if (!this.#diffContext || !this.#diffContext.rawDiffs) return;
+		if (!this.#diffContext?.ready) {
+			return;
+		}
 
 		const selection = window.getSelection();
 		let editor: Editor | null = null;
@@ -432,50 +543,60 @@ class DiffSeek {
 					const leftTokenFlags = leftToken.flags;
 					const rightTokenFlags = rightToken.flags;
 					const commonFlags = leftTokenFlags & rightTokenFlags;
-					let leftAnchorFlags = AnchorFlags.None;
-					let rightAnchorFlags = AnchorFlags.None;
 
 					let anchorEligible = false;
-					if (commonFlags & TokenFlags.LINE_START) {
-						anchorEligible = forceStart;
-						leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags);
-						rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightTokenFlags);
-						if (!(leftAnchorFlags & rightAnchorFlags)) {
+					let leftAnchorFlags = AnchorFlags.None;
+					let rightAnchorFlags = AnchorFlags.None;
+					if (commonFlags & TokenFlags.MANUAL_ANCHOR) {
+						anchorEligible = true;
+						leftAnchorFlags = AnchorFlags.MANUAL_ANCHOR;
+						rightAnchorFlags = AnchorFlags.MANUAL_ANCHOR;
+						// const leftEl = leftToken.range.startContainer.childNodes[leftToken.range.startOffset] as HTMLElement;
+						// const rightEl = rightToken.range.startContainer.childNodes[rightToken.range.startOffset] as HTMLElement;
+						// amFn.addAnchorEls(leftEl, rightEl, AnchorFlags.LINE_START, AnchorFlags.LINE_START);
+					} // else
+					{
+						if (commonFlags & TokenFlags.LINE_START) {
+							anchorEligible = forceStart;
+							leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags);
+							rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightTokenFlags);
+							if (!(leftAnchorFlags & rightAnchorFlags)) {
+							}
+							// if (!leftAnchorFlags) {
+							// 	if (
+							// 		(leftTokenFlags | rightTokenFlags) &
+							// 		(TokenFlags.TABLECELL_START | TokenFlags.TABLEROW_START | TokenFlags.TABLE_START | TokenFlags.CONTAINER_START)
+							// 	) {
+							// 		leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags | rightTokenFlags);
+							// 		anchorEligible = true;
+							// 	}
+
+							// 	const leftPrevToken = leftTokens[left.pos - 1];
+							// 	const rightPrevToken = rightTokens[right.pos - 1];
+							// 	if (!anchorEligible) {
+							// 		const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+							// 		const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+							// 		anchorEligible = l || r;
+							// 	}
+							// }
 						}
-						// if (!leftAnchorFlags) {
-						// 	if (
-						// 		(leftTokenFlags | rightTokenFlags) &
-						// 		(TokenFlags.TABLECELL_START | TokenFlags.TABLEROW_START | TokenFlags.TABLE_START | TokenFlags.CONTAINER_START)
-						// 	) {
-						// 		leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags | rightTokenFlags);
-						// 		anchorEligible = true;
-						// 	}
 
-						// 	const leftPrevToken = leftTokens[left.pos - 1];
-						// 	const rightPrevToken = rightTokens[right.pos - 1];
-						// 	if (!anchorEligible) {
-						// 		const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-						// 		const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-						// 		anchorEligible = l || r;
-						// 	}
-						// }
-					}
+						if (anchorEligible || (leftAnchorFlags && rightAnchorFlags)) {
+							forceStart = false;
+							// let anchorFlagsArr: AnchorFlags[] = [];
+							// if (commonFlags & TokenFlags.TABLECELL_START) {
+							// 	if (commonFlags & TokenFlags.TABLE_START) {
+							// 		anchorFlagsArr.push(AnchorFlags.TABLE_START);
+							// 	}
+							// 	anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
+							// } else if (commonFlags & TokenFlags.BLOCK_START) {
+							// 	anchorFlagsArr.push(AnchorFlags.BLOCK_START);
+							// }
 
-					if (anchorEligible || (leftAnchorFlags && rightAnchorFlags)) {
-						forceStart = false;
-						// let anchorFlagsArr: AnchorFlags[] = [];
-						// if (commonFlags & TokenFlags.TABLECELL_START) {
-						// 	if (commonFlags & TokenFlags.TABLE_START) {
-						// 		anchorFlagsArr.push(AnchorFlags.TABLE_START);
-						// 	}
-						// 	anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
-						// } else if (commonFlags & TokenFlags.BLOCK_START) {
-						// 	anchorFlagsArr.push(AnchorFlags.BLOCK_START);
-						// }
-
-						// for (const anchorFlags of anchorFlagsArr) {
-						// }
-						amFn.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+							// for (const anchorFlags of anchorFlagsArr) {
+							// }
+							amFn.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+						}
 					}
 				}
 			}
@@ -541,8 +662,32 @@ class DiffSeek {
 					}
 				}
 
-				const leftRange = leftEditor.getTokenRange(leftIndex, leftTokenCount);
-				const rightRange = rightEditor.getTokenRange(rightIndex, rightTokenCount);
+				let anchorPair: AnchorPair | null = null;
+				if (leftAnchorFlags && rightAnchorFlags) {
+					anchorPair = amFn.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
+				}
+
+				let leftRange: Range | null = null;
+				let rightRange: Range | null = null;
+
+				if (leftTokenCount === 0 && anchorPair) {
+					leftRange = document.createRange();
+					leftRange.selectNode(anchorPair.leftEl);
+					if (rightTokens[rightIndex].flags & TokenFlags.LINE_START && rightTokens[rightIndex + rightTokenCount - 1].flags & TokenFlags.LINE_END) {
+						// console.warn("Adding block class to left anchor element", anchorPair.leftEl);
+						anchorPair.leftEl.classList.add("block");
+					}
+				}
+				if (rightTokenCount === 0 && anchorPair) {
+					rightRange = document.createRange();
+					rightRange.selectNode(anchorPair.rightEl);
+					if (leftTokens[leftIndex].flags & TokenFlags.LINE_START && leftTokens[leftIndex + leftTokenCount - 1].flags & TokenFlags.LINE_END) {
+						// console.warn("Adding block class to right anchor element", anchorPair.rightEl);
+						anchorPair.rightEl.classList.add("block");
+					}
+				}
+				leftRange ??= leftEditor.getTokenRange(leftIndex, leftTokenCount);
+				rightRange ??= rightEditor.getTokenRange(rightIndex, rightTokenCount);
 
 				diffs.push({
 					diffIndex,
@@ -550,10 +695,6 @@ class DiffSeek {
 					leftRange,
 					rightRange,
 				});
-
-				if (leftAnchorFlags && rightAnchorFlags) {
-					amFn.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
-				}
 
 				currentDiff = null;
 				forceStart = true;
@@ -567,12 +708,34 @@ class DiffSeek {
 		this.#updateTextSelection();
 	}
 
+	syncScroll(primaryEditor: Editor) {
+		const followingEditor = primaryEditor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+		followingEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
+	}
+
 	#anchorAligning = false;
-	syncScroll() {
-		if (!this.#diffContext?.ready) {
+	#alignAnchorCancelId: number | null = null;
+	alignAnchors(instantly: boolean = false) {
+		if (this.#alignAnchorCancelId !== null) {
+			clearTimeout(this.#alignAnchorCancelId);
+			this.#alignAnchorCancelId = null;
+		}
+
+		if (!this.#syncMode) {
 			return;
 		}
 
+		if (!instantly) {
+			this.#alignAnchorCancelId = setTimeout(() => {
+				this.#alignAnchorCancelId = null;
+				this.alignAnchors(true);
+			}, 250);
+		}
+
+		if (!this.#diffContext?.ready || this.#preventScrollSync) {
+			this.alignAnchors();
+			return;
+		}
 
 		this.#preventScrollSync = true;
 		const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
@@ -588,18 +751,11 @@ class DiffSeek {
 			leftEditor.height = maxContentHeight;
 			rightEditor.height = maxContentHeight;
 			//this.#renderer.invalidateScroll();
-			void this.#mainContainer.offsetHeight;
+			//void this.#mainContainer.offsetHeight;
 			this.#renderer.invalidateGeometries();
+			this.syncScroll(primaryEditor);
 		}
 		this.#anchorAligning = false;
-
-		if (primaryEditor === leftEditor) {
-			rightEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
-		} else {
-			leftEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
-		}
-
-		this.#scrollingEditor = null;
 		this.#preventScrollSync = false;
 		return changed;
 	}
@@ -631,7 +787,7 @@ class DiffSeek {
 			return;
 		}
 
-		if (this.#scrollSyncEnabled) {
+		if (this.#syncMode) {
 			let scrollTop = Math.min(leftRect.y, rightRect.y);
 			scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
 			this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
@@ -641,22 +797,6 @@ class DiffSeek {
 			this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
 			this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
 		}
-	}
-
-	get scrollSyncEnabled() {
-		return this.#scrollSyncEnabled;
-	}
-
-	set scrollSyncEnabled(value: boolean) {
-		value = !!value;
-		if (value === this.#scrollSyncEnabled) {
-			return;
-		}
-
-		this.#scrollSyncEnabled = value;
-		this.#anchorManager.invalidate();
-		this.#renderer.invalidateLayout();
-		this.#mainContainer.classList.toggle("same-height-besties", value);
 	}
 
 	setContent(editorName: EditorName, contentHTML: string) {

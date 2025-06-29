@@ -26,10 +26,11 @@ function createAtom<T>(name: string, initialValue?: T): Atom<T> {
 		},
 		set(newValue: T) {
 			if (value === newValue) {
-				return;
+				return false;
 			}
 			value = newValue;
 			listeners.forEach((fn) => fn(value));
+			return true;
 		},
 		subscribe(fn: Subscriber<T>) {
 			listeners.add(fn);

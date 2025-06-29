@@ -354,9 +354,10 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
     //const FULL_LINE_BONUS = 0.85; n그램을 사용시 여러단어가 매치되는 경우 오히려 마지막 단어가 다음 줄로 넘어가서 보너스를 못 받을 수가 있다
     const useLengthBias = !!ctx.options.useLengthBias;
     const maxGram = ctx.options.maxGram || 1;
-    const useMatchPrefix = ctx.options.whitespace === "ignore";
+    const useMatchPrefix = ctx.options.ignoreWhitespace !== "normalize";
+    const onlyAtEdge = ctx.options.ignoreWhitespace === "onlyAtEdge";
     const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
-    const delimiter = ctx.options.whitespace === "ignore" ? "" : "\u0000";
+    const delimiter = useMatchPrefix ? "" : "\u0000";
     const freq = {};
     for (let n = 1; n <= maxLen; n++) {
         for (let i = lhsLower; i <= lhsUpper - n; i++) {
@@ -438,7 +439,7 @@ const findBestHistogramAnchor = function (lhsTokens, lhsLower, lhsUpper, rhsToke
                     continue;
                 }
                 if (useMatchPrefix && ltext.length !== rtext.length && ltext[0] === rtext[0]) {
-                    const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper);
+                    const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper, onlyAtEdge);
                     if (match) {
                         const matchedGrams = Math.min(match[0], match[1]);
                         if (lhsLen + match[0] <= maxLen && rhsLen + match[1] <= maxLen && nGrams + matchedGrams <= maxGram) {
@@ -550,7 +551,7 @@ async function diffCore(ctx, leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
     // 그렇지만 스킵하지 않으면 성능 상 아주 큰 문제가 생김!
     let skippedHead;
     let skippedTail;
-    [lhsLower, lhsUpper, rhsLower, rhsUpper, skippedHead, skippedTail] = consumeCommonEdges(leftTokens, rightTokens, lhsLower, lhsUpper, rhsLower, rhsUpper, ctx.options.tokenization === "word" ? ctx.options.whitespace : "normalize", consumeDirections);
+    [lhsLower, lhsUpper, rhsLower, rhsUpper, skippedHead, skippedTail] = consumeCommonEdges(leftTokens, rightTokens, lhsLower, lhsUpper, rhsLower, rhsUpper, ctx.options.tokenization === "word" ? ctx.options.ignoreWhitespace : "normalize", consumeDirections);
     // 	entries.push(...skippedHead); 이렇게 넣으면 폭발함.
     for (const item of skippedHead) {
         entries.push(item);
@@ -601,7 +602,7 @@ async function diffCore(ctx, leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
 // 단어단위 토큰인 경우 토큰 대 토큰 비교는 실패할 수 밖에 없다.
 // 따라서 각 토큰의 글자를 한땀한땀 매치시켜봐야하고 양쪽에서 토큰이 끝나는 시점까지 모든 글자가 매치되었다면
 // 그 끝나는 시점까지의 토큰 수만큼 consume을 함.
-function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, rhsUpper, whitespace = "ignore", consumeDirections = 3) {
+function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, rhsUpper, whitespace = "onlyAtEdge", consumeDirections = 3) {
     const head = [];
     const tail = [];
     let matchedCount;
@@ -617,10 +618,10 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
                 lhsLower++;
                 rhsLower++;
             }
-            else if (whitespace === "ignore" &&
+            else if (whitespace !== "normalize" &&
                 lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
                 lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
-                (matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
+                (matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))) {
                 head.push({
                     type: 0,
                     left: {
@@ -652,10 +653,10 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
                 lhsUpper--;
                 rhsUpper--;
             }
-            else if (whitespace === "ignore" &&
+            else if (whitespace !== "normalize" &&
                 lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
                 lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
-                (matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper))) {
+                (matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))) {
                 tail.push({
                     type: 0,
                     left: {
@@ -678,7 +679,7 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
     }
     return [lhsLower, lhsUpper, rhsLower, rhsUpper, head, tail];
 }
-function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper) {
+function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper, allowJoinOnlyAtLineBoundary) {
     if (lhsLower >= lhsUpper || rhsLower >= rhsUpper)
         return false;
     let i = lhsLower, j = rhsLower;
@@ -700,13 +701,19 @@ function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (ci === lhsLen) {
             if (i === lhsUpper)
                 return false;
-            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
+            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */ ||
+                (allowJoinOnlyAtLineBoundary && !(lhsToken.flags & 2 /* TokenFlags.LINE_END */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             lhsToken = leftTokens[i++];
             if (!lhsToken)
                 return false;
-            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
+            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */ ||
+                (allowJoinOnlyAtLineBoundary && !(lhsToken.flags & 1 /* TokenFlags.LINE_START */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             ltext = lhsToken.text;
             lhsLen = ltext.length;
             ci = 0;
@@ -714,20 +721,26 @@ function matchPrefixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (cj === rhsLen) {
             if (j === rhsUpper)
                 return false;
-            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
+            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */ ||
+                (allowJoinOnlyAtLineBoundary && !(rhsToken.flags & 2 /* TokenFlags.LINE_END */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             rhsToken = rightTokens[j++];
             if (!rhsToken)
                 return false;
-            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
+            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */ ||
+                (allowJoinOnlyAtLineBoundary && !(rhsToken.flags & 1 /* TokenFlags.LINE_START */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             rtext = rhsToken.text;
             rhsLen = rtext.length;
             cj = 0;
         }
     }
 }
-function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper) {
+function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower, rhsUpper, allowJoinOnlyAtLineBoundary) {
     if (lhsLower >= lhsUpper || rhsLower >= rhsUpper)
         return false;
     let i = lhsUpper - 1, j = rhsUpper - 1;
@@ -747,26 +760,38 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
         if (ci < 0) {
             if (i < lhsLower)
                 return false;
-            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
+            if (lhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */ ||
+                (allowJoinOnlyAtLineBoundary && !(lhsToken.flags & 1 /* TokenFlags.LINE_START */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             lhsToken = leftTokens[i--];
             if (!lhsToken)
                 return false;
-            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
+            if (lhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */ ||
+                (allowJoinOnlyAtLineBoundary && !(lhsToken.flags & 2 /* TokenFlags.LINE_END */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             ltext = lhsToken.text;
             ci = lhsToken.text.length - 1;
         }
         if (cj < 0) {
             if (j < rhsLower)
                 return false;
-            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */)
+            if (rhsToken.flags & 4096 /* TokenFlags.NO_JOIN_PREV */ ||
+                (allowJoinOnlyAtLineBoundary && !(rhsToken.flags & 1 /* TokenFlags.LINE_START */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             rhsToken = rightTokens[j--];
             if (!rhsToken)
                 return false;
-            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */)
+            if (rhsToken.flags & 8192 /* TokenFlags.NO_JOIN_NEXT */ ||
+                (allowJoinOnlyAtLineBoundary && !(rhsToken.flags & 2 /* TokenFlags.LINE_END */)) // 줄바꿈 경계에서만 이어붙이기 허용
+            ) {
                 return false;
+            }
             rtext = rhsToken.text;
             cj = rhsToken.text.length - 1;
         }
@@ -1027,16 +1052,6 @@ const isReddish = (() => {
         return isRed;
     };
 })();
-function debounce(func, delay) {
-    let timeoutId;
-    return function (...args) {
-        const context = this;
-        clearTimeout(timeoutId);
-        timeoutId = setTimeout(function () {
-            func.apply(context, args);
-        }, delay);
-    };
-}
 function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     // console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
     const otherSide = side === "left" ? "right" : "left";
@@ -1086,136 +1101,6 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     // console.warn("mapTokenRangeToOtherSide result", { mappedStart, mappedEnd });
     return [mappedStart, mappedEnd];
 }
-function buildOutputHTMLFromRuns(text, textRuns, options) {
-    let inDiff = false;
-    let result = options.htmlPre ? "<pre>" : "";
-    for (const run of textRuns) {
-        if (run.type === "DIFF") {
-            const diffIndex = run.dataIndex;
-            // result += "<mark>";
-            const color = DIFF_COLOR_HUES[diffIndex % DIFF_COLOR_HUES.length];
-            result += `<mark style="background-color: hsl(${color}, 100%, 80%);">`;
-            inDiff = true;
-        }
-        else if (run.type === "DIFF_END") {
-            if (inDiff) {
-                // result += "</mark>";
-                result += "</mark>";
-                inDiff = false;
-            }
-        }
-        else if (run.type === "CHARS") {
-            result += escapeHTML(text.slice(run.pos, run.pos + run.len));
-        }
-        else if (run.type === "LINEBREAK") {
-            result += "<br/>";
-        }
-    }
-    if (inDiff)
-        result += "</mark>";
-    if (options.htmlPre)
-        result += "</pre>";
-    // result += "<br/>";
-    return result;
-}
-function buildOutputPlainText(leftText, leftRuns, rightText, rightRuns, options = {}) {
-    const leftLabel = options.leftLabel ?? "Left";
-    const rightLabel = options.rightLabel ?? "Right";
-    const leftBody = buildOutputPlainTextFromRuns(leftText, leftRuns, options);
-    const rightBody = buildOutputPlainTextFromRuns(rightText, rightRuns, options);
-    return `${leftLabel}: ${leftBody}\n${rightLabel}: ${rightBody}\n`;
-}
-function buildOutputPlainTextFromRuns(text, textRuns, options) {
-    const format = options.textFormat ?? 0;
-    let result = "";
-    let inDiff = false;
-    let markStart;
-    let markEnd;
-    if (format === 1) {
-        markStart = "**";
-        markEnd = "**";
-    }
-    else if (format === 2) {
-        markStart = "[[ ";
-        markEnd = " ]]";
-    }
-    else {
-        markStart = "";
-        markEnd = "";
-    }
-    for (const run of textRuns) {
-        if (run.type === "DIFF") {
-            if (format !== 0 && !inDiff) {
-                result += markStart;
-                inDiff = true;
-            }
-        }
-        else if (run.type === "DIFF_END") {
-            if (format !== 0 && inDiff) {
-                result += markEnd;
-                inDiff = false;
-            }
-        }
-        else if (run.type === "CHARS") {
-            result += text.slice(run.pos, run.pos + run.len);
-        }
-        else if (run.type === "LINEBREAK") {
-            result += "\n";
-        }
-    }
-    if (inDiff && format !== 0)
-        result += markEnd;
-    return result;
-}
-function buildOutputHTML(leftText, leftRuns, rightText, rightRuns, options = {}) {
-    const leftLabel = options.leftLabel ?? "Left";
-    const rightLabel = options.rightLabel ?? "Right";
-    const htmlFormat = options.htmlFormat ?? "div";
-    if (htmlFormat === "table") {
-        // Default: table format
-        return `<table border="1" cellpadding="8" cellspacing="0">
-  <thead>
-    <tr><th>${escapeHTML(leftLabel)}</th><th>${escapeHTML(rightLabel)}</th></tr>
-  </thead>
-  <tbody>
-    <tr>
-      <td><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></td>
-      <td><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></td>
-    </tr>
-  </tbody>
-</table>`.trim();
-    }
-    if (htmlFormat === "dl") {
-        return `<dl>
-  <dt>${escapeHTML(leftLabel)}</dt>
-  <dd><pre>${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</pre></dd>
-  <dt>${escapeHTML(rightLabel)}</dt>
-  <dd><pre>${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</pre></dd>
-</dl>`.trim();
-    }
-    return `<div>
-<div><strong>${escapeHTML(leftLabel)}:</strong> ${buildOutputHTMLFromRuns(leftText, leftRuns, options)}</div>
-<div><strong>${escapeHTML(rightLabel)}:</strong> ${buildOutputHTMLFromRuns(rightText, rightRuns, options)}</div>
-</div>`.trim();
-}
-function escapeHTML(str) {
-    return str.replace(/[&<>"]|'/g, (char) => {
-        switch (char) {
-            case "&":
-                return "&amp;";
-            case "<":
-                return "&lt;";
-            case ">":
-                return "&gt;";
-            case '"':
-                return "&quot;";
-            case "'":
-                return "&#039;";
-            default:
-                return char;
-        }
-    });
-}
 function parseOrdinalNumber(ordinalText) {
     const norm = ordinalText.replace(/[\(\)\.]/g, "");
     if (/^\d+$/.test(norm)) {
@@ -1226,53 +1111,6 @@ function parseOrdinalNumber(ordinalText) {
         return idx + 1;
     }
     return NaN;
-}
-function findFirstNodeAfter(root, after) {
-    let current = after;
-    while (current && current !== root) {
-        if (current.nextSibling) {
-            return current.nextSibling;
-        }
-        else {
-            current = current.parentNode;
-        }
-    }
-    return null;
-}
-function getTextOffsetOfNode(root, node, end = false) {
-    const filter = node.nodeType === 3 ? NodeFilter.SHOW_TEXT : NodeFilter.SHOW_ALL;
-    let walker = document.createTreeWalker(root, filter, null);
-    let pos = 0;
-    let currentNode;
-    while ((currentNode = walker.nextNode())) {
-        if (currentNode === node && !end) {
-            break;
-        }
-        if (currentNode.nodeType === 3) {
-            pos += currentNode.nodeValue.length;
-        }
-        if (currentNode === node && end) {
-            break;
-        }
-    }
-    return pos;
-}
-function dumpRange() {
-    const sel = window.getSelection();
-    if (sel && sel.rangeCount > 0) {
-        const range = sel.getRangeAt(0);
-        // console.log("current selection", {
-        // 	range,
-        // 	startContainer: range.startContainer,
-        // 	startOffset: range.startOffset,
-        // 	endContainer: range.endContainer,
-        // 	endOffset: range.endOffset,
-        // });
-        return range;
-    }
-    else {
-        console.log("no selection");
-    }
 }
 function findAdjacentTextNode(node, skipEmpty = false) {
     let root = node;
@@ -1324,14 +1162,6 @@ function retreatNode(currentNode) {
     }
     return currentNode.parentNode;
 }
-function findNextAncestorSibling(node, rootNode) {
-    while (node && node !== rootNode) {
-        if (node.nextSibling)
-            return node.nextSibling;
-        node = node.parentNode;
-    }
-    return null;
-}
 function mergeRects(rects, toleranceX = 0, toleranceY = 0) {
     rects.sort((a, b) => a.y - b.y || a.x - b.x);
     const merged = [];
@@ -1382,117 +1212,6 @@ function mergeRects(rects, toleranceX = 0, toleranceY = 0) {
         maxY,
         rects: merged,
     };
-}
-function extractTextRanges(sourceRange) {
-    if (sourceRange.startContainer.nodeType === 3 && sourceRange.startContainer === sourceRange.endContainer) {
-        return [sourceRange];
-    }
-    const root = sourceRange.commonAncestorContainer;
-    const result = [];
-    const walker = document.createTreeWalker(sourceRange.commonAncestorContainer, NodeFilter.SHOW_ALL);
-    let startNode;
-    let endNode;
-    let currentNode;
-    if (sourceRange.startContainer.nodeType === 3) {
-        const r = document.createRange();
-        r.setStart(sourceRange.startContainer, sourceRange.startOffset);
-        r.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue.length);
-        result.push(r);
-        walker.currentNode = sourceRange.startContainer;
-        currentNode = walker.nextNode();
-    }
-    else if (sourceRange.startContainer.nodeType === 1) {
-        startNode = sourceRange.startContainer.childNodes[sourceRange.startOffset] || sourceRange.startContainer;
-        walker.currentNode = currentNode = startNode;
-    }
-    else {
-        throw new Error("Invalid start container");
-    }
-    if (sourceRange.endContainer.nodeType === 3) {
-        endNode = sourceRange.endContainer;
-    }
-    else if (sourceRange.endContainer.nodeType === 1) {
-        if (sourceRange.endOffset < sourceRange.endContainer.childNodes.length) {
-            endNode = sourceRange.endContainer.childNodes[sourceRange.endOffset];
-        }
-        else {
-            endNode = advanceNode(sourceRange.endContainer, root, true);
-        }
-    }
-    else {
-        throw new Error("Invalid end container");
-    }
-    while (currentNode && currentNode !== endNode) {
-        if (currentNode.nodeType === 3) {
-            const r = document.createRange();
-            r.selectNodeContents(currentNode);
-            result.push(r);
-        }
-        else {
-            if (currentNode.nodeName === "BR") {
-                const r = document.createRange();
-                r.selectNode(currentNode);
-                result.push(r);
-            }
-            // do nothing for now
-        }
-        currentNode = walker.nextNode();
-    }
-    if (sourceRange.endContainer.nodeType === 3) {
-        const r = document.createRange();
-        r.setStart(sourceRange.endContainer, 0);
-        r.setEnd(sourceRange.endContainer, sourceRange.endOffset);
-        result.push(r);
-    }
-    return result;
-}
-function getNodesInRange(range, whatToShow = NodeFilter.SHOW_ALL, filter = null) {
-    const commonAncestor = range.commonAncestorContainer;
-    const walker = document.createTreeWalker(commonAncestor, whatToShow, filter);
-    walker.currentNode = range.startContainer;
-    const nodes = [];
-    let node = walker.currentNode;
-    while (node) {
-        const nodeRange = document.createRange();
-        nodeRange.selectNodeContents(node);
-        const startsBeforeEnd = nodeRange.compareBoundaryPoints(Range.END_TO_START, range) < 0;
-        const endsAfterStart = nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0;
-        if (startsBeforeEnd && endsAfterStart) {
-            nodes.push(node);
-        }
-        else if (!startsBeforeEnd) {
-            // 이미 범위를 지난 경우 break
-            break;
-        }
-        node = walker.nextNode();
-    }
-    return nodes;
-}
-function getFullyContainedNodesInRange(range, whatToShow = NodeFilter.SHOW_ALL, filter = null) {
-    const walker = document.createTreeWalker(range.commonAncestorContainer, whatToShow, filter);
-    walker.currentNode = range.startContainer;
-    const nodes = [];
-    let node = walker.currentNode;
-    while (node) {
-        const nodeRange = document.createRange();
-        try {
-            nodeRange.selectNode(node);
-        }
-        catch {
-            // 텍스트 노드 등 selectNode 실패 시에는 selectNodeContents
-            nodeRange.selectNodeContents(node);
-        }
-        const startsAfterOrAt = nodeRange.compareBoundaryPoints(Range.START_TO_START, range) >= 0;
-        const endsBeforeOrAt = nodeRange.compareBoundaryPoints(Range.END_TO_END, range) <= 0;
-        if (startsAfterOrAt && endsBeforeOrAt) {
-            nodes.push(node);
-        }
-        else if (!startsAfterOrAt && nodeRange.compareBoundaryPoints(Range.START_TO_END, range) > 0) {
-            break; // 앞으로는 포함될 가능성 없음
-        }
-        node = walker.nextNode();
-    }
-    return nodes;
 }
 function extractRects(sourceRange, forceAnchorRects = false) {
     // console.debug("extractRects", sourceRange);
@@ -1593,7 +1312,7 @@ function extractRects(sourceRange, forceAnchorRects = false) {
             //
         }
         else if (currentNode.nodeName === "A") {
-            if (forceAnchorRects) {
+            if (forceAnchorRects && currentNode.classList.contains("diff")) {
                 // 가장 확실한 방법이지만 넣었다 뺐다 잘못하면 인생 망가짐... reflow 유발 => 많이 느리다.
                 const tempText = document.createTextNode("\u200B"); // zero-width space
                 currentNode.appendChild(tempText);
@@ -1601,21 +1320,24 @@ function extractRects(sourceRange, forceAnchorRects = false) {
                 for (const rect of tempRange.getClientRects()) {
                     result.push({
                         x: rect.x,
-                        y: rect.y,
+                        y: rect.y - 1.5,
                         width: rect.width,
-                        height: rect.height,
+                        height: rect.height + 3,
                     });
                 }
                 tempText.remove();
             }
             else {
-                for (const rect of currentNode.getClientRects()) {
-                    result.push({
-                        x: rect.x,
-                        y: rect.y,
-                        width: rect.width,
-                        height: rect.height,
-                    });
+                if (currentNode.classList.contains("manual-anchor")) {
+                    tempRange.selectNode(currentNode);
+                    for (const rect of currentNode.getClientRects()) {
+                        result.push({
+                            x: rect.x,
+                            y: rect.y,
+                            width: rect.width,
+                            height: rect.height,
+                        });
+                    }
                 }
             }
         }
@@ -1715,6 +1437,9 @@ function translateTokenFlagsToAnchorFlags(tokenFlags, endTokenFlags) {
     }
     return flags;
 }
+function cycleWhitespace(mode) {
+    return mode === "ignore" ? "normalize" : mode === "normalize" ? "onlyAtEdge" : "ignore";
+}
 //# sourceMappingURL=utils.js.map
 </script>
 <script>"use strict";
@@ -1734,10 +1459,11 @@ function createAtom(name, initialValue) {
         },
         set(newValue) {
             if (value === newValue) {
-                return;
+                return false;
             }
             value = newValue;
             listeners.forEach((fn) => fn(value));
+            return true;
         },
         subscribe(fn) {
             listeners.add(fn);
@@ -2058,7 +1784,6 @@ function sanitizeHTML(rawHTML) {
     }
     const tmpl = document.createElement("template");
     tmpl.innerHTML = rawHTML;
-    console.log("rawHTML", rawHTML);
     const statesStack = [];
     let states = {
         font: null,
@@ -2180,8 +1905,8 @@ function sanitizeHTML(rawHTML) {
 //# sourceMappingURL=sanitize.js.map
 </script>
 <script>"use strict";
-const MANUAL_ANCHOR1 = "@@@";
-const MANUAL_ANCHOR2 = "###";
+const MANUAL_ANCHOR1 = "🔗@";
+const MANUAL_ANCHOR2 = "🔗#";
 // const normalizeChars: { [ch: string]: string } = {};
 const spaceChars = {
     " ": true,
@@ -2310,11 +2035,11 @@ for (let i = 0; i < HANGUL_ORDER.length; i++) {
 }
 const SectionHeadingTrieNode = sectionHeadingTrie.root;
 const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
-const manualAnchorTrie = createTrie(false);
-manualAnchorTrie.insert(MANUAL_ANCHOR1, 32768 /* TokenFlags.MANUAL_ANCHOR */);
-manualAnchorTrie.insert(MANUAL_ANCHOR2, 32768 /* TokenFlags.MANUAL_ANCHOR */);
-const manualAnchorTrieNode = manualAnchorTrie.root;
-const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
+// const manualAnchorTrie = createTrie(false);
+// manualAnchorTrie.insert(MANUAL_ANCHOR1, TokenFlags.MANUAL_ANCHOR);
+// manualAnchorTrie.insert(MANUAL_ANCHOR2, TokenFlags.MANUAL_ANCHOR);
+// const manualAnchorTrieNode = manualAnchorTrie.root;
+// const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 function normalize(text) {
     let result = "";
     for (const char of text) {
@@ -2412,7 +2137,7 @@ function* tokenizer(ctx, idleDeadline) {
         } while (i < textNodeBuf.length);
         return null;
     }
-    function doTokenize() {
+    function doTokenizeText() {
         console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
         let nodeIndex = 0;
         let charIndex = 0;
@@ -2467,7 +2192,7 @@ function* tokenizer(ctx, idleDeadline) {
                             continue OUTER;
                         }
                     }
-                    if (sectionHeadingStartChars[char] && nextTokenFlags & 1 /* TokenFlags.LINE_START */) {
+                    if (sectionHeadingStartChars[char] && nextTokenFlags & 1 /* TokenFlags.LINE_START */ && !currentToken && currentStart === -1) {
                         const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
                         if (match) {
                             const startContainer = textNode;
@@ -2548,7 +2273,7 @@ function* tokenizer(ctx, idleDeadline) {
         }
         const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
         if (isTokenBoundary && textNodeBuf.length > 0) {
-            doTokenize();
+            doTokenizeText();
         }
         const childNodes = node.childNodes;
         const tokenStartIndex = tokenIndex;
@@ -2565,16 +2290,41 @@ function* tokenizer(ctx, idleDeadline) {
                 const childNodeName = child.nodeName;
                 // 재귀 호출을 안해도 되는 단순한 case
                 if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
-                    if (childNodeName === "BR" || childNodeName === "HR") {
+                    if (childNodeName === "A") {
+                        // IGNORE THIS
+                    }
+                    else if (childNodeName === "BR" || childNodeName === "HR") {
                         if (textNodeBuf.length > 0) {
-                            doTokenize();
+                            doTokenizeText();
                         }
                         nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
                         lineNum++;
+                        if (childNodeName === "HR" && child.classList.contains("manual-anchor")) {
+                            if (textNodeBuf.length > 0) {
+                                doTokenizeText();
+                            }
+                            const range = document.createRange();
+                            range.selectNode(child);
+                            currentToken = {
+                                text: child.dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
+                                flags: 32768 /* TokenFlags.MANUAL_ANCHOR */ |
+                                    4096 /* TokenFlags.NO_JOIN_PREV */ |
+                                    8192 /* TokenFlags.NO_JOIN_NEXT */ |
+                                    nextTokenFlags |
+                                    1 /* TokenFlags.LINE_START */ |
+                                    2 /* TokenFlags.LINE_END */,
+                                range,
+                                container: currentContainer,
+                                lineNum: lineNum,
+                            };
+                            nextTokenFlags = 0;
+                            // console.log("manual anchor found", currentToken.text, currentToken.range);
+                            finalizeToken();
+                        }
                     }
                     else if (childNodeName === "IMG") {
                         if (textNodeBuf.length > 0) {
-                            doTokenize();
+                            doTokenizeText();
                         }
                         const range = document.createRange();
                         range.selectNode(child);
@@ -2594,7 +2344,7 @@ function* tokenizer(ctx, idleDeadline) {
             }
         }
         if (isTokenBoundary && textNodeBuf.length > 0) {
-            doTokenize();
+            doTokenizeText();
         }
         const tokenEndIndex = tokenIndex;
         const tokenCount = tokenEndIndex - tokenStartIndex;
@@ -2706,6 +2456,9 @@ class Editor {
     #callbacks;
     #bottomPaddingElement = document.createElement("div");
     #prevWidth = 0;
+    #readonly = false;
+    #aboveOverlay = document.createElement("div");
+    #belowOverlay = document.createElement("div");
     constructor(container, editorName, callbacks) {
         this.#editorName = editorName;
         this.#container = container;
@@ -2715,9 +2468,15 @@ class Editor {
         this.#editor.contentEditable = "true";
         this.#editor.spellcheck = false;
         this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+        this.#aboveOverlay.className = "eyes-up-here " + editorName;
+        this.#aboveOverlay.style.opacity = "0";
+        this.#belowOverlay.className = "peach-below " + editorName;
+        this.#belowOverlay.style.opacity = "0";
         this.#wrapper.id = editorName + "EditorWrapper";
         this.#wrapper.classList.add("editor-wrapper");
         this.#wrapper.appendChild(this.#editor);
+        this.#wrapper.appendChild(this.#aboveOverlay);
+        this.#wrapper.appendChild(this.#belowOverlay);
         this.#bottomPaddingElement.className = "maybe-170cm-wasnt-enough";
         this.#bottomPaddingElement.addEventListener("click", (e) => {
             const sel = window.getSelection();
@@ -2740,6 +2499,9 @@ class Editor {
         });
         this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
         this.#editor.addEventListener("input", () => this.#onInput());
+        this.#editor.addEventListener("click", (e) => {
+            callbacks.onClick(this, e);
+        });
         this.#editor.addEventListener("keydown", (e) => this.#onKeyDown(e));
         this.#editor.addEventListener("focus", () => {
             callbacks.onFocus(this);
@@ -2755,14 +2517,24 @@ class Editor {
     get name() {
         return this.#editorName;
     }
+    get readonly() {
+        return this.#readonly;
+    }
+    set readonly(value) {
+        if (this.#readonly === value) {
+            return;
+        }
+        this.#readonly = value;
+        this.#editor.contentEditable = value ? "false" : "true";
+    }
+    get tokens() {
+        return this.#tokens;
+    }
     get wrapper() {
         return this.#wrapper;
     }
     get editor() {
         return this.#editor;
-    }
-    get tokens() {
-        return this.#tokens;
     }
     get scrollTop() {
         return this.#wrapper.scrollTop;
@@ -2788,6 +2560,19 @@ class Editor {
                 behavior: "instant",
             });
         }
+        if (e.altKey && (e.key === "2" || e.key === "3")) {
+            const selection = document.getSelection();
+            if (!selection || selection.rangeCount === 0) {
+                return;
+            }
+            const range = selection.getRangeAt(0);
+            if (!this.#editor.contains(range.commonAncestorContainer)) {
+                return;
+            }
+            e.preventDefault();
+            const html = e.key === "2" ? "<hr data-manual-anchor='A' class=\"manual-anchor\">" : "<hr data-manual-anchor='B' class=\"manual-anchor\">";
+            document.execCommand("insertHTML", false, html); // 줄바꿈 추가
+        }
     }
     #onScroll(e) {
         this.#callbacks.onScroll(this, this.#wrapper.scrollTop, this.#wrapper.scrollLeft);
@@ -2797,10 +2582,15 @@ class Editor {
         this.#tokenize();
     }
     #onResize() {
-        const newWidth = this.#editor.getBoundingClientRect().width;
+        const rect = this.#editor.getBoundingClientRect();
+        const newWidth = rect.width;
         if (this.#prevWidth !== newWidth) {
             this.#prevWidth = newWidth;
             this.#callbacks.onResize(this);
+            this.#aboveOverlay.style.left = `${rect.left}px`;
+            this.#belowOverlay.style.left = `${rect.left}px`;
+            this.#aboveOverlay.style.width = `${this.#wrapper.clientWidth}px`;
+            this.#belowOverlay.style.width = `${this.#wrapper.clientWidth}px`;
         }
     }
     #onMutation(mutations) {
@@ -3035,89 +2825,68 @@ class Editor {
             console.warn(this.#editorName, "getAnchorInsertionPoint", "No token found for index", tokenIndex);
             return null;
         }
-        let container = token.range.startContainer;
-        let insertPoint;
-        if (container.nodeType === 3) {
-            insertPoint = container;
-            container = container.parentElement;
-        }
-        else {
-            container = token.range.startContainer.parentNode;
-            insertPoint = token.range.startContainer;
-        }
         const insertionRange = document.createRange();
         const editor = this.#editor;
-        function pinpointWhereToSlideItIn(flags, container, insertPoint) {
-            if (flags & 32 /* AnchorFlags.TABLE_START */) {
-                if (insertPoint.nodeName === "TABLE") {
-                    insertionRange.setStartBefore(insertPoint);
-                    return true;
-                }
-            }
-            else if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
-                if (container.nodeName === "TD" || container.nodeName === "TH") {
-                    insertionRange.setStart(container, 0);
-                    return true;
+        if (token.flags & 32768 /* TokenFlags.MANUAL_ANCHOR */) {
+            const anchorEl = token.range.startContainer.childNodes[token.range.startOffset];
+            insertionRange.setStartBefore(anchorEl);
+            insertionRange.collapse(true);
+            return insertionRange;
+        }
+        let container = token.range.startContainer;
+        let insertionOffset = token.range.startOffset;
+        if (container.nodeType === 3) {
+            insertionOffset = Array.prototype.indexOf.call(container.parentNode.childNodes, container);
+            container = container.parentElement;
+        }
+        let containerNodeName = container.nodeName;
+        do {
+            if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
+                if (containerNodeName === "TD") {
+                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.collapse(true);
+                    return insertionRange;
                 }
             }
             else if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
-                if (container === editor || TEXT_FLOW_CONTAINERS[container.nodeName]) {
-                    insertionRange.setStart(container, 0);
-                    return true;
+                if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
+                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.collapse(true);
+                    return insertionRange;
                 }
             }
-            else if (BLOCK_ELEMENTS[container.nodeName]) {
-                insertionRange.setStart(container, 0);
-                return true;
+            else if (flags & 2 /* AnchorFlags.BLOCK_START */) {
+                if (BLOCK_ELEMENTS[containerNodeName]) {
+                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.collapse(true);
+                    return insertionRange;
+                }
             }
-            return false;
-        }
-        function wrapBeforeInsertIfNecessary(range) {
-            const container = range.startContainer;
-            let offset = range.startOffset;
-            let node = container.childNodes[offset];
-            while (node && node.nodeName === "A") {
-                if (node.classList.contains("anchor")) {
-                    // Found valid anchor; keep range as-is
+            else {
+                const currentNode = container.childNodes[insertionOffset];
+                const currentNodeName = currentNode.nodeName;
+                if (currentNodeName === "BR") {
+                    // <BR>이 토큰이 범위에 들어있을 리는 없기 때문에 이건 토큰 앞에 있는 노드임
+                    // BLOCK_START 조건이 없다면 <BR> 뒤에 앵커 삽입
+                    if (!(flags & 2 /* AnchorFlags.BLOCK_START */)) {
+                        insertionRange.setStartAfter(currentNode);
+                        insertionRange.collapse(true);
+                        return insertionRange;
+                    }
+                }
+            }
+            insertionOffset--;
+            if (insertionOffset < 0) {
+                // We reached the start of the container, so we need to move up to the parent node.
+                if (container === editor) {
+                    // If we are at the editor root, we cannot go further up.
                     break;
                 }
-                if (node.classList.contains("diff")) {
-                    // Skip this diff anchor
-                    offset += 1;
-                    node = container.childNodes[offset];
-                    continue;
-                }
-                // Unknown <a>, probably junk — bail
-                return null;
+                insertionOffset = Array.prototype.indexOf.call(container.parentNode.childNodes, container);
+                container = container.parentNode;
+                containerNodeName = container.nodeName;
             }
-            // Adjust range only if we skipped something
-            if (offset !== range.startOffset) {
-                range.setStart(container, offset);
-            }
-            range.collapse(true);
-            return range;
-        }
-        do {
-            if (pinpointWhereToSlideItIn(flags, container, insertPoint)) {
-                const rangeWithSafetyOn = wrapBeforeInsertIfNecessary(insertionRange);
-                return rangeWithSafetyOn;
-            }
-            if (container === editor) {
-                break;
-            }
-            insertPoint = container;
-            container = container.parentNode;
-        } while (container);
-        console.warn(this.#editorName, "getAnchorInsertionPoint", "No suitable insertion point found for anchor", {
-            tokenIndex,
-            token,
-            flags,
-            beforeNode: insertPoint,
-            container,
-        });
-        // if (firstContainer && firstBeforeNode) {
-        // 	return this.#getExistingOrCreateAnchor(firstContainer as HTMLElement, firstBeforeNode);
-        // }
+        } while (comparePoint(token.range.startContainer, token.range.startOffset, container, insertionOffset) >= 0);
         return null;
     }
     *yieldDiffAnchorPointsInRange(tokenIndex) {
@@ -3326,6 +3095,22 @@ class Editor {
     getBoundingClientRect() {
         return this.#wrapper.getBoundingClientRect();
     }
+    // 앵커를 에디터가 추적을 하긴 해야한다.
+    // 그래야 앵커와 앵커 사이의 어떤 토큰들이 들어있는지 파악이 가능하다.
+    // 그리고 그 토큰들을 사용해서 앵커와 앵커 사이에 어떤 diff가 있는지 파악 가능
+    // 그리고 alignAnchors()가 되었을때 화면상 첫앵커와 끝앵커 사이의 diff geometries를 invalidate할 수 있다.
+    // TODO
+    removeDanglingAnchors() { }
+    forceReflow() {
+        // force reflow
+        this.#wrapper.style.display = "none";
+        this.#wrapper.offsetHeight; // force reflow
+        this.#wrapper.style.display = "";
+    }
+    toggleDirectionalOverlays(above, below) {
+        this.#aboveOverlay.style.opacity = above ? "1" : "0";
+        this.#belowOverlay.style.opacity = below ? "1" : "0";
+    }
 }
 //# sourceMappingURL=editor.js.map
 </script>
@@ -3336,61 +3121,62 @@ class AnchorManager {
     #anchorPairs = [];
     #anchorMap = new Map();
     #invalidated = false;
-    #visibilityChanged = false;
-    #numLeftVisible = 0;
-    #numRightVisible = 0;
+    #leftVisiblePairs = new Set();
+    #rightVisiblePairs = new Set();
+    #observerPristine = false;
+    #pendingPairs = null;
+    #observerCallback;
     #observer = new IntersectionObserver((entries) => {
+        // console.debug("AnchorManager: IntersectionObserver entries", entries);
         for (const entry of entries) {
-            const visible = entry.isIntersecting;
             const anchorEl = entry.target;
             const pair = this.#anchorMap.get(anchorEl);
             if (!pair) {
-                console.warn("AnchorManager: Anchor element not found in map", anchorEl);
                 continue;
             }
+            const nowVisible = entry.isIntersecting;
+            let visiblePairs;
             if (pair.leftEl === anchorEl) {
-                pair.leftVisible = visible;
-                if (visible) {
-                    this.#numLeftVisible++;
-                }
-                else {
-                    this.#numLeftVisible--;
-                }
+                visiblePairs = this.#leftVisiblePairs;
             }
             else {
-                pair.rightVisible = visible;
-                if (visible) {
-                    this.#numRightVisible++;
-                }
-                else {
-                    this.#numRightVisible--;
-                }
+                visiblePairs = this.#rightVisiblePairs;
+            }
+            if (nowVisible) {
+                visiblePairs.add(pair);
+            }
+            else {
+                visiblePairs.delete(pair);
             }
         }
-        if (!this.#visibilityChanged) {
-            this.#visibilityChanged = true;
-            console.debug("AnchorManager: Visibility changed");
+        if (this.#observerPristine) {
+            this.#observerPristine = false;
+            this.#observerCallback();
         }
     }, {
         threshold: 0,
+        rootMargin: "100px 0px 100px 0px", // 100px margin to avoid flickering
     });
-    constructor(leftEditor, rightEditor) {
+    constructor(leftEditor, rightEditor, observerCallback) {
         this.#leftEditor = leftEditor;
         this.#rightEditor = rightEditor;
+        this.#observerCallback = observerCallback;
     }
     update(callback) {
+        this.#leftVisiblePairs.clear();
+        this.#rightVisiblePairs.clear();
+        this.#observerPristine = true;
         this.#observer.disconnect();
-        this.#visibilityChanged = false;
-        this.#numLeftVisible = 0;
-        this.#numRightVisible = 0;
         this.#anchorMap.clear();
         const oldAnchorPairs = this.#anchorPairs;
         this.#anchorPairs = [];
         // 앵커 추가
         // 앵커맵 업데이트
         const tryAddAnchorPair = this.#tryAddAnchorPair.bind(this);
+        const addAnchorEls = this.addAnchorPair.bind(this);
         callback({
             tryAddAnchorPair,
+            addAnchorEls,
         });
         for (const anchorPair of oldAnchorPairs) {
             const { leftEl, rightEl } = anchorPair;
@@ -3401,24 +3187,69 @@ class AnchorManager {
                 rightEl.remove();
             }
         }
-        console.debug("AnchorManager.update", {
-            anchorPairs: this.#anchorPairs,
-            anchorMap: this.#anchorMap,
-        });
+        // console.debug("AnchorManager.update", {
+        // 	anchorPairs: this.#anchorPairs,
+        // 	anchorMap: this.#anchorMap,
+        // 	numLeftVisible: this.#leftVisiblePairs.size,
+        // 	numRightVisible: this.#rightVisiblePairs.size,
+        // });
+    }
+    #anchorFlagsToString(flags) {
+        const flagsArray = [];
+        if (flags & 1 /* AnchorFlags.LINE_START */) {
+            flagsArray.push("LINE_START");
+        }
+        if (flags & 2 /* AnchorFlags.BLOCK_START */) {
+            flagsArray.push("BLOCK_START");
+        }
+        if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
+            flagsArray.push("CONTAINER_START");
+        }
+        if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
+            flagsArray.push("TABLECELL_START");
+        }
+        if (flags & 16 /* AnchorFlags.TABLEROW_START */) {
+            flagsArray.push("TABLEROW_START");
+        }
+        if (flags & 32 /* AnchorFlags.TABLE_START */) {
+            flagsArray.push("TABLE_START");
+        }
+        if (flags & 64 /* AnchorFlags.AFTER_CONTAINER */) {
+            flagsArray.push("AFTER_CONTAINER");
+        }
+        if (flags & 128 /* AnchorFlags.EMPTY_DIFF */) {
+            flagsArray.push("EMPTY_DIFF");
+        }
+        if (flags & 256 /* AnchorFlags.SECTION_HEADING */) {
+            flagsArray.push("SECTION_HEADING");
+        }
+        if (flagsArray.length === 0) {
+            return "None";
+        }
+        return flagsArray.join(" | ");
     }
     #tryAddAnchorPair(leftTokenIndex, leftFlags, rightTokenIndex, rightFlags, diffIndex) {
         const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags);
         if (!leftPoint) {
-            return false;
+            // console.warn("AnchorManager: No valid left anchor point found for token index", leftTokenIndex, "with flags", this.#anchorFlagsToString(leftFlags));
+            // console.debug("AnchorManager:
+            return null;
         }
         const rightPoint = this.#findSlideSpot(this.#rightEditor, rightTokenIndex, rightFlags);
         if (!rightPoint) {
-            return false;
+            // console.warn("AnchorManager: No valid right anchor point found for token index", rightTokenIndex, "with flags", this.#anchorFlagsToString(rightFlags));
+            return null;
         }
+        // console.debug(
+        // 	"AnchorManager: tryAddAnchorPair",
+        // 	this.#anchorPairs.length,
+        // 	`leftTokenIndex: ${leftTokenIndex}, leftFlags: ${this.#anchorFlagsToString(
+        // 		leftFlags
+        // 	)}, rightTokenIndex: ${rightTokenIndex}, rightFlags: ${this.#anchorFlagsToString(rightFlags)}, diffIndex: ${diffIndex}`
+        // );
         const leftEl = this.#slideInGently(leftPoint, leftFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
         const rightEl = this.#slideInGently(rightPoint, rightFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
-        this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
-        return true;
+        return this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
     }
     #getLastAnchorRange(editor) {
         let lastPair = this.#anchorPairs[this.#anchorPairs.length - 1];
@@ -3486,6 +3317,7 @@ class AnchorManager {
         }
         const newAnchor = document.createElement("A");
         newAnchor.classList.add(type);
+        newAnchor.contentEditable = "false";
         insertionPoint.insertNode(newAnchor);
         return newAnchor;
     }
@@ -3504,77 +3336,51 @@ class AnchorManager {
         this.#anchorPairs.push(pair);
         this.#anchorMap.set(leftEl, pair);
         this.#anchorMap.set(rightEl, pair);
-        this.#observer.observe(leftEl);
-        this.#observer.observe(rightEl);
-    }
-    alignAnchors(primaryEditor, containerRect) {
-        const anchors = this.#anchorPairs;
-        if (!anchors) {
-            return [false, NaN];
+        if (leftEl.nodeName === "A") {
+            this.#observer.observe(leftEl);
         }
+        if (rightEl.nodeName === "A") {
+            this.#observer.observe(rightEl);
+        }
+        leftEl.dataset.anchorIndex = pair.index.toString();
+        rightEl.dataset.anchorIndex = pair.index.toString();
+        if (diffIndex !== null) {
+            leftEl.dataset.diffIndex = diffIndex.toString();
+            rightEl.dataset.diffIndex = diffIndex.toString();
+        }
+        else {
+            delete leftEl.dataset.diffIndex;
+            delete rightEl.dataset.diffIndex;
+        }
+        return pair;
+    }
+    doAlingAnchors(pairs) {
+        // console.debug("AnchorManager.doAlingPairs: aligning pairs", pairs.length);
         const MIN_DELTA = 1;
         const MIN_STRIPED_DELTA = 10;
-        if (this.#invalidated) {
-            console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
-            this.#invalidated = false;
-            for (const pair of this.#anchorPairs) {
-                pair.aligned = false;
-                pair.delta = 0;
-            }
-        }
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
         let leftScrollTop = leftEditor.scrollTop;
         let rightScrollTop = rightEditor.scrollTop;
-        let lastWasAligned = false;
-        let changed = false;
-        let leftY;
-        let rightY;
-        let delta;
-        let numHandled = 0;
-        let maxLeftY = 0;
-        let maxRightY = 0;
-        let dirty = false;
-        for (const pair of anchors) {
-            const visible = primaryEditor === leftEditor ? pair.leftVisible : pair.rightVisible;
-            if (!visible) {
-                if (numHandled >= (primaryEditor === leftEditor ? this.#numLeftVisible : this.#numRightVisible)) {
-                    //console.debug("AnchorManager.alignAnchors: all visible anchors handled");
-                    break;
-                }
-                continue;
-            }
-            numHandled++;
-            if (!dirty) {
-                if (pair.aligned && numHandled > 1) {
-                    continue;
-                }
-                else {
-                    dirty = true;
-                }
-            }
+        let changeCount = 0;
+        // 초기화
+        for (const pair of pairs) {
             const { leftEl, rightEl } = pair;
-            const prevDelta = pair.delta;
-            leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
-            rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
-            delta = leftY - rightY;
-            if ((delta < -MIN_DELTA || delta > MIN_DELTA) && prevDelta !== 0) {
-                leftEl.classList.remove("padtop", "striped");
-                rightEl.classList.remove("padtop", "striped");
-                leftEl.style.removeProperty("--padding");
-                rightEl.style.removeProperty("--padding");
-                void leftEl.offsetHeight;
-                void rightEl.offsetHeight;
-                leftScrollTop = leftEditor.scrollTop;
-                rightScrollTop = rightEditor.scrollTop;
-                pair.delta = 0;
-                leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
-                rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
-                delta = leftY - rightY;
-            }
+            rightEl.classList.remove("padtop", "striped");
+            rightEl.style.removeProperty("--padding");
+            leftEl.classList.remove("padtop", "striped");
+            leftEl.style.removeProperty("--padding");
+        }
+        leftEditor.forceReflow();
+        rightEditor.forceReflow();
+        rightScrollTop = rightEditor.scrollTop;
+        leftScrollTop = leftEditor.scrollTop;
+        for (const pair of pairs) {
+            const { leftEl, rightEl } = pair;
+            let leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+            let rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+            let delta = Math.round(leftY - rightY);
             if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                delta = Math.round(delta);
-                pair.delta = delta;
                 let theEl;
                 if (delta > 0) {
                     theEl = rightEl;
@@ -3591,29 +3397,44 @@ class AnchorManager {
                 void theEl.offsetHeight;
                 leftScrollTop = leftEditor.scrollTop;
                 rightScrollTop = rightEditor.scrollTop;
-            }
-            pair.aligned = true;
-            maxLeftY = Math.max(maxLeftY, leftY);
-            maxRightY = Math.max(maxRightY, rightY);
-            if (prevDelta !== pair.delta) {
-                // console.log("new delta", pair.delta, "prevDelta", prevDelta);
-                changed = true;
-                lastWasAligned = false;
-            }
-            else {
-                lastWasAligned = true;
+                changeCount++;
             }
         }
-        let editorHeight;
-        if (leftY !== undefined) {
-            // 마지막 앵커부터 남은 영역의 높이
-            let tailHeight = Math.max(leftEditor.contentHeight - maxLeftY, rightEditor.contentHeight - maxRightY);
-            editorHeight = Math.max(maxLeftY, maxRightY) + tailHeight;
+        return changeCount;
+    }
+    alignPendingAnchors() {
+        if (this.#pendingPairs) {
+            // console.debug("AnchorManager.alignPendingAnchors: aligning pending pairs", this.#pendingPairs.length);
+            this.doAlingAnchors(this.#pendingPairs);
+            this.#pendingPairs = null;
         }
-        else {
-            editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
+    }
+    alignAnchors(primaryEditor, containerRect) {
+        // if (isScrolling) {
+        // 	return [false, NaN];
+        // }
+        const anchors = this.#anchorPairs;
+        if (!anchors) {
+            return [false, NaN];
         }
-        return [changed, editorHeight];
+        const startTime = performance.now();
+        const MIN_DELTA = 1;
+        const MIN_STRIPED_DELTA = 10;
+        if (this.#invalidated) {
+            // console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
+            this.#invalidated = false;
+            for (const pair of this.#anchorPairs) {
+                pair.aligned = false;
+                pair.delta = 0;
+            }
+        }
+        let changedCount = this.doAlingAnchors(anchors);
+        // console.debug("AnchorManager.alignAnchors: aligned pairs", changedCount);
+        //console.log("numHandled", numHandled, this.#numLeftVisible, this.#numRightVisible);
+        let editorHeight = Math.max(this.#leftEditor.contentHeight, this.#rightEditor.contentHeight);
+        const endTime = performance.now();
+        // console.debug(`AnchorManager.alignAnchors: aligned ${changedCount} pairs in ${endTime - startTime}ms, editorHeight: ${editorHeight}`);
+        return [changedCount > 0, editorHeight];
     }
     invalidate() {
         this.#invalidated = true;
@@ -3658,9 +3479,10 @@ const REGION_FLAGS_SHIFT = 10;
 const DIFF_EXPAND_X = 2;
 const DIFF_EXPAND_Y = 1;
 const DIFF_LINE_EXPAND_Y = 0;
-const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
-const DIFF_LINE_HEIGHT_MULTIPLIER = 1.4;
+const DIFF_LINE_FILL_STYLE = "hsl(0 100% 90% / 0.5)";
+const DIFF_LINE_HEIGHT_MULTIPLIER = 1.2;
 const SELECTION_HIGHLIGHT_FILL_STYLE = "rgba(128, 128, 128, 0.3)";
+const GUIDELINE_STROKE_STYLE = "rgba(128, 128, 128, 0.3)";
 class Renderer {
     #container;
     #canvas;
@@ -3675,8 +3497,11 @@ class Renderer {
     #canvasHeight = 0;
     #callbacks;
     #renderCallbackId = null;
-    #layoutDirty = false;
     #nextRenderFlags = 0 /* RenderFlags.NONE */;
+    #mouseX = -1;
+    #mouseY = -1;
+    #guideLineEnabled = false;
+    #guideLineY = null;
     constructor(container, leftRegion, rightRegion, callbacks) {
         this.#container = container;
         this.#canvas = document.createElement("canvas");
@@ -3688,8 +3513,31 @@ class Renderer {
         this.#callbacks = callbacks;
         this.#leftRegion = new RenderRegion("left", this, this.#ctx, this.#highlightCtx, leftRegion, callbacks);
         this.#rightRegion = new RenderRegion("right", this, this.#ctx, this.#highlightCtx, rightRegion, callbacks);
+        container.addEventListener("mousemove", (e) => {
+            const rect = container.getBoundingClientRect();
+            let x = e.clientX - rect.x;
+            let y = e.clientY - rect.y;
+            this.updateCursorPosition(x, y);
+        });
+        container.addEventListener("mouseleave", () => {
+            this.updateCursorPosition(-1, -1);
+        });
+    }
+    get guideLineEnabled() {
+        return this.#guideLineEnabled;
+    }
+    set guideLineEnabled(enabled) {
+        enabled = !!enabled;
+        if (this.#guideLineEnabled === enabled) {
+            return; // No change
+        }
+        this.#guideLineEnabled = enabled;
+        if (enabled || this.#guideLineY !== null) {
+            this.invalidateHighlightLayer(undefined);
+        }
     }
     #updateLayout() {
+        const prevWidth = this.#canvasWidth;
         const { x, y, width, height } = this.#container.getBoundingClientRect();
         this.#canvasX = x;
         this.#canvasY = y;
@@ -3701,7 +3549,7 @@ class Renderer {
         this.#highlightCanvas.height = height;
         this.#leftRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
         this.#rightRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
-        return true;
+        return prevWidth !== this.#canvasWidth;
     }
     #render() {
         if (this.#renderCallbackId !== null) {
@@ -3717,33 +3565,37 @@ class Renderer {
     }
     #renderFlagsToString(flags) {
         const parts = [];
-        if (flags & 1 /* RenderFlags.LAYOUT */)
+        if ((flags & 1 /* RenderFlags.LAYOUT */) === 1 /* RenderFlags.LAYOUT */)
             parts.push("LAYOUT");
-        if (flags & 32 /* RenderFlags.DIFF_LAYER */)
+        if ((flags & 32 /* RenderFlags.DIFF_LAYER */) === 32 /* RenderFlags.DIFF_LAYER */)
             parts.push("DIFF_LAYER");
-        if (flags & 64 /* RenderFlags.HIGHLIGHT_LAYER */)
+        if ((flags & 64 /* RenderFlags.HIGHLIGHT_LAYER */) === 64 /* RenderFlags.HIGHLIGHT_LAYER */)
             parts.push("HIGHLIGHT_LAYER");
-        if (flags & 128 /* RenderFlags.GEOMETRY */)
+        if ((flags & 128 /* RenderFlags.GEOMETRY */) === 128 /* RenderFlags.GEOMETRY */)
             parts.push("GEOMETRY");
-        if (flags & 96 /* RenderFlags.SCROLL */)
-            parts.push("SCROLL");
-        if (flags & 224 /* RenderFlags.RESIZE */)
-            parts.push("RESIZE");
+        // if ((flags & RenderFlags.SCROLL) === RenderFlags.SCROLL) parts.push("SCROLL");
+        // if ((flags & RenderFlags.RESIZE) === RenderFlags.RESIZE) parts.push("RESIZE");
         return parts.join(", ") || "NONE";
     }
-    #doRender(ts) {
+    #doRender(time) {
+        this.#callbacks.onRender(time);
         const layoutFlags = this.#nextRenderFlags & 1 /* RenderFlags.LAYOUT_MASK */;
         let leftRegionFlags = this.#nextRenderFlags & 224 /* RenderFlags.REGION_MASK */;
         let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 224 /* RenderFlags.REGION_MASK */;
+        // if (DIFFSEEK_DEBUG) {
+        // 	console.debug(
+        // 		`[Renderer] Rendering at ${time}ms with flags: (layout: ${this.#renderFlagsToString(layoutFlags)}, left: ${this.#renderFlagsToString(
+        // 			leftRegionFlags
+        // 		)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`
+        // 	);
+        // }
         this.#nextRenderFlags = 0 /* RenderFlags.NONE */; // Reset flags
-        if (DIFFSEEK_DEBUG) {
-            console.debug(`[Renderer] Rendering at ${ts}ms with flags: ${this.#renderFlagsToString(this.#nextRenderFlags)} (layout: ${this.#renderFlagsToString(layoutFlags)}, left: ${this.#renderFlagsToString(leftRegionFlags)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`);
-        }
-        this.#callbacks.onRender();
         if (layoutFlags & 1 /* RenderFlags.LAYOUT */) {
+            leftRegionFlags |= 32 /* RenderFlags.DIFF_LAYER */ | 64 /* RenderFlags.HIGHLIGHT_LAYER */;
+            rightRegionFlags |= 32 /* RenderFlags.DIFF_LAYER */ | 64 /* RenderFlags.HIGHLIGHT_LAYER */;
             if (this.#updateLayout()) {
-                leftRegionFlags |= 224 /* RenderFlags.REGION_MASK */;
-                rightRegionFlags |= 224 /* RenderFlags.REGION_MASK */;
+                leftRegionFlags |= 128 /* RenderFlags.GEOMETRY */;
+                rightRegionFlags |= 128 /* RenderFlags.GEOMETRY */;
             }
         }
         this.#leftRegion.render(leftRegionFlags);
@@ -3752,6 +3604,19 @@ class Renderer {
             // If there are still flags to render, schedule another render
             this.#render();
         }
+        if (this.#guideLineEnabled && this.#mouseY >= 0) {
+            this.#renderGuideLine();
+        }
+    }
+    #renderGuideLine() {
+        const y = this.#mouseY + 0.5;
+        const ctx = this.#highlightCtx;
+        ctx.beginPath();
+        ctx.moveTo(0, y); // +0.5는 픽셀 정렬을 위해. 안 그러면 흐려짐
+        ctx.lineTo(this.#canvasWidth, y);
+        ctx.strokeStyle = GUIDELINE_STROKE_STYLE; // 눈에 띄게
+        ctx.lineWidth = 1;
+        ctx.stroke();
     }
     invalidateAll(skipRender = false) {
         this.#nextRenderFlags = 1 /* RenderFlags.LAYOUT_MASK */ | 224 /* RenderFlags.REGION_MASK */ | (224 /* RenderFlags.REGION_MASK */ << REGION_FLAGS_SHIFT);
@@ -3759,7 +3624,7 @@ class Renderer {
             this.#render();
         }
     }
-    invalidateLayout(skipRender = false) {
+    invalidateLayout(rect, skipRender = false) {
         this.#nextRenderFlags |= 1 /* RenderFlags.LAYOUT_MASK */;
         if (!skipRender) {
             this.#render();
@@ -3800,13 +3665,11 @@ class Renderer {
                 diffIndex: i,
                 range: leftRange,
                 hue: diff.hue,
-                geometry: null,
             };
             rightDiffs[i] = {
                 diffIndex: i,
                 range: rightRange,
                 hue: diff.hue,
-                geometry: null,
             };
         }
         this.#leftRegion.setDiffs(leftDiffs);
@@ -3814,14 +3677,8 @@ class Renderer {
         this.invalidateAll();
     }
     setDiffHighlight(diffIndex) {
-        if (this.#leftRegion.setDiffHighlight(diffIndex)) {
-            this.invalidateHighlightLayer("left");
-            this.invalidateGeometries("left");
-        }
-        if (this.#rightRegion.setDiffHighlight(diffIndex)) {
-            this.invalidateHighlightLayer("right");
-            this.invalidateGeometries("right");
-        }
+        this.#leftRegion.setDiffHighlight(diffIndex);
+        this.#rightRegion.setDiffHighlight(diffIndex);
     }
     setSelectionHighlight(which, range) {
         let leftRange = null;
@@ -3832,12 +3689,8 @@ class Renderer {
         else if (which === "right") {
             rightRange = range;
         }
-        if (this.#leftRegion.setSelectionHighlight(leftRange)) {
-            this.invalidateHighlightLayer("left");
-        }
-        if (this.#rightRegion.setSelectionHighlight(rightRange)) {
-            this.invalidateHighlightLayer("right");
-        }
+        this.#leftRegion.setSelectionHighlight(leftRange);
+        this.#rightRegion.setSelectionHighlight(rightRange);
     }
     hitTest(x, y) {
         let region;
@@ -3860,6 +3713,52 @@ class Renderer {
     getDiffRect(which, diffIndex) {
         const region = which === "left" ? this.#leftRegion : this.#rightRegion;
         return region.getDiffRect(diffIndex);
+    }
+    updateCursorPosition(x, y) {
+        if (this.#mouseX === x && this.#mouseY === y) {
+            return;
+        }
+        this.#mouseX = x;
+        this.#mouseY = y;
+        if (x >= 0 && y >= 0) {
+            const diffIndex = this.hitTest(x, y);
+            highlightedDiffIndexAtom.set(diffIndex);
+            if (this.#guideLineY === y) {
+                return; // No change
+            }
+            this.#guideLineY = y;
+            this.invalidateHighlightLayer(undefined);
+        }
+        else {
+            if (this.#guideLineY !== null) {
+                this.#guideLineY = null;
+                this.invalidateHighlightLayer(undefined);
+            }
+            highlightedDiffIndexAtom.set(null);
+        }
+        // const diffIndex = this.hitTest(x, y);
+        // highlightedDiffIndexAtom.set(diffIndex);
+        // if (this.#guideLineY === y) {
+        // 	return; // No change
+        // }
+        // this.#guideLineY = y;
+        // this.invalidateHighlightLayer(undefined);
+        // let region;
+        // if (x >= this.#rightRegion.regionX) {
+        // 	if ((this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.GEOMETRY) {
+        // 		return null;
+        // 	}
+        // 	region = this.#rightRegion;
+        // 	x = x - this.#rightRegion.regionX;
+        // } else {
+        // 	if (this.#nextRenderFlags & RenderFlags.GEOMETRY) {
+        // 		return null;
+        // 	}
+        // 	region = this.#leftRegion;
+        // 	x = x - this.#leftRegion.regionX;
+        // }
+        // return region.hitTest(x, y);
+        //highlightedDiffIndexAtom.set(diffIndex);
     }
 }
 class RenderRegion {
@@ -3923,25 +3822,21 @@ class RenderRegion {
     // }
     setDiffs(diffs) {
         this.#diffs = diffs;
+        //this.#diffGeometries = new Array(diffs.length);
         // this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
         this.#visibleDiffIndices.clear();
         this.#selectionHighlight = null;
     }
     setDiffHighlight(diffIndex) {
-        // if (this.#highlightedDiffIndex === diffIndex) {
-        // 	return; // No change
-        // }
-        // RECT는 필요 없음
-        let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
+        if (this.#highlightedDiffIndex === diffIndex) {
+            return false; // No change
+        }
+        if ((diffIndex !== null && this.visibleDiffIndices.has(diffIndex)) || // 새로 렌더링 해야 하는 경우
+            (this.#highlightedDiffIndex !== null && this.visibleDiffIndices.has(this.#highlightedDiffIndex)) // 기존에 렌더된 diff
+        ) {
+            this.#renderer.invalidateHighlightLayer(this.#name);
+        }
         this.#highlightedDiffIndex = diffIndex;
-        let shouldShow = (diffIndex !== null && this.#visibleDiffIndices.has(diffIndex)) || (prevShowing && diffIndex === null);
-        if (prevShowing || shouldShow) {
-            // this.markDirty(RenderFlags.HIGHLIGHT_DIFF);
-            return true;
-        }
-        else {
-            return false;
-        }
     }
     setSelectionHighlight(range) {
         const current = this.#selectionHighlight;
@@ -3958,75 +3853,118 @@ class RenderRegion {
         }
         this.#selectionHighlight = range;
         this.#selectionHighlightRects = null;
-        // this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
-        return true;
+        this.#renderer.invalidateHighlightLayer(this.#name);
     }
     render(dirtyFlags) {
+        if (dirtyFlags & 128 /* RenderFlags.GEOMETRY */) {
+            // console.warn(`[RenderRegion] Building diff geometries for ${this.#name} region.`);
+            this.#diffGeometries = new Array(this.#diffs.length);
+            this.#diffLineRects.length = 0;
+        }
         if (dirtyFlags & 32 /* RenderFlags.DIFF_LAYER */) {
-            this.renderDiffLayer(dirtyFlags);
+            this.renderDiffLayer();
         }
         if (dirtyFlags & 64 /* RenderFlags.HIGHLIGHT_LAYER */) {
             this.renderHighlightLayer(dirtyFlags);
         }
     }
-    renderDiffLayer(dirtyFlags) {
+    renderDiffLayer() {
         const ctx = this.#ctx;
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
         ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-        //this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
-        if (dirtyFlags & 128 /* RenderFlags.GEOMETRY */) {
-            this.buildDiffGeometries();
-        }
-        // console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
-        const canvasWidth = this.regionWidth;
-        const canvasHeight = this.regionHeight;
+        const regionWidth = this.regionWidth;
+        const regionHeight = this.regionHeight;
         const visibleDiffIndices = this.#visibleDiffIndices;
         const visChangeEntries = [];
         let scrollTop = this.#regionInfo.scrollTop;
         let scrollLeft = 0;
-        ctx.fillStyle = DIFF_LINE_FILL_STYLE;
-        for (const rect of this.#diffLineRects) {
-            const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-            if (y + height < 0)
-                continue;
-            if (y > canvasHeight)
-                break;
-            ctx.fillRect(x, y, width, height);
-        }
-        const visibleIndices = new Set();
-        for (let diffIndex = 0; diffIndex < this.#diffGeometries.length; diffIndex++) {
-            const geometry = this.#diffGeometries[diffIndex];
-            let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
-                !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
-            if (isVisible) {
-                visibleIndices.add(diffIndex);
-                if (!visibleDiffIndices.has(diffIndex)) {
-                    visibleDiffIndices.add(diffIndex);
-                    visChangeEntries.push({ item: diffIndex, isVisible: true });
-                }
+        const offsetX = -this.regionX;
+        const offsetY = -this.regionY + scrollTop;
+        const diffs = this.#diffs;
+        const diffsToRender = [];
+        const newGeometryRects = [];
+        for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
+            let geometry = this.#diffGeometries[diffIndex];
+            if (!geometry) {
+                const diff = diffs[diffIndex];
+                const wholeRect = diff.range.getBoundingClientRect();
+                const x = wholeRect.x + offsetX - DIFF_EXPAND_X, y = wholeRect.y + offsetY - DIFF_EXPAND_Y, width = wholeRect.width + DIFF_EXPAND_X * 2, height = wholeRect.height + DIFF_EXPAND_Y * 2;
+                this.#diffGeometries[diffIndex] = geometry = {
+                    minX: x,
+                    minY: y,
+                    maxX: x + width,
+                    maxY: y + height,
+                    rects: null,
+                    // fillStyle: null,
+                    // strokeStyle: null,
+                };
             }
-            else {
-                if (visibleDiffIndices.has(diffIndex)) {
-                    visibleDiffIndices.delete(diffIndex);
+            if (geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) {
+                if (visibleDiffIndices.delete(diffIndex)) {
                     visChangeEntries.push({ item: diffIndex, isVisible: false });
                 }
                 continue;
             }
-            ctx.fillStyle = geometry.fillStyle;
-            ctx.strokeStyle = geometry.strokeStyle;
+            if (geometry.rects === null) {
+                const rangeRects = extractRects(diffs[diffIndex].range, true);
+                for (const rect of rangeRects) {
+                    rect.x += offsetX - DIFF_EXPAND_X;
+                    rect.y += offsetY - DIFF_EXPAND_Y;
+                    rect.width += DIFF_EXPAND_X * 2;
+                    rect.height += DIFF_EXPAND_Y * 2;
+                    newGeometryRects.push(rect);
+                }
+                this.#diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1);
+                // geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
+                // geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40% / 0.5)`;
+                // geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80% / 0.7)`;
+                // geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 30% / 0.5)`;
+            }
+            diffsToRender.push(diffIndex);
+        }
+        if (newGeometryRects.length > 0) {
+            this.#mergeIntoDiffLineRects(newGeometryRects);
+        }
+        for (const diffLineRect of this.#diffLineRects) {
+            const x = Math.floor(diffLineRect.x - scrollLeft), y = Math.floor(diffLineRect.y - scrollTop), width = Math.ceil(diffLineRect.width), height = Math.ceil(diffLineRect.height);
+            if (y + height < 0)
+                continue;
+            if (y > regionHeight)
+                break;
+            ctx.fillStyle = DIFF_LINE_FILL_STYLE;
+            ctx.fillRect(x, y, width, height);
+        }
+        for (const diffIndex of diffsToRender) {
+            const geometry = this.#diffGeometries[diffIndex];
+            ctx.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
+            ctx.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40%)`;
+            let rendered = false;
             for (const rect of geometry.rects) {
                 const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                if (y + height < 0 || y > canvasHeight)
+                if (y + height < 0)
                     continue;
-                if (x + width < 0 || x > canvasWidth)
-                    continue;
-                // console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
-                ctx.fillRect(x, y, width, height);
+                if (y + height < 0 || y > regionHeight)
+                    break;
                 ctx.strokeRect(x, y, width, height);
+                ctx.fillRect(x, y, width, height);
+                rendered = true;
+            }
+            if (rendered) {
+                const prevCount = visibleDiffIndices.size;
+                visibleDiffIndices.add(diffIndex);
+                if (visibleDiffIndices.size > prevCount) {
+                    visChangeEntries.push({ item: diffIndex, isVisible: true });
+                }
+            }
+            else {
+                if (visibleDiffIndices.delete(diffIndex)) {
+                    visChangeEntries.push({ item: diffIndex, isVisible: false });
+                }
             }
         }
         if (visChangeEntries.length > 0) {
+            // console.warn(`[RenderRegion] Visibility change entries for ${this.#name} region:`, visChangeEntries);
             this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
         }
         //this.#shouldClearCanvas = renderedAny;
@@ -4037,40 +3975,38 @@ class RenderRegion {
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
         ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-        const canvasWidth = this.regionWidth;
-        const canvasHeight = this.regionHeight;
+        const regionWidth = this.regionWidth;
+        const regionHeight = this.regionHeight;
         const scrollTop = this.#regionInfo.scrollTop;
         const scrollLeft = 0;
         if (this.#highlightedDiffIndex !== null) {
-            // console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
-            const diff = this.#diffs[this.#highlightedDiffIndex];
             const rects = this.#diffGeometries[this.#highlightedDiffIndex];
-            if (rects) {
-                let isVisible = !(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > canvasHeight) &&
-                    !(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > canvasWidth);
-                if (!isVisible) {
-                    return;
-                }
-                ctx.lineWidth = 2;
-                ctx.fillStyle = `hsl(0 100% 80%)`;
-                ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
-                // ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
-                for (const rect of rects.rects) {
-                    const x = Math.floor(rect.x - scrollLeft) - 1, y = Math.floor(rect.y - scrollTop) - 1, width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                    if (y + height < 0 || y > canvasHeight)
-                        continue;
-                    if (x + width < 0 || x > canvasWidth)
-                        continue;
-                    ctx.strokeRect(x, y, width, height);
-                    ctx.fillRect(x, y, width, height);
-                    // ctx.lineWidth = 2;
-                    // ctx.strokeStyle = "white";
-                    // ctx.shadowBlur = 0;
-                    // ctx.shadowColor = "transparent";
-                    // ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+            if (rects && rects.rects) {
+                let isVisible = !(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > regionHeight) &&
+                    !(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > regionWidth);
+                if (isVisible) {
+                    // console.debug(`[RenderRegion] Rendering highlighted diff rects for ${this.#name} region at index ${this.#highlightedDiffIndex}.`, rects);
+                    ctx.lineWidth = 2;
+                    ctx.fillStyle = `hsl(0 100% 80%)`;
+                    ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
+                    // ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
+                    for (const rect of rects.rects) {
+                        const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                        if (y + height < 0 || y > regionHeight)
+                            continue;
+                        if (x + width < 0 || x > regionWidth)
+                            continue;
+                        ctx.strokeRect(x, y, width, height);
+                        ctx.fillRect(x, y, width, height);
+                        // ctx.lineWidth = 2;
+                        // ctx.strokeStyle = "white";
+                        // ctx.shadowBlur = 0;
+                        // ctx.shadowColor = "transparent";
+                        // ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+                    }
+                    ctx.lineWidth = 1;
                 }
             }
-            ctx.lineWidth = 1;
             // ctx.shadowBlur = 0;
             // ctx.strokeStyle = "transparent";
         }
@@ -4083,36 +4019,80 @@ class RenderRegion {
                 let end = performance.now();
                 start = end;
                 const mergedRect = mergeRects(rawRects, 1, 1);
-                for (const rect of mergedRect.rects) {
-                    rect.x += offsetX;
-                    rect.y += offsetY;
+                // FIXE
+                if (mergedRect.rects) {
+                    for (const rect of mergedRect.rects) {
+                        rect.x += offsetX;
+                        rect.y += offsetY;
+                    }
+                    mergedRect.minX += offsetX;
+                    mergedRect.minY += offsetY;
+                    mergedRect.maxX += offsetX;
+                    mergedRect.maxY += offsetY;
+                    this.#selectionHighlightRects = mergedRect;
                 }
-                mergedRect.minX += offsetX;
-                mergedRect.minY += offsetY;
-                mergedRect.maxX += offsetX;
-                mergedRect.maxY += offsetY;
-                mergedRect.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
-                mergedRect.strokeStyle = null;
-                this.#selectionHighlightRects = mergedRect;
                 // console.log("Extracted selection highlight rects in", performance.now() - start, "ms");
             }
             let geometry = this.#selectionHighlightRects;
-            let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
-                !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
-            if (!isVisible) {
-                return;
-            }
-            ctx.fillStyle = geometry.fillStyle;
-            for (const rect of geometry.rects) {
-                const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
-                if (y + height < 0)
-                    continue;
-                if (y > canvasHeight)
-                    break;
-                ctx.fillRect(x, y, width, height);
+            ////////
+            let isVisible = !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) &&
+                !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > regionWidth);
+            if (isVisible) {
+                ctx.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
+                for (const rect of geometry.rects) {
+                    const x = Math.floor(rect.x - scrollLeft), y = Math.floor(rect.y - scrollTop), width = Math.ceil(rect.width), height = Math.ceil(rect.height);
+                    if (y + height < 0)
+                        continue;
+                    if (y > regionHeight)
+                        break;
+                    ctx.fillRect(x, y, width, height);
+                }
             }
         }
         ctx.restore();
+    }
+    #mergeIntoDiffLineRects(incoming) {
+        const TOLERANCE = 1;
+        const regionWidth = this.regionWidth;
+        const allRects = [];
+        // 1. 기존 라인 rect들 복사해서 allRects에 넣기
+        for (const rect of this.#diffLineRects) {
+            allRects.push(rect);
+        }
+        // 2. 새로 들어온 rect들을 line rect 형태로 변형해서 넣기
+        for (const rect of incoming) {
+            const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER;
+            const heightDelta = height - rect.height;
+            const y = rect.y - heightDelta / 2;
+            allRects.push({
+                x: 0,
+                y,
+                width: regionWidth,
+                height,
+            });
+        }
+        // 3. 정렬 후 병합
+        allRects.sort((a, b) => a.y - b.y);
+        this.#diffLineRects.length = 0;
+        let current = allRects[0];
+        for (let i = 1; i < allRects.length; i++) {
+            const next = allRects[i];
+            const gap = next.y - (current.y + current.height);
+            if (gap <= TOLERANCE) {
+                const newBottom = Math.max(current.y + current.height, next.y + next.height);
+                current = {
+                    x: 0,
+                    y: current.y,
+                    width: regionWidth,
+                    height: newBottom - current.y,
+                };
+            }
+            else {
+                this.#diffLineRects.push(current);
+                current = next;
+            }
+        }
+        this.#diffLineRects.push(current);
     }
     buildDiffGeometries() {
         const scrollTop = this.#regionInfo.scrollTop;
@@ -4120,7 +4100,6 @@ class RenderRegion {
         const offsetY = -this.regionY + scrollTop;
         //void this.#container.offsetWidth; // force reflow
         const allDiffRects = [];
-        this.#diffGeometries.length = this.#diffs.length;
         for (let diffIndex = 0; diffIndex < this.#diffs.length; diffIndex++) {
             const item = this.#diffs[diffIndex];
             const range = item.range;
@@ -4133,10 +4112,7 @@ class RenderRegion {
                 allDiffRects.push(rect);
             }
             const mergedRects = mergeRects(rawRects, 1, 1);
-            mergedRects.fillStyle = `hsl(${item.hue} 100% 80%)`;
-            mergedRects.strokeStyle = `hsl(${item.hue} 100% 40% / 0.5)`;
             this.#diffGeometries[diffIndex] = mergedRects;
-            item.geometry = mergedRects;
         }
         this.buildDiffLineRects(allDiffRects);
     }
@@ -4198,7 +4174,7 @@ class RenderRegion {
         y += this.#regionInfo.scrollTop;
         for (const diffIndex of this.#visibleDiffIndices) {
             const geometry = this.#diffGeometries[diffIndex];
-            if (geometry) {
+            if (geometry && geometry.rects) {
                 for (const rect of geometry.rects) {
                     if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
                         return diffIndex;
@@ -4213,6 +4189,10 @@ class RenderRegion {
         for (const diffIndex of this.#visibleDiffIndices) {
             // console.log("Checking diff index:", diffIndex, "at point:", x, y);
             const geometry = this.#diffGeometries[diffIndex];
+            if (!geometry || !geometry.rects) {
+                // console.log("No geometry for diff index:", diffIndex);
+                continue;
+            }
             // console.log("Geometry for diff index:", diffIndex, "is", geometry);
             for (const rect of geometry.rects) {
                 // console.log("Checking rect:", rect, "at point:", x, y);
@@ -4446,31 +4426,67 @@ class DiffListItem {
         this.#element.classList.add("flash-once");
     }
 }
-//# sourceMappingURL=SideView.js.map
+//# sourceMappingURL=side-view.js.map
+</script>
+<script>"use strict";
+class FetishSelector {
+    #el;
+    #btnSync;
+    #btnWhitespace;
+    #btnSidebarExpand;
+    constructor(container) {
+        this.#el = container;
+        this.#btnSync = container.querySelector("#syncToggleBtn");
+        this.#btnWhitespace = container.querySelector("#whitespaceToggleBtn");
+        this.#btnSidebarExpand = container.querySelector("#sidebarExpandBtn");
+        this.#btnSync.title = "F2";
+        this.#btnSync.addEventListener("click", () => {
+            syncModeAtom.set(!syncModeAtom.get());
+        });
+        this.#btnWhitespace.title = "F8";
+        this.#btnWhitespace.addEventListener("click", () => {
+            const next = cycleWhitespace(whitespaceHandlingAtom.get());
+            whitespaceHandlingAtom.set(next);
+        });
+        this.#btnSidebarExpand.title = "F9";
+        this.#btnSidebarExpand.addEventListener("click", () => {
+            const expanded = !sidebarExpandedAtom.get();
+            sidebarExpandedAtom.set(expanded);
+        });
+        // Subscribe to atom changes
+        const update = this.#update.bind(this);
+        syncModeAtom.subscribe(update);
+        whitespaceHandlingAtom.subscribe(update);
+        sidebarExpandedAtom.subscribe(update);
+        this.#update();
+    }
+    #update() {
+        this.#btnSync.classList.toggle("active", syncModeAtom.get());
+        this.#btnWhitespace.className = `mode-${whitespaceHandlingAtom.get()}`;
+        this.#btnSidebarExpand.classList.toggle("active", sidebarExpandedAtom.get());
+    }
+}
+//# sourceMappingURL=fetish-selector.js.map
 </script>
 <script>"use strict";
 // atoms
 // 이렇게까지 하게 될지는 몰랐는데 ui요소마다 콜백을 넘기고 또 그걸 또 감싸서 자식으로 넘기고... 귀찮잖아...
 const highlightedDiffIndexAtom = createAtom("highlightedDiffIndex", null);
 const diffItemClickedEvent = createEventAtom("diffItemClickedEvent");
+const syncModeAtom = createAtom("syncMode", false);
+const whitespaceHandlingAtom = createAtom("whitespaceHandling", "onlyAtEdge");
+const sidebarExpandedAtom = createAtom("sidebarExpanded", true);
 class DiffSeek {
     #mainContainer;
-    //#preventScrollSync = false;
-    #renderCallbackId = null;
     #leftEditor;
     #rightEditor;
-    #editorContentsChanged = {
-        left: false,
-        right: false,
-    };
+    #renderer;
     #diffOptions;
     #diffContext = null;
-    #computeDiffCallbackId = null;
-    #diffComputedCallbackId = null;
     #textSelectionRange = null;
     #zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
     #sideView;
-    #scrollSyncEnabled = false;
+    #syncMode = false;
     #scrollingEditor = null;
     #lastScrolledEditor = null;
     #preventScrollSync = false;
@@ -4478,16 +4494,20 @@ class DiffSeek {
     #lastActiveEditor = null;
     #scrollEndTimeoutId = null;
     #lastScrolledToDiffIndex = null;
-    #anchorObserver = new IntersectionObserver((entries) => { }, {});
     #anchorManager;
-    #resized = true;
-    #renderer;
-    constructor(mainContainer, asideContainer) {
+    #editorContentsChanged = {
+        left: false,
+        right: false,
+    };
+    #computeDiffCallbackId = null;
+    #diffComputedCallbackId = null;
+    #fetishSelector = new FetishSelector(document.querySelector("#fetish-selector"));
+    constructor(mainContainer, sideViewContainer) {
         this.#mainContainer = mainContainer;
         this.#diffOptions = {
             algorithm: "histogram",
             tokenization: "word",
-            whitespace: "ignore",
+            ignoreWhitespace: "ignore",
             greedyMatch: false,
             useLengthBias: true,
             maxGram: 4,
@@ -4511,40 +4531,132 @@ class DiffSeek {
             onBlur: (editor) => {
                 this.#activeEditor = null;
             },
+            onClick: (editor, event) => {
+                this.onEditorClick(editor, event);
+            },
         };
         this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
         this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
         this.#editorContentsChanged = { left: true, right: true };
-        this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor);
-        this.#sideView = new SideView(asideContainer);
-        const resizeObserver = new ResizeObserver(() => this.#onContainerResize());
+        this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor, () => {
+            //this.alignAnchors();
+        });
+        this.#sideView = new SideView(sideViewContainer);
+        let lastContainerWidth = 0;
+        const resizeObserver = new ResizeObserver(([entry]) => {
+            const rect = {
+                x: entry.contentRect.x,
+                y: entry.contentRect.y,
+                width: entry.contentRect.width,
+                height: entry.contentRect.height,
+            };
+            this.#renderer.invalidateLayout(rect);
+            if (lastContainerWidth !== rect.width) {
+                lastContainerWidth = rect.width;
+                this.#anchorManager.invalidate();
+                this.alignAnchors();
+            }
+        });
         resizeObserver.observe(mainContainer);
         const rendererCallbacks = {
-            onRender: () => this.#onRender(),
+            onRender: (time) => this.#onRender(time),
             onDiffVisibilityChanged: (region, entries) => this.#onDiffVisibilityChanged(region, entries),
         };
         this.#renderer = new Renderer(mainContainer, this.#leftEditor, this.#rightEditor, rendererCallbacks);
         this.setupEventListeners();
+        syncModeAtom.subscribe((syncMode) => {
+            if (syncMode !== this.syncMode) {
+                this.syncMode = syncMode;
+            }
+        });
+        whitespaceHandlingAtom.subscribe((whitespace) => {
+            if (whitespace !== this.whitespace) {
+                this.whitespace = whitespace;
+            }
+        });
+        sidebarExpandedAtom.subscribe((expanded) => {
+            document.body.classList.toggle("sidebar-collapsed", !expanded);
+        });
+        syncModeAtom.set(this.#syncMode);
+        whitespaceHandlingAtom.set(this.#diffOptions.ignoreWhitespace);
+        sidebarExpandedAtom.set(true);
     }
-    #onContainerResize() {
-        this.#renderer.invalidateLayout();
+    // #onContainerResize() {
+    // 	console.warn("Container resized, invalidating layout.");
+    // 	this.#renderer.invalidateLayout();
+    // }
+    #onRender(time) {
+        // if (this.syncMode) {
+        // 	this.syncScroll(time, this.#scrollingEditor !== null);
+        // }
     }
-    #onRender() {
-        if (this.#scrollSyncEnabled) {
-            this.syncScroll();
+    get syncMode() {
+        return this.#syncMode;
+    }
+    set syncMode(value) {
+        value = !!value;
+        if (value === this.#syncMode) {
+            return;
+        }
+        let currentSelectionRange = null;
+        if (!value) {
+            // currently in sync mode
+            const selection = window.getSelection();
+            if (selection && selection.rangeCount > 0) {
+                currentSelectionRange = selection.getRangeAt(0);
+            }
+        }
+        this.#syncMode = value;
+        syncModeAtom.set(value);
+        this.#mainContainer.classList.toggle("same-height-besties", value);
+        this.#renderer.guideLineEnabled = value;
+        // this.#renderer.darkMode = value;
+        this.#leftEditor.readonly = value;
+        this.#rightEditor.readonly = value;
+        if (value) {
+            this.alignAnchors(true);
+        }
+        else {
+            const activeEditor = this.#activeEditor ?? this.#lastActiveEditor;
+            if (activeEditor) {
+                activeEditor.focus();
+            }
+            if (currentSelectionRange) {
+                const selection = window.getSelection();
+                if (selection) {
+                    selection.removeAllRanges();
+                    selection.addRange(currentSelectionRange);
+                }
+            }
+        }
+        this.#renderer.invalidateGeometries();
+    }
+    get whitespace() {
+        return this.#diffOptions.ignoreWhitespace;
+    }
+    set whitespace(value) {
+        if (value !== "ignore" && value !== "normalize" && value !== "onlyAtEdge") {
+            throw new Error("Invalid whitespace option: " + value);
+        }
+        if (this.#diffOptions.ignoreWhitespace !== value) {
+            this.#diffOptions.ignoreWhitespace = value;
+            this.#onEditorContentChanged(this.#leftEditor);
+            this.#onEditorContentChanged(this.#rightEditor);
+            whitespaceHandlingAtom.set(value);
         }
     }
     setupEventListeners() {
-        window.addEventListener("resize", () => { });
         document.addEventListener("selectionchange", () => {
             this.#updateTextSelection();
         });
         document.addEventListener("keydown", (e) => {
-            if (e.key === "F8") {
-                this.#diffOptions.whitespace = this.#diffOptions.whitespace === "ignore" ? "normalize" : "ignore";
+            if (e.key === "F2") {
                 e.preventDefault();
-                this.#onEditorContentChanged(this.#leftEditor);
-                this.#onEditorContentChanged(this.#rightEditor);
+                this.syncMode = !this.#syncMode;
+            }
+            else if (e.key === "F8") {
+                e.preventDefault();
+                this.whitespace = cycleWhitespace(this.whitespace);
             }
             else if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
                 e.preventDefault();
@@ -4552,9 +4664,9 @@ class DiffSeek {
                 editor.focus();
                 return;
             }
-            else if (e.key === "F2") {
+            else if (e.key === "F9") {
                 e.preventDefault();
-                this.scrollSyncEnabled = !this.#scrollSyncEnabled;
+                sidebarExpandedAtom.set(!sidebarExpandedAtom.get());
             }
             if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
                 e.preventDefault();
@@ -4580,17 +4692,16 @@ class DiffSeek {
                 diffItemClickedEvent.emit(diffIndex);
             }
         }, true);
-        this.#mainContainer.addEventListener("mousemove", (e) => {
-            const rect = this.#mainContainer.getBoundingClientRect();
-            let x = e.clientX - rect.x;
-            let y = e.clientY - rect.y;
-            const diffIndex = this.#renderer.hitTest(x, y);
-            highlightedDiffIndexAtom.set(diffIndex);
-        });
-        highlightedDiffIndexAtom.subscribe((diffIndex) => {
-            console.debug("Highlighted diff index changed:", diffIndex);
-            this.#renderer.setDiffHighlight(diffIndex);
-        });
+        // this.#mainContainer.addEventListener("mousemove", (e) => {
+        // 	const rect = this.#mainContainer.getBoundingClientRect();
+        // 	let x = e.clientX - rect.x;
+        // 	let y = e.clientY - rect.y;
+        // 	this.#renderer.updateCursorPosition(x, y);
+        // });
+        // this.#mainContainer.addEventListener("mouseleave", () => {
+        // 	this.#renderer.updateCursorPosition(NaN, NaN);
+        // });
+        highlightedDiffIndexAtom.subscribe((diffIndex) => this.updateDiffIndicatorOverlay());
         diffItemClickedEvent.subscribe((diffIndex) => {
             this.#lastScrolledToDiffIndex = diffIndex;
             this.scrollToDiff(diffIndex);
@@ -4603,15 +4714,46 @@ class DiffSeek {
         this.#editorContentsChanged[editor.name] = true;
         this.#computeDiff();
     }
+    updateDiffIndicatorOverlay() {
+        const diffIndex = highlightedDiffIndexAtom.get();
+        this.#renderer.setDiffHighlight(diffIndex);
+        let leftAbove = false, leftBelow = false, rightAbove = false, rightBelow = false;
+        if (diffIndex !== null) {
+            const leftRect = this.#renderer.getDiffRect("left", diffIndex);
+            if (leftRect) {
+                if (leftRect.y > this.#leftEditor.scrollTop + this.#leftEditor.height) {
+                    leftBelow = true;
+                }
+                else if (leftRect.y + leftRect.height < this.#leftEditor.scrollTop) {
+                    leftAbove = true;
+                }
+            }
+            const rightRect = this.#renderer.getDiffRect("right", diffIndex);
+            if (rightRect) {
+                if (rightRect.y > this.#rightEditor.scrollTop + this.#rightEditor.height) {
+                    rightBelow = true;
+                }
+                else if (rightRect.y + rightRect.height < this.#rightEditor.scrollTop) {
+                    rightAbove = true;
+                }
+            }
+        }
+        this.#leftEditor.toggleDirectionalOverlays(leftAbove, leftBelow);
+        this.#rightEditor.toggleDirectionalOverlays(rightAbove, rightBelow);
+    }
+    onEditorClick(editor, event) {
+        // console.debug("Editor clicked:", editor.name, event, this.#syncMode, event.altKey);
+        if (event.altKey) {
+            if (this.syncMode) {
+                event.preventDefault();
+                this.syncMode = false;
+            }
+        }
+    }
     #onEditorScroll(editor, scrollTop, scrollLeft) {
         this.#renderer.invalidateScroll(editor.name);
-        if (this.#preventScrollSync) {
-            return;
-        }
         if (this.#scrollingEditor === null) {
             this.#lastScrolledEditor = this.#scrollingEditor = editor;
-        }
-        if (this.#scrollingEditor === editor) {
             if (this.#scrollEndTimeoutId !== null) {
                 clearTimeout(this.#scrollEndTimeoutId);
             }
@@ -4620,57 +4762,32 @@ class DiffSeek {
                 this.#scrollEndTimeoutId = null;
             }, 100);
         }
+        if (this.#syncMode && this.#scrollingEditor === editor) {
+            this.syncScroll(editor);
+        }
     }
     #onEditorScrollEnd(editor) {
         if (this.#scrollingEditor === editor) {
+            if (this.#scrollEndTimeoutId !== null) {
+                clearTimeout(this.#scrollEndTimeoutId);
+                this.#scrollEndTimeoutId = null;
+            }
             this.#scrollingEditor = null;
         }
     }
     #onEditorResize(editor) {
-        // console.debug("Editor resized:", editor.name, editor.contentHeight);
         if (!this.#anchorAligning) {
             this.#anchorManager.invalidate();
         }
-        else {
-            console.debug("Anchor aligning in progress, skipping resize handling for", editor.name);
-        }
-        this.#renderer.invalidateLayout();
     }
     #onDiffVisibilityChanged(region, entries) {
         this.#sideView.onDiffVisibilityChange(region, entries);
+        this.updateDiffIndicatorOverlay();
     }
-    // #requestRender() {
-    // 	console.log("Requesting render...");
-    // 	if (this.#renderCallbackId) {
-    // 		// 거~의 모든 경우에 render는 가장 마지막에 일어나야 하므로 이미 예약된 콜백을 취소하고 다시 등록함.
-    // 		cancelAnimationFrame(this.#renderCallbackId);
-    // 		this.#renderCallbackId = null;
-    // 	}
-    // 	// if (this.#resized) {
-    // 	// 	this.#resized = false;
-    // 	// 	const anchors = this.#diffContext?.anchors;
-    // 	// 	if (anchors && anchors.length > 0) {
-    // 	// 		for (const anchor of anchors) {
-    // 	// 			anchor.aligned = false;
-    // 	// 		}
-    // 	// 	}
-    // 	// }
-    // 	this.#renderCallbackId = requestAnimationFrame(() => {
-    // 		this.#renderCallbackId = null;
-    // 		this.#doRender();
-    // 	});
-    // 	this.#renderer.render();
-    // }
-    // #doRender() {
-    // 	if (this.#scrollSync) {
-    // 		this.alignAnchors();
-    // 	}
-    // 	// this.#leftEditor.render();
-    // 	// this.#rightEditor.render();
-    // }
     #updateTextSelection() {
-        if (!this.#diffContext || !this.#diffContext.rawDiffs)
+        if (!this.#diffContext?.ready) {
             return;
+        }
         const selection = window.getSelection();
         let editor = null;
         let targetEditor = null;
@@ -4819,46 +4936,56 @@ class DiffSeek {
                     const leftTokenFlags = leftToken.flags;
                     const rightTokenFlags = rightToken.flags;
                     const commonFlags = leftTokenFlags & rightTokenFlags;
+                    let anchorEligible = false;
                     let leftAnchorFlags = 0 /* AnchorFlags.None */;
                     let rightAnchorFlags = 0 /* AnchorFlags.None */;
-                    let anchorEligible = false;
-                    if (commonFlags & 1 /* TokenFlags.LINE_START */) {
-                        anchorEligible = forceStart;
-                        leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags);
-                        rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightTokenFlags);
-                        if (!(leftAnchorFlags & rightAnchorFlags)) {
+                    if (commonFlags & 32768 /* TokenFlags.MANUAL_ANCHOR */) {
+                        anchorEligible = true;
+                        leftAnchorFlags = 512 /* AnchorFlags.MANUAL_ANCHOR */;
+                        rightAnchorFlags = 512 /* AnchorFlags.MANUAL_ANCHOR */;
+                        // const leftEl = leftToken.range.startContainer.childNodes[leftToken.range.startOffset] as HTMLElement;
+                        // const rightEl = rightToken.range.startContainer.childNodes[rightToken.range.startOffset] as HTMLElement;
+                        // amFn.addAnchorEls(leftEl, rightEl, AnchorFlags.LINE_START, AnchorFlags.LINE_START);
+                    } // else
+                    {
+                        if (commonFlags & 1 /* TokenFlags.LINE_START */) {
+                            anchorEligible = forceStart;
+                            leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags);
+                            rightAnchorFlags = translateTokenFlagsToAnchorFlags(rightTokenFlags);
+                            if (!(leftAnchorFlags & rightAnchorFlags)) {
+                            }
+                            // if (!leftAnchorFlags) {
+                            // 	if (
+                            // 		(leftTokenFlags | rightTokenFlags) &
+                            // 		(TokenFlags.TABLECELL_START | TokenFlags.TABLEROW_START | TokenFlags.TABLE_START | TokenFlags.CONTAINER_START)
+                            // 	) {
+                            // 		leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags | rightTokenFlags);
+                            // 		anchorEligible = true;
+                            // 	}
+                            // 	const leftPrevToken = leftTokens[left.pos - 1];
+                            // 	const rightPrevToken = rightTokens[right.pos - 1];
+                            // 	if (!anchorEligible) {
+                            // 		const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+                            // 		const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
+                            // 		anchorEligible = l || r;
+                            // 	}
+                            // }
                         }
-                        // if (!leftAnchorFlags) {
-                        // 	if (
-                        // 		(leftTokenFlags | rightTokenFlags) &
-                        // 		(TokenFlags.TABLECELL_START | TokenFlags.TABLEROW_START | TokenFlags.TABLE_START | TokenFlags.CONTAINER_START)
-                        // 	) {
-                        // 		leftAnchorFlags = translateTokenFlagsToAnchorFlags(leftTokenFlags | rightTokenFlags);
-                        // 		anchorEligible = true;
-                        // 	}
-                        // 	const leftPrevToken = leftTokens[left.pos - 1];
-                        // 	const rightPrevToken = rightTokens[right.pos - 1];
-                        // 	if (!anchorEligible) {
-                        // 		const l = !leftPrevToken || leftToken.lineNum - leftTokens[left.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-                        // 		const r = !rightPrevToken || rightToken.lineNum - rightTokens[right.pos - 1].lineNum >= ANCHOR_MIN_LINE_BREAKS;
-                        // 		anchorEligible = l || r;
-                        // 	}
-                        // }
-                    }
-                    if (anchorEligible || (leftAnchorFlags && rightAnchorFlags)) {
-                        forceStart = false;
-                        // let anchorFlagsArr: AnchorFlags[] = [];
-                        // if (commonFlags & TokenFlags.TABLECELL_START) {
-                        // 	if (commonFlags & TokenFlags.TABLE_START) {
-                        // 		anchorFlagsArr.push(AnchorFlags.TABLE_START);
-                        // 	}
-                        // 	anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
-                        // } else if (commonFlags & TokenFlags.BLOCK_START) {
-                        // 	anchorFlagsArr.push(AnchorFlags.BLOCK_START);
-                        // }
-                        // for (const anchorFlags of anchorFlagsArr) {
-                        // }
-                        amFn.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+                        if (anchorEligible || (leftAnchorFlags && rightAnchorFlags)) {
+                            forceStart = false;
+                            // let anchorFlagsArr: AnchorFlags[] = [];
+                            // if (commonFlags & TokenFlags.TABLECELL_START) {
+                            // 	if (commonFlags & TokenFlags.TABLE_START) {
+                            // 		anchorFlagsArr.push(AnchorFlags.TABLE_START);
+                            // 	}
+                            // 	anchorFlagsArr.push(AnchorFlags.TABLECELL_START);
+                            // } else if (commonFlags & TokenFlags.BLOCK_START) {
+                            // 	anchorFlagsArr.push(AnchorFlags.BLOCK_START);
+                            // }
+                            // for (const anchorFlags of anchorFlagsArr) {
+                            // }
+                            amFn.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+                        }
                     }
                 }
             }
@@ -4921,17 +5048,36 @@ class DiffSeek {
                         leftAnchorFlags = emptyAnchorFlags;
                     }
                 }
-                const leftRange = leftEditor.getTokenRange(leftIndex, leftTokenCount);
-                const rightRange = rightEditor.getTokenRange(rightIndex, rightTokenCount);
+                let anchorPair = null;
+                if (leftAnchorFlags && rightAnchorFlags) {
+                    anchorPair = amFn.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
+                }
+                let leftRange = null;
+                let rightRange = null;
+                if (leftTokenCount === 0 && anchorPair) {
+                    leftRange = document.createRange();
+                    leftRange.selectNode(anchorPair.leftEl);
+                    if (rightTokens[rightIndex].flags & 1 /* TokenFlags.LINE_START */ && rightTokens[rightIndex + rightTokenCount - 1].flags & 2 /* TokenFlags.LINE_END */) {
+                        // console.warn("Adding block class to left anchor element", anchorPair.leftEl);
+                        anchorPair.leftEl.classList.add("block");
+                    }
+                }
+                if (rightTokenCount === 0 && anchorPair) {
+                    rightRange = document.createRange();
+                    rightRange.selectNode(anchorPair.rightEl);
+                    if (leftTokens[leftIndex].flags & 1 /* TokenFlags.LINE_START */ && leftTokens[leftIndex + leftTokenCount - 1].flags & 2 /* TokenFlags.LINE_END */) {
+                        // console.warn("Adding block class to right anchor element", anchorPair.rightEl);
+                        anchorPair.rightEl.classList.add("block");
+                    }
+                }
+                leftRange ??= leftEditor.getTokenRange(leftIndex, leftTokenCount);
+                rightRange ??= rightEditor.getTokenRange(rightIndex, rightTokenCount);
                 diffs.push({
                     diffIndex,
                     hue,
                     leftRange,
                     rightRange,
                 });
-                if (leftAnchorFlags && rightAnchorFlags) {
-                    amFn.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
-                }
                 currentDiff = null;
                 forceStart = true;
             }
@@ -4942,9 +5088,28 @@ class DiffSeek {
         this.#sideView.setDiffs(diffs);
         this.#updateTextSelection();
     }
+    syncScroll(primaryEditor) {
+        const followingEditor = primaryEditor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+        followingEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
+    }
     #anchorAligning = false;
-    syncScroll() {
-        if (!this.#diffContext?.ready) {
+    #alignAnchorCancelId = null;
+    alignAnchors(instantly = false) {
+        if (this.#alignAnchorCancelId !== null) {
+            clearTimeout(this.#alignAnchorCancelId);
+            this.#alignAnchorCancelId = null;
+        }
+        if (!this.#syncMode) {
+            return;
+        }
+        if (!instantly) {
+            this.#alignAnchorCancelId = setTimeout(() => {
+                this.#alignAnchorCancelId = null;
+                this.alignAnchors(true);
+            }, 250);
+        }
+        if (!this.#diffContext?.ready || this.#preventScrollSync) {
+            this.alignAnchors();
             return;
         }
         this.#preventScrollSync = true;
@@ -4960,17 +5125,11 @@ class DiffSeek {
             leftEditor.height = maxContentHeight;
             rightEditor.height = maxContentHeight;
             //this.#renderer.invalidateScroll();
-            void this.#mainContainer.offsetHeight;
+            //void this.#mainContainer.offsetHeight;
             this.#renderer.invalidateGeometries();
+            this.syncScroll(primaryEditor);
         }
         this.#anchorAligning = false;
-        if (primaryEditor === leftEditor) {
-            rightEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
-        }
-        else {
-            leftEditor.scrollTo(primaryEditor.scrollTop, { behavior: "instant" });
-        }
-        this.#scrollingEditor = null;
         this.#preventScrollSync = false;
         return changed;
     }
@@ -4998,7 +5157,7 @@ class DiffSeek {
         if (!leftRect || !rightRect) {
             return;
         }
-        if (this.#scrollSyncEnabled) {
+        if (this.#syncMode) {
             let scrollTop = Math.min(leftRect.y, rightRect.y);
             scrollTop = Math.max(scrollTop - SCROLL_MARGIN, 0);
             this.#leftEditor.scrollTo(scrollTop, { behavior: "smooth" });
@@ -5009,19 +5168,6 @@ class DiffSeek {
             this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
             this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
         }
-    }
-    get scrollSyncEnabled() {
-        return this.#scrollSyncEnabled;
-    }
-    set scrollSyncEnabled(value) {
-        value = !!value;
-        if (value === this.#scrollSyncEnabled) {
-            return;
-        }
-        this.#scrollSyncEnabled = value;
-        this.#anchorManager.invalidate();
-        this.#renderer.invalidateLayout();
-        this.#mainContainer.classList.toggle("same-height-besties", value);
     }
     setContent(editorName, contentHTML) {
         const editor = editorName === "left" ? this.#leftEditor : this.#rightEditor;
@@ -5051,8 +5197,6 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
 }
 //# sourceMappingURL=DiffSeek.js.map
 </script>
-  <style id="highlightStyle">
-  </style>
 <style>
 :root {
 	font-size: 16px;
@@ -5062,9 +5206,18 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
 	--status-bar-height: 0px;
 	--container-gap: 8px;
 	--sidebar-width: 200px;
+	--sidebar-width-collapsed: 90px;
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
 }
+
+/*
+#121212	#e0e0e0
+#1e1e1e	#dcdcdc
+#0f1117	#cfd8dc
+#1a1a2e	#eeeeee
+#101820	#f5f5f5
+*/
 
 * {
 	margin: 0;
@@ -5082,6 +5235,10 @@ html {
 	/* font-family: "Segoe UI", Tahoma, Geneva, Verdana, sans-serif; */
 }
 
+body.sidebar-collapsed {
+	--sidebar-width: var(--sidebar-width-collapsed);
+}
+
 .container {
 	display: grid;
 	/* grid-template-rows: var(--topbar-height) 1fr; */
@@ -5092,15 +5249,8 @@ html {
 	position: relative;
 }
 
-#scrollSyncIndicator {
-	position: absolute;
-	left: calc(50% - 10px);
-	z-index: 1000;
-	top: calc(50% - 10px);
-	width: 20px;
-	height: 20px;
-	pointer-events: none;
-	display: none;
+.sidebar-collapsed .container {
+	grid-template-columns: 1fr var(--sidebar-width-collapsed);
 }
 
 #progress {
@@ -5131,9 +5281,10 @@ html {
 }
 
 #sidebar {
-	overflow-y: auto;
-	background: #eee;
-	padding: 8px;
+	position: relative;
+	overflow: hidden;
+	display: flex;
+	flex-direction: column;
 }
 
 .editor-wrapper {
@@ -5143,40 +5294,13 @@ html {
 	position: relative;
 	outline: 1px solid #ccc;
 	outline-offset: 0px;
+	z-index: 1;
 	/* overflow-anchor: none; */
 }
 
-.mirror,
-.editor {
-	position: relative;
-	border: 0;
-	min-height: 100%;
-	max-width: 100%;
-	overflow-y: visible;
-	line-height: var(--line-height);
-	scroll-padding-top: var(--scroll-margin);
+#main {
 	font-family: "KB금융 본문체 Light", "돋움체", monospace;
 	font-size: 14px;
-	margin: 0;
-	overflow-y: visible;
-	/* white-space: pre-wrap; */
-	word-break: break-all;
-	overflow-wrap: anywhere;
-	max-width: 100%;
-	width: 100%;
-	outline: none;
-	padding: var(--editor-padding);
-	/* scroll-margin: var(--scroll-margin); */
-}
-
-.mirror div,
-.editor div {
-	min-height: var(--line-height);
-}
-
-.editor {
-	z-index: 2;
-	color: #333;
 }
 
 #main > canvas {
@@ -5187,210 +5311,35 @@ html {
 	width: calc(100vw - var(--sidebar-width) - var(--container-gap, 0px));
 	height: calc(100vh - var(--status-bar-height, 0px));
 	pointer-events: none;
-	z-index: -1;
+	z-index: 0;
 	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
 }
 
-.editor-wrapper canvas {
-	position: fixed;
-	bottom: var(--status-bar-height, 0px);
-	width: calc((100vw - var(--sidebar-width) - var(--container-gap, 0px)) / 2);
-	height: calc(100vh - var(--status-bar-height, 0px));
-	pointer-events: none;
-	z-index: -2;
-	will-change: transform; /* 정확히 뭘하는 놈인지 알아봐야함 */
-}
-
-.editor-wrapper canvas.highlight {
-	z-index: -1;
-	opacity: 0.3;
-}
-
-.editor-wrapper:focus-within .editor {
+.editor:focus-within {
 	color: #000;
 }
 
-.mirror {
-	background: hsl(0 0% 80% / 0.3);
-	transition: background 0.3s ease, color 0.3s ease;
-	z-index: -99;
-	position: absolute;
-	top: 0;
-	left: 0;
-	pointer-events: none;
-	color: transparent;
-	/* color: rgba(0, 0, 0, 0.1);
-	background-color: #f8f8f8; */
+.same-height-besties .editor:focus-within {
+	color: #fff;
 }
 
-.edit .editor-wrapper:focus-within .mirror {
-	background: transparent;
+/* 모드	배경색	글자색	특징
+기본	#fdfdfd	#222	일반 읽기/편집
+zen	#fcfaf5	#3a2f1f	정갈하고 부드러움
+readonly-lite	#e2dfdb	#292421	더 집중되고 구분 확실
+full-dark	#121212	#eee	다크팬용 (X for now) */
+
+#main.same-height-besties {
+	background-color: #fef8e7;
+	color: #2f2b20;
+
+	background-color: #f5f0e6;
+	color: #2f2a24;
+	/* color: #f5f5f5; */
+	/* font-size: 14px;
+	line-height: 1.7; */
 }
 
-.aligned .editor {
-	display: none;
-}
-
-.aligned .mirror {
-	background: transparent;
-	position: static;
-	color: #ccc;
-	background-color: #000;
-	cursor: text;
-	pointer-events: auto;
-	caret-color: white;
-}
-
-.edit .mirror {
-	height: unset !important;
-}
-
-.edit .mirror * {
-	height: unset !important;
-	color: unset !important;
-}
-
-.mirror div {
-	line-height: var(--line-height);
-	min-height: var(--line-height);
-	display: contents;
-}
-
-mark {
-	background-color: inherit;
-	color: inherit;
-}
-
-mark {
-	line-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-}
-
-mark:not(:empty) {
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-}
-
-mark:empty {
-	position: relative;
-	outline: none;
-	background-color: unset;
-	vertical-align: top;
-	min-height: 20px;
-	display: inline-block; /* inline-block으로 안해두면 높이 1px이 모자르게 된다. 묻지마... */
-}
-
-mark:empty::after {
-	position: absolute;
-	content: "";
-	top: 0px;
-	left: 0px;
-	height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80% / 0.75);
-	/* border: 1px solid hsl(var(--diff-hue) 100% 40%); */
-	/* box-shadow: 1px -1px hsl(var(--diff-hue) 100% 40%), 1px 1px hsl(var(--diff-hue) 100% 40%); */
-	outline: 1px solid hsl(var(--diff-hue) 100% 40% / 0.5);
-	outline-offset: 0px;
-	width: 3px;
-	display: inline-block;
-}
-
-.aligned mark {
-	color: #000;
-}
-/* .diff:empty {
-	position: relative;
-	min-height: var(--line-height);
-	background-color: hsl(var(--diff-hue) 100% 80%);
-} */
-
-/* mark:empty::after {
-	position: absolute;
-	content: "";
-	min-height: var(--line-height);
-	top: 0;
-	left: 0;
-	width: 2px;
-	display: inline-block;
-	background-color: hsl(var(--diff-hue), 100%, 80%);
-	outline: 1px solid hsl(var(--diff-hue), 100%, 40%);
-} */
-
-/* non empty diff */
-
-/*
-empty diff
-공간을 전혀 차지하지 않으면서도 visual이 있어야함
-*/
-/* .diff:empty {
-	display: inline-block;
-	position: relative;
-	vertical-align: bottom;
-} */
-
-/* .diff:empty::after {
-	content: "";
-	display: inline-block;
-	background-color: hsl(var(--diff-hue) 100% 80%);
-	outline: 1px solid hsl(var(--diff-hue) 100% 40%);
-	position: absolute;
-	top: 0;
-	width: 2px;
-	height: var(--line-height);
-} */
-
-/* .mirror > div:has(mark:not(.block)),
-hr[data-type="diffEnd"] {
-	background-color: hsl(0 75% 95%);
-} */
-
-hr {
-	border: 0;
-	height: 0;
-	display: inline;
-	pointer-events: none;
-}
-
-.aligned hr.expanded {
-	display: block;
-}
-
-.aligned hr {
-	background: black
-		repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.15) 0px, hsl(0 0% 88% / 0.15) 4px, hsl(0 0% 100% / 0.05) 4px, hsl(0 0% 100% / 0.05) 8px);
-}
-
-.aligned hr[data-type="after"] {
-	background: hsl(0 75% 25% / 0.25)
-		repeating-linear-gradient(135deg, hsl(0 100% 88% / 0.15) 0px, hsl(0 100% 88% / 0.15) 4px, hsl(0 100% 100% / 0.05) 4px, hsl(0 100% 100% / 0.05) 8px);
-}
-
-.aligned .mirror > div:has(mark) {
-	background-color: hsl(0 75% 25% / 0.75);
-}
-
-/*
-줄(div)안에 블럭 엘러먼트를 넣어서 강제로 줄바꿈 효과를 주었을 때
-diff가 없는 가상의 줄도 diff가 있는 줄처럼 표시되는 문제.
-당연한거긴 한데... 쉬운 해결방법이 떠오르질 않는다!
-고민 필요
-*/
-.aligned hr[data-type="after"] + span {
-	display: block;
-	background: black;
-}
-
-.edit .mirror > div:has(mark) {
-	background-color: hsl(0 100% 90%);
-}
-
-.aligned span {
-	z-index: 1;
-	background: transparent;
-}
-/*
-scrolling
-*/
 #main {
 	overflow: hidden;
 	overflow-y: hidden;
@@ -5398,18 +5347,6 @@ scrolling
 
 .editor-wrapper {
 	overflow-y: scroll;
-}
-
-@keyframes highlightAnimation {
-	0% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
-	50% {
-		background-color: white;
-	}
-	100% {
-		background-color: hsl(var(--diff-hue) 100% 80%);
-	}
 }
 
 #diffList {
@@ -5476,7 +5413,7 @@ scrolling
 	margin-bottom: 1px;
 	white-space: nowrap;
 	overflow: hidden;
-	text-overflow: ellipsis;
+
 	padding: 4px 2px;
 	text-decoration: none;
 	padding-inline: 4px;
@@ -5487,8 +5424,12 @@ scrolling
 	content: "💭";
 }
 
-#diffList .left::before,
-#diffList .right::before {
+body:not(.sidebar-collapsed) #diffList span {
+	text-overflow: ellipsis;
+}
+
+body:not(.sidebar-collapsed) #diffList .left::before,
+body:not(.sidebar-collapsed) #diffList .right::before {
 	display: inline-block;
 	justify-content: center;
 	padding-inline: 3px;
@@ -5506,340 +5447,139 @@ scrolling
 	/* content: "◀️"; */
 }
 
-#diffList .left-visible .left::before,
-#diffList .right-visible .right::before {
-	opacity: 1;
-}
-
-#diffList .right::before {
+body:not(.sidebar-collapsed) #diffList .right::before {
 	content: "R" !important;
 	/* content: "▶️" !important; */
 }
 
-.edit hr {
-	height: 0 !important;
+body:not(.sidebar-collapsed) #diffList .left-visible .left::before,
+body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
+	opacity: 1;
 }
 
-/* 의미없다
-.aligned .mirror > div:hover {
-	background-color: hsl(0 30% 30% / 0.3);
-	
-} */
-
-#rightAnchor12-after {
-	display: inline;
+.editor {
+	position: relative;
+	border: 0;
+	min-height: 100%;
+	max-width: 100%;
+	overflow-y: visible;
+	line-height: var(--line-height);
+	scroll-padding-top: var(--scroll-margin);
+	margin: 0;
+	overflow-y: visible;
+	word-break: break-all;
+	overflow-wrap: anywhere;
+	max-width: 100%;
+	width: 100%;
+	outline: none;
+	padding: var(--editor-padding);
+	z-index: 1;
+	/* scroll-margin: var(--scroll-margin); */
 }
-
-sup,
-.sup {
-	vertical-align: super;
-	font-size: smaller;
-}
-
-sub,
-.sub {
-	vertical-align: sub;
-	font-size: smaller;
-}
-
-.red {
-	color: hsl(0 100% 40%);
-	font-weight: bold;
-}
-
-.aligned .red {
-	color: hsl(0 100% 40%) !important;
-}
-
-:root {
-	--statusbar-bg: #f0f0f0;
-	--statusbar-fg: #333;
-	--statusbar-hover: rgba(0, 0, 0, 0.05);
-}
-
-body.aligned {
-	--statusbar-bg: #1e1e1e;
-	--statusbar-fg: #ccc;
-	--statusbar-hover: rgba(255, 255, 255, 0.08);
-}
-
-#statusbar {
-	height: 22px;
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 0 10px;
-	font-size: 12px;
-	background: var(--statusbar-bg);
-	color: var(--statusbar-fg);
-	border-top: 1px solid rgba(0, 0, 0, 0.1);
-	user-select: none;
-	transition: background 0.3s ease, color 0.3s ease;
-}
-
-.status-left,
-.status-right {
-	display: flex;
-	gap: 16px;
-	align-items: center;
-}
-
-.status-item {
-	display: flex;
-	align-items: center;
-	gap: 4px;
-	white-space: nowrap;
-}
-
-.status-item.clickable {
-	cursor: pointer;
-	padding: 2px 6px;
-	border-radius: 4px;
-	transition: background 0.2s ease;
-}
-
-.status-item.clickable:hover {
-	background: var(--statusbar-hover);
-}
-
-.value {
-	font-weight: 500;
-}
-
-#statusbar {
-	display: flex;
-	justify-content: space-between;
-	align-items: center;
-	padding: 0 10px;
-	height: var(--status-bar-height);
-	background: #1e1e1e;
-	color: #ccc;
-}
-
-.status-bar-left,
-.status-bar-right,
-.status-bar-center {
-	display: flex;
-	align-items: center;
-}
-
-.status-bar-left {
-	justify-content: flex-start;
-}
-
-.status-bar-right {
-	justify-content: flex-end;
-}
-
-.status-bar-center {
-	display: flex;
-	align-items: center;
-	justify-content: center;
-	flex-grow: 1;
-	text-align: center;
-}
-
-.status-item {
-	margin: 0 10px;
-}
-.status-item.status-item.clickable {
-	cursor: pointer;
-}
-
-.status-item.disabled {
-	opacity: 0.5;
-	cursor: not-allowed;
-}
-
-.status-item span {
-	font-weight: bold;
-}
-
-#settingsPopup {
-	position: absolute;
-	background: #2d2d2d;
-	color: #ccc;
-	font-size: 12px;
-	border: 1px solid #444;
-	box-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
-	min-width: 150px;
-	z-index: -98;
-	display: none;
-}
-
-.popup div {
-	padding: 6px 12px;
-	cursor: pointer;
-}
-
-.edit .mirror {
-	display: none !important;
-}
-
-.aligned canvas {
-	display: none !important;
-}
-
-.popup div:hover {
-	background: #3a3a3a;
-}
-
-.hidden {
-	display: none;
-}
-
-.popup .selected {
-	background: #3a3a3a;
-	color: #fff;
-	font-weight: bold;
-}
-
-.editor-wrapper h6 {
-	all: unset;
-}
-
-.edit .editor-wrapper h6 {
-	all: unset;
-	text-decoration-color: #000;
-}
-
-.aligned .editor-wrapper h6 {
-	color: #fff;
-	font-weight: bold;
-}
-
-/* .edit .mirror br {
-	display: none;
-}
-
-.aligned .mirror {
-	white-space: normal;
-}
-
-.aligned .mirror div {
-	display: contents;;
-} */
 
 .editor table {
 	border-collapse: collapse;
 	border-spacing: 0;
 }
 
-.editor th,
 .editor td {
 	vertical-align: top;
-	border: 1px solid #000;
+	border: 1px solid #666;
 	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
-	user-select: none;
+}
+.editor ul,
+.editor ol {
+	margin: 0;
+	padding: 0;
+	list-style-position: inside;
 }
 
-.editor p:empty::before {
+.same-height-besties .editor td {
+	border: 1px solid #444;
+}
+
+/* .editor p:empty::before {
 	content: "\00a0";
-}
+} */
 
-.color-red {
+.editor .color-red {
 	color: hsl(0 100% 40%);
 	font-weight: bold;
 }
 
-h1,
-h2,
-h3,
-h4,
-h5,
-h6 {
+.editor h1,
+.editor h2,
+.editor h3,
+.editor h4,
+.editor h5,
+.editor h6 {
 	font-size: inherit;
+	font-weight: bold;
+}
+
+.editor p {
+	line-height: inherit;
+	min-height: 1em;
+}
+
+.editor u {
+	text-decoration: none;
+}
+
+.editor sup {
+	vertical-align: super;
+	font-size: smaller;
+}
+
+.editor sub {
+	vertical-align: sub;
+	font-size: smaller;
 }
 
 .editor a {
 	pointer-events: none;
 	user-select: none;
+	display: none;
 }
 
-.same-height-besties #scrollSyncIndicator {
-	display: block;
+.editor table {
+	table-layout: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+	max-width: 100%;
 }
 
-.same-height-besties .padtop::before {
+.editor td {
+	vertical-align: top;
+	border: 1px solid #666;
+	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
+}
+.editor ul,
+.editor ol {
+	margin: 0;
+	padding: 0;
+	list-style-position: inside;
+}
+
+.same-height-besties .editor a {
+	display: revert;
+}
+
+.same-height-besties .padtop:not(.manual-anchor)::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
+	user-select: none;
 }
 
 .same-height-besties .padtop.striped::before,
-.maybe-170cm-wasnt-enough {
-	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.85) 0px, hsl(0 0% 88% / 0.85) 2px, transparent 2px, transparent 4px);
+.same-height-besties .maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
+	opacity: 0.75;
 }
 
-.maybe-170cm-wasnt-enough {
+.same-height-besties .maybe-170cm-wasnt-enough {
 	height: var(--height-boost, 0px);
-}
-
-.diff-anchor:not(p .diff-anchor)::before {
-	/* content: "";
-	display: block;
-	min-height: calc(1em * var(--line-height, 1.5));
-	*/
-}
-
-.diff-anchor-block {
-}
-
-.diff-anchor-block::before {
-	/* content: "";
-	display: block;
-	min-height: calc(1em * var(--line-height, 1.5)); */
-}
-
-@keyframes fadein {
-	from {
-		opacity: 0;
-	}
-	to {
-		opacity: 1;
-	}
-}
-
-@keyframes fadeout {
-	from {
-		opacity: 1;
-	}
-	to {
-		opacity: 0;
-	}
-}
-
-.fade-in {
-	animation: fadein 0.5s forwards;
-}
-
-.fade-out {
-	animation: fadeout 0.1s forwards;
-}
-
-canvas {
-}
-
-.dimmed {
-	opacity: 0.5;
-}
-
-.restored {
-	transition: none !important; /* 복원 시 즉시 반영 */
-	opacity: 1;
-}
-
-canvas:not(.dimmed) {
-	transition: none !important; /* 복원 시 즉시 반영 */
-	opacity: 1;
-}
-
-.editor p {
-	min-height: calc(0.5em * var(--line-height, 1.5));
-}
-
-.editor u {
-	text-decoration: none;
 }
 
 @keyframes flash {
@@ -5858,15 +5598,185 @@ canvas:not(.dimmed) {
 	animation: flash 0.5s ease-in-out;
 }
 
+.manual-anchor {
+	display: block;
+	margin-block: 0.5rem;
+	height: 2px;
+	background-color: hsl(180 80% 80% / 0.5);
+
+	display: block;
+}
+
+a.diff.block {
+	display: inline-block;
+	height: 1em;
+	width: 1px;
+}
+
+#fetish-selector {
+	flex: 0 0 auto;
+	width: 100%;
+	padding: 6px;
+	background: rgba(250, 250, 250, 0.95);
+	border-top: 1px solid #ddd;
+	display: flex;
+
+	box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
+	justify-content: space-between;
+}
+
+#fetish-selector .left,
+#fetish-selector .right {
+	display: flex;
+	gap: 2px;
+}
+
+#fetish-selector button {
+	width: 24px;
+	height: 24px;
+	padding: 0;
+	border: none;
+
+	border-radius: 6px;
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+	cursor: pointer;
+	transition: background 0.2s;
+	background: transparent;
+}
+
+#fetish-selector button:focus {
+	outline: none;
+}
+
+#fetish-selector button:focus-visible {
+	outline: none;
+	box-shadow: none;
+}
+#fetish-selector button svg {
+	fill: #ccc;
+}
+
+#sideview {
+	flex: 1 1 0%;
+	overflow-x: hidden;
+	overflow-y: auto;
+	background: #eee;
+	padding: 8px;
+}
+
+#syncToggleBtn.active,
+#sidebarExpandBtn.active {
+	background-color: #3b82f6;
+}
+
+#syncToggleBtn.active svg,
+#sidebarExpandBtn.active svg {
+	fill: #fff;
+}
+
+#whitespaceToggleBtn.mode-ignore {
+	background-color: #ef4444;
+}
+#whitespaceToggleBtn.mode-ignore svg {
+	fill: #fff;
+}
+
+#whitespaceToggleBtn.mode-onlyAtEdge {
+	background-color: #f59e0b;
+}
+#whitespaceToggleBtn.mode-onlyAtEdge svg {
+	fill: #fff8e1;
+}
+
+#whitespaceToggleBtn.mode-normalize {
+	background-color: transparent;
+}
+
+#whitespaceToggleBtn.mode-normalize svg {
+	fill: #ccc;
+}
+
+.eyes-up-here,
+.peach-below {
+	position: fixed;
+	left: 0;
+	right: 0;
+	height: 20px;
+	line-height: 20px;
+	color: #fff;
+	background: #ef444477;
+	pointer-events: none;
+	z-index: 999;
+	transition: opacity 0.3s ease, background-color 0.3s ease;
+	text-align: center;
+}
+
+.eyes-up-here::before,
+.peach-below::before {
+	font-size: 16px;
+	display: inline-block;
+}
+
+.eyes-up-here {
+	top: 0;
+}
+
+.eyes-up-here::before {
+	content: "⬆ ⬆ ⬆";
+}
+
+.peach-below {
+	bottom: 0;
+}
+
+.peach-below::before {
+	content: "⬇ ⬇ ⬇";
+}
+
 </style>
 </head>
 
 <body>
   <div class="container">
     <main id="main">
-      <div id="scrollSyncIndicator">🔗</div>
     </main>
-    <div id="sidebar"></div>
+    <div id="sidebar">
+      <div id="sideview"></div>
+      <div id="fetish-selector">
+        <div class="left">
+          <button id="syncToggleBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="M0 1.75A.75.75 0 0 1 .75 1h4.253c1.227 0 2.317.59 3 1.501A3.743 3.743 0 0 1 11.006 1h4.245a.75.75 0 0 1 .75.75v10.5a.75.75 0 0 1-.75.75h-4.507a2.25 2.25 0 0 0-1.591.659l-.622.621a.75.75 0 0 1-1.06 0l-.622-.621A2.25 2.25 0 0 0 5.258 13H.75a.75.75 0 0 1-.75-.75Zm7.251 10.324.004-5.073-.002-2.253A2.25 2.25 0 0 0 5.003 2.5H1.5v9h3.757a3.75 3.75 0 0 1 1.994.574ZM8.755 4.75l-.004 7.322a3.752 3.752 0 0 1 1.992-.572H14.5v-9h-3.495a2.25 2.25 0 0 0-2.25 2.25Z">
+              </path>
+            </svg>
+          </button>
+
+          <button id="whitespaceToggleBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="M10.896 2H8.75V.75a.75.75 0 0 0-1.5 0V2H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896A.25.25 0 0 0 10.896 2ZM8.75 15.25a.75.75 0 0 1-1.5 0V14H5.104a.25.25 0 0 1-.177-.427l2.896-2.896a.25.25 0 0 1 .354 0l2.896 2.896a.25.25 0 0 1-.177.427H8.75v1.25Zm-6.5-6.5a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM6 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 6 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM12 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 12 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5Z"
+                transform="rotate(90 8 8)" />
+            </svg>
+          </button>
+        </div>
+        <div class="right">
+          <button id="sidebarExpandBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
+              <path
+                d="m4.177 7.823 2.396-2.396A.25.25 0 0 1 7 5.604v4.792a.25.25 0 0 1-.427.177L4.177 8.177a.25.25 0 0 1 0-.354Z">
+              </path>
+              <path
+                d="M0 1.75C0 .784.784 0 1.75 0h12.5C15.216 0 16 .784 16 1.75v12.5A1.75 1.75 0 0 1 14.25 16H1.75A1.75 1.75 0 0 1 0 14.25Zm1.75-.25a.25.25 0 0 0-.25.25v12.5c0 .138.112.25.25.25H9.5v-13Zm12.5 13a.25.25 0 0 0 .25-.25V1.75a.25.25 0 0 0-.25-.25H11v13Z">
+              </path>
+            </svg>
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <div id="progress"></div>
@@ -5889,24 +5799,23 @@ canvas:not(.dimmed) {
     document.head.appendChild(style);
   </script>
   <script>
-    window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sidebar"));
+    window.DiffSeek = new DiffSeek(document.getElementById("main"), document.getElementById("sideview"));
   </script>
 
-<script>
-
-
-    window.DiffSeek.setContent("left", `
+  <script>
+    if (false) {
+      window.DiffSeek.setContent("left", `
        <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐름을 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
 `);
 
-if (true)
-    window.DiffSeek.setContent("right", `
+
+      window.DiffSeek.setContent("right", `
     <table>
   <tr>
     <td>
       <p>1. 개요</p>
       <p><br></p>
-      <p>2. 작업 흐름</p>
+      <p>2. <span style="color:red;">작업 흐름</span></p>
       <p><br></p>
       <p>3. 역할과 권한</p>
       <p><br></p>
@@ -5953,9 +5862,8 @@ if (true)
     </td>
   </tr>
 </table>
-
-
 `);
+    }
   </script>
 </body>
 

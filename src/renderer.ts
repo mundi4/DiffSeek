@@ -18,19 +18,20 @@ const REGION_FLAGS_SHIFT = 10;
 const DIFF_EXPAND_X = 2;
 const DIFF_EXPAND_Y = 1;
 const DIFF_LINE_EXPAND_Y = 0;
-const DIFF_LINE_FILL_STYLE = "hsl(0 100% 95%)";
-const DIFF_LINE_HEIGHT_MULTIPLIER = 1.4;
+const DIFF_LINE_FILL_STYLE = "hsl(0 100% 90% / 0.5)";
+const DIFF_LINE_HEIGHT_MULTIPLIER = 1.2;
 const SELECTION_HIGHLIGHT_FILL_STYLE = "rgba(128, 128, 128, 0.3)";
+const GUIDELINE_STROKE_STYLE = "rgba(128, 128, 128, 0.3)";
 
 type DiffRenderItem = {
 	diffIndex: number;
 	range: Range;
 	hue: number;
-	geometry: RectSet | null;
+	//geometry: RectSet | null;
 };
 
 type RendererCallbacks = {
-	onRender: () => void;
+	onRender: (time: number) => void;
 	onDiffVisibilityChanged: (region: "left" | "right", entries: VisibilityChangeEntry[]) => void;
 };
 
@@ -49,8 +50,11 @@ class Renderer {
 	#canvasHeight: number = 0;
 	#callbacks: RendererCallbacks;
 	#renderCallbackId: number | null = null;
-	#layoutDirty: boolean = false;
 	#nextRenderFlags: RenderFlags = RenderFlags.NONE;
+	#mouseX: number = -1;
+	#mouseY: number = -1;
+	#guideLineEnabled: boolean = false;
+	#guideLineY: number | null = null;
 
 	constructor(container: HTMLElement, leftRegion: EditorRegionInfo, rightRegion: EditorRegionInfo, callbacks: RendererCallbacks) {
 		this.#container = container;
@@ -65,9 +69,37 @@ class Renderer {
 		this.#callbacks = callbacks;
 		this.#leftRegion = new RenderRegion("left", this, this.#ctx, this.#highlightCtx, leftRegion, callbacks);
 		this.#rightRegion = new RenderRegion("right", this, this.#ctx, this.#highlightCtx, rightRegion, callbacks);
+
+		container.addEventListener("mousemove", (e) => {
+			const rect = container.getBoundingClientRect();
+			let x = e.clientX - rect.x;
+			let y = e.clientY - rect.y;
+			this.updateCursorPosition(x, y);
+		});
+
+		container.addEventListener("mouseleave", () => {
+			this.updateCursorPosition(-1, -1);
+		});
+	}
+
+	get guideLineEnabled() {
+		return this.#guideLineEnabled;
+	}
+
+	set guideLineEnabled(enabled: boolean) {
+		enabled = !!enabled;
+		if (this.#guideLineEnabled === enabled) {
+			return; // No change
+		}
+
+		this.#guideLineEnabled = enabled;
+		if (enabled || this.#guideLineY !== null) {
+			this.invalidateHighlightLayer(undefined);
+		}
 	}
 
 	#updateLayout() {
+		const prevWidth = this.#canvasWidth;
 		const { x, y, width, height } = this.#container.getBoundingClientRect();
 		this.#canvasX = x;
 		this.#canvasY = y;
@@ -80,7 +112,7 @@ class Renderer {
 
 		this.#leftRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
 		this.#rightRegion.updateLayout(this.#canvasX, this.#canvasY, this.#canvasWidth, this.#canvasHeight);
-		return true;
+		return prevWidth !== this.#canvasWidth;
 	}
 
 	#render() {
@@ -99,38 +131,40 @@ class Renderer {
 
 	#renderFlagsToString(flags: RenderFlags): string {
 		const parts: string[] = [];
-		if (flags & RenderFlags.LAYOUT) parts.push("LAYOUT");
-		if (flags & RenderFlags.DIFF_LAYER) parts.push("DIFF_LAYER");
-		if (flags & RenderFlags.HIGHLIGHT_LAYER) parts.push("HIGHLIGHT_LAYER");
-		if (flags & RenderFlags.GEOMETRY) parts.push("GEOMETRY");
-		if (flags & RenderFlags.SCROLL) parts.push("SCROLL");
-		if (flags & RenderFlags.RESIZE) parts.push("RESIZE");
+		if ((flags & RenderFlags.LAYOUT) === RenderFlags.LAYOUT) parts.push("LAYOUT");
+		if ((flags & RenderFlags.DIFF_LAYER) === RenderFlags.DIFF_LAYER) parts.push("DIFF_LAYER");
+		if ((flags & RenderFlags.HIGHLIGHT_LAYER) === RenderFlags.HIGHLIGHT_LAYER) parts.push("HIGHLIGHT_LAYER");
+		if ((flags & RenderFlags.GEOMETRY) === RenderFlags.GEOMETRY) parts.push("GEOMETRY");
+		// if ((flags & RenderFlags.SCROLL) === RenderFlags.SCROLL) parts.push("SCROLL");
+		// if ((flags & RenderFlags.RESIZE) === RenderFlags.RESIZE) parts.push("RESIZE");
 		return parts.join(", ") || "NONE";
 	}
 
-	#doRender(ts: number) {
+	#doRender(time: number) {
+		this.#callbacks.onRender(time);
+
 		const layoutFlags = this.#nextRenderFlags & RenderFlags.LAYOUT_MASK;
 		let leftRegionFlags = this.#nextRenderFlags & RenderFlags.REGION_MASK;
 		let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
+		// if (DIFFSEEK_DEBUG) {
+		// 	console.debug(
+		// 		`[Renderer] Rendering at ${time}ms with flags: (layout: ${this.#renderFlagsToString(layoutFlags)}, left: ${this.#renderFlagsToString(
+		// 			leftRegionFlags
+		// 		)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`
+		// 	);
+		// }
 		this.#nextRenderFlags = RenderFlags.NONE; // Reset flags
 
-		if (DIFFSEEK_DEBUG) {
-			console.debug(
-				`[Renderer] Rendering at ${ts}ms with flags: ${this.#renderFlagsToString(this.#nextRenderFlags)} (layout: ${this.#renderFlagsToString(
-					layoutFlags
-				)}, left: ${this.#renderFlagsToString(leftRegionFlags)}, right: ${this.#renderFlagsToString(rightRegionFlags)})`
-			);
-		}
-
-		this.#callbacks.onRender();
-
 		if (layoutFlags & RenderFlags.LAYOUT) {
+			leftRegionFlags|= RenderFlags.DIFF_LAYER | RenderFlags.HIGHLIGHT_LAYER;
+			rightRegionFlags |= RenderFlags.DIFF_LAYER | RenderFlags.HIGHLIGHT_LAYER;
+
 			if (this.#updateLayout()) {
-				leftRegionFlags |= RenderFlags.REGION_MASK;
-				rightRegionFlags |= RenderFlags.REGION_MASK;
+				leftRegionFlags |= RenderFlags.GEOMETRY;
+				rightRegionFlags |= RenderFlags.GEOMETRY;
 			}
 		}
-
+		
 		this.#leftRegion.render(leftRegionFlags);
 		this.#rightRegion.render(rightRegionFlags);
 
@@ -138,6 +172,21 @@ class Renderer {
 			// If there are still flags to render, schedule another render
 			this.#render();
 		}
+
+		if (this.#guideLineEnabled && this.#mouseY >= 0) {
+			this.#renderGuideLine();
+		}
+	}
+
+	#renderGuideLine() {
+		const y = this.#mouseY + 0.5;
+		const ctx = this.#highlightCtx;
+		ctx.beginPath();
+		ctx.moveTo(0, y); // +0.5는 픽셀 정렬을 위해. 안 그러면 흐려짐
+		ctx.lineTo(this.#canvasWidth, y);
+		ctx.strokeStyle = GUIDELINE_STROKE_STYLE; // 눈에 띄게
+		ctx.lineWidth = 1;
+		ctx.stroke();
 	}
 
 	invalidateAll(skipRender: boolean = false) {
@@ -147,7 +196,7 @@ class Renderer {
 		}
 	}
 
-	invalidateLayout(skipRender: boolean = false) {
+	invalidateLayout(rect: Rect, skipRender: boolean = false) {
 		this.#nextRenderFlags |= RenderFlags.LAYOUT_MASK;
 		if (!skipRender) {
 			this.#render();
@@ -195,13 +244,11 @@ class Renderer {
 				diffIndex: i,
 				range: leftRange,
 				hue: diff.hue,
-				geometry: null,
 			};
 			rightDiffs[i] = {
 				diffIndex: i,
 				range: rightRange,
 				hue: diff.hue,
-				geometry: null,
 			};
 		}
 
@@ -211,14 +258,8 @@ class Renderer {
 	}
 
 	setDiffHighlight(diffIndex: number | null) {
-		if (this.#leftRegion.setDiffHighlight(diffIndex)) {
-			this.invalidateHighlightLayer("left");
-			this.invalidateGeometries("left");
-		}
-		if (this.#rightRegion.setDiffHighlight(diffIndex)) {
-			this.invalidateHighlightLayer("right");
-			this.invalidateGeometries("right");
-		}
+		this.#leftRegion.setDiffHighlight(diffIndex);
+		this.#rightRegion.setDiffHighlight(diffIndex);
 	}
 
 	setSelectionHighlight(which: "left" | "right", range: Range | null) {
@@ -230,12 +271,8 @@ class Renderer {
 			rightRange = range;
 		}
 
-		if (this.#leftRegion.setSelectionHighlight(leftRange)) {
-			this.invalidateHighlightLayer("left");
-		}
-		if (this.#rightRegion.setSelectionHighlight(rightRange)) {
-			this.invalidateHighlightLayer("right");
-		}
+		this.#leftRegion.setSelectionHighlight(leftRange);
+		this.#rightRegion.setSelectionHighlight(rightRange);
 	}
 
 	hitTest(x: number, y: number): number | null {
@@ -259,6 +296,58 @@ class Renderer {
 	getDiffRect(which: "left" | "right", diffIndex: number): Rect | null {
 		const region = which === "left" ? this.#leftRegion : this.#rightRegion;
 		return region.getDiffRect(diffIndex);
+	}
+
+	updateCursorPosition(x: number, y: number): void {
+		if (this.#mouseX === x && this.#mouseY === y) {
+			return;
+		}
+		this.#mouseX = x;
+		this.#mouseY = y;
+
+		if (x >= 0 && y >= 0) {
+			const diffIndex = this.hitTest(x, y);
+			highlightedDiffIndexAtom.set(diffIndex);
+
+			if (this.#guideLineY === y) {
+				return; // No change
+			}
+			this.#guideLineY = y;
+			this.invalidateHighlightLayer(undefined);
+		} else {
+			if (this.#guideLineY !== null) {
+				this.#guideLineY = null;
+				this.invalidateHighlightLayer(undefined);
+			}
+			highlightedDiffIndexAtom.set(null);
+		}
+
+		// const diffIndex = this.hitTest(x, y);
+		// highlightedDiffIndexAtom.set(diffIndex);
+
+		// if (this.#guideLineY === y) {
+		// 	return; // No change
+		// }
+		// this.#guideLineY = y;
+		// this.invalidateHighlightLayer(undefined);
+
+		// let region;
+		// if (x >= this.#rightRegion.regionX) {
+		// 	if ((this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.GEOMETRY) {
+		// 		return null;
+		// 	}
+		// 	region = this.#rightRegion;
+		// 	x = x - this.#rightRegion.regionX;
+		// } else {
+		// 	if (this.#nextRenderFlags & RenderFlags.GEOMETRY) {
+		// 		return null;
+		// 	}
+		// 	region = this.#leftRegion;
+		// 	x = x - this.#leftRegion.regionX;
+		// }
+		// return region.hitTest(x, y);
+
+		//highlightedDiffIndexAtom.set(diffIndex);
 	}
 }
 
@@ -341,25 +430,24 @@ class RenderRegion {
 
 	setDiffs(diffs: DiffRenderItem[]) {
 		this.#diffs = diffs;
+		//this.#diffGeometries = new Array(diffs.length);
 		// this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
 		this.#visibleDiffIndices.clear();
 		this.#selectionHighlight = null;
 	}
 
 	setDiffHighlight(diffIndex: number | null) {
-		// if (this.#highlightedDiffIndex === diffIndex) {
-		// 	return; // No change
-		// }
-		// RECT는 필요 없음
-		let prevShowing = this.#highlightedDiffIndex !== null && this.#visibleDiffIndices.has(this.#highlightedDiffIndex);
-		this.#highlightedDiffIndex = diffIndex;
-		let shouldShow = (diffIndex !== null && this.#visibleDiffIndices.has(diffIndex)) || (prevShowing && diffIndex === null);
-		if (prevShowing || shouldShow) {
-			// this.markDirty(RenderFlags.HIGHLIGHT_DIFF);
-			return true;
-		} else {
-			return false;
+		if (this.#highlightedDiffIndex === diffIndex) {
+			return false; // No change
 		}
+
+		if (
+			(diffIndex !== null && this.visibleDiffIndices.has(diffIndex)) || // 새로 렌더링 해야 하는 경우
+			(this.#highlightedDiffIndex !== null && this.visibleDiffIndices.has(this.#highlightedDiffIndex)) // 기존에 렌더된 diff
+		) {
+			this.#renderer.invalidateHighlightLayer(this.#name);
+		}
+		this.#highlightedDiffIndex = diffIndex;
 	}
 
 	setSelectionHighlight(range: Range | null) {
@@ -380,13 +468,18 @@ class RenderRegion {
 
 		this.#selectionHighlight = range;
 		this.#selectionHighlightRects = null;
-		// this.markDirty(RenderFlags.HIGHLIGHT_SELECTION);
-		return true;
+		this.#renderer.invalidateHighlightLayer(this.#name);
 	}
 
 	render(dirtyFlags: RenderFlags) {
+		if (dirtyFlags & RenderFlags.GEOMETRY) {
+			// console.warn(`[RenderRegion] Building diff geometries for ${this.#name} region.`);
+			this.#diffGeometries = new Array(this.#diffs.length);
+			this.#diffLineRects.length = 0;
+		}
+
 		if (dirtyFlags & RenderFlags.DIFF_LAYER) {
-			this.renderDiffLayer(dirtyFlags);
+			this.renderDiffLayer();
 		}
 
 		if (dirtyFlags & RenderFlags.HIGHLIGHT_LAYER) {
@@ -394,80 +487,123 @@ class RenderRegion {
 		}
 	}
 
-	renderDiffLayer(dirtyFlags: RenderFlags) {
+	renderDiffLayer() {
 		const ctx = this.#ctx;
 		ctx.save();
 		ctx.translate(this.regionX, this.regionY);
 		ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-		//this.#ctx.rect(this.regionX, this.regionY, this.regionWidth, this.regionHeight);
 
-		if (dirtyFlags & RenderFlags.GEOMETRY) {
-			this.buildDiffGeometries();
-		}
-		// console.log("Rendering diffs:", this.#diffs, this.#diffGeometries);
+		const regionWidth = this.regionWidth;
+		const regionHeight = this.regionHeight;
 
-		const canvasWidth = this.regionWidth;
-		const canvasHeight = this.regionHeight;
 		const visibleDiffIndices = this.#visibleDiffIndices;
 		const visChangeEntries: VisibilityChangeEntry[] = [];
 
 		let scrollTop = this.#regionInfo.scrollTop;
 		let scrollLeft = 0;
 
-		ctx.fillStyle = DIFF_LINE_FILL_STYLE;
-		for (const rect of this.#diffLineRects) {
-			const x = Math.floor(rect.x - scrollLeft),
-				y = Math.floor(rect.y - scrollTop),
-				width = Math.ceil(rect.width),
-				height = Math.ceil(rect.height);
+		const offsetX = -this.regionX;
+		const offsetY = -this.regionY + scrollTop;
 
-			if (y + height < 0) continue;
-			if (y > canvasHeight) break;
-			ctx.fillRect(x, y, width, height);
-		}
+		const diffs = this.#diffs;
+		const diffsToRender: number[] = [];
+		const newGeometryRects: Rect[] = [];
+		for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
+			let geometry = this.#diffGeometries[diffIndex];
+			if (!geometry) {
+				const diff = diffs[diffIndex];
+				const wholeRect = diff.range.getBoundingClientRect();
+				const x = wholeRect.x + offsetX - DIFF_EXPAND_X,
+					y = wholeRect.y + offsetY - DIFF_EXPAND_Y,
+					width = wholeRect.width + DIFF_EXPAND_X * 2,
+					height = wholeRect.height + DIFF_EXPAND_Y * 2;
+				this.#diffGeometries[diffIndex] = geometry = {
+					minX: x,
+					minY: y,
+					maxX: x + width,
+					maxY: y + height,
+					rects: null,
+					// fillStyle: null,
+					// strokeStyle: null,
+				};
+			}
 
-		const visibleIndices: Set<number> = new Set();
-
-		for (let diffIndex = 0; diffIndex < this.#diffGeometries.length; diffIndex++) {
-			const geometry = this.#diffGeometries[diffIndex];
-
-			let isVisible =
-				!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
-				!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
-
-			if (isVisible) {
-				visibleIndices.add(diffIndex);
-				if (!visibleDiffIndices.has(diffIndex)) {
-					visibleDiffIndices.add(diffIndex);
-					visChangeEntries.push({ item: diffIndex, isVisible: true });
-				}
-			} else {
-				if (visibleDiffIndices.has(diffIndex)) {
-					visibleDiffIndices.delete(diffIndex);
+			if (geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) {
+				if (visibleDiffIndices.delete(diffIndex)) {
 					visChangeEntries.push({ item: diffIndex, isVisible: false });
 				}
 				continue;
 			}
+			if (geometry.rects === null) {
+				const rangeRects = extractRects(diffs[diffIndex].range, true);
+				for (const rect of rangeRects) {
+					rect.x += offsetX - DIFF_EXPAND_X;
+					rect.y += offsetY - DIFF_EXPAND_Y;
+					rect.width += DIFF_EXPAND_X * 2;
+					rect.height += DIFF_EXPAND_Y * 2;
+					newGeometryRects.push(rect);
+				}
+				this.#diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1) as RectSet;
+				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
+				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40% / 0.5)`;
+				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80% / 0.7)`;
+				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 30% / 0.5)`;
+			}
+			diffsToRender.push(diffIndex);
+		}
 
-			ctx.fillStyle = geometry.fillStyle!;
-			ctx.strokeStyle = geometry.strokeStyle!;
+		if (newGeometryRects.length > 0) {
+			this.#mergeIntoDiffLineRects(newGeometryRects);
+		}
 
-			for (const rect of geometry.rects) {
+		for (const diffLineRect of this.#diffLineRects) {
+			const x = Math.floor(diffLineRect.x - scrollLeft),
+				y = Math.floor(diffLineRect.y - scrollTop),
+				width = Math.ceil(diffLineRect.width),
+				height = Math.ceil(diffLineRect.height);
+
+			if (y + height < 0) continue;
+			if (y > regionHeight) break;
+
+			ctx.fillStyle = DIFF_LINE_FILL_STYLE;
+			ctx.fillRect(x, y, width, height);
+		}
+
+		for (const diffIndex of diffsToRender) {
+			const geometry = this.#diffGeometries[diffIndex]!;
+			ctx.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
+			ctx.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40%)`;
+
+			let rendered = false;
+			for (const rect of geometry.rects!) {
 				const x = Math.floor(rect.x - scrollLeft),
 					y = Math.floor(rect.y - scrollTop),
 					width = Math.ceil(rect.width),
 					height = Math.ceil(rect.height);
 
-				if (y + height < 0 || y > canvasHeight) continue;
-				if (x + width < 0 || x > canvasWidth) continue;
-
-				// console.log("rendering rect:", x, y, width, height, "isVisible:", isVisible);
-				ctx.fillRect(x, y, width, height);
+				if (y + height < 0) continue;
+				if (y + height < 0 || y > regionHeight) break;
+				
 				ctx.strokeRect(x, y, width, height);
+				ctx.fillRect(x, y, width, height);
+				rendered = true;
+			}
+
+			if (rendered) {
+				const prevCount = visibleDiffIndices.size;
+				visibleDiffIndices.add(diffIndex);
+				if (visibleDiffIndices.size > prevCount) {
+					visChangeEntries.push({ item: diffIndex, isVisible: true });
+				}
+			} else {
+				if (visibleDiffIndices.delete(diffIndex)) {
+					visChangeEntries.push({ item: diffIndex, isVisible: false });
+				}
 			}
 		}
 
 		if (visChangeEntries.length > 0) {
+			// console.warn(`[RenderRegion] Visibility change entries for ${this.#name} region:`, visChangeEntries);
 			this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
 		}
 
@@ -481,48 +617,46 @@ class RenderRegion {
 		ctx.translate(this.regionX, this.regionY);
 		ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
 
-		const canvasWidth = this.regionWidth;
-		const canvasHeight = this.regionHeight;
+		const regionWidth = this.regionWidth;
+		const regionHeight = this.regionHeight;
 		const scrollTop = this.#regionInfo.scrollTop;
 		const scrollLeft = 0;
 
 		if (this.#highlightedDiffIndex !== null) {
-			// console.log("Rendering highlighted diff index:", this.#highlightedDiffIndex);
-			const diff = this.#diffs[this.#highlightedDiffIndex];
 			const rects = this.#diffGeometries[this.#highlightedDiffIndex];
-			if (rects) {
+			if (rects && rects.rects) {
 				let isVisible =
-					!(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > canvasHeight) &&
-					!(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > canvasWidth);
-				if (!isVisible) {
-					return;
-				}
+					!(rects.maxY - scrollTop < 0 || rects.minY - scrollTop > regionHeight) &&
+					!(rects.maxX - scrollLeft < 0 || rects.minX - scrollLeft > regionWidth);
+				if (isVisible) {
+					// console.debug(`[RenderRegion] Rendering highlighted diff rects for ${this.#name} region at index ${this.#highlightedDiffIndex}.`, rects);
 
-				ctx.lineWidth = 2;
-				ctx.fillStyle = `hsl(0 100% 80%)`;
-				ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
-				// ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
+					ctx.lineWidth = 2;
+					ctx.fillStyle = `hsl(0 100% 80%)`;
+					ctx.strokeStyle = `hsl(0 100% 50% / 0.5)`;
+					// ctx.strokeStyle = `hsl(${diff.hue} 100% 50% / 0.5)`;
 
-				for (const rect of rects.rects) {
-					const x = Math.floor(rect.x - scrollLeft) - 1,
-						y = Math.floor(rect.y - scrollTop) - 1,
-						width = Math.ceil(rect.width),
-						height = Math.ceil(rect.height);
+					for (const rect of rects.rects) {
+						const x = Math.floor(rect.x - scrollLeft),
+							y = Math.floor(rect.y - scrollTop),
+							width = Math.ceil(rect.width),
+							height = Math.ceil(rect.height);
 
-					if (y + height < 0 || y > canvasHeight) continue;
-					if (x + width < 0 || x > canvasWidth) continue;
+						if (y + height < 0 || y > regionHeight) continue;
+						if (x + width < 0 || x > regionWidth) continue;
 
-					ctx.strokeRect(x, y, width, height);
-					ctx.fillRect(x, y, width, height);
+						ctx.strokeRect(x, y, width, height);
+						ctx.fillRect(x, y, width, height);
 
-					// ctx.lineWidth = 2;
-					// ctx.strokeStyle = "white";
-					// ctx.shadowBlur = 0;
-					// ctx.shadowColor = "transparent";
-					// ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+						// ctx.lineWidth = 2;
+						// ctx.strokeStyle = "white";
+						// ctx.shadowBlur = 0;
+						// ctx.shadowColor = "transparent";
+						// ctx.strokeRect(x-1, y-1, width + 2, height + 2);
+					}
+					ctx.lineWidth = 1;
 				}
 			}
-			ctx.lineWidth = 1;
 			// ctx.shadowBlur = 0;
 			// ctx.strokeStyle = "transparent";
 		}
@@ -539,44 +673,92 @@ class RenderRegion {
 				start = end;
 
 				const mergedRect = mergeRects(rawRects, 1, 1) as RectSet;
-				for (const rect of mergedRect.rects) {
-					rect.x += offsetX;
-					rect.y += offsetY;
-				}
-				mergedRect.minX += offsetX;
-				mergedRect.minY += offsetY;
-				mergedRect.maxX += offsetX;
-				mergedRect.maxY += offsetY;
-				mergedRect.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
-				mergedRect.strokeStyle = null;
+				// FIXE
+				if (mergedRect.rects) {
+					for (const rect of mergedRect.rects) {
+						rect.x += offsetX;
+						rect.y += offsetY;
+					}
+					mergedRect.minX += offsetX;
+					mergedRect.minY += offsetY;
+					mergedRect.maxX += offsetX;
 
-				this.#selectionHighlightRects = mergedRect;
+					mergedRect.maxY += offsetY;
+					this.#selectionHighlightRects = mergedRect;
+				}
 				// console.log("Extracted selection highlight rects in", performance.now() - start, "ms");
 			}
-			let geometry = this.#selectionHighlightRects;
-
+			let geometry = this.#selectionHighlightRects!;
+			////////
 			let isVisible =
-				!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > canvasHeight) &&
-				!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > canvasWidth);
-			if (!isVisible) {
-				return;
-			}
+				!(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) &&
+				!(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > regionWidth);
+			if (isVisible) {
+				ctx.fillStyle = SELECTION_HIGHLIGHT_FILL_STYLE;
+				for (const rect of geometry.rects!) {
+					const x = Math.floor(rect.x - scrollLeft),
+						y = Math.floor(rect.y - scrollTop),
+						width = Math.ceil(rect.width),
+						height = Math.ceil(rect.height);
 
-			ctx.fillStyle = geometry.fillStyle!;
-			for (const rect of geometry.rects) {
-				const x = Math.floor(rect.x - scrollLeft),
-					y = Math.floor(rect.y - scrollTop),
-					width = Math.ceil(rect.width),
-					height = Math.ceil(rect.height);
+					if (y + height < 0) continue;
+					if (y > regionHeight) break;
 
-				if (y + height < 0) continue;
-				if (y > canvasHeight) break;
-
-				ctx.fillRect(x, y, width, height);
+					ctx.fillRect(x, y, width, height);
+				}
 			}
 		}
 
 		ctx.restore();
+	}
+
+	#mergeIntoDiffLineRects(incoming: Rect[]): void {
+		const TOLERANCE = 1;
+		const regionWidth = this.regionWidth;
+		const allRects: Rect[] = [];
+
+		// 1. 기존 라인 rect들 복사해서 allRects에 넣기
+		for (const rect of this.#diffLineRects) {
+			allRects.push(rect);
+		}
+
+		// 2. 새로 들어온 rect들을 line rect 형태로 변형해서 넣기
+		for (const rect of incoming) {
+			const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER;
+			const heightDelta = height - rect.height;
+			const y = rect.y - heightDelta / 2;
+
+			allRects.push({
+				x: 0,
+				y,
+				width: regionWidth,
+				height,
+			});
+		}
+
+		// 3. 정렬 후 병합
+		allRects.sort((a, b) => a.y - b.y);
+		this.#diffLineRects.length = 0;
+
+		let current = allRects[0];
+		for (let i = 1; i < allRects.length; i++) {
+			const next = allRects[i];
+			const gap = next.y - (current.y + current.height);
+
+			if (gap <= TOLERANCE) {
+				const newBottom = Math.max(current.y + current.height, next.y + next.height);
+				current = {
+					x: 0,
+					y: current.y,
+					width: regionWidth,
+					height: newBottom - current.y,
+				};
+			} else {
+				this.#diffLineRects.push(current);
+				current = next;
+			}
+		}
+		this.#diffLineRects.push(current);
 	}
 
 	buildDiffGeometries() {
@@ -587,7 +769,6 @@ class RenderRegion {
 		//void this.#container.offsetWidth; // force reflow
 
 		const allDiffRects: Rect[] = [];
-		this.#diffGeometries.length = this.#diffs.length;
 
 		for (let diffIndex = 0; diffIndex < this.#diffs.length; diffIndex++) {
 			const item = this.#diffs[diffIndex];
@@ -601,10 +782,8 @@ class RenderRegion {
 				allDiffRects.push(rect);
 			}
 			const mergedRects = mergeRects(rawRects, 1, 1) as RectSet;
-			mergedRects.fillStyle = `hsl(${item.hue} 100% 80%)`;
-			mergedRects.strokeStyle = `hsl(${item.hue} 100% 40% / 0.5)`;
+
 			this.#diffGeometries[diffIndex] = mergedRects;
-			item.geometry = mergedRects;
 		}
 
 		this.buildDiffLineRects(allDiffRects);
@@ -676,7 +855,7 @@ class RenderRegion {
 		y += this.#regionInfo.scrollTop;
 		for (const diffIndex of this.#visibleDiffIndices) {
 			const geometry = this.#diffGeometries[diffIndex];
-			if (geometry) {
+			if (geometry && geometry.rects) {
 				for (const rect of geometry.rects) {
 					if (x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height) {
 						return diffIndex;
@@ -693,6 +872,10 @@ class RenderRegion {
 		for (const diffIndex of this.#visibleDiffIndices) {
 			// console.log("Checking diff index:", diffIndex, "at point:", x, y);
 			const geometry = this.#diffGeometries[diffIndex];
+			if (!geometry || !geometry.rects) {
+				// console.log("No geometry for diff index:", diffIndex);
+				continue;
+			}
 			// console.log("Geometry for diff index:", diffIndex, "is", geometry);
 			for (const rect of geometry.rects) {
 				// console.log("Checking rect:", rect, "at point:", x, y);

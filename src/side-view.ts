@@ -21,7 +21,7 @@ class SideView {
 			}	
 		});
 	}
-
+	
 	setDiffs(diffs: DiffItem[]) {
 		for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
 			const diff = diffs[diffIndex];

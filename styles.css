@@ -53,23 +53,6 @@ body.sidebar-collapsed {
 	grid-template-columns: 1fr var(--sidebar-width-collapsed);
 }
 
-#progress {
-	display: none;
-	position: fixed;
-	bottom: calc(20px + var(--status-bar-height, 0px));
-	right: 20px;
-	background-color: rgba(0, 0, 0, 0.7);
-	color: white;
-	padding: 10px 20px;
-	border-radius: 5px;
-	font-size: 14px;
-	z-index: 1000;
-}
-
-.computing #progress {
-	display: block;
-}
-
 #main {
 	height: 100%;
 	display: grid;
@@ -304,7 +287,6 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 
 .editor .color-red {
 	color: hsl(0 100% 40%);
-	font-weight: bold;
 }
 
 .editor h1,
@@ -534,4 +516,34 @@ a.diff.block {
 
 .peach-below::before {
 	content: "⬇ ⬇ ⬇";
+}
+
+#progress {
+	position: fixed;
+	top: 20px;
+	left: 50%;
+	transform: translateX(-50%);
+	background: rgba(0, 0, 0, 0.8);
+	color: white;
+	padding: 10px 16px;
+	border-radius: 8px;
+	font-size: 14px;
+	z-index: 9999;
+	max-width: 90%;
+	text-align: center;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	opacity: 0;
+	transition: opacity 0.3s ease, transform 0.3s ease;
+	pointer-events: none;
+}
+
+#progress.show {
+	display: block;
+	opacity: 1;
+	transform: translate(-50%, 0);
+}
+
+#progress.fade-out {
+	opacity: 0;
+	transform: translate(-50%, -10px);
 }

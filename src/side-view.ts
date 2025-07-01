@@ -13,7 +13,7 @@ class SideView {
 
 		container.appendChild(this.#root);
 
-		highlightedDiffIndexAtom.subscribe((diffIndex) => this.onHighlightedDiffIndexChange());
+		hoveredDiffIndexAtom.subscribe((diffIndex) => this.onHighlightedDiffIndexChange());
 		diffItemClickedEvent.subscribe((diffIndex) => {
 			const item = this.#diffListItems[diffIndex];
 			if (item) {
@@ -51,12 +51,12 @@ class SideView {
 	}
 
 	onDiffItemMouseOver(diffIndex: number) {
-		highlightedDiffIndexAtom.set(diffIndex);
+		hoveredDiffIndexAtom.set(diffIndex);
 	}
 
 	onDiffItemMouseOut(diffIndex: number) {
-		if (highlightedDiffIndexAtom.get() === diffIndex) {
-			highlightedDiffIndexAtom.set(null);
+		if (hoveredDiffIndexAtom.get() === diffIndex) {
+			hoveredDiffIndexAtom.set(null);
 		}
 	}
 
@@ -70,7 +70,7 @@ class SideView {
 	}
 
 	onHighlightedDiffIndexChange() {
-		const diffIndex = highlightedDiffIndexAtom.get();
+		const diffIndex = hoveredDiffIndexAtom.get();
 		if (this.#highlightedDiffIndex !== diffIndex) {
 			if (this.#highlightedDiffIndex !== null) {
 				const prevItem = this.#diffListItems[this.#highlightedDiffIndex];

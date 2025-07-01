@@ -89,6 +89,7 @@ type TextRun = {
 };
 
 declare type DiffContext = {
+	reqId: number;
 	leftTokens: readonly RichToken[];
 	rightTokens: readonly RichToken[];
 	diffOptions: DiffOptions;

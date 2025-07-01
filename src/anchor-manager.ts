@@ -95,42 +95,73 @@ class AnchorManager {
 		this.#observerCallback = observerCallback;
 	}
 
-	update(callback: (funcs: AnchorManagerUpdateHelper) => void) {
+	#oldAnchorPairs: AnchorPair[] = [];
+	beginUpdate() {
 		this.#leftVisiblePairs.clear();
 		this.#rightVisiblePairs.clear();
 		this.#observerPristine = true;
 		this.#observer.disconnect();
 		this.#anchorMap.clear();
-		const oldAnchorPairs = this.#anchorPairs;
+		this.#oldAnchorPairs = this.#anchorPairs;
 		this.#anchorPairs = [];
+	}
 
-		// 앵커 추가
-		// 앵커맵 업데이트
-
-		const tryAddAnchorPair = this.#tryAddAnchorPair.bind(this);
-		const addAnchorEls = this.addAnchorPair.bind(this);
-		callback({
-			tryAddAnchorPair,
-			addAnchorEls,
-		});
-
-		for (const anchorPair of oldAnchorPairs) {
+	endUpdate() {
+		// 이거 미쳤다
+		// remove() 함수 정말 미쳤다. 자식도 없고 display:none인 상태인데도 전체 파이프라인인의 대부분의 시간을 잡아먹음. 미쳤다 미쳤다
+		// 사실 안지워도 된다... 앵커를 박을 때 해당 위치에 이미 앵커가 있으면 재사용 하고 있으니까.
+		// console.log("AnchorManager.endUpdate: cleaning up old anchors", this.#oldAnchorPairs.length, "pairs");
+		for (const anchorPair of this.#oldAnchorPairs) {
 			const { leftEl, rightEl } = anchorPair;
 			if (!this.#anchorMap.has(leftEl)) {
-				leftEl.remove();
+				leftEl.classList.remove("padtop", "striped");
+				leftEl.style.removeProperty("--padding");
+				// leftEl.remove();
 			}
 			if (!this.#anchorMap.has(rightEl)) {
-				rightEl.remove();
+				rightEl.classList.remove("padtop", "striped");
+				rightEl.style.removeProperty("--padding");
+				// rightEl.remove();
 			}
 		}
-
-		// console.debug("AnchorManager.update", {
-		// 	anchorPairs: this.#anchorPairs,
-		// 	anchorMap: this.#anchorMap,
-		// 	numLeftVisible: this.#leftVisiblePairs.size,
-		// 	numRightVisible: this.#rightVisiblePairs.size,
-		// });
 	}
+
+	// zzzupdate(callback: (funcs: AnchorManagerUpdateHelper) => void) {
+	// 	this.#leftVisiblePairs.clear();
+	// 	this.#rightVisiblePairs.clear();
+	// 	this.#observerPristine = true;
+	// 	this.#observer.disconnect();
+	// 	this.#anchorMap.clear();
+	// 	const oldAnchorPairs = this.#anchorPairs;
+	// 	this.#anchorPairs = [];
+
+	// 	// 앵커 추가
+	// 	// 앵커맵 업데이트
+
+	// 	const tryAddAnchorPair = this.tryAddAnchorPair.bind(this);
+	// 	const addAnchorEls = this.addAnchorPair.bind(this);
+	// 	callback({
+	// 		tryAddAnchorPair,
+	// 		addAnchorEls,
+	// 	});
+
+	// 	for (const anchorPair of oldAnchorPairs) {
+	// 		const { leftEl, rightEl } = anchorPair;
+	// 		if (!this.#anchorMap.has(leftEl)) {
+	// 			leftEl.remove();
+	// 		}
+	// 		if (!this.#anchorMap.has(rightEl)) {
+	// 			rightEl.remove();
+	// 		}
+	// 	}
+
+	// 	// console.debug("AnchorManager.update", {
+	// 	// 	anchorPairs: this.#anchorPairs,
+	// 	// 	anchorMap: this.#anchorMap,
+	// 	// 	numLeftVisible: this.#leftVisiblePairs.size,
+	// 	// 	numRightVisible: this.#rightVisiblePairs.size,
+	// 	// });
+	// }
 
 	#anchorFlagsToString(flags: AnchorFlags): string {
 		const flagsArray: string[] = [];
@@ -167,7 +198,7 @@ class AnchorManager {
 		return flagsArray.join(" | ");
 	}
 
-	#tryAddAnchorPair(leftTokenIndex: number, leftFlags: AnchorFlags, rightTokenIndex: number, rightFlags: AnchorFlags, diffIndex?: number) {
+	tryAddAnchorPair(leftTokenIndex: number, leftFlags: AnchorFlags, rightTokenIndex: number, rightFlags: AnchorFlags, diffIndex?: number) {
 		const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags);
 		if (!leftPoint) {
 			// console.warn("AnchorManager: No valid left anchor point found for token index", leftTokenIndex, "with flags", this.#anchorFlagsToString(leftFlags));
@@ -256,10 +287,18 @@ class AnchorManager {
 	}
 
 	#slideInGently(insertionPoint: Range, type: "anchor" | "diff"): HTMLElement {
-		const existingAnchor =
+		let existingAnchor =
 			insertionPoint.startContainer.nodeType === 1 ? (insertionPoint.startContainer.childNodes[insertionPoint.startOffset] as HTMLElement) : null;
-		if (existingAnchor && existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
-			return existingAnchor;
+		if (existingAnchor) {
+			if (existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
+				return existingAnchor;
+			}
+			if (existingAnchor.previousElementSibling) {
+				existingAnchor = existingAnchor.previousElementSibling as HTMLElement;
+				if (existingAnchor && existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
+					return existingAnchor;
+				}
+			}
 		}
 		const newAnchor = document.createElement("A");
 		newAnchor.classList.add(type);

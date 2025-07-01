@@ -96,7 +96,7 @@ class Editor {
 		this.#container.appendChild(this.#wrapper);
 
 		this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
-		this.#observeMutation();
+		this.observeMutation();
 
 		this.#wrapper.addEventListener("scroll", (e) => {
 			this.#onScroll(e);
@@ -229,8 +229,8 @@ class Editor {
 		}
 	}
 
-	#observeMutation() {
-		this.#mutationObserver.observe(this.#wrapper, {
+	observeMutation() {
+		this.#mutationObserver.observe(this.#editor, {
 			childList: true,
 			subtree: true,
 			//attributes: true,
@@ -238,7 +238,7 @@ class Editor {
 		});
 	}
 
-	#unobserveMutation() {
+	unobserveMutation() {
 		this.#mutationObserver.disconnect();
 	}
 
@@ -257,13 +257,14 @@ class Editor {
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
 		e.preventDefault();
-		this.#unobserveMutation();
+		this.unobserveMutation();
 
 		let rawHTML = e.clipboardData?.getData("text/html") ?? "";
 		let sanitized: Node;
 		if (rawHTML) {
 			console.time("paste sanitizeHTML");
 			sanitized = sanitizeHTML(rawHTML);
+			console.log(this.#editorName, "paste sanitizeHTML", sanitized);
 			console.timeEnd("paste sanitizeHTML");
 		} else {
 			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
@@ -289,9 +290,10 @@ class Editor {
 			range.collapse(false);
 			this.#onInput();
 			console.timeEnd("paste replaceRange");
+
 		}
 
-		this.#observeMutation();
+		this.observeMutation();
 		console.timeEnd("paste");
 	}
 
@@ -443,7 +445,7 @@ class Editor {
 				// 어차피 단일쓰레드 환경이므로 콜백이 실행되는 도중에는 cancelled 값이 바뀔 가능성은 0이기 때문에
 				// 취소확인은 next()를 호출하기 전에나 한번씩 해주면 됨.
 				// generator 내부에서 yield를 해주지 않으면 함수 종료시까지 cancelled=true가 실행될 기회가 생기지 않음.
-				console.debug(this.#editorName, "tokenize cancelled");
+				// console.debug(this.#editorName, "tokenize cancelled");
 				return;
 			}
 
@@ -455,7 +457,7 @@ class Editor {
 			if (done && !ctx.cancelled) {
 				const endTime = performance.now();
 				this.#tokens = value.tokens;
-				console.debug(this.#editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
+				// console.debug(this.#editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
 				if (!ctx.cancelled) {
 					this.#onTokenizeDone();
 				}
@@ -747,13 +749,13 @@ class Editor {
 
 	// 디버깅 전용
 	setContent(rawHTML: string) {
-		this.#unobserveMutation();
+		this.unobserveMutation();
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
 		let sanitized: Node = sanitizeHTML(rawHTML);
 		this.#editor.innerHTML = "";
 		this.#editor.appendChild(sanitized);
-		this.#observeMutation();
+		this.observeMutation();
 		this.#onInput();
 	}
 

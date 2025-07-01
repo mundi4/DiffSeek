@@ -452,7 +452,7 @@ function* tokenizer(ctx: TokenizeContext, idleDeadline: IdleDeadline): Generator
 		const tokenStartIndex = tokenIndex;
 
 		for (let i = 0; i < childNodes.length; i++) {
-			if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 1) {
+			if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 2) {
 				idleDeadline = yield;
 			}
 

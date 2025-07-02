@@ -3,8 +3,6 @@ type EditorName = "left" | "right";
 type EditorCallbacks = {
 	// tokens are being generated.
 	onContentChanging: (editor: Editor) => void;
-
-	// tokens are ready to be used.
 	onContentChanged: (editor: Editor) => void;
 	onScroll: (editor: Editor, scrollTop: number, scrollLeft: number) => void;
 	onScrollEnd: (editor: Editor) => void;
@@ -67,7 +65,7 @@ class Editor {
 		this.#editor.classList.add("editor");
 		this.#editor.contentEditable = "true";
 		this.#editor.spellcheck = false;
-		this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+		// this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
 
 		this.#aboveOverlay.className = "eyes-up-here " + editorName;
 		this.#aboveOverlay.style.opacity = "0";
@@ -224,9 +222,9 @@ class Editor {
 	}
 
 	#onMutation(mutations: MutationRecord[]) {
-		if (this.#editor.childNodes.length === 0) {
-			this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
-		}
+		// if (this.#editor.childNodes.length === 0) {
+		// 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+		// }
 	}
 
 	observeMutation() {
@@ -500,19 +498,19 @@ class Editor {
 		do {
 			if (flags & AnchorFlags.TABLECELL_START) {
 				if (containerNodeName === "TD") {
-					insertionRange.setStart(container, insertionOffset);
+					insertionRange.setStart(container, 0);
 					insertionRange.collapse(true);
 					return insertionRange;
 				}
 			} else if (flags & AnchorFlags.CONTAINER_START) {
 				if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
-					insertionRange.setStart(container, insertionOffset);
+					insertionRange.setStart(container, 0);
 					insertionRange.collapse(true);
 					return insertionRange;
 				}
 			} else if (flags & AnchorFlags.BLOCK_START) {
 				if (BLOCK_ELEMENTS[containerNodeName]) {
-					insertionRange.setStart(container, insertionOffset);
+					insertionRange.setStart(container, 0);
 					insertionRange.collapse(true);
 					return insertionRange;
 				}

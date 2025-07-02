@@ -91,9 +91,7 @@ class DiffSeek {
 		this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
 		this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
 		this.#editorContentsChanged = { left: true, right: true };
-		this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor, () => {
-			//this.alignAnchors();
-		});
+		this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor);
 
 		this.#sideView = new SideView(sideViewContainer);
 
@@ -859,7 +857,7 @@ class DiffSeek {
 		const rightEditor = this.#rightEditor;
 
 		this.#anchorAligning = true;
-		let [changed, maxContentHeight] = this.#anchorManager.alignAnchors(primaryEditor, this.#mainContainer.getBoundingClientRect());
+		let [changed, maxContentHeight] = this.#anchorManager.alignAnchors();
 		if (changed) {
 			if (isNaN(maxContentHeight)) {
 				maxContentHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);

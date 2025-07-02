@@ -2467,7 +2467,7 @@ class Editor {
         this.#editor.classList.add("editor");
         this.#editor.contentEditable = "true";
         this.#editor.spellcheck = false;
-        this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+        // this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
         this.#aboveOverlay.className = "eyes-up-here " + editorName;
         this.#aboveOverlay.style.opacity = "0";
         this.#belowOverlay.className = "peach-below " + editorName;
@@ -2594,9 +2594,9 @@ class Editor {
         }
     }
     #onMutation(mutations) {
-        if (this.#editor.childNodes.length === 0) {
-            this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
-        }
+        // if (this.#editor.childNodes.length === 0) {
+        // 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+        // }
     }
     observeMutation() {
         this.#mutationObserver.observe(this.#editor, {
@@ -2844,21 +2844,21 @@ class Editor {
         do {
             if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
                 if (containerNodeName === "TD") {
-                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.setStart(container, 0);
                     insertionRange.collapse(true);
                     return insertionRange;
                 }
             }
             else if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
                 if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
-                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.setStart(container, 0);
                     insertionRange.collapse(true);
                     return insertionRange;
                 }
             }
             else if (flags & 2 /* AnchorFlags.BLOCK_START */) {
                 if (BLOCK_ELEMENTS[containerNodeName]) {
-                    insertionRange.setStart(container, insertionOffset);
+                    insertionRange.setStart(container, 0);
                     insertionRange.collapse(true);
                     return insertionRange;
                 }
@@ -3122,53 +3122,12 @@ class AnchorManager {
     #anchorPairs = [];
     #anchorMap = new Map();
     #invalidated = false;
-    #leftVisiblePairs = new Set();
-    #rightVisiblePairs = new Set();
-    #observerPristine = false;
-    #pendingPairs = null;
-    #observerCallback;
-    #observer = new IntersectionObserver((entries) => {
-        // console.debug("AnchorManager: IntersectionObserver entries", entries);
-        for (const entry of entries) {
-            const anchorEl = entry.target;
-            const pair = this.#anchorMap.get(anchorEl);
-            if (!pair) {
-                continue;
-            }
-            const nowVisible = entry.isIntersecting;
-            let visiblePairs;
-            if (pair.leftEl === anchorEl) {
-                visiblePairs = this.#leftVisiblePairs;
-            }
-            else {
-                visiblePairs = this.#rightVisiblePairs;
-            }
-            if (nowVisible) {
-                visiblePairs.add(pair);
-            }
-            else {
-                visiblePairs.delete(pair);
-            }
-        }
-        if (this.#observerPristine) {
-            this.#observerPristine = false;
-            this.#observerCallback();
-        }
-    }, {
-        threshold: 0,
-        rootMargin: "100px 0px 100px 0px", // 100px margin to avoid flickering
-    });
-    constructor(leftEditor, rightEditor, observerCallback) {
+    constructor(leftEditor, rightEditor) {
         this.#leftEditor = leftEditor;
         this.#rightEditor = rightEditor;
-        this.#observerCallback = observerCallback;
     }
     #oldAnchorPairs = [];
     beginUpdate() {
-        this.#leftVisiblePairs.clear();
-        this.#rightVisiblePairs.clear();
-        this.#observerPristine = true;
-        this.#observer.disconnect();
         this.#anchorMap.clear();
         this.#oldAnchorPairs = this.#anchorPairs;
         this.#anchorPairs = [];
@@ -3181,13 +3140,15 @@ class AnchorManager {
         for (const anchorPair of this.#oldAnchorPairs) {
             const { leftEl, rightEl } = anchorPair;
             if (!this.#anchorMap.has(leftEl)) {
-                leftEl.classList.remove("padtop", "striped");
-                leftEl.style.removeProperty("--padding");
+                leftEl.style.display = "none";
+                // leftEl.classList.remove("padtop", "striped");
+                // leftEl.style.removeProperty("--padding");
                 // leftEl.remove();
             }
             if (!this.#anchorMap.has(rightEl)) {
-                rightEl.classList.remove("padtop", "striped");
-                rightEl.style.removeProperty("--padding");
+                leftEl.style.display = "none";
+                // rightEl.classList.remove("padtop", "striped");
+                // rightEl.style.removeProperty("--padding");
                 // rightEl.remove();
             }
         }
@@ -3374,12 +3335,6 @@ class AnchorManager {
         this.#anchorPairs.push(pair);
         this.#anchorMap.set(leftEl, pair);
         this.#anchorMap.set(rightEl, pair);
-        if (leftEl.nodeName === "A") {
-            this.#observer.observe(leftEl);
-        }
-        if (rightEl.nodeName === "A") {
-            this.#observer.observe(rightEl);
-        }
         leftEl.dataset.anchorIndex = pair.index.toString();
         rightEl.dataset.anchorIndex = pair.index.toString();
         if (diffIndex !== null) {
@@ -3392,7 +3347,7 @@ class AnchorManager {
         }
         return pair;
     }
-    doAlingAnchors(pairs) {
+    #doAlignAnchors(pairs) {
         // console.debug("AnchorManager.doAlingPairs: aligning pairs", pairs.length);
         const MIN_DELTA = 1;
         const MIN_STRIPED_DELTA = 10;
@@ -3404,8 +3359,10 @@ class AnchorManager {
         // 초기화
         for (const pair of pairs) {
             const { leftEl, rightEl } = pair;
+            rightEl.style.removeProperty("display");
             rightEl.classList.remove("padtop", "striped");
             rightEl.style.removeProperty("--padding");
+            leftEl.style.removeProperty("display");
             leftEl.classList.remove("padtop", "striped");
             leftEl.style.removeProperty("--padding");
         }
@@ -3440,14 +3397,7 @@ class AnchorManager {
         }
         return changeCount;
     }
-    alignPendingAnchors() {
-        if (this.#pendingPairs) {
-            // console.debug("AnchorManager.alignPendingAnchors: aligning pending pairs", this.#pendingPairs.length);
-            this.doAlingAnchors(this.#pendingPairs);
-            this.#pendingPairs = null;
-        }
-    }
-    alignAnchors(primaryEditor, containerRect) {
+    alignAnchors() {
         // if (isScrolling) {
         // 	return [false, NaN];
         // }
@@ -3455,9 +3405,7 @@ class AnchorManager {
         if (!anchors) {
             return [false, NaN];
         }
-        const startTime = performance.now();
-        const MIN_DELTA = 1;
-        const MIN_STRIPED_DELTA = 10;
+        // const startTime = performance.now();
         if (this.#invalidated) {
             // console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
             this.#invalidated = false;
@@ -3466,11 +3414,11 @@ class AnchorManager {
                 pair.delta = 0;
             }
         }
-        let changedCount = this.doAlingAnchors(anchors);
+        let changedCount = this.#doAlignAnchors(anchors);
         // console.debug("AnchorManager.alignAnchors: aligned pairs", changedCount);
         //console.log("numHandled", numHandled, this.#numLeftVisible, this.#numRightVisible);
         let editorHeight = Math.max(this.#leftEditor.contentHeight, this.#rightEditor.contentHeight);
-        const endTime = performance.now();
+        // const endTime = performance.now();
         // console.debug(`AnchorManager.alignAnchors: aligned ${changedCount} pairs in ${endTime - startTime}ms, editorHeight: ${editorHeight}`);
         return [changedCount > 0, editorHeight];
     }
@@ -3539,7 +3487,7 @@ class Renderer {
     #mouseX = -1;
     #mouseY = -1;
     #guideLineEnabled = false;
-    #guideLineY = null;
+    #guideLineY = -1;
     #stage = 0 /* RenderStage.Idle */;
     #diffHovered = false;
     constructor(container, leftRegion, rightRegion, callbacks) {
@@ -3555,11 +3503,22 @@ class Renderer {
         this.#rightRegion = new RenderRegion("right", this, this.#ctx, this.#highlightCtx, rightRegion, callbacks);
         container.addEventListener("mousemove", (e) => {
             const rect = container.getBoundingClientRect();
-            this.#mouseX = e.clientX - rect.x;
-            this.#mouseY = e.clientY - rect.y;
-            this.#invalidate(2 /* RenderFlags.HIT_TEST */);
+            let x = e.clientX - rect.x;
+            let y = e.clientY - rect.y;
+            if (x < 0 || x > this.#canvasWidth || y < 0 || y > this.#canvasHeight) {
+                x = -1;
+                y = -1;
+            }
+            if (this.#mouseX !== x || this.#mouseY !== y) {
+                this.#mouseX = x;
+                this.#mouseY = y;
+                this.#invalidate(2 /* RenderFlags.HIT_TEST */);
+            }
         });
         container.addEventListener("mouseleave", () => {
+            if (this.#mouseX === -1 && this.#mouseY === -1) {
+                return; // No change
+            }
             this.#mouseX = -1;
             this.#mouseY = -1;
             if (hoveredDiffIndexAtom.get() !== null) {
@@ -3634,25 +3593,47 @@ class Renderer {
         return parts.join(", ") || "NONE";
     }
     #render(time) {
+        let leftRegionFlags;
+        let rightRegionFlags;
         // prepare
         this.#stage = 1 /* RenderStage.Prepare */;
         this.#callbacks.onPrepare(time);
         if (this.#nextRenderFlags & 1 /* RenderFlags.LAYOUT */) {
             this.#updateLayout();
         }
+        leftRegionFlags = this.#nextRenderFlags & 224 /* RenderFlags.REGION_MASK */;
+        rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 224 /* RenderFlags.REGION_MASK */;
+        if (leftRegionFlags) {
+            this.#leftRegion.prepare(leftRegionFlags);
+        }
+        if (rightRegionFlags) {
+            this.#rightRegion.prepare(rightRegionFlags);
+        }
         if (this.#nextRenderFlags & 2 /* RenderFlags.HIT_TEST */) {
             this.hitTest(this.#mouseX, this.#mouseY);
+            if (this.#guideLineEnabled) {
+                if (this.#guideLineY !== this.#mouseY) {
+                    if (this.#guideLineY >= 0) {
+                        // 이전에 그렸던 guide line을 지워야함
+                        this.invalidateHighlightLayer();
+                    }
+                    this.#guideLineY = this.#mouseY;
+                }
+            }
         }
         // draw
         this.#stage = 2 /* RenderStage.Draw */;
-        let leftRegionFlags = this.#nextRenderFlags & 224 /* RenderFlags.REGION_MASK */;
-        let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 224 /* RenderFlags.REGION_MASK */;
+        leftRegionFlags = this.#nextRenderFlags & 224 /* RenderFlags.REGION_MASK */;
+        rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & 224 /* RenderFlags.REGION_MASK */;
         this.#nextRenderFlags = 0 /* RenderFlags.NONE */;
         if (leftRegionFlags) {
             this.#leftRegion.render(leftRegionFlags);
         }
         if (rightRegionFlags) {
             this.#rightRegion.render(rightRegionFlags);
+        }
+        if (this.#guideLineEnabled && this.#mouseY >= 0) {
+            this.#renderGuideLine();
         }
         // if (this.#guideLineEnabled && this.#mouseY >= 0) {
         // 	this.#renderGuideLine();
@@ -3664,8 +3645,8 @@ class Renderer {
         }
     }
     #renderGuideLine() {
-        const y = this.#mouseY + 0.5;
         const ctx = this.#highlightCtx;
+        const y = this.#guideLineY + 0.5;
         ctx.beginPath();
         ctx.moveTo(0, y); // +0.5는 픽셀 정렬을 위해. 안 그러면 흐려짐
         ctx.lineTo(this.#canvasWidth, y);
@@ -3798,6 +3779,8 @@ class RenderRegion {
     regionHeight = 0;
     #hoveredDiffIndex = null;
     #callbacks;
+    #diffIndicesToRender = [];
+    #diffVisibilityChangeEntries = [];
     constructor(name, renderer, ctx, highlightCtx, regionInfo, callbacks) {
         this.#name = name;
         this.#renderer = renderer;
@@ -3830,9 +3813,6 @@ class RenderRegion {
     get diffs() {
         return this.#diffs;
     }
-    get diffGeometries() {
-        return this.#diffGeometries;
-    }
     get diffLineRects() {
         return this.#diffLineRects;
     }
@@ -3850,6 +3830,7 @@ class RenderRegion {
     // }
     setDiffs(diffs) {
         this.#diffs = diffs;
+        this.#diffGeometries.length = 0;
         //this.#diffGeometries = new Array(diffs.length);
         // this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
         this.#visibleDiffIndices.clear();
@@ -3860,7 +3841,7 @@ class RenderRegion {
             return false; // No change
         }
         let wasShown = this.#hoveredDiffIndex !== null && this.visibleDiffIndices.has(this.#hoveredDiffIndex);
-        let shouldShow = diffIndex !== null && (!this.diffGeometries[diffIndex] || this.visibleDiffIndices.has(diffIndex));
+        let shouldShow = diffIndex !== null && (!this.#diffGeometries[diffIndex] || this.visibleDiffIndices.has(diffIndex));
         this.#hoveredDiffIndex = diffIndex;
         if (wasShown || shouldShow) {
             this.#renderer.invalidateHighlightLayer(this.#name);
@@ -3886,42 +3867,30 @@ class RenderRegion {
         this.#selectionHighlightRects = null;
         this.#renderer.invalidateHighlightLayer(this.#name);
     }
-    render(dirtyFlags) {
+    prepare(dirtyFlags) {
+        const diffGeometries = this.#diffGeometries;
+        const diffsToRender = this.#diffIndicesToRender;
+        const diffVisibilityChangeEntries = this.#diffVisibilityChangeEntries;
+        const visibleDiffIndices = this.#visibleDiffIndices;
+        const diffs = this.#diffs;
+        const newGeometryRects = [];
+        diffsToRender.length = 0;
+        diffVisibilityChangeEntries.length = 0;
         if (dirtyFlags & 128 /* RenderFlags.GEOMETRY */) {
-            // console.warn(`[RenderRegion] Building diff geometries for ${this.#name} region.`);
-            this.#diffGeometries = new Array(this.#diffs.length);
+            diffGeometries.length = 0;
             this.#diffLineRects.length = 0;
         }
-        if (dirtyFlags & 32 /* RenderFlags.DIFF_LAYER */) {
-            this.renderDiffLayer();
-        }
-        if (dirtyFlags & 64 /* RenderFlags.HIGHLIGHT_LAYER */) {
-            this.renderHighlightLayer(dirtyFlags);
-        }
-    }
-    renderDiffLayer() {
-        const ctx = this.#ctx;
-        ctx.save();
-        ctx.translate(this.regionX, this.regionY);
-        ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-        const regionWidth = this.regionWidth;
-        const regionHeight = this.regionHeight;
-        const visibleDiffIndices = this.#visibleDiffIndices;
-        const visChangeEntries = [];
-        let scrollTop = this.#regionInfo.scrollTop;
-        let scrollLeft = 0;
+        const scrollTop = this.#regionInfo.scrollTop;
         const offsetX = -this.regionX;
         const offsetY = -this.regionY + scrollTop;
-        const diffs = this.#diffs;
-        const diffsToRender = [];
-        const newGeometryRects = [];
+        const regionHeight = this.regionHeight;
         for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
-            let geometry = this.#diffGeometries[diffIndex];
+            let geometry = diffGeometries[diffIndex];
             if (!geometry) {
                 const diff = diffs[diffIndex];
                 const wholeRect = diff.range.getBoundingClientRect();
                 const x = wholeRect.x + offsetX - DIFF_EXPAND_X, y = wholeRect.y + offsetY - DIFF_EXPAND_Y, width = wholeRect.width + DIFF_EXPAND_X * 2, height = wholeRect.height + DIFF_EXPAND_Y * 2;
-                this.#diffGeometries[diffIndex] = geometry = {
+                diffGeometries[diffIndex] = geometry = {
                     minX: x,
                     minY: y,
                     maxX: x + width,
@@ -3933,7 +3902,7 @@ class RenderRegion {
             }
             if (geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) {
                 if (visibleDiffIndices.delete(diffIndex)) {
-                    visChangeEntries.push({ item: diffIndex, isVisible: false });
+                    diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: false });
                 }
                 continue;
             }
@@ -3946,7 +3915,7 @@ class RenderRegion {
                     rect.height += DIFF_EXPAND_Y * 2;
                     newGeometryRects.push(rect);
                 }
-                this.#diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1);
+                diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1);
                 // geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
                 // geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40% / 0.5)`;
                 // geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80% / 0.7)`;
@@ -3957,6 +3926,28 @@ class RenderRegion {
         if (newGeometryRects.length > 0) {
             this.#mergeIntoDiffLineRects(newGeometryRects);
         }
+    }
+    render(dirtyFlags) {
+        if (dirtyFlags & 32 /* RenderFlags.DIFF_LAYER */) {
+            this.renderDiffLayer();
+        }
+        if (dirtyFlags & 64 /* RenderFlags.HIGHLIGHT_LAYER */) {
+            this.renderHighlightLayer(dirtyFlags);
+        }
+    }
+    renderDiffLayer() {
+        const ctx = this.#ctx;
+        ctx.save();
+        ctx.translate(this.regionX, this.regionY);
+        ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
+        const diffGeometries = this.#diffGeometries;
+        const diffsToRender = this.#diffIndicesToRender;
+        const diffVisibilityChangeEntries = this.#diffVisibilityChangeEntries;
+        const visibleDiffIndices = this.#visibleDiffIndices;
+        const diffs = this.#diffs;
+        const scrollTop = this.#regionInfo.scrollTop;
+        const scrollLeft = 0;
+        const regionHeight = this.regionHeight;
         for (const diffLineRect of this.#diffLineRects) {
             const x = Math.floor(diffLineRect.x - scrollLeft), y = Math.floor(diffLineRect.y - scrollTop), width = Math.ceil(diffLineRect.width), height = Math.ceil(diffLineRect.height);
             if (y + height < 0)
@@ -3967,7 +3958,7 @@ class RenderRegion {
             ctx.fillRect(x, y, width, height);
         }
         for (const diffIndex of diffsToRender) {
-            const geometry = this.#diffGeometries[diffIndex];
+            const geometry = diffGeometries[diffIndex];
             ctx.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
             ctx.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40%)`;
             let rendered = false;
@@ -3985,18 +3976,18 @@ class RenderRegion {
                 const prevCount = visibleDiffIndices.size;
                 visibleDiffIndices.add(diffIndex);
                 if (visibleDiffIndices.size > prevCount) {
-                    visChangeEntries.push({ item: diffIndex, isVisible: true });
+                    diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: true });
                 }
             }
             else {
                 if (visibleDiffIndices.delete(diffIndex)) {
-                    visChangeEntries.push({ item: diffIndex, isVisible: false });
+                    diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: false });
                 }
             }
         }
-        if (visChangeEntries.length > 0) {
+        if (diffVisibilityChangeEntries.length > 0) {
             // console.warn(`[RenderRegion] Visibility change entries for ${this.#name} region:`, visChangeEntries);
-            this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
+            this.#callbacks.onDiffVisibilityChanged(this.#name, diffVisibilityChangeEntries);
         }
         //this.#shouldClearCanvas = renderedAny;
         ctx.restore();
@@ -4198,10 +4189,6 @@ class RenderRegion {
         this.#diffLineRects = lineRects;
     }
     hitTest(x, y) {
-        // TODO renderer에서 호출하기 전에 확인해서 처리할 것
-        // if (this.dirtyFlags & (RenderFlags.GEOMETRY | RenderFlags.DIFF)) {
-        // 	return null;
-        // }
         y += this.#regionInfo.scrollTop;
         for (const diffIndex of this.#visibleDiffIndices) {
             const geometry = this.#diffGeometries[diffIndex];
@@ -4574,9 +4561,7 @@ class DiffSeek {
         this.#leftEditor = new Editor(mainContainer, "left", editorCallbacks);
         this.#rightEditor = new Editor(mainContainer, "right", editorCallbacks);
         this.#editorContentsChanged = { left: true, right: true };
-        this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor, () => {
-            //this.alignAnchors();
-        });
+        this.#anchorManager = new AnchorManager(this.#leftEditor, this.#rightEditor);
         this.#sideView = new SideView(sideViewContainer);
         let lastContainerWidth = 0;
         const resizeObserver = new ResizeObserver(([entry]) => {
@@ -5245,7 +5230,7 @@ class DiffSeek {
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
         this.#anchorAligning = true;
-        let [changed, maxContentHeight] = this.#anchorManager.alignAnchors(primaryEditor, this.#mainContainer.getBoundingClientRect());
+        let [changed, maxContentHeight] = this.#anchorManager.alignAnchors();
         if (changed) {
             if (isNaN(maxContentHeight)) {
                 maxContentHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
@@ -5355,14 +5340,6 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
 }
-
-/*
-#121212	#e0e0e0
-#1e1e1e	#dcdcdc
-#0f1117	#cfd8dc
-#1a1a2e	#eeeeee
-#101820	#f5f5f5
-*/
 
 * {
 	margin: 0;

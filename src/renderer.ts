@@ -62,7 +62,7 @@ class Renderer {
 	#mouseX: number = -1;
 	#mouseY: number = -1;
 	#guideLineEnabled: boolean = false;
-	#guideLineY: number | null = null;
+	#guideLineY: number = -1;
 	#stage: RenderStage = RenderStage.Idle;
 	#diffHovered = false;
 
@@ -82,12 +82,23 @@ class Renderer {
 
 		container.addEventListener("mousemove", (e) => {
 			const rect = container.getBoundingClientRect();
-			this.#mouseX = e.clientX - rect.x;
-			this.#mouseY = e.clientY - rect.y;
-			this.#invalidate(RenderFlags.HIT_TEST);
+			let x = e.clientX - rect.x;
+			let y = e.clientY - rect.y;
+			if (x < 0 || x > this.#canvasWidth || y < 0 || y > this.#canvasHeight) {
+				x = -1;
+				y = -1;
+			}
+			if (this.#mouseX !== x || this.#mouseY !== y) {
+				this.#mouseX = x;
+				this.#mouseY = y;
+				this.#invalidate(RenderFlags.HIT_TEST);
+			}
 		});
 
 		container.addEventListener("mouseleave", () => {
+			if (this.#mouseX === -1 && this.#mouseY === -1) {
+				return; // No change
+			}
 			this.#mouseX = -1;
 			this.#mouseY = -1;
 			if (hoveredDiffIndexAtom.get() !== null) {
@@ -169,6 +180,9 @@ class Renderer {
 	}
 
 	#render(time: number) {
+		let leftRegionFlags;
+		let rightRegionFlags;
+
 		// prepare
 		this.#stage = RenderStage.Prepare;
 		this.#callbacks.onPrepare(time);
@@ -177,14 +191,32 @@ class Renderer {
 			this.#updateLayout();
 		}
 
+		leftRegionFlags = this.#nextRenderFlags & RenderFlags.REGION_MASK;
+		rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
+		if (leftRegionFlags) {
+			this.#leftRegion.prepare(leftRegionFlags);
+		}
+		if (rightRegionFlags) {
+			this.#rightRegion.prepare(rightRegionFlags);
+		}
+
 		if (this.#nextRenderFlags & RenderFlags.HIT_TEST) {
 			this.hitTest(this.#mouseX, this.#mouseY);
+			if (this.#guideLineEnabled) {
+				if (this.#guideLineY !== this.#mouseY) {
+					if (this.#guideLineY >= 0) {
+						// 이전에 그렸던 guide line을 지워야함
+						this.invalidateHighlightLayer();
+					}
+					this.#guideLineY = this.#mouseY;
+				}
+			}
 		}
 
 		// draw
 		this.#stage = RenderStage.Draw;
-		let leftRegionFlags = this.#nextRenderFlags & RenderFlags.REGION_MASK;
-		let rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
+		leftRegionFlags = this.#nextRenderFlags & RenderFlags.REGION_MASK;
+		rightRegionFlags = (this.#nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
 		this.#nextRenderFlags = RenderFlags.NONE;
 
 		if (leftRegionFlags) {
@@ -192,6 +224,10 @@ class Renderer {
 		}
 		if (rightRegionFlags) {
 			this.#rightRegion.render(rightRegionFlags);
+		}
+
+		if (this.#guideLineEnabled && this.#mouseY >= 0) {
+			this.#renderGuideLine();
 		}
 
 		// if (this.#guideLineEnabled && this.#mouseY >= 0) {
@@ -206,8 +242,8 @@ class Renderer {
 	}
 
 	#renderGuideLine() {
-		const y = this.#mouseY + 0.5;
 		const ctx = this.#highlightCtx;
+		const y = this.#guideLineY + 0.5;
 		ctx.beginPath();
 		ctx.moveTo(0, y); // +0.5는 픽셀 정렬을 위해. 안 그러면 흐려짐
 		ctx.lineTo(this.#canvasWidth, y);
@@ -353,7 +389,8 @@ class RenderRegion {
 	regionHeight: number = 0;
 	#hoveredDiffIndex: number | null = null;
 	#callbacks: RendererCallbacks;
-
+	#diffIndicesToRender: number[] = [];
+	#diffVisibilityChangeEntries: VisibilityChangeEntry[] = [];
 	constructor(
 		name: "left" | "right",
 		renderer: Renderer,
@@ -396,10 +433,6 @@ class RenderRegion {
 		return this.#diffs;
 	}
 
-	get diffGeometries() {
-		return this.#diffGeometries;
-	}
-
 	get diffLineRects() {
 		return this.#diffLineRects;
 	}
@@ -422,6 +455,7 @@ class RenderRegion {
 
 	setDiffs(diffs: DiffRenderItem[]) {
 		this.#diffs = diffs;
+		this.#diffGeometries.length = 0;
 		//this.#diffGeometries = new Array(diffs.length);
 		// this.markDirty(RenderFlags.DIFF | RenderFlags.GEOMETRY);
 		this.#visibleDiffIndices.clear();
@@ -434,7 +468,7 @@ class RenderRegion {
 		}
 
 		let wasShown = this.#hoveredDiffIndex !== null && this.visibleDiffIndices.has(this.#hoveredDiffIndex);
-		let shouldShow = diffIndex !== null && (!this.diffGeometries[diffIndex] || this.visibleDiffIndices.has(diffIndex));
+		let shouldShow = diffIndex !== null && (!this.#diffGeometries[diffIndex] || this.visibleDiffIndices.has(diffIndex));
 		this.#hoveredDiffIndex = diffIndex;
 
 		if (wasShown || shouldShow) {
@@ -468,13 +502,77 @@ class RenderRegion {
 		this.#renderer.invalidateHighlightLayer(this.#name);
 	}
 
-	render(dirtyFlags: RenderFlags) {
+	prepare(dirtyFlags: RenderFlags) {
+		const diffGeometries = this.#diffGeometries;
+		const diffsToRender = this.#diffIndicesToRender;
+		const diffVisibilityChangeEntries = this.#diffVisibilityChangeEntries;
+		const visibleDiffIndices = this.#visibleDiffIndices;
+		const diffs = this.#diffs;
+		const newGeometryRects: Rect[] = [];
+
+		diffsToRender.length = 0;
+		diffVisibilityChangeEntries.length = 0;
 		if (dirtyFlags & RenderFlags.GEOMETRY) {
-			// console.warn(`[RenderRegion] Building diff geometries for ${this.#name} region.`);
-			this.#diffGeometries = new Array(this.#diffs.length);
+			diffGeometries.length = 0;
 			this.#diffLineRects.length = 0;
 		}
 
+		const scrollTop = this.#regionInfo.scrollTop;
+		const offsetX = -this.regionX;
+		const offsetY = -this.regionY + scrollTop;
+		const regionHeight = this.regionHeight;
+
+		for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
+			let geometry = diffGeometries[diffIndex];
+			if (!geometry) {
+				const diff = diffs[diffIndex];
+				const wholeRect = diff.range.getBoundingClientRect();
+				const x = wholeRect.x + offsetX - DIFF_EXPAND_X,
+					y = wholeRect.y + offsetY - DIFF_EXPAND_Y,
+					width = wholeRect.width + DIFF_EXPAND_X * 2,
+					height = wholeRect.height + DIFF_EXPAND_Y * 2;
+				diffGeometries[diffIndex] = geometry = {
+					minX: x,
+					minY: y,
+					maxX: x + width,
+					maxY: y + height,
+					rects: null,
+					// fillStyle: null,
+					// strokeStyle: null,
+				};
+			}
+
+			if (geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) {
+				if (visibleDiffIndices.delete(diffIndex)) {
+					diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: false });
+				}
+				continue;
+			}
+
+			if (geometry.rects === null) {
+				const rangeRects = extractRects(diffs[diffIndex].range, true);
+				for (const rect of rangeRects) {
+					rect.x += offsetX - DIFF_EXPAND_X;
+					rect.y += offsetY - DIFF_EXPAND_Y;
+					rect.width += DIFF_EXPAND_X * 2;
+					rect.height += DIFF_EXPAND_Y * 2;
+					newGeometryRects.push(rect);
+				}
+				diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1) as RectSet;
+				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
+				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40% / 0.5)`;
+				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80% / 0.7)`;
+				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 30% / 0.5)`;
+			}
+			diffsToRender.push(diffIndex);
+		}
+
+		if (newGeometryRects.length > 0) {
+			this.#mergeIntoDiffLineRects(newGeometryRects);
+		}
+	}
+
+	render(dirtyFlags: RenderFlags) {
 		if (dirtyFlags & RenderFlags.DIFF_LAYER) {
 			this.renderDiffLayer();
 		}
@@ -490,68 +588,14 @@ class RenderRegion {
 		ctx.translate(this.regionX, this.regionY);
 		ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
 
-		const regionWidth = this.regionWidth;
-		const regionHeight = this.regionHeight;
-
+		const diffGeometries = this.#diffGeometries;
+		const diffsToRender = this.#diffIndicesToRender;
+		const diffVisibilityChangeEntries = this.#diffVisibilityChangeEntries;
 		const visibleDiffIndices = this.#visibleDiffIndices;
-		const visChangeEntries: VisibilityChangeEntry[] = [];
-
-		let scrollTop = this.#regionInfo.scrollTop;
-		let scrollLeft = 0;
-
-		const offsetX = -this.regionX;
-		const offsetY = -this.regionY + scrollTop;
-
 		const diffs = this.#diffs;
-		const diffsToRender: number[] = [];
-		const newGeometryRects: Rect[] = [];
-		for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
-			let geometry = this.#diffGeometries[diffIndex];
-			if (!geometry) {
-				const diff = diffs[diffIndex];
-				const wholeRect = diff.range.getBoundingClientRect();
-				const x = wholeRect.x + offsetX - DIFF_EXPAND_X,
-					y = wholeRect.y + offsetY - DIFF_EXPAND_Y,
-					width = wholeRect.width + DIFF_EXPAND_X * 2,
-					height = wholeRect.height + DIFF_EXPAND_Y * 2;
-				this.#diffGeometries[diffIndex] = geometry = {
-					minX: x,
-					minY: y,
-					maxX: x + width,
-					maxY: y + height,
-					rects: null,
-					// fillStyle: null,
-					// strokeStyle: null,
-				};
-			}
-
-			if (geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) {
-				if (visibleDiffIndices.delete(diffIndex)) {
-					visChangeEntries.push({ item: diffIndex, isVisible: false });
-				}
-				continue;
-			}
-			if (geometry.rects === null) {
-				const rangeRects = extractRects(diffs[diffIndex].range, true);
-				for (const rect of rangeRects) {
-					rect.x += offsetX - DIFF_EXPAND_X;
-					rect.y += offsetY - DIFF_EXPAND_Y;
-					rect.width += DIFF_EXPAND_X * 2;
-					rect.height += DIFF_EXPAND_Y * 2;
-					newGeometryRects.push(rect);
-				}
-				this.#diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1) as RectSet;
-				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
-				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40% / 0.5)`;
-				// geometry.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80% / 0.7)`;
-				// geometry.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 30% / 0.5)`;
-			}
-			diffsToRender.push(diffIndex);
-		}
-
-		if (newGeometryRects.length > 0) {
-			this.#mergeIntoDiffLineRects(newGeometryRects);
-		}
+		const scrollTop = this.#regionInfo.scrollTop;
+		const scrollLeft = 0;
+		const regionHeight = this.regionHeight;
 
 		for (const diffLineRect of this.#diffLineRects) {
 			const x = Math.floor(diffLineRect.x - scrollLeft),
@@ -567,7 +611,7 @@ class RenderRegion {
 		}
 
 		for (const diffIndex of diffsToRender) {
-			const geometry = this.#diffGeometries[diffIndex]!;
+			const geometry = diffGeometries[diffIndex]!;
 			ctx.fillStyle = `hsl(${diffs[diffIndex].hue} 100% 80%)`;
 			ctx.strokeStyle = `hsl(${diffs[diffIndex].hue} 100% 40%)`;
 
@@ -590,18 +634,18 @@ class RenderRegion {
 				const prevCount = visibleDiffIndices.size;
 				visibleDiffIndices.add(diffIndex);
 				if (visibleDiffIndices.size > prevCount) {
-					visChangeEntries.push({ item: diffIndex, isVisible: true });
+					diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: true });
 				}
 			} else {
 				if (visibleDiffIndices.delete(diffIndex)) {
-					visChangeEntries.push({ item: diffIndex, isVisible: false });
+					diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: false });
 				}
 			}
 		}
 
-		if (visChangeEntries.length > 0) {
+		if (diffVisibilityChangeEntries.length > 0) {
 			// console.warn(`[RenderRegion] Visibility change entries for ${this.#name} region:`, visChangeEntries);
-			this.#callbacks.onDiffVisibilityChanged(this.#name, visChangeEntries);
+			this.#callbacks.onDiffVisibilityChanged(this.#name, diffVisibilityChangeEntries);
 		}
 
 		//this.#shouldClearCanvas = renderedAny;
@@ -844,11 +888,6 @@ class RenderRegion {
 	}
 
 	hitTest(x: number, y: number) {
-		// TODO renderer에서 호출하기 전에 확인해서 처리할 것
-		// if (this.dirtyFlags & (RenderFlags.GEOMETRY | RenderFlags.DIFF)) {
-		// 	return null;
-		// }
-
 		y += this.#regionInfo.scrollTop;
 		for (const diffIndex of this.#visibleDiffIndices) {
 			const geometry = this.#diffGeometries[diffIndex];
@@ -860,7 +899,6 @@ class RenderRegion {
 				}
 			}
 		}
-
 		return null;
 	}
 

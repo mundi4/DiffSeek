@@ -1,7 +1,6 @@
 type EditorName = "left" | "right";
 
 type EditorCallbacks = {
-	// tokens are being generated.
 	onContentChanging: (editor: Editor) => void;
 	onContentChanged: (editor: Editor) => void;
 	onScroll: (editor: Editor, scrollTop: number, scrollLeft: number) => void;
@@ -10,17 +9,16 @@ type EditorCallbacks = {
 	onFocus: (editor: Editor) => void;
 	onBlur: (editor: Editor) => void;
 	onClick: (editor: Editor, event: MouseEvent) => void;
+	onCopy: (editor: Editor, event: ClipboardEvent) => void;
 };
 
 type AnchorInsertionPoint = {
-	container: Node;
-	offset: number;
-	flags: number;
-	existingAnchor: HTMLElement | null;
-	depth: number;
+	range: Range | LightRange;
+	flags: InsertionPointFlags
 };
 
 const enum InsertionPointFlags {
+	None = 0,
 	LINE_START = TokenFlags.LINE_START,
 	LINE_END = TokenFlags.LINE_END,
 	BLOCK_START = TokenFlags.BLOCK_START,
@@ -48,7 +46,6 @@ class Editor {
 	#mutationObserver: MutationObserver;
 	#tokens: RichToken[] = [];
 	#tokenizeContext: TokenizeContext | null = null;
-	#tokenizeCallbackId: number | null = null;
 	#callbacks: EditorCallbacks;
 	#bottomPaddingElement: HTMLElement = document.createElement("div");
 	#prevWidth: number = 0;
@@ -69,7 +66,7 @@ class Editor {
 
 		this.#aboveOverlay.className = "eyes-up-here " + editorName;
 		this.#aboveOverlay.style.opacity = "0";
-		this.#belowOverlay.className = "peach-below " + editorName;
+		this.#belowOverlay.className = "eyes-down-here " + editorName;
 		this.#belowOverlay.style.opacity = "0";
 
 		this.#wrapper.id = editorName + "EditorWrapper";
@@ -79,16 +76,6 @@ class Editor {
 		this.#wrapper.appendChild(this.#belowOverlay);
 
 		this.#bottomPaddingElement.className = "maybe-170cm-wasnt-enough";
-		this.#bottomPaddingElement.addEventListener("click", (e) => {
-			const sel = window.getSelection();
-			const range = document.createRange();
-			range.setStart(this.#editor, this.#editor.childNodes.length);
-			range.collapse(true);
-			sel?.removeAllRanges();
-			sel?.addRange(range);
-			this.#editor.focus();
-		});
-
 		this.#wrapper.appendChild(this.#bottomPaddingElement);
 
 		this.#container.appendChild(this.#wrapper);
@@ -103,6 +90,7 @@ class Editor {
 			callbacks.onScrollEnd(this);
 		});
 
+		this.#editor.addEventListener("copy", (e) => this.#onCopy(e));
 		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
 		this.#editor.addEventListener("input", () => this.#onInput());
 		this.#editor.addEventListener("click", (e) => {
@@ -240,6 +228,10 @@ class Editor {
 		this.#mutationObserver.disconnect();
 	}
 
+	#onCopy(e: ClipboardEvent) {
+		this.#callbacks.onCopy(this, e);
+	}
+
 	#onPaste(e: ClipboardEvent) {
 		const selection = document.getSelection();
 		if (!selection || selection.rangeCount === 0) {
@@ -251,7 +243,7 @@ class Editor {
 			return;
 		}
 
-		console.time("paste");
+		// console.time("paste");
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
 		e.preventDefault();
@@ -260,10 +252,7 @@ class Editor {
 		let rawHTML = e.clipboardData?.getData("text/html") ?? "";
 		let sanitized: Node;
 		if (rawHTML) {
-			console.time("paste sanitizeHTML");
 			sanitized = sanitizeHTML(rawHTML);
-			console.log(this.#editorName, "paste sanitizeHTML", sanitized);
-			console.timeEnd("paste sanitizeHTML");
 		} else {
 			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
 		}
@@ -275,24 +264,19 @@ class Editor {
 
 		// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
 		if (rawHTML.length <= 200_000) {
-			console.time("paste execCommand");
 			const div = document.createElement("DIV");
 			div.appendChild(sanitized);
 			const sanitizedHTML = div.innerHTML;
 			document.execCommand("insertHTML", false, sanitizedHTML);
-			console.timeEnd("paste execCommand");
 		} else {
-			console.time("paste replaceRange");
 			range.deleteContents();
 			range.insertNode(sanitized);
 			range.collapse(false);
 			this.#onInput();
-			console.timeEnd("paste replaceRange");
-
 		}
 
 		this.observeMutation();
-		console.timeEnd("paste");
+		// console.timeEnd("paste");
 	}
 
 	findTokenOverlapIndices(range: Range): [number, number] {
@@ -411,85 +395,60 @@ class Editor {
 	}
 
 	#tokenize() {
-		const _TIMEOUT = 200;
-
-		if (this.#tokenizeCallbackId !== null) {
-			// 아직 실행되지 않고 대기 중인 콜백 취소
-			cancelIdleCallback(this.#tokenizeCallbackId);
-			this.#tokenizeCallbackId = null;
-		}
-
 		if (this.#tokenizeContext) {
-			// 이미 콜백이 실행 중이라면 다음 step에서 취소처리해야하므로...
-			this.#tokenizeContext.cancelled = true;
+			this.#tokenizeContext.cancel();
 		}
 
-		const startTime = performance.now();
-		const ctx: TokenizeContext = {
-			cancelled: false,
-			content: this.#editor,
-		};
-		this.#tokenizeContext = ctx;
+		this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
+			console.debug(this.#editorName, "Tokenization done", tokens);
+			this.#tokens = tokens;
+			this.#onTokenizeDone();
+		});
 
-		// 여기서 바로 generator를 생성을 해버리면 idleDeadline을 바로 넘겨줄 수가 없다.
-		// generator 내부에서 idleDeadline을 획득하려면 "성급하게" yield를 한번 하고 외부에서 next(idleDeadline)으로 넘겨줘야하는데
-		// 그러면 황금같은 유휴시간을 한번 낭비하게 됨. 그래서 generator 생성은 콜백 안에서...
-		let generator: ReturnType<typeof tokenizer> | null = null;
-
-		const step = (idleDeadline: IdleDeadline) => {
-			this.#tokenizeCallbackId = null;
-
-			if (ctx.cancelled) {
-				// 어차피 단일쓰레드 환경이므로 콜백이 실행되는 도중에는 cancelled 값이 바뀔 가능성은 0이기 때문에
-				// 취소확인은 next()를 호출하기 전에나 한번씩 해주면 됨.
-				// generator 내부에서 yield를 해주지 않으면 함수 종료시까지 cancelled=true가 실행될 기회가 생기지 않음.
-				// console.debug(this.#editorName, "tokenize cancelled");
-				return;
-			}
-
-			if (generator === null) {
-				generator = tokenizer(ctx, idleDeadline);
-			}
-
-			const { done, value } = generator.next(idleDeadline);
-			if (done && !ctx.cancelled) {
-				const endTime = performance.now();
-				this.#tokens = value.tokens;
-				// console.debug(this.#editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
-				if (!ctx.cancelled) {
-					this.#onTokenizeDone();
-				}
-			} else if (!ctx.cancelled) {
-				this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
-			}
-		};
-		this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
+		this.#tokenizeContext.start();
 	}
 
 	#onTokenizeDone() {
 		this.#callbacks.onContentChanged(this);
 	}
 
-	getAnchorInsertionPoint(tokenIndex: number, flags: AnchorFlags): Range | null {
+	getAnchorInsertionPoint(tokenIndex: number, flags: AnchorFlags): AnchorInsertionPoint | null {
 		const token = this.#tokens[tokenIndex];
 		if (!token) {
 			console.warn(this.#editorName, "getAnchorInsertionPoint", "No token found for index", tokenIndex);
 			return null;
 		}
 
-		const insertionRange: Range = document.createRange();
 		const editor = this.#editor;
 
 		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
-			const anchorEl = token.range.startContainer.childNodes[token.range.startOffset] as HTMLElement;
-			insertionRange.setStartBefore(anchorEl);
-			insertionRange.collapse(true);
-			return insertionRange;
+			const anchorContainer = token.range.startContainer;
+			if (anchorContainer.nodeType !== 1) {
+				console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token is not in an element node", token);
+				return null;
+			}
+			const anchorEl = anchorContainer.childNodes[token.range.startOffset];
+			if (anchorEl) {
+				// IDEA: manual anchor 앞에 앵커를 넣을 필요 있을까? manual anchor 요소 자체를 앵커로 사용해도 되지 않을까?
+				const insertionRange: Range = document.createRange();
+				insertionRange.setStartBefore(anchorEl);
+				insertionRange.collapse(true);
+				return {
+					range: insertionRange,
+					existingAnchor: anchorEl as HTMLElement,
+					flags: 0,
+				} as AnchorInsertionPoint;
+			} else {
+				console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token does not have a child node at the specified offset", token);
+				return null;
+			}
 		}
 
+		let anchorInsertionPoint: AnchorInsertionPoint | null = null;
 		let container: Node = token.range.startContainer;
 		let insertionOffset: number = token.range.startOffset;
 		if (container.nodeType === 3) {
+			// container를 부모로 교체하기 전에 먼저 현재 container의 인덱스를 구해야함.
 			insertionOffset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
 			container = container.parentElement!;
 		}
@@ -498,21 +457,51 @@ class Editor {
 		do {
 			if (flags & AnchorFlags.TABLECELL_START) {
 				if (containerNodeName === "TD") {
-					insertionRange.setStart(container, 0);
-					insertionRange.collapse(true);
-					return insertionRange;
+					anchorInsertionPoint = {
+						range: {
+							startContainer: container,
+							startOffset: 0,
+							endContainer: container,
+							endOffset: 0,
+						},
+						flags: InsertionPointFlags.TABLECELL_START,
+					};
+					break;
+					// insertionRange.setStart(container, 0);
+					// insertionRange.collapse(true);
+					// return insertionRange;
 				}
 			} else if (flags & AnchorFlags.CONTAINER_START) {
 				if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
-					insertionRange.setStart(container, 0);
-					insertionRange.collapse(true);
-					return insertionRange;
+					anchorInsertionPoint = {
+						range: {
+							startContainer: container,
+							startOffset: 0,
+							endContainer: container,
+							endOffset: 0,
+						},
+						flags: InsertionPointFlags.CONTAINER_START,
+					};
+					break;
+					// insertionRange.setStart(container, 0);
+					// insertionRange.collapse(true);
+					// return insertionRange;
 				}
 			} else if (flags & AnchorFlags.BLOCK_START) {
 				if (BLOCK_ELEMENTS[containerNodeName]) {
-					insertionRange.setStart(container, 0);
-					insertionRange.collapse(true);
-					return insertionRange;
+					anchorInsertionPoint = {
+						range: {
+							startContainer: container,
+							startOffset: 0,
+							endContainer: container,
+							endOffset: 0,
+						},
+						flags: InsertionPointFlags.BLOCK_START,
+					};
+					break;
+					// insertionRange.setStart(container, 0);
+					// insertionRange.collapse(true);
+					// return insertionRange;
 				}
 			} else {
 				const currentNode = container.childNodes[insertionOffset] as HTMLElement;
@@ -521,9 +510,14 @@ class Editor {
 					// <BR>이 토큰이 범위에 들어있을 리는 없기 때문에 이건 토큰 앞에 있는 노드임
 					// BLOCK_START 조건이 없다면 <BR> 뒤에 앵커 삽입
 					if (!(flags & AnchorFlags.BLOCK_START)) {
+						const insertionRange: Range = document.createRange();
 						insertionRange.setStartAfter(currentNode);
 						insertionRange.collapse(true);
-						return insertionRange;
+						anchorInsertionPoint = {
+							range: insertionRange,
+							flags: InsertionPointFlags.LINE_START,
+						};
+						break;
 					}
 				}
 			}
@@ -540,7 +534,7 @@ class Editor {
 			}
 		} while (comparePoint(token.range.startContainer, token.range.startOffset, container, insertionOffset) >= 0);
 
-		return null;
+		return anchorInsertionPoint;
 	}
 
 	*yieldDiffAnchorPointsInRange(tokenIndex: number): Generator<AnchorInsertionPoint> {
@@ -702,14 +696,20 @@ class Editor {
 				flags |= InsertionPointFlags.BEFORE_TABLE;
 			}
 
-			let depth = 0;
-			let temp = container;
-			while (temp && temp !== root) {
-				depth++;
-				temp = temp.parentNode!;
-			}
+			// let depth = 0;
+			// let temp = container;
+			// while (temp && temp !== root) {
+			// 	depth++;
+			// 	temp = temp.parentNode!;
+			// }
 
-			yield { container: container, offset, flags, existingAnchor, depth };
+			const range: LightRange = {
+				startContainer: container,
+				startOffset: offset,
+				endContainer: container,
+				endOffset: offset,
+			};
+			yield { range, existingAnchor, flags };
 		}
 	}
 
@@ -731,7 +731,7 @@ class Editor {
 	}
 
 	get contentHeight(): number {
-		return this.#editor.scrollHeight;
+		return this.#editor.offsetHeight;
 	}
 
 	focus() {

@@ -89,6 +89,7 @@ class SideView {
 	}
 }
 
+
 class DiffListItem {
 	#element: HTMLElement;
 	#leftEl: HTMLElement;
@@ -104,6 +105,9 @@ class DiffListItem {
 		onMouseOut: (diffIndex: number) => void
 	) {
 		this.#element = document.createElement("LI");
+		this.#element.className = "diff-item";
+		this.#element.dataset.diffIndex = diffIndex.toString();
+		this.#element.draggable = true;
 
 		this.#leftEl = document.createElement("SPAN");
 		this.#leftEl.className = "left";
@@ -233,10 +237,10 @@ class DiffListItem {
 	}
 
 	scrollIntoView() {
-		this.#element.classList.remove("flash-once");
+		this.#element.classList.remove("tease-once");
 		this.#element.scrollIntoView(
 			// { block: "nearest", inline: "nearest" }
 		);
-		this.#element.classList.add("flash-once");
+		this.#element.classList.add("tease-once");
 	}
 }

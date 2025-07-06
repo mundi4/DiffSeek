@@ -1,4 +1,4 @@
-const DIFFSEEK_DEBUG = true;
+const DEBUG = true;
 
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
@@ -126,3 +126,4 @@ const BLOCK_ELEMENTS: Record<string, boolean> = {
 	"#document-fragment": true,
 };
 
+const FRAME_BUDGET_MS = 1000 / 60;

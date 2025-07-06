@@ -25,13 +25,11 @@ class DiffSeek {
 	#diffContext: DiffContext | null = null;
 	#textSelectionRange: Range | null = null;
 
-	#zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
 	#sideView: SideView;
 	#syncMode = false;
 
 	#scrollingEditor: Editor | null = null;
 	#lastScrolledEditor: Editor | null = null;
-	#preventScrollSync = false;
 	#activeEditor: Editor | null = null;
 	#lastActiveEditor: Editor | null = null;
 	#scrollEndTimeoutId: number | null = null;
@@ -39,7 +37,7 @@ class DiffSeek {
 	#lastScrolledToDiffIndex: number | null = null;
 	#anchorManager: AnchorManager;
 	#worker: Worker;
-	_reqId: number = 0;
+	#workerRequestId: number = 0;
 
 	#editorContentsChanged: Record<EditorName, boolean> = {
 		left: false,
@@ -83,7 +81,10 @@ class DiffSeek {
 				this.#activeEditor = null;
 			},
 			onClick: (editor, event) => {
-				this.onEditorClick(editor, event);
+				this.#onEditorClick(editor, event);
+			},
+			onCopy: (editor, event) => {
+				this.#onEditorCopy(editor, event);
 			},
 		};
 		this.#worker = this.#initializeWorker();
@@ -106,7 +107,6 @@ class DiffSeek {
 			this.#renderer.invalidateLayout(rect);
 			if (lastContainerWidth !== rect.width) {
 				lastContainerWidth = rect.width;
-				this.#anchorManager.invalidate();
 				this.alignAnchors();
 			}
 		});
@@ -119,7 +119,6 @@ class DiffSeek {
 		};
 
 		this.#renderer = new Renderer(mainContainer, this.#leftEditor, this.#rightEditor, rendererCallbacks);
-		
 
 		syncModeAtom.set(this.#syncMode);
 		whitespaceHandlingAtom.set(this.#diffOptions.ignoreWhitespace);
@@ -129,7 +128,7 @@ class DiffSeek {
 		this.#progress.id = "progress";
 		document.body.appendChild(this.#progress);
 
-		this.setupEventListeners();
+		this.#setupEventListeners();
 
 		syncModeAtom.subscribe((syncMode) => {
 			if (syncMode !== this.syncMode) {
@@ -211,9 +210,10 @@ class DiffSeek {
 
 		this.#syncMode = value;
 		syncModeAtom.set(value);
-		this.#mainContainer.classList.toggle("same-height-besties", value);
+
+		this.#mainContainer.classList.toggle("pose-P9", value);
+
 		this.#renderer.guideLineEnabled = value;
-		// this.#renderer.darkMode = value;
 		this.#leftEditor.readonly = value;
 		this.#rightEditor.readonly = value;
 
@@ -232,6 +232,7 @@ class DiffSeek {
 				}
 			}
 		}
+
 		this.#renderer.invalidateGeometries();
 	}
 
@@ -251,7 +252,7 @@ class DiffSeek {
 		}
 	}
 
-	private setupEventListeners() {
+	#setupEventListeners() {
 		document.addEventListener("selectionchange", () => {
 			this.#updateTextSelection();
 		});
@@ -301,6 +302,90 @@ class DiffSeek {
 			true
 		);
 
+		document.addEventListener("dragstart", (e) => {
+			if (!this.#diffContext?.ready) {
+				return;
+			}
+
+			type TrasnferData = {
+				version: 1;
+				source?: EditorName;
+				left: {
+					text: string;
+					sectionLabel: string | null;
+				};
+				right: {
+					text: string;
+					sectionLabel: string | null;
+				};
+				hasDiff: boolean;
+			};
+
+			let sourceEditor: EditorName | undefined = undefined;
+			let leftSpan: Span | undefined = undefined;
+			let rightSpan: Span | undefined = undefined;
+			let hasDiff = false;
+			if (e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
+				const diffIndex = parseInt(e.target.dataset.diffIndex!);
+				const diff = this.#diffContext.diffs[diffIndex];
+				leftSpan = diff.leftSpan;
+				rightSpan = diff.rightSpan;
+				hasDiff = true;
+				// const data = {
+				// 	version: 1,
+				// 	left: {
+				// 		text: diff.leftRange.toString().trim(),
+				// 	},
+				// 	right: {
+				// 		text: diff.rightRange.toString().trim(),
+				// 	},
+				// 	hasDiff: true,
+				// };
+				// e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
+			} else {
+				const selection = this.#getSelectionTokenRange();
+				if (selection) {
+					const { left, right, editor: sourceEditor, hasDiff: hasDiff2 } = selection;
+					leftSpan = { index: left[0], count: left[1] - left[0] };
+					rightSpan = { index: right[0], count: right[1] - right[0] };
+					hasDiff = hasDiff2;
+
+					// const leftRange = this.#leftEditor.getTokenRange(left[0], left[1] - left[0]);
+					// const rightRange = this.#rightEditor.getTokenRange(right[0], right[1] - right[0]);
+					// const data = {
+					// 	version: 1,
+					// 	source: sourceEditor,
+					// 	left: {
+					// 		text: leftRange.toString().trim(),
+					// 	},
+					// 	right: {
+					// 		text: rightRange.toString().trim(),
+					// 	},
+					// 	hasDiff,
+					// };
+					// e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
+				}
+			}
+
+			if (leftSpan && rightSpan) {
+				const data: TrasnferData = {
+					version: 1,
+					source: sourceEditor,
+					left: {
+						text: this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim(),
+						sectionLabel: getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index),
+					},
+					right: {
+						text: this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim(),
+						sectionLabel: getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index),
+					},
+					hasDiff,
+				};
+				console.log("Dragging data:", data);
+				e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
+			}
+		});
+
 		// this.#mainContainer.addEventListener("mousemove", (e) => {
 		// 	const rect = this.#mainContainer.getBoundingClientRect();
 		// 	let x = e.clientX - rect.x;
@@ -312,7 +397,7 @@ class DiffSeek {
 		// 	this.#renderer.updateCursorPosition(NaN, NaN);
 		// });
 
-		hoveredDiffIndexAtom.subscribe((diffIndex) => this.updateDiffIndicatorOverlay());
+		hoveredDiffIndexAtom.subscribe((diffIndex) => this.#updateDiffIndicatorOverlay());
 
 		diffItemClickedEvent.subscribe((diffIndex) => {
 			this.#lastScrolledToDiffIndex = diffIndex;
@@ -332,7 +417,7 @@ class DiffSeek {
 	}
 
 	// 이건 나중에 renderer로 뺄까...? 하는 일이 비슷하잖아.
-	updateDiffIndicatorOverlay() {
+	#updateDiffIndicatorOverlay() {
 		const diffIndex = hoveredDiffIndexAtom.get();
 		this.#renderer.setDiffHighlight(diffIndex);
 
@@ -362,12 +447,95 @@ class DiffSeek {
 		this.#rightEditor.toggleDirectionalOverlays(rightAbove, rightBelow);
 	}
 
-	onEditorClick(editor: Editor, event: MouseEvent) {
+	#onEditorClick(editor: Editor, event: MouseEvent) {
+		if (this.syncMode) {
+			this.#lastActiveEditor = this.#activeEditor = editor;
+		}
 		// console.debug("Editor clicked:", editor.name, event, this.#syncMode, event.altKey);
 		if (event.altKey) {
 			if (this.syncMode) {
 				event.preventDefault();
 				this.syncMode = false;
+			}
+		}
+	}
+
+	#onEditorCopy(editor: Editor, event: ClipboardEvent) {
+		if (!this.#diffContext?.ready) {
+			return;
+		}
+
+		const selection = window.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return;
+		}
+
+		const targetEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+		const selectionRange = selection.getRangeAt(0);
+
+		const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(selectionRange);
+		if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
+			let sourceRange = editor.getTokenRange(startTokenIndex, endTokenIndex - startTokenIndex);
+			let targetRange: Range | null = null;
+
+			const [otherStartTokenIndex, otherEndTokenIndex, hasDiff] = mapTokenRangeToOtherSide(
+				this.#diffContext.rawDiffs,
+				editor === this.#leftEditor ? "left" : "right",
+				startTokenIndex,
+				endTokenIndex
+			);
+
+			if (otherStartTokenIndex >= 0) {
+				const otherStartToken = targetEditor.tokens[otherStartTokenIndex];
+				const otherEndToken = targetEditor.tokens[otherEndTokenIndex - 1];
+				if (otherStartToken && otherEndToken) {
+					targetRange = document.createRange();
+					targetRange.setStart(otherStartToken.range.startContainer, otherStartToken.range.startOffset);
+					targetRange.setEnd(otherEndToken.range.endContainer, otherEndToken.range.endOffset);
+
+					const data = {
+						version: 1,
+						source: editor.name,
+						left: {
+							text: sourceRange.toString(),
+							startFlags: editor.tokens[startTokenIndex].flags,
+						},
+						right: {
+							text: targetRange.toString(),
+							startFlags: targetEditor.tokens[otherStartTokenIndex].flags,
+						},
+						hasDiff,
+					};
+
+					const tempContainer = document.createElement("div");
+					tempContainer.appendChild(sourceRange.cloneContents());
+					let html = tempContainer.innerHTML;
+
+					let mimeType = "application/x-diffseek-json";
+					mimeType = "text/html";
+					const jsonString = JSON.stringify(data);
+
+					html += "<!-- <DiffSeek JSON: " + jsonString + " / DiffSeek JSON> -->";
+
+					event.clipboardData!.setData("text/plain", selectionRange.toString());
+					event.clipboardData!.setData(mimeType, html);
+
+					console.debug("Copied range to clipboard:", mimeType, data);
+
+					if (mimeType === "text/plain" || mimeType === "text/html") {
+						event.preventDefault();
+					}
+					console.log(
+						"Copying range:",
+						sourceRange,
+						sourceRange.toString(),
+						"to target editor:",
+						targetEditor.name,
+						"targetRange:",
+						targetRange,
+						targetRange?.toString()
+					);
+				}
 			}
 		}
 	}
@@ -401,15 +569,53 @@ class DiffSeek {
 		}
 	}
 
-	#onEditorResize(editor: Editor) {
-		if (!this.#anchorAligning) {
-			this.#anchorManager.invalidate();
-		}
-	}
+	#onEditorResize(editor: Editor) {}
 
 	#onDiffVisibilityChanged(region: "left" | "right", entries: VisibilityChangeEntry[]) {
 		this.#sideView.onDiffVisibilityChange(region, entries);
-		this.updateDiffIndicatorOverlay();
+		this.#updateDiffIndicatorOverlay();
+	}
+
+	#getSelectionTokenRange(): { left: [number, number]; right: [number, number]; editor: "left" | "right"; hasDiff: boolean } | null {
+		if (this.#diffContext?.ready) {
+			const selection = window.getSelection();
+			let editor: Editor | null = null;
+
+			if (selection && selection.rangeCount > 0) {
+				const range = selection.getRangeAt(0);
+
+				if (this.#leftEditor.contains(range)) {
+					editor = this.#leftEditor;
+				} else if (this.#rightEditor.contains(range)) {
+					editor = this.#rightEditor;
+				}
+
+				if (editor) {
+					// onContentChanging에서 diffContext를 null로 설정하므로 이 시점에서 에디터는 유효한 토큰 배열을 가지고 있다고 볼 수 있다.
+					const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(range);
+					if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
+						const [otherStartTokenIndex, otherEndTokenIndex, hasDiff] = mapTokenRangeToOtherSide(
+							this.#diffContext.rawDiffs,
+							editor === this.#leftEditor ? "left" : "right",
+							startTokenIndex,
+							endTokenIndex
+						);
+						if (otherStartTokenIndex >= 0) {
+							const sourceTokenRange: [number, number] = [startTokenIndex, endTokenIndex];
+							const targetTokenRange: [number, number] = [otherStartTokenIndex, otherEndTokenIndex];
+							return {
+								left: editor === this.#leftEditor ? sourceTokenRange : targetTokenRange,
+								right: editor === this.#leftEditor ? targetTokenRange : sourceTokenRange,
+								editor: editor.name,
+								hasDiff,
+							};
+						}
+					}
+				}
+			}
+		}
+
+		return null;
 	}
 
 	#updateTextSelection() {
@@ -482,7 +688,7 @@ class DiffSeek {
 		const rightRichTokens = this.#rightEditor.tokens;
 		const options = { ...this.#diffOptions };
 		const diffContext: Partial<DiffContext> = {
-			reqId: ++this._reqId,
+			reqId: ++this.#workerRequestId,
 			leftTokens: leftRichTokens,
 			rightTokens: rightRichTokens,
 			diffOptions: options,
@@ -605,6 +811,9 @@ class DiffSeek {
 		let forceStart = true;
 		let currentDiff: RawDiff | null = null;
 
+		const leftSectionHeadings = this.#buildSectionHeadingTree(leftEditor, leftTokens);
+		const rightSectionHeadings = this.#buildSectionHeadingTree(rightEditor, rightTokens);
+
 		for (let i = 0; i < rawEntries.length; i++) {
 			if ((i & 0x1f) === 0) {
 				if (idleDeadline.timeRemaining() < 5) {
@@ -623,11 +832,11 @@ class DiffSeek {
 
 			if (rawEntry.type) {
 				if (currentDiff) {
-					console.assert(currentDiff.left.pos + currentDiff.left.len === rawEntry.left.pos, currentDiff, rawEntry);
-					console.assert(currentDiff.right.pos + currentDiff.right.len === rawEntry.right.pos, currentDiff, rawEntry);
+					console.assert(currentDiff.left.index + currentDiff.left.count === rawEntry.left.index, currentDiff, rawEntry);
+					console.assert(currentDiff.right.index + currentDiff.right.count === rawEntry.right.index, currentDiff, rawEntry);
 					currentDiff.type |= rawEntry.type;
-					currentDiff.left.len += rawEntry.left.len;
-					currentDiff.right.len += rawEntry.right.len;
+					currentDiff.left.count += rawEntry.left.count;
+					currentDiff.right.count += rawEntry.right.count;
 				} else {
 					currentDiff = { left: { ...rawEntry.left }, right: { ...rawEntry.right }, type: rawEntry.type };
 				}
@@ -637,8 +846,8 @@ class DiffSeek {
 					finalizeDiff();
 				}
 
-				const leftToken = leftTokens[left.pos];
-				const rightToken = rightTokens[right.pos];
+				const leftToken = leftTokens[left.index];
+				const rightToken = rightTokens[right.index];
 
 				const leftTokenFlags = leftToken.flags;
 				const rightTokenFlags = rightToken.flags;
@@ -695,7 +904,7 @@ class DiffSeek {
 
 						// for (const anchorFlags of anchorFlagsArr) {
 						// }
-						anchorManager.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+						anchorManager.addAnchorPair(left.index, leftAnchorFlags, right.index, rightAnchorFlags, null);
 					}
 				}
 			}
@@ -706,10 +915,10 @@ class DiffSeek {
 
 		function finalizeDiff() {
 			const diffIndex = diffs.length;
-			const leftIndex = currentDiff!.left.pos;
-			const rightIndex = currentDiff!.right.pos;
-			const leftTokenCount = currentDiff!.left.len;
-			const rightTokenCount = currentDiff!.right.len;
+			const leftIndex = currentDiff!.left.index;
+			const rightIndex = currentDiff!.right.index;
+			const leftTokenCount = currentDiff!.left.count;
+			const rightTokenCount = currentDiff!.right.count;
 			const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
 			let leftAnchorFlags = AnchorFlags.None;
 			let rightAnchorFlags = AnchorFlags.None;
@@ -749,8 +958,13 @@ class DiffSeek {
 					filledStartFlags & TokenFlags.LINE_START
 					// && filledEndFlags & TokenFlags.LINE_END
 				) {
-					filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
-					emptyAnchorFlags = AnchorFlags.EMPTY_DIFF;
+					if (
+						(emptyTokenIndex > 0 && emptyTokens[emptyTokenIndex - 1].flags & TokenFlags.LINE_END) ||
+						(emptyTokenIndex + 1 < emptyTokens.length && emptyTokens[emptyTokenIndex + 1].flags & TokenFlags.LINE_START)
+					) {
+						filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
+						emptyAnchorFlags = AnchorFlags.EMPTY_DIFF;
+					}
 				}
 
 				if (leftTokenCount > 0) {
@@ -764,7 +978,7 @@ class DiffSeek {
 
 			let anchorPair: AnchorPair | null = null;
 			if (leftAnchorFlags && rightAnchorFlags) {
-				anchorPair = anchorManager.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
+				anchorPair = anchorManager.addAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags, null);
 			}
 
 			let leftRange: Range | null = null;
@@ -794,6 +1008,8 @@ class DiffSeek {
 				hue,
 				leftRange,
 				rightRange,
+				leftSpan: { index: leftIndex, count: leftTokenCount },
+				rightSpan: { index: rightIndex, count: rightTokenCount },
 			});
 
 			currentDiff = null;
@@ -810,10 +1026,76 @@ class DiffSeek {
 		// 지옥으로 간다...
 
 		diffContext.diffs = diffs;
+		diffContext.leftSectionHeadings = leftSectionHeadings;
+		diffContext.rightSectionHeadings = rightSectionHeadings;
 		diffContext.ready = true;
 		this.#renderer.setDiffs(diffs);
 		this.#sideView.setDiffs(diffs);
 		this.#updateTextSelection();
+		console.debug("Diff finalization complete", diffContext);
+	}
+
+	#buildSectionHeadingTree(editor: Editor, tokens: readonly RichToken[]): SectionHeading[] {
+		const rootHeadings: SectionHeading[] = [];
+		const stack: SectionHeading[] = [];
+
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i];
+			const headingFlag = token.flags & TokenFlags.SECTION_HEADING_MASK;
+			if (!headingFlag) continue;
+
+			const level = getHeadingLevelFromFlag(headingFlag);
+			const ordinalText = token.text;
+			const ordinalNum = parseOrdinalNumber(ordinalText);
+
+			let titleEndTokenIndex = i;
+			while (titleEndTokenIndex < tokens.length && (tokens[titleEndTokenIndex++].flags & TokenFlags.LINE_END) === 0);
+
+			const tokenRange = editor.getTokenRange(i, titleEndTokenIndex - i);
+			const title = tokenRange.toString();
+
+			const heading: SectionHeading = {
+				type: headingFlag,
+				level,
+				ordinalText,
+				ordinalNum,
+				title,
+				parent: null,
+				firstChild: null,
+				nextSibling: null,
+				startTokenIndex: i,
+				endTokenIndex: Number.MAX_SAFE_INTEGER, // temp
+			};
+
+			// 깊이 기반 스택 처리
+			while (stack.length > 0 && heading.level <= stack[stack.length - 1].level) {
+				const closed = stack.pop()!;
+				closed.endTokenIndex = heading.startTokenIndex;
+			}
+
+			if (stack.length === 0) {
+				rootHeadings.push(heading);
+			} else {
+				const parent = stack[stack.length - 1];
+				heading.parent = parent;
+				if (!parent.firstChild) {
+					parent.firstChild = heading;
+				} else {
+					let sibling = parent.firstChild;
+					while (sibling.nextSibling) sibling = sibling.nextSibling;
+					sibling.nextSibling = heading;
+				}
+			}
+
+			stack.push(heading);
+		}
+
+		// 아직 닫히지 않은 것들은 문서 끝까지 범위로 간주
+		for (const remaining of stack) {
+			remaining.endTokenIndex = tokens.length;
+		}
+
+		return rootHeadings;
 	}
 
 	syncScroll(primaryEditor: Editor) {
@@ -824,54 +1106,30 @@ class DiffSeek {
 	#anchorAligning = false;
 	#alignAnchorCancelId: number | null = null;
 	alignAnchors(instantly: boolean = false) {
-		if (!this.#diffContext?.ready || this.#preventScrollSync) {
-			if (this.#alignAnchorCancelId !== null) {
-				return;
-			}
-		} else {
-			if (this.#alignAnchorCancelId !== null) {
-				clearTimeout(this.#alignAnchorCancelId);
-				this.#alignAnchorCancelId = null;
-			}
-		}
-
-		if (!this.#syncMode) {
+		if (!this.#syncMode || !this.#diffContext?.ready) {
 			return;
 		}
 
-		if (!instantly) {
-			this.#alignAnchorCancelId = setTimeout(() => {
-				this.#alignAnchorCancelId = null;
-				this.alignAnchors(true);
-			}, 250);
-		}
-
-		// if (!this.#diffContext?.ready || this.#preventScrollSync) {
-		// 	this.alignAnchors();
-		// 	return;
-		// }
-
-		this.#preventScrollSync = true;
+		console.time("Aligning anchors");
 		const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
 		const leftEditor = this.#leftEditor;
 		const rightEditor = this.#rightEditor;
 
 		this.#anchorAligning = true;
-		let [changed, maxContentHeight] = this.#anchorManager.alignAnchors();
-		if (changed) {
-			if (isNaN(maxContentHeight)) {
-				maxContentHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
-			}
-			leftEditor.height = maxContentHeight;
-			rightEditor.height = maxContentHeight;
+		this.#anchorManager.alignAnchorsGently(() => {
+			leftEditor.forceReflow();
+			rightEditor.forceReflow();
+
+			let editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
+			leftEditor.height = editorHeight;
+			rightEditor.height = editorHeight;
 			//this.#renderer.invalidateScroll();
 			//void this.#mainContainer.offsetHeight;
 			this.#renderer.invalidateGeometries();
 			this.syncScroll(primaryEditor);
-		}
-		this.#anchorAligning = false;
-		this.#preventScrollSync = false;
-		return changed;
+			this.#anchorAligning = false;
+		});
+		console.timeEnd("Aligning anchors");
 	}
 
 	#reset() {
@@ -964,4 +1222,15 @@ function findCommonEdgeContainer(
 	}
 
 	return lhsContainer === rhsContainer ? lhsContainer : null;
+}
+
+function toRange(range: Range | LightRange) {
+	if (range instanceof Range) {
+		return range;
+	} else {
+		const newRange = document.createRange();
+		newRange.setStart(range.startContainer, range.startOffset);
+		newRange.setEnd(range.endContainer, range.endOffset);
+		return newRange;
+	}
 }

@@ -13,8 +13,8 @@ type Rect = {
 };
 
 declare type Span = {
-	pos: number;
-	len: number;
+	index: number;
+	count: number;
 };
 
 declare type DiffType = 0 | 1 | 2 | 3;
@@ -97,6 +97,8 @@ declare type DiffContext = {
 	processTime: number;
 	diffs: DiffItem[];
 	ready: boolean;
+	leftSectionHeadings: SectionHeading[];
+	rightSectionHeadings: SectionHeading[];
 };
 
 type LineHint = {
@@ -126,21 +128,16 @@ type OutlineEntry = {
 };
 
 type SectionHeading = {
+	type: number;
+	level: number;
 	ordinalText: string;
 	ordinalNum: number;
 	title: string;
-	left: Span;
-	right: Span;
 	parent: SectionHeading | null;
 	firstChild: SectionHeading | null;
 	nextSibling: SectionHeading | null;
-	type: number;
-	level: number;
-	hasDiff: boolean;
-	outOfOrder: boolean;
-	// ordinal: number; // 1,2,3,4,5,...
-	// depth: number; //
-	// type: number; //
+	startTokenIndex: number;
+	endTokenIndex: number;
 };
 
 type RenderItem = {
@@ -206,9 +203,9 @@ type TextFlowContainer = {
 };
 
 type LightRange = {
-	startContainer: Text;
+	startContainer: Node;
 	startOffset: number;
-	endContainer: Text;
+	endContainer: Node;
 	endOffset: number;
 };
 
@@ -222,6 +219,8 @@ type DiffItem = {
 	hue: number;
 	leftRange: Range;
 	rightRange: Range;
+	leftSpan: Span;
+	rightSpan: Span;
 };
 
 type VisibilityChangeEntry = {

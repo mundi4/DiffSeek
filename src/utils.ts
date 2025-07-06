@@ -70,30 +70,36 @@ const isReddish = (() => {
 	};
 })();
 
-function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number] {
+function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number, boolean] {
 	// console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
 	const otherSide = side === "left" ? "right" : "left";
 	let low = 0;
 	let high = rawEntries.length - 1;
 	let mappedStart = -1;
 	let mappedEnd = -1;
+	let hasDiff = false;
+	let firstEntryIndex = -1;
+	let lastEntryIndex = -1;
 
 	while (low <= high) {
 		const mid = (low + high) >> 1;
 		const s = rawEntries[mid][side];
-		if (startIndex < s.pos) {
+		if (startIndex < s.index) {
 			high = mid - 1;
-		} else if (startIndex >= s.pos + s.len) {
+		} else if (startIndex >= s.index + s.count) {
 			low = mid + 1;
 		} else {
-			mappedStart = rawEntries[mid][otherSide].pos;
-			if (endIndex <= s.pos + s.len) {
-				mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+			mappedStart = rawEntries[mid][otherSide].index;
+			if (endIndex <= s.index + s.count) {
+				mappedEnd = rawEntries[mid][otherSide].index + rawEntries[mid][otherSide].count;
+			}
+			if (!hasDiff && rawEntries[mid].type !== 0) {
+				hasDiff = true;
 			}
 			// if (rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len < endIndex) {
 			// 	mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
 			// }
-			low = mid; // reuse for mappedEnd search
+			firstEntryIndex = low = mid; // reuse for mappedEnd search
 			break;
 		}
 	}
@@ -104,19 +110,33 @@ function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right",
 		while (low <= high) {
 			const mid = (low + high) >> 1;
 			const s = rawEntries[mid][side];
-			if (endIndex - 1 < s.pos) {
+			if (endIndex - 1 < s.index) {
 				high = mid - 1;
-			} else if (endIndex - 1 >= s.pos + s.len) {
+			} else if (endIndex - 1 >= s.index + s.count) {
 				low = mid + 1;
 			} else {
-				mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+				mappedEnd = rawEntries[mid][otherSide].index + rawEntries[mid][otherSide].count;
+				lastEntryIndex = mid;
+				if (!hasDiff && rawEntries[mid].type !== 0) {
+					hasDiff = true;
+				}
+				break;
+			}
+		}
+	}
+
+	// fallback: linear scan for overlaps
+	if (!hasDiff && firstEntryIndex >= 0 && lastEntryIndex >= 0) {
+		for (let i = firstEntryIndex; i <= lastEntryIndex; i++) {
+			if (rawEntries[i].type !== 0) {
+				hasDiff = true;
 				break;
 			}
 		}
 	}
 
 	// console.warn("mapTokenRangeToOtherSide result", { mappedStart, mappedEnd });
-	return [mappedStart, mappedEnd];
+	return [mappedStart, mappedEnd, hasDiff];
 }
 
 function parseOrdinalNumber(ordinalText: string): number {
@@ -474,4 +494,86 @@ function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: nu
 
 function cycleWhitespace(mode: WhitespaceHandling): WhitespaceHandling {
 	return mode === "ignore" ? "normalize" : mode === "normalize" ? "onlyAtEdge" : "ignore";
+}
+
+function quickHash53ToString(str: string) {
+	let hash = 0n;
+	const PRIME = 131n;
+	for (let i = 0; i < str.length; i++) {
+		hash = hash * PRIME + BigInt(str.charCodeAt(i));
+		hash &= 0x1fffffffffffffn; // 53비트 마스크
+	}
+	return hash.toString(36); // 36진수 문자열 변환
+}
+
+function getHeadingLevelFromFlag(flag: number): number {
+	switch (flag) {
+		case TokenFlags.SECTION_HEADING_TYPE1:
+			return 0; // 1.
+		case TokenFlags.SECTION_HEADING_TYPE2:
+			return 1; // 가.
+		case TokenFlags.SECTION_HEADING_TYPE3:
+			return 2; // (1)
+		case TokenFlags.SECTION_HEADING_TYPE4:
+			return 3; // (가)
+		case TokenFlags.SECTION_HEADING_TYPE5:
+			return 4; // 1)
+		case TokenFlags.SECTION_HEADING_TYPE6:
+			return 5; // 가)
+		default:
+			return -1;
+	}
+}
+
+function getHeadingTypeFromFlag(flag: TokenFlags): number | null {
+	const masked = flag & TokenFlags.SECTION_HEADING_MASK;
+	return masked || null;
+}
+
+function findDeepestSectionHeading(sectionRoots: SectionHeading[], tokenIndex: number): SectionHeading | null {
+	let result: SectionHeading | null = null;
+
+	function search(node: SectionHeading) {
+		if (tokenIndex < node.startTokenIndex || tokenIndex >= node.endTokenIndex) return;
+		result = node;
+
+		let child = node.firstChild;
+		while (child) {
+			search(child);
+			child = child.nextSibling;
+		}
+	}
+
+	for (const root of sectionRoots) {
+		search(root);
+	}
+
+	return result;
+}
+
+function buildSectionTrail(heading: SectionHeading): SectionHeading[] {
+	const trail: SectionHeading[] = [];
+
+	let current: SectionHeading | null = heading;
+	while (current) {
+		trail.unshift(current); // 루트부터 순서대로 되도록 unshift
+		current = current.parent;
+	}
+
+	return trail;
+}
+
+function getSectionTrailText(sectionRoots: SectionHeading[], tokenIndex: number) {
+	const deepest = findDeepestSectionHeading(sectionRoots, tokenIndex);
+	if (!deepest) return "";
+	const trail = buildSectionTrail(deepest);
+	let result = "";
+
+	for (let i = 0; i < trail.length; i++) {
+		const heading = trail[i];
+		if (i > 0) result += " > "; // 구분자
+		result += heading.title;
+	}
+
+	return result;
 }

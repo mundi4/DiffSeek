@@ -205,6 +205,8 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 		allowedStyles: COMMON_ALLOWED_STYLES,
 	},
 	"#document-fragment": DefaultElementOptions,
+	FIGURE: DefaultElementOptions,
+	FIGCAPTION: DefaultElementOptions,
 };
 
 // die. just die.

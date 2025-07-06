@@ -155,13 +155,13 @@ async function computeDiff(lhsTokens, rhsTokens, greedyMatch = false, ctx) {
         entries.push({
             type: 2,
             left: {
-                pos: 0,
-                len: leftTokensLength,
+                index: 0,
+                count: leftTokensLength,
                 // empty: true,
             },
             right: {
-                pos: 0,
-                len: rightTokensLength,
+                index: 0,
+                count: rightTokensLength,
             },
         });
     }
@@ -169,12 +169,12 @@ async function computeDiff(lhsTokens, rhsTokens, greedyMatch = false, ctx) {
         entries.push({
             type: 1,
             left: {
-                pos: 0,
-                len: leftTokensLength,
+                index: 0,
+                count: leftTokensLength,
             },
             right: {
-                pos: 0,
-                len: rightTokensLength,
+                index: 0,
+                count: rightTokensLength,
                 // empty: true,
             },
         });
@@ -203,12 +203,12 @@ async function computeDiff(lhsTokens, rhsTokens, greedyMatch = false, ctx) {
                 entries.push({
                     type: 0,
                     left: {
-                        pos: i,
-                        len: 1,
+                        index: i,
+                        count: 1,
                     },
                     right: {
-                        pos: j,
-                        len: 1,
+                        index: j,
+                        count: 1,
                     },
                 });
                 i++;
@@ -225,12 +225,12 @@ async function computeDiff(lhsTokens, rhsTokens, greedyMatch = false, ctx) {
                 entries.push({
                     type: 1,
                     left: {
-                        pos: i,
-                        len: 1,
+                        index: i,
+                        count: 1,
                     },
                     right: {
-                        pos: j,
-                        len: 0,
+                        index: j,
+                        count: 0,
                     },
                 });
                 i++;
@@ -243,12 +243,12 @@ async function computeDiff(lhsTokens, rhsTokens, greedyMatch = false, ctx) {
                 entries.push({
                     type: 2,
                     left: {
-                        pos: i,
-                        len: 0,
+                        index: i,
+                        count: 0,
                     },
                     right: {
-                        pos: j,
-                        len: 1,
+                        index: j,
+                        count: 1,
                     },
                 });
                 j++;
@@ -313,12 +313,12 @@ async function runHistogramDiff(ctx) {
         ctx.entries.push({
             type: 0,
             left: {
-                pos: lhsAnchor,
-                len: 1,
+                index: lhsAnchor,
+                count: 1,
             },
             right: {
-                pos: rhsAnchor,
-                len: 1,
+                index: rhsAnchor,
+                count: 1,
             },
         });
         prevLhs = lhsAnchor + 1;
@@ -583,12 +583,12 @@ async function diffCore(ctx, leftTokens, lhsLower, lhsUpper, rightTokens, rhsLow
             entries.push({
                 type: type,
                 left: {
-                    pos: lhsLower,
-                    len: lhsUpper - lhsLower,
+                    index: lhsLower,
+                    count: lhsUpper - lhsLower,
                 },
                 right: {
-                    pos: rhsLower,
-                    len: rhsUpper - rhsLower,
+                    index: rhsLower,
+                    count: rhsUpper - rhsLower,
                 },
             });
         }
@@ -612,8 +612,8 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
             if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
                 head.push({
                     type: 0,
-                    left: { pos: lhsLower, len: 1 },
-                    right: { pos: rhsLower, len: 1 },
+                    left: { index: lhsLower, count: 1 },
+                    right: { index: rhsLower, count: 1 },
                 });
                 lhsLower++;
                 rhsLower++;
@@ -625,12 +625,12 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
                 head.push({
                     type: 0,
                     left: {
-                        pos: lhsLower,
-                        len: matchedCount[0],
+                        index: lhsLower,
+                        count: matchedCount[0],
                     },
                     right: {
-                        pos: rhsLower,
-                        len: matchedCount[1],
+                        index: rhsLower,
+                        count: matchedCount[1],
                     },
                 });
                 lhsLower += matchedCount[0];
@@ -647,8 +647,8 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
             if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
                 tail.push({
                     type: 0,
-                    left: { pos: lhsUpper - 1, len: 1 },
-                    right: { pos: rhsUpper - 1, len: 1 },
+                    left: { index: lhsUpper - 1, count: 1 },
+                    right: { index: rhsUpper - 1, count: 1 },
                 });
                 lhsUpper--;
                 rhsUpper--;
@@ -660,12 +660,12 @@ function consumeCommonEdges(lhsTokens, rhsTokens, lhsLower, lhsUpper, rhsLower, 
                 tail.push({
                     type: 0,
                     left: {
-                        pos: lhsUpper - matchedCount[0],
-                        len: matchedCount[0],
+                        index: lhsUpper - matchedCount[0],
+                        count: matchedCount[0],
                     },
                     right: {
-                        pos: rhsUpper - matchedCount[1],
-                        len: matchedCount[1],
+                        index: rhsUpper - matchedCount[1],
+                        count: matchedCount[1],
                     },
                 });
                 lhsUpper -= matchedCount[0];
@@ -800,7 +800,7 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
 //# sourceMappingURL=worker.js.map
 </script>
 <script>"use strict";
-const DIFFSEEK_DEBUG = true;
+const DEBUG = true;
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
 // 인접한 색상과 너무 가깝지 않도록 아주 CAREFUL하게 고른 순서. 과학이다.
@@ -919,71 +919,8 @@ const BLOCK_ELEMENTS = {
     //TD: true,
     "#document-fragment": true,
 };
+const FRAME_BUDGET_MS = 1000 / 60;
 //# sourceMappingURL=constants.js.map
-</script>
-<script>"use strict";
-// 현재 진행 중인 작업이 있다면 무조건 reject/cancel하고 새 작업을 시작함
-const computeDiffAsync = (() => {
-    const worker = (() => {
-        let workerURL;
-        const scriptElement = document.getElementById("worker.js");
-        const workerCode = scriptElement.textContent;
-        if (workerCode.length < 10) {
-            workerURL = scriptElement.src; // "./dist/worker.js";
-        }
-        else {
-            const blob = new Blob([workerCode], { type: "application/javascript" });
-            workerURL = URL.createObjectURL(blob);
-        }
-        return new Worker(workerURL);
-    })();
-    let _reqId = 0;
-    let _current = null;
-    worker.onmessage = (e) => {
-        const data = e.data;
-        if (data.type === "diff") {
-            if (_current && data.reqId === _current.request.reqId) {
-                if (data.reqId === _current.request.reqId) {
-                    const result = {
-                        diffs: data.diffs,
-                        processTime: data.processTime,
-                    };
-                    _current.resolve(result);
-                }
-                else {
-                    // 이 경우는 worker가 이전 요청을 처리하는 도중 새 요청이 들어온 경우임
-                    _current.reject(new Error("cancelled"));
-                }
-            }
-        }
-    };
-    worker.onerror = (e) => {
-        //
-    };
-    function computeDiffAsync(leftTokens, rightTokens, options) {
-        if (_current) {
-            // 작업 중인 worker는 새 작업을 받으면 알아서 기존 작업은 취소하게 되어있으니 신경 쓸 필요 없음.
-            _current.reject(new Error("cancelled"));
-        }
-        return new Promise((resolve, reject) => {
-            const request = {
-                type: "diff",
-                reqId: ++_reqId,
-                options: { ...options },
-                leftTokens: leftTokens,
-                rightTokens: rightTokens,
-            };
-            _current = {
-                resolve,
-                reject,
-                request,
-            };
-            worker.postMessage(request);
-        });
-    }
-    return computeDiffAsync;
-})();
-//# sourceMappingURL=diff.js.map
 </script>
 <script>"use strict";
 // 개정대비표와 전문에서는 빨간색만 의미 있음. 변태처럼 빨간색이 아닌 뻘건색을 써도 허용.
@@ -1059,24 +996,30 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
     let high = rawEntries.length - 1;
     let mappedStart = -1;
     let mappedEnd = -1;
+    let hasDiff = false;
+    let firstEntryIndex = -1;
+    let lastEntryIndex = -1;
     while (low <= high) {
         const mid = (low + high) >> 1;
         const s = rawEntries[mid][side];
-        if (startIndex < s.pos) {
+        if (startIndex < s.index) {
             high = mid - 1;
         }
-        else if (startIndex >= s.pos + s.len) {
+        else if (startIndex >= s.index + s.count) {
             low = mid + 1;
         }
         else {
-            mappedStart = rawEntries[mid][otherSide].pos;
-            if (endIndex <= s.pos + s.len) {
-                mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+            mappedStart = rawEntries[mid][otherSide].index;
+            if (endIndex <= s.index + s.count) {
+                mappedEnd = rawEntries[mid][otherSide].index + rawEntries[mid][otherSide].count;
+            }
+            if (!hasDiff && rawEntries[mid].type !== 0) {
+                hasDiff = true;
             }
             // if (rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len < endIndex) {
             // 	mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
             // }
-            low = mid; // reuse for mappedEnd search
+            firstEntryIndex = low = mid; // reuse for mappedEnd search
             break;
         }
     }
@@ -1086,20 +1029,33 @@ function mapTokenRangeToOtherSide(rawEntries, side, startIndex, endIndex) {
         while (low <= high) {
             const mid = (low + high) >> 1;
             const s = rawEntries[mid][side];
-            if (endIndex - 1 < s.pos) {
+            if (endIndex - 1 < s.index) {
                 high = mid - 1;
             }
-            else if (endIndex - 1 >= s.pos + s.len) {
+            else if (endIndex - 1 >= s.index + s.count) {
                 low = mid + 1;
             }
             else {
-                mappedEnd = rawEntries[mid][otherSide].pos + rawEntries[mid][otherSide].len;
+                mappedEnd = rawEntries[mid][otherSide].index + rawEntries[mid][otherSide].count;
+                lastEntryIndex = mid;
+                if (!hasDiff && rawEntries[mid].type !== 0) {
+                    hasDiff = true;
+                }
+                break;
+            }
+        }
+    }
+    // fallback: linear scan for overlaps
+    if (!hasDiff && firstEntryIndex >= 0 && lastEntryIndex >= 0) {
+        for (let i = firstEntryIndex; i <= lastEntryIndex; i++) {
+            if (rawEntries[i].type !== 0) {
+                hasDiff = true;
                 break;
             }
         }
     }
     // console.warn("mapTokenRangeToOtherSide result", { mappedStart, mappedEnd });
-    return [mappedStart, mappedEnd];
+    return [mappedStart, mappedEnd, hasDiff];
 }
 function parseOrdinalNumber(ordinalText) {
     const norm = ordinalText.replace(/[\(\)\.]/g, "");
@@ -1432,13 +1388,84 @@ function translateTokenFlagsToAnchorFlags(tokenFlags, endTokenFlags) {
     if (tokenFlags & 4 /* TokenFlags.BLOCK_START */) {
         flags |= 2 /* AnchorFlags.BLOCK_START */;
     }
-    if (tokenFlags & 16252928 /* TokenFlags.SECTION_HEADING_MASK */) {
+    if (tokenFlags & 33030144 /* TokenFlags.SECTION_HEADING_MASK */) {
         // flags |= AnchorFlags.SECTION_HEADING;
     }
     return flags;
 }
 function cycleWhitespace(mode) {
     return mode === "ignore" ? "normalize" : mode === "normalize" ? "onlyAtEdge" : "ignore";
+}
+function quickHash53ToString(str) {
+    let hash = 0n;
+    const PRIME = 131n;
+    for (let i = 0; i < str.length; i++) {
+        hash = hash * PRIME + BigInt(str.charCodeAt(i));
+        hash &= 0x1fffffffffffffn; // 53비트 마스크
+    }
+    return hash.toString(36); // 36진수 문자열 변환
+}
+function getHeadingLevelFromFlag(flag) {
+    switch (flag) {
+        case 524288 /* TokenFlags.SECTION_HEADING_TYPE1 */:
+            return 0; // 1.
+        case 1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */:
+            return 1; // 가.
+        case 2097152 /* TokenFlags.SECTION_HEADING_TYPE3 */:
+            return 2; // (1)
+        case 4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */:
+            return 3; // (가)
+        case 8388608 /* TokenFlags.SECTION_HEADING_TYPE5 */:
+            return 4; // 1)
+        case 16777216 /* TokenFlags.SECTION_HEADING_TYPE6 */:
+            return 5; // 가)
+        default:
+            return -1;
+    }
+}
+function getHeadingTypeFromFlag(flag) {
+    const masked = flag & 33030144 /* TokenFlags.SECTION_HEADING_MASK */;
+    return masked || null;
+}
+function findDeepestSectionHeading(sectionRoots, tokenIndex) {
+    let result = null;
+    function search(node) {
+        if (tokenIndex < node.startTokenIndex || tokenIndex >= node.endTokenIndex)
+            return;
+        result = node;
+        let child = node.firstChild;
+        while (child) {
+            search(child);
+            child = child.nextSibling;
+        }
+    }
+    for (const root of sectionRoots) {
+        search(root);
+    }
+    return result;
+}
+function buildSectionTrail(heading) {
+    const trail = [];
+    let current = heading;
+    while (current) {
+        trail.unshift(current); // 루트부터 순서대로 되도록 unshift
+        current = current.parent;
+    }
+    return trail;
+}
+function getSectionTrailText(sectionRoots, tokenIndex) {
+    const deepest = findDeepestSectionHeading(sectionRoots, tokenIndex);
+    if (!deepest)
+        return "";
+    const trail = buildSectionTrail(deepest);
+    let result = "";
+    for (let i = 0; i < trail.length; i++) {
+        const heading = trail[i];
+        if (i > 0)
+            result += " > "; // 구분자
+        result += heading.title;
+    }
+    return result;
 }
 //# sourceMappingURL=utils.js.map
 </script>
@@ -1717,6 +1744,8 @@ const ELEMENT_POLICIES = {
         allowedStyles: COMMON_ALLOWED_STYLES,
     },
     "#document-fragment": DefaultElementOptions,
+    FIGURE: DefaultElementOptions,
+    FIGCAPTION: DefaultElementOptions,
 };
 const WINGDINGS_TRANSFORM = {
     Wingdings: {
@@ -2031,15 +2060,10 @@ for (let i = 1; i < 40; i++) {
 for (let i = 0; i < HANGUL_ORDER.length; i++) {
     sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, 1048576 /* TokenFlags.SECTION_HEADING_TYPE2 */);
     sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, 4194304 /* TokenFlags.SECTION_HEADING_TYPE4 */);
-    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, 8388608 /* TokenFlags.SECTION_HEADING_TYPE6 */);
+    sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, 16777216 /* TokenFlags.SECTION_HEADING_TYPE6 */);
 }
 const SectionHeadingTrieNode = sectionHeadingTrie.root;
 const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
-// const manualAnchorTrie = createTrie(false);
-// manualAnchorTrie.insert(MANUAL_ANCHOR1, TokenFlags.MANUAL_ANCHOR);
-// manualAnchorTrie.insert(MANUAL_ANCHOR2, TokenFlags.MANUAL_ANCHOR);
-// const manualAnchorTrieNode = manualAnchorTrie.root;
-// const manualAnchorStartChars = extractStartCharsFromTrie(manualAnchorTrieNode);
 function normalize(text) {
     let result = "";
     for (const char of text) {
@@ -2054,390 +2078,430 @@ function normalize(text) {
     }
     return result;
 }
-// 왕왕 큰 함수. 그래도 괜히 여러 함수로 쪼개서 성능 손해 보고 싶지 않은 마음...
-function* tokenizer(ctx, idleDeadline) {
-    const tokens = [];
-    const containers = new Map();
-    const root = ctx.content;
-    const textNodeBuf = [];
-    const textNodeBufIndices = [];
-    let tokenIndex = 0;
-    let currentToken = null;
-    let nextTokenFlags = 0;
-    let recursionCount = 0;
-    let lineNum = 1;
-    let shouldNormalize = false;
-    const blockStack = [];
-    let currentBlock = null;
-    const containerStack = [];
-    let currentContainer = {
-        element: root,
-        parent: null,
-        depth: 0,
-        startTokenIndex: 0,
-        tokenCount: 0,
-    };
-    function processToken(textNode, startOffset, endOffset, flags = 0) {
-        let text = textNode.nodeValue.slice(startOffset, endOffset);
-        if (shouldNormalize) {
-            text = normalize(text);
-            shouldNormalize = false;
+class TokenizeContext {
+    #rootContent;
+    #onDone;
+    #cancelled;
+    #generator = null;
+    #callbackId = null;
+    constructor(rootContent, onDone) {
+        this.#rootContent = rootContent;
+        this.#onDone = onDone;
+        this.#cancelled = false;
+    }
+    start() {
+        if (this.#cancelled) {
+            throw new Error("Cannot start a cancelled context");
         }
-        if (currentToken) {
-            currentToken.text += text;
-            currentToken.range.endContainer = textNode;
-            currentToken.range.endOffset = endOffset;
+        if (this.#callbackId !== null) {
+            throw new Error("Cannot reuse context");
+        }
+        this.#queueNextStep();
+    }
+    cancel() {
+        this.#cancelled = true;
+        if (this.#callbackId !== null) {
+            cancelIdleCallback(this.#callbackId);
+            this.#callbackId = null;
+        }
+    }
+    #step(idleDeadline) {
+        if (this.#cancelled) {
+            return;
+        }
+        if (this.#generator === null) {
+            // idleDeadline과 함께 generator를 생성을 하려면 여기에서 생성해야 함.
+            this.#generator = this.#generate(idleDeadline);
+        }
+        const { done, value } = this.#generator.next(idleDeadline);
+        if (this.#cancelled) {
+            return;
+        }
+        if (done) {
+            this.#onDone(value.tokens);
         }
         else {
-            currentToken = {
-                text: text,
-                flags: nextTokenFlags | flags,
-                range: {
-                    startContainer: textNode,
-                    startOffset: startOffset,
-                    endContainer: textNode,
-                    endOffset: endOffset,
-                },
-                container: currentContainer,
-                lineNum: lineNum,
-            };
-            nextTokenFlags = 0;
+            this.#queueNextStep();
         }
     }
-    function finalizeToken(flags = 0) {
-        if (currentToken) {
-            currentToken.flags |= flags;
-            tokens[tokenIndex] = currentToken;
-            if (tokenIndex > 0 && currentToken.flags & 2 /* TokenFlags.LINE_END */) {
-                tokens[tokenIndex - 1].flags |= 2 /* TokenFlags.LINE_END */;
+    #queueNextStep() {
+        this.#callbackId = requestIdleCallback((IdleDeadline) => this.#step(IdleDeadline), { timeout: 500 });
+    }
+    *#generate(idleDeadline) {
+        const tokens = [];
+        const containers = new Map();
+        const root = this.#rootContent;
+        const textNodeBuf = [];
+        const textNodeBufIndices = [];
+        let tokenIndex = 0;
+        let currentToken = null;
+        let nextTokenFlags = 0;
+        let recursionCount = 0;
+        let lineNum = 1;
+        let shouldNormalize = false;
+        const blockStack = [];
+        let currentBlock = null;
+        const containerStack = [];
+        let currentContainer = {
+            element: root,
+            parent: null,
+            depth: 0,
+            startTokenIndex: 0,
+            tokenCount: 0,
+        };
+        function processToken(textNode, startOffset, endOffset, flags = 0) {
+            let text = textNode.nodeValue.slice(startOffset, endOffset);
+            if (shouldNormalize) {
+                text = normalize(text);
+                shouldNormalize = false;
             }
-            tokenIndex++;
-            currentToken = null;
+            if (currentToken) {
+                currentToken.text += text;
+                currentToken.range.endContainer = textNode;
+                currentToken.range.endOffset = endOffset;
+            }
+            else {
+                currentToken = {
+                    text: text,
+                    flags: nextTokenFlags | flags,
+                    range: {
+                        startContainer: textNode,
+                        startOffset: startOffset,
+                        endContainer: textNode,
+                        endOffset: endOffset,
+                    },
+                    container: currentContainer,
+                    lineNum: lineNum,
+                };
+                nextTokenFlags = 0;
+            }
         }
-    }
-    function findInTrie(trie, bufferIndex, charIndex) {
-        let node = trie;
-        let i = bufferIndex;
-        let j = charIndex;
-        do {
-            const text = textNodeBuf[i].nodeValue;
-            for (; j < text.length; j++) {
-                let ch = text[j];
-                // ch = normalizedCharMap[ch] || ch;
-                node = node.next(ch);
-                if (!node) {
-                    return null;
+        function finalizeToken(flags = 0) {
+            if (currentToken) {
+                currentToken.flags |= flags;
+                tokens[tokenIndex] = currentToken;
+                if (tokenIndex > 0 && currentToken.flags & 2 /* TokenFlags.LINE_END */) {
+                    tokens[tokenIndex - 1].flags |= 2 /* TokenFlags.LINE_END */;
                 }
-                if (node.word) {
-                    return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
-                }
+                tokenIndex++;
+                currentToken = null;
             }
-            i++;
-            j = 0;
-        } while (i < textNodeBuf.length);
-        return null;
-    }
-    function doTokenizeText() {
-        console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
-        let nodeIndex = 0;
-        let charIndex = 0;
-        OUTER: do {
-            const textNode = textNodeBuf[nodeIndex];
-            const text = textNode.nodeValue;
-            const textLen = text.length;
-            let currentStart = -1;
-            while (charIndex < textLen) {
-                // 4byte 문자를 생각해야한다. later....
-                const cp = text.codePointAt(charIndex);
-                if (normalizedCharMap[cp] !== undefined) {
-                    shouldNormalize = true;
-                }
-                // todo 문자가 아니라 코드포인트로 spaceChar나 normalizeChar 등등 확인하기
-                let char = text[charIndex];
-                if (spaceChars[char]) {
-                    // split here
-                    if (currentStart !== -1) {
-                        processToken(textNode, currentStart, charIndex);
-                        currentStart = -1;
+        }
+        function findInTrie(trie, bufferIndex, charIndex) {
+            let node = trie;
+            let i = bufferIndex;
+            let j = charIndex;
+            do {
+                const text = textNodeBuf[i].nodeValue;
+                for (; j < text.length; j++) {
+                    let ch = text[j];
+                    // ch = normalizedCharMap[ch] || ch;
+                    node = node.next(ch);
+                    if (!node) {
+                        return null;
                     }
-                    finalizeToken();
+                    if (node.word) {
+                        return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
+                    }
                 }
-                else {
-                    if (char === "(") {
-                        const match = findInTrie(wildcardTrieNode, nodeIndex, charIndex + 1);
-                        if (match) {
-                            const startContainer = textNode;
-                            const startOffset = charIndex;
-                            if (currentStart !== -1) {
-                                processToken(textNode, currentStart, charIndex);
-                                currentStart = -1;
+                i++;
+                j = 0;
+            } while (i < textNodeBuf.length);
+            return null;
+        }
+        function doTokenizeText() {
+            console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
+            let nodeIndex = 0;
+            let charIndex = 0;
+            OUTER: do {
+                const textNode = textNodeBuf[nodeIndex];
+                const text = textNode.nodeValue;
+                const textLen = text.length;
+                let currentStart = -1;
+                while (charIndex < textLen) {
+                    // 4byte 문자를 생각해야한다. later....
+                    const cp = text.codePointAt(charIndex);
+                    if (normalizedCharMap[cp] !== undefined) {
+                        shouldNormalize = true;
+                    }
+                    // todo 문자가 아니라 코드포인트로 spaceChar나 normalizeChar 등등 확인하기
+                    let char = text[charIndex];
+                    if (spaceChars[char]) {
+                        // split here
+                        if (currentStart !== -1) {
+                            processToken(textNode, currentStart, charIndex);
+                            currentStart = -1;
+                        }
+                        finalizeToken();
+                    }
+                    else {
+                        if (char === "(") {
+                            const match = findInTrie(wildcardTrieNode, nodeIndex, charIndex + 1);
+                            if (match) {
+                                const startContainer = textNode;
+                                const startOffset = charIndex;
+                                if (currentStart !== -1) {
+                                    processToken(textNode, currentStart, charIndex);
+                                    currentStart = -1;
+                                }
+                                finalizeToken();
+                                currentToken = {
+                                    text: match.word,
+                                    flags: nextTokenFlags | match.flags,
+                                    range: {
+                                        startContainer,
+                                        startOffset,
+                                        endContainer: textNodeBuf[match.bufferIndex],
+                                        endOffset: match.charIndex,
+                                    },
+                                    container: currentContainer,
+                                    lineNum: lineNum,
+                                };
+                                nextTokenFlags = 0;
+                                finalizeToken();
+                                nodeIndex = match.bufferIndex;
+                                charIndex = match.charIndex;
+                                continue OUTER;
                             }
-                            finalizeToken();
-                            currentToken = {
-                                text: match.word,
-                                flags: nextTokenFlags | match.flags,
-                                range: {
-                                    startContainer,
-                                    startOffset,
-                                    endContainer: textNodeBuf[match.bufferIndex],
-                                    endOffset: match.charIndex,
-                                },
-                                container: currentContainer,
-                                lineNum: lineNum,
-                            };
-                            nextTokenFlags = 0;
-                            finalizeToken();
-                            nodeIndex = match.bufferIndex;
-                            charIndex = match.charIndex;
-                            continue OUTER;
+                        }
+                        if (sectionHeadingStartChars[char] && nextTokenFlags & 1 /* TokenFlags.LINE_START */ && !currentToken && currentStart === -1) {
+                            const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
+                            if (match) {
+                                const startContainer = textNode;
+                                const startOffset = charIndex;
+                                if (currentStart !== -1) {
+                                    processToken(textNode, currentStart, charIndex);
+                                    currentStart = -1;
+                                }
+                                finalizeToken();
+                                currentToken = {
+                                    text: match.word,
+                                    flags: nextTokenFlags | match.flags,
+                                    range: {
+                                        startContainer,
+                                        startOffset,
+                                        endContainer: textNodeBuf[match.bufferIndex],
+                                        endOffset: match.charIndex,
+                                    },
+                                    container: currentContainer,
+                                    lineNum: lineNum,
+                                };
+                                nextTokenFlags = 0;
+                                finalizeToken();
+                                nodeIndex = match.bufferIndex;
+                                charIndex = match.charIndex;
+                                continue OUTER;
+                            }
+                        }
+                        if (currentStart === -1) {
+                            currentStart = charIndex;
                         }
                     }
-                    if (sectionHeadingStartChars[char] && nextTokenFlags & 1 /* TokenFlags.LINE_START */ && !currentToken && currentStart === -1) {
-                        const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
-                        if (match) {
-                            const startContainer = textNode;
-                            const startOffset = charIndex;
-                            if (currentStart !== -1) {
-                                processToken(textNode, currentStart, charIndex);
-                                currentStart = -1;
-                            }
-                            finalizeToken();
-                            currentToken = {
-                                text: match.word,
-                                flags: nextTokenFlags | match.flags,
-                                range: {
-                                    startContainer,
-                                    startOffset,
-                                    endContainer: textNodeBuf[match.bufferIndex],
-                                    endOffset: match.charIndex,
-                                },
-                                container: currentContainer,
-                                lineNum: lineNum,
-                            };
-                            nextTokenFlags = 0;
-                            finalizeToken();
-                            nodeIndex = match.bufferIndex;
-                            charIndex = match.charIndex;
-                            continue OUTER;
-                        }
-                    }
-                    if (currentStart === -1) {
-                        currentStart = charIndex;
-                    }
-                }
-                // ...
-                // ...
-                charIndex++;
-                if (cp > 0xffff) {
+                    // ...
+                    // ...
                     charIndex++;
-                }
-            }
-            if (currentStart !== -1) {
-                processToken(textNode, currentStart, textLen);
-                currentStart = -1;
-            }
-            nodeIndex++;
-            charIndex = 0;
-        } while (nodeIndex < textNodeBuf.length);
-        finalizeToken();
-        textNodeBuf.length = 0;
-        textNodeBufIndices.length = 0;
-    }
-    function* traverse(node) {
-        const nodeName = node.nodeName;
-        const isTextFlowContainer = TEXT_FLOW_CONTAINERS[nodeName] || node === ctx.content;
-        const isBlockElement = BLOCK_ELEMENTS[nodeName];
-        if (isTextFlowContainer) {
-            containerStack.push(currentContainer);
-            currentContainer = {
-                element: node,
-                parent: currentContainer,
-                depth: currentContainer.depth + 1,
-                startTokenIndex: tokenIndex,
-                tokenCount: 0,
-            };
-            nextTokenFlags |= 16 /* TokenFlags.CONTAINER_START */ | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
-        }
-        if (isBlockElement) {
-            if (currentBlock) {
-                blockStack.push(currentBlock);
-            }
-            currentBlock = {
-                element: node,
-                container: currentContainer,
-                depth: (currentBlock?.depth ?? -1) + 1,
-                startTokenIndex: tokenIndex,
-                tokenCount: 0,
-            };
-            nextTokenFlags |= 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
-        }
-        const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
-        if (isTokenBoundary && textNodeBuf.length > 0) {
-            doTokenizeText();
-        }
-        const childNodes = node.childNodes;
-        const tokenStartIndex = tokenIndex;
-        for (let i = 0; i < childNodes.length; i++) {
-            if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 2) {
-                idleDeadline = yield;
-            }
-            const child = childNodes[i];
-            if (child.nodeType === 3) {
-                textNodeBuf.push(child);
-                textNodeBufIndices.push(i);
-            }
-            else if (child.nodeType === 1) {
-                const childNodeName = child.nodeName;
-                // 재귀 호출을 안해도 되는 단순한 case
-                if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
-                    if (childNodeName === "A") {
-                        // IGNORE THIS
+                    if (cp > 0xffff) {
+                        charIndex++;
                     }
-                    else if (childNodeName === "BR" || childNodeName === "HR") {
-                        if (textNodeBuf.length > 0) {
-                            doTokenizeText();
+                }
+                if (currentStart !== -1) {
+                    processToken(textNode, currentStart, textLen);
+                    currentStart = -1;
+                }
+                nodeIndex++;
+                charIndex = 0;
+            } while (nodeIndex < textNodeBuf.length);
+            finalizeToken();
+            textNodeBuf.length = 0;
+            textNodeBufIndices.length = 0;
+        }
+        function* traverse(node) {
+            const nodeName = node.nodeName;
+            const isTextFlowContainer = TEXT_FLOW_CONTAINERS[nodeName] || node === root;
+            const isBlockElement = BLOCK_ELEMENTS[nodeName];
+            if (isTextFlowContainer) {
+                containerStack.push(currentContainer);
+                currentContainer = {
+                    element: node,
+                    parent: currentContainer,
+                    depth: currentContainer.depth + 1,
+                    startTokenIndex: tokenIndex,
+                    tokenCount: 0,
+                };
+                nextTokenFlags |= 16 /* TokenFlags.CONTAINER_START */ | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+            }
+            if (isBlockElement) {
+                if (currentBlock) {
+                    blockStack.push(currentBlock);
+                }
+                currentBlock = {
+                    element: node,
+                    container: currentContainer,
+                    depth: (currentBlock?.depth ?? -1) + 1,
+                    startTokenIndex: tokenIndex,
+                    tokenCount: 0,
+                };
+                nextTokenFlags |= 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+            }
+            const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
+            if (isTokenBoundary && textNodeBuf.length > 0) {
+                doTokenizeText();
+            }
+            const childNodes = node.childNodes;
+            const tokenStartIndex = tokenIndex;
+            for (let i = 0; i < childNodes.length; i++) {
+                if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 2) {
+                    idleDeadline = yield;
+                }
+                const child = childNodes[i];
+                if (child.nodeType === 3) {
+                    textNodeBuf.push(child);
+                    textNodeBufIndices.push(i);
+                }
+                else if (child.nodeType === 1) {
+                    const childNodeName = child.nodeName;
+                    // 재귀 호출을 안해도 되는 단순한 case
+                    if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
+                        if (childNodeName === "A") {
+                            // IGNORE THIS
                         }
-                        nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
-                        lineNum++;
-                        if (childNodeName === "HR" && child.classList.contains("manual-anchor")) {
+                        else if (childNodeName === "BR" || childNodeName === "HR") {
+                            if (textNodeBuf.length > 0) {
+                                doTokenizeText();
+                            }
+                            nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
+                            lineNum++;
+                            if (childNodeName === "HR" && child.classList.contains("manual-anchor")) {
+                                if (textNodeBuf.length > 0) {
+                                    doTokenizeText();
+                                }
+                                const range = document.createRange();
+                                range.selectNode(child);
+                                currentToken = {
+                                    text: child.dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
+                                    flags: 32768 /* TokenFlags.MANUAL_ANCHOR */ |
+                                        4096 /* TokenFlags.NO_JOIN_PREV */ |
+                                        8192 /* TokenFlags.NO_JOIN_NEXT */ |
+                                        nextTokenFlags |
+                                        1 /* TokenFlags.LINE_START */ |
+                                        2 /* TokenFlags.LINE_END */,
+                                    range,
+                                    container: currentContainer,
+                                    lineNum: lineNum,
+                                };
+                                nextTokenFlags = 0;
+                                // console.log("manual anchor found", currentToken.text, currentToken.range);
+                                finalizeToken();
+                            }
+                        }
+                        else if (childNodeName === "IMG") {
                             if (textNodeBuf.length > 0) {
                                 doTokenizeText();
                             }
                             const range = document.createRange();
                             range.selectNode(child);
                             currentToken = {
-                                text: child.dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
-                                flags: 32768 /* TokenFlags.MANUAL_ANCHOR */ |
-                                    4096 /* TokenFlags.NO_JOIN_PREV */ |
-                                    8192 /* TokenFlags.NO_JOIN_NEXT */ |
-                                    nextTokenFlags |
-                                    1 /* TokenFlags.LINE_START */ |
-                                    2 /* TokenFlags.LINE_END */,
+                                text: quickHash53ToString(child.src),
+                                flags: 65536 /* TokenFlags.IMAGE */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | nextTokenFlags,
                                 range,
                                 container: currentContainer,
                                 lineNum: lineNum,
                             };
                             nextTokenFlags = 0;
-                            // console.log("manual anchor found", currentToken.text, currentToken.range);
                             finalizeToken();
                         }
+                        continue;
                     }
-                    else if (childNodeName === "IMG") {
-                        if (textNodeBuf.length > 0) {
-                            doTokenizeText();
-                        }
-                        const range = document.createRange();
-                        range.selectNode(child);
-                        currentToken = {
-                            text: quickHash53ToString(child.src),
-                            flags: 65536 /* TokenFlags.IMAGE */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | nextTokenFlags,
-                            range,
-                            container: currentContainer,
-                            lineNum: lineNum,
-                        };
-                        nextTokenFlags = 0;
-                        finalizeToken();
+                    yield* traverse(child);
+                }
+            }
+            if (isTokenBoundary && textNodeBuf.length > 0) {
+                doTokenizeText();
+            }
+            const tokenEndIndex = tokenIndex;
+            const tokenCount = tokenEndIndex - tokenStartIndex;
+            if (tokenCount > 0) {
+                const firstToken = tokens[tokenStartIndex];
+                const lastToken = tokens[tokenIndex - 1];
+                if (nodeName === "SUP" || nodeName === "SUB") {
+                    // SUP + SUP는 조인이 가능해야 하므로 NO_JOIN_PREV, NO_JOIN_NEXT 플래그를 주지 않음
+                    // 예: <sup>주</sup><sup>1)</sup> 이런 거지같은 상황이 나올 수도 있다.
+                    const commonFlags = nodeName === "SUP" ? 131072 /* TokenFlags.HTML_SUP */ : 262144 /* TokenFlags.HTML_SUB */;
+                    for (let i = tokenStartIndex; i < tokenIndex; i++) {
+                        tokens[i].flags |= commonFlags;
                     }
-                    continue;
                 }
-                yield* traverse(child);
+                else if (nodeName === "TD" || nodeName === "TH") {
+                    if (firstToken) {
+                        firstToken.flags |=
+                            1024 /* TokenFlags.TABLECELL_START */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 16 /* TokenFlags.CONTAINER_START */ | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+                    }
+                    if (lastToken) {
+                        lastToken.flags |=
+                            2048 /* TokenFlags.TABLECELL_END */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | 32 /* TokenFlags.CONTAINER_END */ | 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
+                    }
+                    if (tokenCount > 0) {
+                        lineNum++;
+                    }
+                }
+                else if (nodeName === "TR") {
+                    if (firstToken) {
+                        firstToken.flags |= 256 /* TokenFlags.TABLEROW_START */;
+                    }
+                    if (lastToken) {
+                        lastToken.flags |= 512 /* TokenFlags.TABLEROW_END */;
+                    }
+                }
+                else if (nodeName === "TABLE") {
+                    if (firstToken) {
+                        firstToken.flags |= 64 /* TokenFlags.TABLE_START */;
+                    }
+                    if (lastToken) {
+                        lastToken.flags |= 128 /* TokenFlags.TABLE_END */;
+                    }
+                }
+                if (BLOCK_ELEMENTS[nodeName]) {
+                    if (firstToken) {
+                        firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
+                    }
+                    if (lastToken) {
+                        lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
+                    }
+                    nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
+                    if (tokenCount > 0) {
+                        lineNum++;
+                    }
+                }
+                if (node === root) {
+                    firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 16 /* TokenFlags.CONTAINER_START */ | 1 /* TokenFlags.LINE_START */;
+                    lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 32 /* TokenFlags.CONTAINER_END */ | 2 /* TokenFlags.LINE_END */;
+                }
             }
-        }
-        if (isTokenBoundary && textNodeBuf.length > 0) {
-            doTokenizeText();
-        }
-        const tokenEndIndex = tokenIndex;
-        const tokenCount = tokenEndIndex - tokenStartIndex;
-        if (tokenCount > 0) {
-            const firstToken = tokens[tokenStartIndex];
-            const lastToken = tokens[tokenIndex - 1];
-            if (nodeName === "SUP" || nodeName === "SUB") {
-                // SUP + SUP는 조인이 가능해야 하므로 NO_JOIN_PREV, NO_JOIN_NEXT 플래그를 주지 않음
-                // 예: <sup>주</sup><sup>1)</sup> 이런 거지같은 상황이 나올 수도 있다.
-                const commonFlags = nodeName === "SUP" ? 131072 /* TokenFlags.HTML_SUP */ : 262144 /* TokenFlags.HTML_SUB */;
-                for (let i = tokenStartIndex; i < tokenIndex; i++) {
-                    tokens[i].flags |= commonFlags;
-                }
-            }
-            else if (nodeName === "TD" || nodeName === "TH") {
-                if (firstToken) {
-                    firstToken.flags |=
-                        1024 /* TokenFlags.TABLECELL_START */ | 4096 /* TokenFlags.NO_JOIN_PREV */ | 16 /* TokenFlags.CONTAINER_START */ | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
-                }
-                if (lastToken) {
-                    lastToken.flags |=
-                        2048 /* TokenFlags.TABLECELL_END */ | 8192 /* TokenFlags.NO_JOIN_NEXT */ | 32 /* TokenFlags.CONTAINER_END */ | 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
-                }
+            if (isBlockElement) {
                 if (tokenCount > 0) {
-                    lineNum++;
+                    currentBlock.tokenCount = tokenEndIndex - currentBlock.startTokenIndex;
+                    tokens[tokens.length - 1].flags |= 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
                 }
+                currentBlock = blockStack.pop() || null;
             }
-            else if (nodeName === "TR") {
-                if (firstToken) {
-                    firstToken.flags |= 256 /* TokenFlags.TABLEROW_START */;
-                }
-                if (lastToken) {
-                    lastToken.flags |= 512 /* TokenFlags.TABLEROW_END */;
-                }
-            }
-            else if (nodeName === "TABLE") {
-                if (firstToken) {
-                    firstToken.flags |= 64 /* TokenFlags.TABLE_START */;
-                }
-                if (lastToken) {
-                    lastToken.flags |= 128 /* TokenFlags.TABLE_END */;
-                }
-            }
-            if (BLOCK_ELEMENTS[nodeName]) {
-                if (firstToken) {
-                    firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 1 /* TokenFlags.LINE_START */;
-                }
-                if (lastToken) {
-                    lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
-                }
-                nextTokenFlags |= 1 /* TokenFlags.LINE_START */;
+            if (isTextFlowContainer) {
                 if (tokenCount > 0) {
-                    lineNum++;
+                    currentContainer.tokenCount = tokenEndIndex - currentContainer.startTokenIndex;
+                    tokens[tokens.length - 1].flags |= 32 /* TokenFlags.CONTAINER_END */ | 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
+                    containers.set(node, currentContainer);
                 }
-            }
-            if (node === ctx.content) {
-                firstToken.flags |= nextTokenFlags | 4 /* TokenFlags.BLOCK_START */ | 16 /* TokenFlags.CONTAINER_START */ | 1 /* TokenFlags.LINE_START */;
-                lastToken.flags |= 8 /* TokenFlags.BLOCK_END */ | 32 /* TokenFlags.CONTAINER_END */ | 2 /* TokenFlags.LINE_END */;
+                currentContainer = containerStack.pop();
             }
         }
-        if (isBlockElement) {
-            if (tokenCount > 0) {
-                currentBlock.tokenCount = tokenEndIndex - currentBlock.startTokenIndex;
-                tokens[tokens.length - 1].flags |= 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
+        yield* traverse(root);
+        tokens.length = tokenIndex;
+        for (let i = 1; i < tokens.length; i++) {
+            if (tokens[i].flags & 1 /* TokenFlags.LINE_START */) {
+                tokens[i - 1].flags |= 2 /* TokenFlags.LINE_END */;
             }
-            currentBlock = blockStack.pop() || null;
         }
-        if (isTextFlowContainer) {
-            if (tokenCount > 0) {
-                currentContainer.tokenCount = tokenEndIndex - currentContainer.startTokenIndex;
-                tokens[tokens.length - 1].flags |= 32 /* TokenFlags.CONTAINER_END */ | 8 /* TokenFlags.BLOCK_END */ | 2 /* TokenFlags.LINE_END */;
-                containers.set(node, currentContainer);
-            }
-            currentContainer = containerStack.pop();
-        }
+        return { tokens, containers };
     }
-    yield* traverse(root);
-    tokens.length = tokenIndex;
-    for (let i = 1; i < tokens.length; i++) {
-        if (tokens[i].flags & 1 /* TokenFlags.LINE_START */) {
-            tokens[i - 1].flags |= 2 /* TokenFlags.LINE_END */;
-        }
-    }
-    return { tokens, containers };
-}
-function quickHash53ToString(str) {
-    let hash = 0n;
-    const PRIME = 131n;
-    for (let i = 0; i < str.length; i++) {
-        hash = hash * PRIME + BigInt(str.charCodeAt(i));
-        hash &= 0x1fffffffffffffn; // 53비트 마스크
-    }
-    return hash.toString(36); // 36진수 문자열 변환
 }
 //# sourceMappingURL=tokenize.js.map
 </script>
@@ -2452,7 +2516,6 @@ class Editor {
     #mutationObserver;
     #tokens = [];
     #tokenizeContext = null;
-    #tokenizeCallbackId = null;
     #callbacks;
     #bottomPaddingElement = document.createElement("div");
     #prevWidth = 0;
@@ -2470,7 +2533,7 @@ class Editor {
         // this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
         this.#aboveOverlay.className = "eyes-up-here " + editorName;
         this.#aboveOverlay.style.opacity = "0";
-        this.#belowOverlay.className = "peach-below " + editorName;
+        this.#belowOverlay.className = "eyes-down-here " + editorName;
         this.#belowOverlay.style.opacity = "0";
         this.#wrapper.id = editorName + "EditorWrapper";
         this.#wrapper.classList.add("editor-wrapper");
@@ -2478,15 +2541,6 @@ class Editor {
         this.#wrapper.appendChild(this.#aboveOverlay);
         this.#wrapper.appendChild(this.#belowOverlay);
         this.#bottomPaddingElement.className = "maybe-170cm-wasnt-enough";
-        this.#bottomPaddingElement.addEventListener("click", (e) => {
-            const sel = window.getSelection();
-            const range = document.createRange();
-            range.setStart(this.#editor, this.#editor.childNodes.length);
-            range.collapse(true);
-            sel?.removeAllRanges();
-            sel?.addRange(range);
-            this.#editor.focus();
-        });
         this.#wrapper.appendChild(this.#bottomPaddingElement);
         this.#container.appendChild(this.#wrapper);
         this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
@@ -2497,6 +2551,7 @@ class Editor {
         this.#wrapper.addEventListener("scrollend", () => {
             callbacks.onScrollEnd(this);
         });
+        this.#editor.addEventListener("copy", (e) => this.#onCopy(e));
         this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
         this.#editor.addEventListener("input", () => this.#onInput());
         this.#editor.addEventListener("click", (e) => {
@@ -2609,6 +2664,9 @@ class Editor {
     unobserveMutation() {
         this.#mutationObserver.disconnect();
     }
+    #onCopy(e) {
+        this.#callbacks.onCopy(this, e);
+    }
     #onPaste(e) {
         const selection = document.getSelection();
         if (!selection || selection.rangeCount === 0) {
@@ -2618,7 +2676,7 @@ class Editor {
         if (!this.#editor.contains(range.commonAncestorContainer)) {
             return;
         }
-        console.time("paste");
+        // console.time("paste");
         // 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
         // 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
         e.preventDefault();
@@ -2626,10 +2684,7 @@ class Editor {
         let rawHTML = e.clipboardData?.getData("text/html") ?? "";
         let sanitized;
         if (rawHTML) {
-            console.time("paste sanitizeHTML");
             sanitized = sanitizeHTML(rawHTML);
-            console.log(this.#editorName, "paste sanitizeHTML", sanitized);
-            console.timeEnd("paste sanitizeHTML");
         }
         else {
             sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
@@ -2640,23 +2695,19 @@ class Editor {
         // undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
         // 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
         if (rawHTML.length <= 200_000) {
-            console.time("paste execCommand");
             const div = document.createElement("DIV");
             div.appendChild(sanitized);
             const sanitizedHTML = div.innerHTML;
             document.execCommand("insertHTML", false, sanitizedHTML);
-            console.timeEnd("paste execCommand");
         }
         else {
-            console.time("paste replaceRange");
             range.deleteContents();
             range.insertNode(sanitized);
             range.collapse(false);
             this.#onInput();
-            console.timeEnd("paste replaceRange");
         }
         this.observeMutation();
-        console.timeEnd("paste");
+        // console.timeEnd("paste");
     }
     findTokenOverlapIndices(range) {
         let low = 0;
@@ -2770,52 +2821,15 @@ class Editor {
         return range;
     }
     #tokenize() {
-        const _TIMEOUT = 200;
-        if (this.#tokenizeCallbackId !== null) {
-            // 아직 실행되지 않고 대기 중인 콜백 취소
-            cancelIdleCallback(this.#tokenizeCallbackId);
-            this.#tokenizeCallbackId = null;
-        }
         if (this.#tokenizeContext) {
-            // 이미 콜백이 실행 중이라면 다음 step에서 취소처리해야하므로...
-            this.#tokenizeContext.cancelled = true;
+            this.#tokenizeContext.cancel();
         }
-        const startTime = performance.now();
-        const ctx = {
-            cancelled: false,
-            content: this.#editor,
-        };
-        this.#tokenizeContext = ctx;
-        // 여기서 바로 generator를 생성을 해버리면 idleDeadline을 바로 넘겨줄 수가 없다.
-        // generator 내부에서 idleDeadline을 획득하려면 "성급하게" yield를 한번 하고 외부에서 next(idleDeadline)으로 넘겨줘야하는데
-        // 그러면 황금같은 유휴시간을 한번 낭비하게 됨. 그래서 generator 생성은 콜백 안에서...
-        let generator = null;
-        const step = (idleDeadline) => {
-            this.#tokenizeCallbackId = null;
-            if (ctx.cancelled) {
-                // 어차피 단일쓰레드 환경이므로 콜백이 실행되는 도중에는 cancelled 값이 바뀔 가능성은 0이기 때문에
-                // 취소확인은 next()를 호출하기 전에나 한번씩 해주면 됨.
-                // generator 내부에서 yield를 해주지 않으면 함수 종료시까지 cancelled=true가 실행될 기회가 생기지 않음.
-                // console.debug(this.#editorName, "tokenize cancelled");
-                return;
-            }
-            if (generator === null) {
-                generator = tokenizer(ctx, idleDeadline);
-            }
-            const { done, value } = generator.next(idleDeadline);
-            if (done && !ctx.cancelled) {
-                const endTime = performance.now();
-                this.#tokens = value.tokens;
-                // console.debug(this.#editorName, "tokenize done", Math.ceil(endTime - startTime) + "ms", value);
-                if (!ctx.cancelled) {
-                    this.#onTokenizeDone();
-                }
-            }
-            else if (!ctx.cancelled) {
-                this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
-            }
-        };
-        this.#tokenizeCallbackId = requestIdleCallback(step, { timeout: _TIMEOUT });
+        this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
+            console.debug(this.#editorName, "Tokenization done", tokens);
+            this.#tokens = tokens;
+            this.#onTokenizeDone();
+        });
+        this.#tokenizeContext.start();
     }
     #onTokenizeDone() {
         this.#callbacks.onContentChanged(this);
@@ -2826,17 +2840,35 @@ class Editor {
             console.warn(this.#editorName, "getAnchorInsertionPoint", "No token found for index", tokenIndex);
             return null;
         }
-        const insertionRange = document.createRange();
         const editor = this.#editor;
         if (token.flags & 32768 /* TokenFlags.MANUAL_ANCHOR */) {
-            const anchorEl = token.range.startContainer.childNodes[token.range.startOffset];
-            insertionRange.setStartBefore(anchorEl);
-            insertionRange.collapse(true);
-            return insertionRange;
+            const anchorContainer = token.range.startContainer;
+            if (anchorContainer.nodeType !== 1) {
+                console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token is not in an element node", token);
+                return null;
+            }
+            const anchorEl = anchorContainer.childNodes[token.range.startOffset];
+            if (anchorEl) {
+                // IDEA: manual anchor 앞에 앵커를 넣을 필요 있을까? manual anchor 요소 자체를 앵커로 사용해도 되지 않을까?
+                const insertionRange = document.createRange();
+                insertionRange.setStartBefore(anchorEl);
+                insertionRange.collapse(true);
+                return {
+                    range: insertionRange,
+                    existingAnchor: anchorEl,
+                    flags: 0,
+                };
+            }
+            else {
+                console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token does not have a child node at the specified offset", token);
+                return null;
+            }
         }
+        let anchorInsertionPoint = null;
         let container = token.range.startContainer;
         let insertionOffset = token.range.startOffset;
         if (container.nodeType === 3) {
+            // container를 부모로 교체하기 전에 먼저 현재 container의 인덱스를 구해야함.
             insertionOffset = Array.prototype.indexOf.call(container.parentNode.childNodes, container);
             container = container.parentElement;
         }
@@ -2844,23 +2876,53 @@ class Editor {
         do {
             if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
                 if (containerNodeName === "TD") {
-                    insertionRange.setStart(container, 0);
-                    insertionRange.collapse(true);
-                    return insertionRange;
+                    anchorInsertionPoint = {
+                        range: {
+                            startContainer: container,
+                            startOffset: 0,
+                            endContainer: container,
+                            endOffset: 0,
+                        },
+                        flags: 1024 /* InsertionPointFlags.TABLECELL_START */,
+                    };
+                    break;
+                    // insertionRange.setStart(container, 0);
+                    // insertionRange.collapse(true);
+                    // return insertionRange;
                 }
             }
             else if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
                 if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
-                    insertionRange.setStart(container, 0);
-                    insertionRange.collapse(true);
-                    return insertionRange;
+                    anchorInsertionPoint = {
+                        range: {
+                            startContainer: container,
+                            startOffset: 0,
+                            endContainer: container,
+                            endOffset: 0,
+                        },
+                        flags: 16 /* InsertionPointFlags.CONTAINER_START */,
+                    };
+                    break;
+                    // insertionRange.setStart(container, 0);
+                    // insertionRange.collapse(true);
+                    // return insertionRange;
                 }
             }
             else if (flags & 2 /* AnchorFlags.BLOCK_START */) {
                 if (BLOCK_ELEMENTS[containerNodeName]) {
-                    insertionRange.setStart(container, 0);
-                    insertionRange.collapse(true);
-                    return insertionRange;
+                    anchorInsertionPoint = {
+                        range: {
+                            startContainer: container,
+                            startOffset: 0,
+                            endContainer: container,
+                            endOffset: 0,
+                        },
+                        flags: 4 /* InsertionPointFlags.BLOCK_START */,
+                    };
+                    break;
+                    // insertionRange.setStart(container, 0);
+                    // insertionRange.collapse(true);
+                    // return insertionRange;
                 }
             }
             else {
@@ -2870,9 +2932,14 @@ class Editor {
                     // <BR>이 토큰이 범위에 들어있을 리는 없기 때문에 이건 토큰 앞에 있는 노드임
                     // BLOCK_START 조건이 없다면 <BR> 뒤에 앵커 삽입
                     if (!(flags & 2 /* AnchorFlags.BLOCK_START */)) {
+                        const insertionRange = document.createRange();
                         insertionRange.setStartAfter(currentNode);
                         insertionRange.collapse(true);
-                        return insertionRange;
+                        anchorInsertionPoint = {
+                            range: insertionRange,
+                            flags: 1 /* InsertionPointFlags.LINE_START */,
+                        };
+                        break;
                     }
                 }
             }
@@ -2888,7 +2955,7 @@ class Editor {
                 containerNodeName = container.nodeName;
             }
         } while (comparePoint(token.range.startContainer, token.range.startOffset, container, insertionOffset) >= 0);
-        return null;
+        return anchorInsertionPoint;
     }
     *yieldDiffAnchorPointsInRange(tokenIndex) {
         const prevToken = this.#tokens[tokenIndex - 1];
@@ -3033,13 +3100,19 @@ class Editor {
             if (nextEl && nextEl.nodeName === "TABLE") {
                 flags |= 4096 /* InsertionPointFlags.BEFORE_TABLE */;
             }
-            let depth = 0;
-            let temp = container;
-            while (temp && temp !== root) {
-                depth++;
-                temp = temp.parentNode;
-            }
-            yield { container: container, offset, flags, existingAnchor, depth };
+            // let depth = 0;
+            // let temp = container;
+            // while (temp && temp !== root) {
+            // 	depth++;
+            // 	temp = temp.parentNode!;
+            // }
+            const range = {
+                startContainer: container,
+                startOffset: offset,
+                endContainer: container,
+                endOffset: offset,
+            };
+            yield { range, existingAnchor, flags };
         }
     }
     scrollTo(offset, options) {
@@ -3057,7 +3130,7 @@ class Editor {
         return this.#wrapper.scrollHeight;
     }
     get contentHeight() {
-        return this.#editor.scrollHeight;
+        return this.#editor.offsetHeight;
     }
     focus() {
         this.#editor.focus();
@@ -3116,21 +3189,38 @@ class Editor {
 //# sourceMappingURL=editor.js.map
 </script>
 <script>"use strict";
+var _a;
 class AnchorManager {
+    static MIN_DELTA = 1;
+    static MIN_STRIPED_DELTA = 10;
+    static MIN_CHUNK_SIZE = 20;
     #leftEditor;
     #rightEditor;
     #anchorPairs = [];
     #anchorMap = new Map();
-    #invalidated = false;
+    #oldAnchorPairs = [];
+    #chunkCancellationToken = null;
+    #largestCache = null;
+    #recentCache = null;
+    #elapsedTotal = 0;
+    #unusedAnchors = new Set();
     constructor(leftEditor, rightEditor) {
         this.#leftEditor = leftEditor;
         this.#rightEditor = rightEditor;
     }
-    #oldAnchorPairs = [];
+    cancelAnchorAligning() {
+        if (this.#chunkCancellationToken !== null) {
+            console.debug("AnchorManager: canceling anchor aligning");
+            cancelAnimationFrame(this.#chunkCancellationToken);
+            this.#chunkCancellationToken = null;
+        }
+    }
     beginUpdate() {
+        this.cancelAnchorAligning();
         this.#anchorMap.clear();
         this.#oldAnchorPairs = this.#anchorPairs;
         this.#anchorPairs = [];
+        this.#largestCache = this.#recentCache = null;
     }
     endUpdate() {
         // 이거 미쳤다
@@ -3141,50 +3231,21 @@ class AnchorManager {
             const { leftEl, rightEl } = anchorPair;
             if (!this.#anchorMap.has(leftEl)) {
                 leftEl.style.display = "none";
-                // leftEl.classList.remove("padtop", "striped");
-                // leftEl.style.removeProperty("--padding");
-                // leftEl.remove();
+                leftEl.style.removeProperty("--padding");
+                leftEl.removeAttribute("class");
+                delete leftEl.dataset.anchorIndex;
+                this.#unusedAnchors.add(leftEl);
             }
             if (!this.#anchorMap.has(rightEl)) {
-                leftEl.style.display = "none";
-                // rightEl.classList.remove("padtop", "striped");
-                // rightEl.style.removeProperty("--padding");
-                // rightEl.remove();
+                rightEl.style.display = "none";
+                rightEl.style.removeProperty("--padding");
+                rightEl.removeAttribute("class");
+                delete rightEl.dataset.anchorIndex;
+                this.#unusedAnchors.add(rightEl);
             }
         }
+        console.debug("anchorPairs:", this.#anchorPairs);
     }
-    // zzzupdate(callback: (funcs: AnchorManagerUpdateHelper) => void) {
-    // 	this.#leftVisiblePairs.clear();
-    // 	this.#rightVisiblePairs.clear();
-    // 	this.#observerPristine = true;
-    // 	this.#observer.disconnect();
-    // 	this.#anchorMap.clear();
-    // 	const oldAnchorPairs = this.#anchorPairs;
-    // 	this.#anchorPairs = [];
-    // 	// 앵커 추가
-    // 	// 앵커맵 업데이트
-    // 	const tryAddAnchorPair = this.tryAddAnchorPair.bind(this);
-    // 	const addAnchorEls = this.addAnchorPair.bind(this);
-    // 	callback({
-    // 		tryAddAnchorPair,
-    // 		addAnchorEls,
-    // 	});
-    // 	for (const anchorPair of oldAnchorPairs) {
-    // 		const { leftEl, rightEl } = anchorPair;
-    // 		if (!this.#anchorMap.has(leftEl)) {
-    // 			leftEl.remove();
-    // 		}
-    // 		if (!this.#anchorMap.has(rightEl)) {
-    // 			rightEl.remove();
-    // 		}
-    // 	}
-    // 	// console.debug("AnchorManager.update", {
-    // 	// 	anchorPairs: this.#anchorPairs,
-    // 	// 	anchorMap: this.#anchorMap,
-    // 	// 	numLeftVisible: this.#leftVisiblePairs.size,
-    // 	// 	numRightVisible: this.#rightVisiblePairs.size,
-    // 	// });
-    // }
     #anchorFlagsToString(flags) {
         const flagsArray = [];
         if (flags & 1 /* AnchorFlags.LINE_START */) {
@@ -3219,14 +3280,14 @@ class AnchorManager {
         }
         return flagsArray.join(" | ");
     }
-    tryAddAnchorPair(leftTokenIndex, leftFlags, rightTokenIndex, rightFlags, diffIndex) {
-        const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags);
+    addAnchorPair(leftTokenIndex, leftFlags, rightTokenIndex, rightFlags, diffIndex) {
+        const leftPoint = this.#findSlideSpot(this.#leftEditor, leftTokenIndex, leftFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? rightFlags | 128 /* AnchorFlags.EMPTY_DIFF */ : leftFlags);
         if (!leftPoint) {
             // console.warn("AnchorManager: No valid left anchor point found for token index", leftTokenIndex, "with flags", this.#anchorFlagsToString(leftFlags));
             // console.debug("AnchorManager:
             return null;
         }
-        const rightPoint = this.#findSlideSpot(this.#rightEditor, rightTokenIndex, rightFlags);
+        const rightPoint = this.#findSlideSpot(this.#rightEditor, rightTokenIndex, rightFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? leftFlags | 128 /* AnchorFlags.EMPTY_DIFF */ : rightFlags);
         if (!rightPoint) {
             // console.warn("AnchorManager: No valid right anchor point found for token index", rightTokenIndex, "with flags", this.#anchorFlagsToString(rightFlags));
             return null;
@@ -3240,7 +3301,44 @@ class AnchorManager {
         // );
         const leftEl = this.#slideInGently(leftPoint, leftFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
         const rightEl = this.#slideInGently(rightPoint, rightFlags & 128 /* AnchorFlags.EMPTY_DIFF */ ? "diff" : "anchor");
-        return this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
+        const pair = {
+            index: this.#anchorPairs.length,
+            leftEl,
+            rightEl,
+            diffIndex: diffIndex ?? undefined,
+            flags: leftFlags | rightFlags,
+            aligned: false,
+            delta: 0,
+        };
+        this.#anchorPairs.push(pair);
+        this.#anchorMap.set(leftEl, pair);
+        this.#anchorMap.set(rightEl, pair);
+        leftEl.dataset.anchorIndex = pair.index.toString();
+        rightEl.dataset.anchorIndex = pair.index.toString();
+        const leftPadding = parseInt(leftEl.style.getPropertyValue("--padding")) || 0;
+        const rightPadding = parseInt(rightEl.style.getPropertyValue("--padding")) || 0;
+        if (leftPadding && rightPadding) {
+            // 이전에 다른 앵커에 매치되던 앵커끼리 매치된 경우
+            // 이 경우 그냥 padding을 제거해버림
+            leftEl.style.removeProperty("--padding");
+            rightEl.style.removeProperty("--padding");
+        }
+        else if (leftPadding) {
+            pair.delta = -leftPadding;
+        }
+        else if (rightPadding) {
+            pair.delta = rightPadding;
+        }
+        if (diffIndex !== null) {
+            leftEl.dataset.diffIndex = diffIndex.toString();
+            rightEl.dataset.diffIndex = diffIndex.toString();
+        }
+        else {
+            delete leftEl.dataset.diffIndex;
+            delete rightEl.dataset.diffIndex;
+        }
+        return pair;
+        //return this.addAnchorPair(leftEl, rightEl, diffIndex ?? null, leftFlags & rightFlags);
     }
     #getLastAnchorRange(editor) {
         let lastPair = this.#anchorPairs[this.#anchorPairs.length - 1];
@@ -3252,66 +3350,82 @@ class AnchorManager {
         return null;
     }
     #findSlideSpot(editor, tokenIndex, flags) {
+        let bestPoint = null;
         const lastAnchorRange = this.#getLastAnchorRange(editor);
         if (flags & 128 /* AnchorFlags.EMPTY_DIFF */) {
-            let bestPoint = null;
             let bestScore = -1;
-            const insertionRange = document.createRange();
             for (const point of editor.yieldDiffAnchorPointsInRange(tokenIndex)) {
                 let score = 0;
                 // 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
-                insertionRange.setStart(point.container, point.offset);
-                if (!lastAnchorRange || lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, insertionRange) <= 0) {
-                    if (!bestPoint || bestPoint.depth > point.depth) {
-                        bestPoint = point;
-                    }
+                const insertionRange = toRange(point.range);
+                if (lastAnchorRange && lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, insertionRange) >= 0) {
+                    continue;
                 }
-                //console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
-                // break;
-                // if (point.flags & InsertionPointFlags.TABLE_START && filledStartFlags & TokenFlags.TABLE_START) {
-                // 	score += 5;
-                // } else if (point.flags & InsertionPointFlags.TABLEROW_START && filledStartFlags & TokenFlags.TABLEROW_START) {
-                // 	score += 4;
-                // } else if (point.flags & InsertionPointFlags.TABLECELL_START && filledStartFlags & TokenFlags.TABLECELL_START) {
-                // 	score += 3;
-                // } else if (point.flags & InsertionPointFlags.CONTAINER_START && filledStartFlags & TokenFlags.CONTAINER_START) {
-                // 	score += 2;
-                // } else if (point.flags & InsertionPointFlags.BLOCK_START && filledStartFlags & TokenFlags.BLOCK_START) {
-                // 	score += 1;
-                // }
-                // console.log("point", point, "score", score, "filledStartFlags", filledStartFlags);
-                // if (score > bestScore) {
-                // 	bestScore = score;
-                // 	bestPoint = point;
-                // }
-                // break;
+                if (!bestPoint) {
+                    bestPoint = point;
+                }
+                if (point.flags & 64 /* InsertionPointFlags.TABLE_START */ && flags & 32 /* AnchorFlags.TABLE_START */) {
+                    score += 5;
+                }
+                else if (point.flags & 256 /* InsertionPointFlags.TABLEROW_START */ && flags & 16 /* AnchorFlags.TABLEROW_START */) {
+                    score += 4;
+                }
+                else if (point.flags & 1024 /* InsertionPointFlags.TABLECELL_START */ && flags & 8 /* AnchorFlags.TABLECELL_START */) {
+                    score += 3;
+                }
+                else if (point.flags & 16 /* InsertionPointFlags.CONTAINER_START */ && flags & 4 /* AnchorFlags.CONTAINER_START */) {
+                    score += 2;
+                }
+                else if (point.flags & 4 /* InsertionPointFlags.BLOCK_START */ && flags & 2 /* AnchorFlags.BLOCK_START */) {
+                    score += 1;
+                }
+                // console.log(tokenIndex, "point", point, "score", score, "flags", flags, "prevBestScore", bestScore);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestPoint = point;
+                }
+                else {
+                }
             }
-            if (bestPoint) {
-                const range = document.createRange();
-                range.setStart(bestPoint.container, bestPoint.offset);
-                return range;
-            }
-            return null;
         }
         else {
-            const range = editor.getAnchorInsertionPoint(tokenIndex, flags);
-            if (range && (!lastAnchorRange || lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, range) <= 0)) {
+            bestPoint = editor.getAnchorInsertionPoint(tokenIndex, flags);
+        }
+        if (bestPoint) {
+            let range = null;
+            if (bestPoint.range instanceof Range) {
+                range = bestPoint.range;
+            }
+            else {
+                range = document.createRange();
+                range.setStart(bestPoint.range.startContainer, bestPoint.range.startOffset);
+                range.collapse(true);
+            }
+            if (!lastAnchorRange || lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, range) < 0) {
                 return range;
             }
-            return null;
         }
+        return null;
     }
     #slideInGently(insertionPoint, type) {
         let existingAnchor = insertionPoint.startContainer.nodeType === 1 ? insertionPoint.startContainer.childNodes[insertionPoint.startOffset] : null;
         if (existingAnchor) {
-            if (existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
+            if (this.#unusedAnchors.delete(existingAnchor)) {
+                existingAnchor.style.removeProperty("display");
+                existingAnchor.classList.add(type);
                 return existingAnchor;
             }
-            if (existingAnchor.previousElementSibling) {
-                existingAnchor = existingAnchor.previousElementSibling;
-                if (existingAnchor && existingAnchor.nodeName === "A" && existingAnchor.classList.contains(type)) {
-                    return existingAnchor;
-                }
+            let adjacent = existingAnchor.previousSibling;
+            if (adjacent && adjacent.nodeType === 1 && this.#unusedAnchors.delete(adjacent)) {
+                existingAnchor.style.removeProperty("display");
+                existingAnchor.classList.add(type);
+                return existingAnchor;
+            }
+            adjacent = existingAnchor.nextSibling;
+            if (adjacent && adjacent.nodeType === 1 && this.#unusedAnchors.delete(adjacent)) {
+                existingAnchor.style.removeProperty("display");
+                existingAnchor.classList.add(type);
+                return existingAnchor;
             }
         }
         const newAnchor = document.createElement("A");
@@ -3320,144 +3434,235 @@ class AnchorManager {
         insertionPoint.insertNode(newAnchor);
         return newAnchor;
     }
-    addAnchorPair(leftEl, rightEl, diffIndex, flags) {
-        const pair = {
-            index: this.#anchorPairs.length,
-            leftEl,
-            rightEl,
-            diffIndex: diffIndex ?? undefined,
-            flags,
-            aligned: false,
-            delta: 0,
-            leftVisible: false,
-            rightVisible: false,
-        };
-        this.#anchorPairs.push(pair);
-        this.#anchorMap.set(leftEl, pair);
-        this.#anchorMap.set(rightEl, pair);
-        leftEl.dataset.anchorIndex = pair.index.toString();
-        rightEl.dataset.anchorIndex = pair.index.toString();
-        if (diffIndex !== null) {
-            leftEl.dataset.diffIndex = diffIndex.toString();
-            rightEl.dataset.diffIndex = diffIndex.toString();
-        }
-        else {
-            delete leftEl.dataset.diffIndex;
-            delete rightEl.dataset.diffIndex;
-        }
-        return pair;
+    #getDeltaCache(width) {
+        if (this.#largestCache?.width === width)
+            return this.#largestCache.deltas;
+        if (this.#recentCache?.width === width)
+            return this.#recentCache.deltas;
+        return undefined;
     }
-    #doAlignAnchors(pairs) {
-        // console.debug("AnchorManager.doAlingPairs: aligning pairs", pairs.length);
-        const MIN_DELTA = 1;
-        const MIN_STRIPED_DELTA = 10;
+    #saveDeltaCache(width, deltas) {
+        const newEntry = { width, deltas, timestamp: performance.now() };
+        // width 값마다 캐시를 저장하는 것은 미친 짓이다.
+        // 최근 사용했던 width와 가장 큰 width만 저장함.
+        // 가장 큰 width는 창 최대화 시의 캐시를 보관하기 위함.
+        // 가장 큰 캐시가 없다면 그냥 저장하고 끝
+        if (!this.#largestCache) {
+            this.#largestCache = newEntry;
+            return;
+        }
+        if (width > this.#largestCache.width) {
+            const isLargestNewer = this.#recentCache === null || this.#largestCache.timestamp > this.#recentCache.timestamp;
+            if (!isLargestNewer) {
+                this.#recentCache = this.#largestCache;
+            }
+            this.#largestCache = newEntry;
+            return;
+        }
+        if (width === this.#largestCache.width)
+            return;
+        this.#recentCache = newEntry;
+    }
+    #processChunk(startIndex, onDone, deadline) {
+        const startTime = performance.now();
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
         let leftScrollTop = leftEditor.scrollTop;
         let rightScrollTop = rightEditor.scrollTop;
-        let changeCount = 0;
-        // 초기화
-        for (const pair of pairs) {
+        const cacheKey = leftEditor.getBoundingClientRect().width;
+        const cachedDeltas = this.#getDeltaCache(cacheKey);
+        let i = startIndex;
+        const pairs = this.#anchorPairs;
+        let count = 0;
+        while (i < pairs.length) {
+            const pair = pairs[i];
             const { leftEl, rightEl } = pair;
-            rightEl.style.removeProperty("display");
-            rightEl.classList.remove("padtop", "striped");
-            rightEl.style.removeProperty("--padding");
-            leftEl.style.removeProperty("display");
-            leftEl.classList.remove("padtop", "striped");
-            leftEl.style.removeProperty("--padding");
-        }
-        leftEditor.forceReflow();
-        rightEditor.forceReflow();
-        rightScrollTop = rightEditor.scrollTop;
-        leftScrollTop = leftEditor.scrollTop;
-        for (const pair of pairs) {
-            const { leftEl, rightEl } = pair;
+            const cachedDelta = cachedDeltas?.[i] ?? null;
+            if (cachedDelta !== null) {
+                if (cachedDelta !== pair.delta) {
+                    //console.log("AnchorManager: applying cached delta", cachedDelta, "to pair", i, { ...pair });
+                    if (pair.delta > 0) {
+                        rightEl.style.removeProperty("--padding");
+                        void rightEl.offsetHeight; // force reflow
+                        rightScrollTop = rightEditor.scrollTop;
+                    }
+                    else if (pair.delta < 0) {
+                        leftEl.style.removeProperty("--padding");
+                        void leftEl.offsetHeight; // force reflow
+                        leftScrollTop = leftEditor.scrollTop;
+                    }
+                    if (this.#applyDeltaToPair(pair, cachedDelta, true)) {
+                        leftScrollTop = leftEditor.scrollTop;
+                        rightScrollTop = rightEditor.scrollTop;
+                    }
+                    count++;
+                }
+                i++;
+                continue;
+            }
+            // 낙관적으로 --padding 속성을 제거하기 전에 leftY/rightY를 계산하고 두 값이 같다면 그냥 정렬된 것으로 간주하고 넘어가기
             let leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
             let rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
             let delta = Math.round(leftY - rightY);
-            if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                let theEl;
-                if (delta > 0) {
-                    theEl = rightEl;
+            // console.log("chunk", i, "pair", { ...pair }, leftY, "rightY", rightY, "delta", delta);
+            // delta가 significant함
+            if (delta < -_a.MIN_DELTA || delta > _a.MIN_DELTA) {
+                // 패딩이 이미 적용되어 있다면 초기화
+                // pair의 delta값은 항상 앵커의 --padding 값과 같게 유지된다고 가정함. 다른 부분에서도 이부분을 확실하게 체크할 것.
+                if (pair.delta > 0) {
+                    rightEl.style.removeProperty("--padding");
+                    void rightEl.offsetHeight; // force reflow
+                    rightScrollTop = rightEditor.scrollTop;
                 }
-                else {
-                    delta = -delta;
-                    theEl = leftEl;
+                else if (pair.delta < 0) {
+                    leftEl.style.removeProperty("--padding");
+                    void leftEl.offsetHeight; // force reflow
+                    leftScrollTop = leftEditor.scrollTop;
                 }
-                theEl.classList.add("padtop");
-                theEl.style.setProperty("--padding", `${delta}px`);
-                if (delta >= MIN_STRIPED_DELTA) {
-                    theEl.classList.add("striped");
+                leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+                rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+                delta = Math.round(leftY - rightY);
+                if (delta < -_a.MIN_DELTA || delta > _a.MIN_DELTA) {
+                    if (this.#applyDeltaToPair(pair, delta, true)) {
+                        leftScrollTop = leftEditor.scrollTop;
+                        rightScrollTop = rightEditor.scrollTop;
+                    }
                 }
-                void theEl.offsetHeight;
-                leftScrollTop = leftEditor.scrollTop;
-                rightScrollTop = rightEditor.scrollTop;
-                changeCount++;
+            }
+            i++;
+            count++;
+            if (count >= _a.MIN_CHUNK_SIZE && // 최소 요만큼 정도는 deadline 무시하고 처리
+                (i & 0xf) === 0 && // 16개마다 한번씩만 deadline 체크
+                performance.now() > deadline // deadline이 지났다면
+            ) {
+                //
+                // console.debug("AnchorManager.processChunk: yielding after processing", count, "pairs");
+                break;
             }
         }
-        return changeCount;
-    }
-    alignAnchors() {
-        // if (isScrolling) {
-        // 	return [false, NaN];
-        // }
-        const anchors = this.#anchorPairs;
-        if (!anchors) {
-            return [false, NaN];
+        this.#elapsedTotal += performance.now() - startTime;
+        if (i < pairs.length) {
+            this.#queueProcessChunk(i, onDone);
         }
-        // const startTime = performance.now();
-        if (this.#invalidated) {
-            // console.debug("AnchorManager.alignAnchors: invalidated, resetting alignment");
-            this.#invalidated = false;
-            for (const pair of this.#anchorPairs) {
-                pair.aligned = false;
-                pair.delta = 0;
+        else {
+            if (!cachedDeltas) {
+                const deltas = pairs.map((pair) => pair.delta);
+                //console.log("AnchorManager: saving deltas for width", cacheKey, "with", deltas);
+                this.#saveDeltaCache(cacheKey, deltas);
             }
+            if (DEBUG) {
+                console.debug("AnchorManager: processed", count, "/", this.#anchorPairs.length, "pairs in", this.#elapsedTotal.toFixed(2), "ms");
+            }
+            onDone();
         }
-        let changedCount = this.#doAlignAnchors(anchors);
-        // console.debug("AnchorManager.alignAnchors: aligned pairs", changedCount);
-        //console.log("numHandled", numHandled, this.#numLeftVisible, this.#numRightVisible);
-        let editorHeight = Math.max(this.#leftEditor.contentHeight, this.#rightEditor.contentHeight);
-        // const endTime = performance.now();
-        // console.debug(`AnchorManager.alignAnchors: aligned ${changedCount} pairs in ${endTime - startTime}ms, editorHeight: ${editorHeight}`);
-        return [changedCount > 0, editorHeight];
     }
-    invalidate() {
-        this.#invalidated = true;
+    #queueProcessChunk(startIndex, onDone) {
+        this.#chunkCancellationToken = requestAnimationFrame((time) => {
+            this.#chunkCancellationToken = null;
+            const deadline = time + FRAME_BUDGET_MS;
+            this.#processChunk(startIndex, onDone, deadline);
+        });
     }
-    // 문제가 있다.
-    // 앵커는 문서 상의 순서로 정렬되어 있지만
-    // 문서 상의 순서가 반드시 y좌표의 순서와 일치하는 건 아니다(테이블 셀들).
-    findFirstVisibleAnchorIndex(editor, containerRect) {
-        const anchorPairs = this.#anchorPairs;
-        const { top: viewportTop, bottom: viewportBottom } = containerRect;
-        let low = 0;
-        let high = anchorPairs.length - 1;
-        let found = -1;
-        while (low <= high) {
-            const mid = (low + high) >> 1;
-            const { top, bottom } = editor === this.#leftEditor ? anchorPairs[mid].leftEl.getBoundingClientRect() : anchorPairs[mid].rightEl.getBoundingClientRect();
-            if (bottom < viewportTop) {
-                low = mid + 1;
+    alignAnchorsGently(onDone) {
+        this.cancelAnchorAligning();
+        this.#elapsedTotal = 0;
+        const pairs = this.#anchorPairs;
+        if (pairs.length === 0) {
+            onDone();
+            return;
+        }
+        // 초기화
+        //this.#clearAnchorStyles();
+        // Queue
+        this.#queueProcessChunk(0, onDone);
+    }
+    // alignAnchors(): boolean {
+    // 	// if (isScrolling) {
+    // 	// 	return [false, NaN];
+    // 	// }
+    // 	const pairs = this.#anchorPairs;
+    // 	const previouslyDirty = this.#anchorsDirty;
+    // 	this.#anchorsDirty = false;
+    // 	if (pairs.length === 0) {
+    // 		return previouslyDirty;
+    // 	}
+    // 	const leftEditor = this.#leftEditor;
+    // 	const rightEditor = this.#rightEditor;
+    // 	let leftScrollTop = leftEditor.scrollTop;
+    // 	let rightScrollTop = rightEditor.scrollTop;
+    // 	let changeCount = 0;
+    // 	const currentWidth = this.#leftEditor.getBoundingClientRect().width;
+    // 	const cachedDeltas = this.#getCachedDelta(currentWidth);
+    // 	if (cachedDeltas) {
+    // 		// console.debug("AnchorManager.alignAnchors: using cached deltas for width", currentWidth);
+    // 		for (let i = 0; i < pairs.length; i++) {
+    // 			const pair = pairs[i];
+    // 			const { leftEl, rightEl } = pair;
+    // 			const cachedDelta = cachedDeltas[i];
+    // 			if (cachedDelta >= 0) {
+    // 				leftEl.classList.remove("padtop", "striped");
+    // 				leftEl.style.removeProperty("--padding");
+    // 			} else if (cachedDelta <= 0) {
+    // 				rightEl.classList.remove("padtop", "striped");
+    // 				rightEl.style.removeProperty("--padding");
+    // 			}
+    // 			if (this.#applyDeltaToPair(pair, cachedDelta, false)) {
+    // 				changeCount++;
+    // 			}
+    // 		}
+    // 		return previouslyDirty || changeCount > 0;
+    // 	}
+    // 	// 초기화
+    // 	for (const pair of pairs) {
+    // 		const { leftEl, rightEl } = pair;
+    // 		rightEl.classList.remove("padtop", "striped");
+    // 		rightEl.style.removeProperty("--padding");
+    // 		leftEl.classList.remove("padtop", "striped");
+    // 		leftEl.style.removeProperty("--padding");
+    // 	}
+    // 	leftEditor.forceReflow();
+    // 	rightEditor.forceReflow();
+    // 	rightScrollTop = rightEditor.scrollTop;
+    // 	leftScrollTop = leftEditor.scrollTop;
+    // 	for (const pair of pairs) {
+    // 		const { leftEl, rightEl } = pair;
+    // 		let leftY = leftEl.getBoundingClientRect().y + leftScrollTop;
+    // 		let rightY = rightEl.getBoundingClientRect().y + rightScrollTop;
+    // 		let delta = Math.round(leftY - rightY);
+    // 		if (this.#applyDeltaToPair(pair, delta, true)) {
+    // 			leftScrollTop = leftEditor.scrollTop;
+    // 			rightScrollTop = rightEditor.scrollTop;
+    // 			changeCount++;
+    // 		}
+    // 	}
+    // 	console.debug("AnchorManager.alignAnchors: aligned", changeCount, "pairs", pairs.length);
+    // 	return previouslyDirty || changeCount > 0;
+    // }
+    #applyDeltaToPair(pair, delta, reflow) {
+        let changed = false;
+        if (delta < -_a.MIN_DELTA || delta > _a.MIN_DELTA) {
+            if (pair.delta !== delta) {
+                pair.delta = delta;
+                changed = true;
             }
-            else if (top > viewportBottom) {
-                high = mid - 1;
+            let theEl;
+            if (delta > 0) {
+                theEl = pair.rightEl;
             }
             else {
-                found = mid;
-                high = mid - 1;
+                delta = -delta;
+                theEl = pair.leftEl;
+            }
+            theEl.style.setProperty("--padding", `${delta}px`);
+            theEl.classList.toggle("striped", delta >= _a.MIN_STRIPED_DELTA);
+            if (reflow) {
+                void theEl.offsetHeight; // force reflow
             }
         }
-        return found >= 0 ? found : ~low;
-    }
-    getFirstVisibleAnchorPair(editor, containerRect) {
-        const index = this.findFirstVisibleAnchorIndex(editor, containerRect);
-        if (index < 0) {
-            return null;
-        }
-        return this.#anchorPairs[index];
+        return changed;
     }
 }
+_a = AnchorManager;
 //# sourceMappingURL=anchor-manager.js.map
 </script>
 <script>"use strict";
@@ -4319,6 +4524,9 @@ class DiffListItem {
     #highlighted = false;
     constructor(listElement, diffIndex, onClick, onMouseOver, onMouseOut) {
         this.#element = document.createElement("LI");
+        this.#element.className = "diff-item";
+        this.#element.dataset.diffIndex = diffIndex.toString();
+        this.#element.draggable = true;
         this.#leftEl = document.createElement("SPAN");
         this.#leftEl.className = "left";
         this.#rightEl = document.createElement("SPAN");
@@ -4437,11 +4645,11 @@ class DiffListItem {
         return text.trimEnd();
     }
     scrollIntoView() {
-        this.#element.classList.remove("flash-once");
+        this.#element.classList.remove("tease-once");
         this.#element.scrollIntoView(
         // { block: "nearest", inline: "nearest" }
         );
-        this.#element.classList.add("flash-once");
+        this.#element.classList.add("tease-once");
     }
 }
 //# sourceMappingURL=side-view.js.map
@@ -4503,19 +4711,17 @@ class DiffSeek {
     #diffOptions;
     #diffContext = null;
     #textSelectionRange = null;
-    #zoom = window.devicePixelRatio; //내가 이걸... 어디에서 썼더라...? ;;
     #sideView;
     #syncMode = false;
     #scrollingEditor = null;
     #lastScrolledEditor = null;
-    #preventScrollSync = false;
     #activeEditor = null;
     #lastActiveEditor = null;
     #scrollEndTimeoutId = null;
     #lastScrolledToDiffIndex = null;
     #anchorManager;
     #worker;
-    _reqId = 0;
+    #workerRequestId = 0;
     #editorContentsChanged = {
         left: false,
         right: false,
@@ -4554,7 +4760,10 @@ class DiffSeek {
                 this.#activeEditor = null;
             },
             onClick: (editor, event) => {
-                this.onEditorClick(editor, event);
+                this.#onEditorClick(editor, event);
+            },
+            onCopy: (editor, event) => {
+                this.#onEditorCopy(editor, event);
             },
         };
         this.#worker = this.#initializeWorker();
@@ -4574,7 +4783,6 @@ class DiffSeek {
             this.#renderer.invalidateLayout(rect);
             if (lastContainerWidth !== rect.width) {
                 lastContainerWidth = rect.width;
-                this.#anchorManager.invalidate();
                 this.alignAnchors();
             }
         });
@@ -4591,7 +4799,7 @@ class DiffSeek {
         this.#progress = document.createElement("div");
         this.#progress.id = "progress";
         document.body.appendChild(this.#progress);
-        this.setupEventListeners();
+        this.#setupEventListeners();
         syncModeAtom.subscribe((syncMode) => {
             if (syncMode !== this.syncMode) {
                 this.syncMode = syncMode;
@@ -4661,9 +4869,8 @@ class DiffSeek {
         }
         this.#syncMode = value;
         syncModeAtom.set(value);
-        this.#mainContainer.classList.toggle("same-height-besties", value);
+        this.#mainContainer.classList.toggle("pose-P9", value);
         this.#renderer.guideLineEnabled = value;
-        // this.#renderer.darkMode = value;
         this.#leftEditor.readonly = value;
         this.#rightEditor.readonly = value;
         if (value) {
@@ -4698,7 +4905,7 @@ class DiffSeek {
             whitespaceHandlingAtom.set(value);
         }
     }
-    setupEventListeners() {
+    #setupEventListeners() {
         document.addEventListener("selectionchange", () => {
             this.#updateTextSelection();
         });
@@ -4745,6 +4952,73 @@ class DiffSeek {
                 diffItemClickedEvent.emit(diffIndex);
             }
         }, true);
+        document.addEventListener("dragstart", (e) => {
+            if (!this.#diffContext?.ready) {
+                return;
+            }
+            let sourceEditor = undefined;
+            let leftSpan = undefined;
+            let rightSpan = undefined;
+            let hasDiff = false;
+            if (e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
+                const diffIndex = parseInt(e.target.dataset.diffIndex);
+                const diff = this.#diffContext.diffs[diffIndex];
+                leftSpan = diff.leftSpan;
+                rightSpan = diff.rightSpan;
+                hasDiff = true;
+                // const data = {
+                // 	version: 1,
+                // 	left: {
+                // 		text: diff.leftRange.toString().trim(),
+                // 	},
+                // 	right: {
+                // 		text: diff.rightRange.toString().trim(),
+                // 	},
+                // 	hasDiff: true,
+                // };
+                // e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
+            }
+            else {
+                const selection = this.#getSelectionTokenRange();
+                if (selection) {
+                    const { left, right, editor: sourceEditor, hasDiff: hasDiff2 } = selection;
+                    leftSpan = { index: left[0], count: left[1] - left[0] };
+                    rightSpan = { index: right[0], count: right[1] - right[0] };
+                    hasDiff = hasDiff2;
+                    // const leftRange = this.#leftEditor.getTokenRange(left[0], left[1] - left[0]);
+                    // const rightRange = this.#rightEditor.getTokenRange(right[0], right[1] - right[0]);
+                    // const data = {
+                    // 	version: 1,
+                    // 	source: sourceEditor,
+                    // 	left: {
+                    // 		text: leftRange.toString().trim(),
+                    // 	},
+                    // 	right: {
+                    // 		text: rightRange.toString().trim(),
+                    // 	},
+                    // 	hasDiff,
+                    // };
+                    // e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
+                }
+            }
+            if (leftSpan && rightSpan) {
+                const data = {
+                    version: 1,
+                    source: sourceEditor,
+                    left: {
+                        text: this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim(),
+                        sectionLabel: getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index),
+                    },
+                    right: {
+                        text: this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim(),
+                        sectionLabel: getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index),
+                    },
+                    hasDiff,
+                };
+                console.log("Dragging data:", data);
+                e.dataTransfer.setData("application/x-diffseek-json", JSON.stringify(data));
+            }
+        });
         // this.#mainContainer.addEventListener("mousemove", (e) => {
         // 	const rect = this.#mainContainer.getBoundingClientRect();
         // 	let x = e.clientX - rect.x;
@@ -4754,7 +5028,7 @@ class DiffSeek {
         // this.#mainContainer.addEventListener("mouseleave", () => {
         // 	this.#renderer.updateCursorPosition(NaN, NaN);
         // });
-        hoveredDiffIndexAtom.subscribe((diffIndex) => this.updateDiffIndicatorOverlay());
+        hoveredDiffIndexAtom.subscribe((diffIndex) => this.#updateDiffIndicatorOverlay());
         diffItemClickedEvent.subscribe((diffIndex) => {
             this.#lastScrolledToDiffIndex = diffIndex;
             this.scrollToDiff(diffIndex);
@@ -4770,7 +5044,7 @@ class DiffSeek {
         this.#computeDiff();
     }
     // 이건 나중에 renderer로 뺄까...? 하는 일이 비슷하잖아.
-    updateDiffIndicatorOverlay() {
+    #updateDiffIndicatorOverlay() {
         const diffIndex = hoveredDiffIndexAtom.get();
         this.#renderer.setDiffHighlight(diffIndex);
         let leftAbove = false, leftBelow = false, rightAbove = false, rightBelow = false;
@@ -4797,12 +5071,68 @@ class DiffSeek {
         this.#leftEditor.toggleDirectionalOverlays(leftAbove, leftBelow);
         this.#rightEditor.toggleDirectionalOverlays(rightAbove, rightBelow);
     }
-    onEditorClick(editor, event) {
+    #onEditorClick(editor, event) {
+        if (this.syncMode) {
+            this.#lastActiveEditor = this.#activeEditor = editor;
+        }
         // console.debug("Editor clicked:", editor.name, event, this.#syncMode, event.altKey);
         if (event.altKey) {
             if (this.syncMode) {
                 event.preventDefault();
                 this.syncMode = false;
+            }
+        }
+    }
+    #onEditorCopy(editor, event) {
+        if (!this.#diffContext?.ready) {
+            return;
+        }
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) {
+            return;
+        }
+        const targetEditor = editor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
+        const selectionRange = selection.getRangeAt(0);
+        const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(selectionRange);
+        if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
+            let sourceRange = editor.getTokenRange(startTokenIndex, endTokenIndex - startTokenIndex);
+            let targetRange = null;
+            const [otherStartTokenIndex, otherEndTokenIndex, hasDiff] = mapTokenRangeToOtherSide(this.#diffContext.rawDiffs, editor === this.#leftEditor ? "left" : "right", startTokenIndex, endTokenIndex);
+            if (otherStartTokenIndex >= 0) {
+                const otherStartToken = targetEditor.tokens[otherStartTokenIndex];
+                const otherEndToken = targetEditor.tokens[otherEndTokenIndex - 1];
+                if (otherStartToken && otherEndToken) {
+                    targetRange = document.createRange();
+                    targetRange.setStart(otherStartToken.range.startContainer, otherStartToken.range.startOffset);
+                    targetRange.setEnd(otherEndToken.range.endContainer, otherEndToken.range.endOffset);
+                    const data = {
+                        version: 1,
+                        source: editor.name,
+                        left: {
+                            text: sourceRange.toString(),
+                            startFlags: editor.tokens[startTokenIndex].flags,
+                        },
+                        right: {
+                            text: targetRange.toString(),
+                            startFlags: targetEditor.tokens[otherStartTokenIndex].flags,
+                        },
+                        hasDiff,
+                    };
+                    const tempContainer = document.createElement("div");
+                    tempContainer.appendChild(sourceRange.cloneContents());
+                    let html = tempContainer.innerHTML;
+                    let mimeType = "application/x-diffseek-json";
+                    mimeType = "text/html";
+                    const jsonString = JSON.stringify(data);
+                    html += "<!-- <DiffSeek JSON: " + jsonString + " / DiffSeek JSON> -->";
+                    event.clipboardData.setData("text/plain", selectionRange.toString());
+                    event.clipboardData.setData(mimeType, html);
+                    console.debug("Copied range to clipboard:", mimeType, data);
+                    if (mimeType === "text/plain" || mimeType === "text/html") {
+                        event.preventDefault();
+                    }
+                    console.log("Copying range:", sourceRange, sourceRange.toString(), "to target editor:", targetEditor.name, "targetRange:", targetRange, targetRange?.toString());
+                }
             }
         }
     }
@@ -4831,14 +5161,43 @@ class DiffSeek {
             this.#scrollingEditor = null;
         }
     }
-    #onEditorResize(editor) {
-        if (!this.#anchorAligning) {
-            this.#anchorManager.invalidate();
-        }
-    }
+    #onEditorResize(editor) { }
     #onDiffVisibilityChanged(region, entries) {
         this.#sideView.onDiffVisibilityChange(region, entries);
-        this.updateDiffIndicatorOverlay();
+        this.#updateDiffIndicatorOverlay();
+    }
+    #getSelectionTokenRange() {
+        if (this.#diffContext?.ready) {
+            const selection = window.getSelection();
+            let editor = null;
+            if (selection && selection.rangeCount > 0) {
+                const range = selection.getRangeAt(0);
+                if (this.#leftEditor.contains(range)) {
+                    editor = this.#leftEditor;
+                }
+                else if (this.#rightEditor.contains(range)) {
+                    editor = this.#rightEditor;
+                }
+                if (editor) {
+                    // onContentChanging에서 diffContext를 null로 설정하므로 이 시점에서 에디터는 유효한 토큰 배열을 가지고 있다고 볼 수 있다.
+                    const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(range);
+                    if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
+                        const [otherStartTokenIndex, otherEndTokenIndex, hasDiff] = mapTokenRangeToOtherSide(this.#diffContext.rawDiffs, editor === this.#leftEditor ? "left" : "right", startTokenIndex, endTokenIndex);
+                        if (otherStartTokenIndex >= 0) {
+                            const sourceTokenRange = [startTokenIndex, endTokenIndex];
+                            const targetTokenRange = [otherStartTokenIndex, otherEndTokenIndex];
+                            return {
+                                left: editor === this.#leftEditor ? sourceTokenRange : targetTokenRange,
+                                right: editor === this.#leftEditor ? targetTokenRange : sourceTokenRange,
+                                editor: editor.name,
+                                hasDiff,
+                            };
+                        }
+                    }
+                }
+            }
+        }
+        return null;
     }
     #updateTextSelection() {
         if (!this.#diffContext?.ready) {
@@ -4894,7 +5253,7 @@ class DiffSeek {
         const rightRichTokens = this.#rightEditor.tokens;
         const options = { ...this.#diffOptions };
         const diffContext = {
-            reqId: ++this._reqId,
+            reqId: ++this.#workerRequestId,
             leftTokens: leftRichTokens,
             rightTokens: rightRichTokens,
             diffOptions: options,
@@ -4998,6 +5357,8 @@ class DiffSeek {
         const ANCHOR_MIN_LINE_BREAKS = 0; // 앵커를 붙일 때 최소한의 줄바꿈 수.
         let forceStart = true;
         let currentDiff = null;
+        const leftSectionHeadings = this.#buildSectionHeadingTree(leftEditor, leftTokens);
+        const rightSectionHeadings = this.#buildSectionHeadingTree(rightEditor, rightTokens);
         for (let i = 0; i < rawEntries.length; i++) {
             if ((i & 0x1f) === 0) {
                 if (idleDeadline.timeRemaining() < 5) {
@@ -5015,11 +5376,11 @@ class DiffSeek {
             const right = rawEntry.right;
             if (rawEntry.type) {
                 if (currentDiff) {
-                    console.assert(currentDiff.left.pos + currentDiff.left.len === rawEntry.left.pos, currentDiff, rawEntry);
-                    console.assert(currentDiff.right.pos + currentDiff.right.len === rawEntry.right.pos, currentDiff, rawEntry);
+                    console.assert(currentDiff.left.index + currentDiff.left.count === rawEntry.left.index, currentDiff, rawEntry);
+                    console.assert(currentDiff.right.index + currentDiff.right.count === rawEntry.right.index, currentDiff, rawEntry);
                     currentDiff.type |= rawEntry.type;
-                    currentDiff.left.len += rawEntry.left.len;
-                    currentDiff.right.len += rawEntry.right.len;
+                    currentDiff.left.count += rawEntry.left.count;
+                    currentDiff.right.count += rawEntry.right.count;
                 }
                 else {
                     currentDiff = { left: { ...rawEntry.left }, right: { ...rawEntry.right }, type: rawEntry.type };
@@ -5030,8 +5391,8 @@ class DiffSeek {
                 if (currentDiff) {
                     finalizeDiff();
                 }
-                const leftToken = leftTokens[left.pos];
-                const rightToken = rightTokens[right.pos];
+                const leftToken = leftTokens[left.index];
+                const rightToken = rightTokens[right.index];
                 const leftTokenFlags = leftToken.flags;
                 const rightTokenFlags = rightToken.flags;
                 const commonFlags = leftTokenFlags & rightTokenFlags;
@@ -5083,7 +5444,7 @@ class DiffSeek {
                         // }
                         // for (const anchorFlags of anchorFlagsArr) {
                         // }
-                        anchorManager.tryAddAnchorPair(left.pos, leftAnchorFlags, right.pos, rightAnchorFlags);
+                        anchorManager.addAnchorPair(left.index, leftAnchorFlags, right.index, rightAnchorFlags, null);
                     }
                 }
             }
@@ -5093,10 +5454,10 @@ class DiffSeek {
         }
         function finalizeDiff() {
             const diffIndex = diffs.length;
-            const leftIndex = currentDiff.left.pos;
-            const rightIndex = currentDiff.right.pos;
-            const leftTokenCount = currentDiff.left.len;
-            const rightTokenCount = currentDiff.right.len;
+            const leftIndex = currentDiff.left.index;
+            const rightIndex = currentDiff.right.index;
+            const leftTokenCount = currentDiff.left.count;
+            const rightTokenCount = currentDiff.right.count;
             const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
             let leftAnchorFlags = 0 /* AnchorFlags.None */;
             let rightAnchorFlags = 0 /* AnchorFlags.None */;
@@ -5135,8 +5496,11 @@ class DiffSeek {
                 if (filledStartFlags & 1 /* TokenFlags.LINE_START */
                 // && filledEndFlags & TokenFlags.LINE_END
                 ) {
-                    filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
-                    emptyAnchorFlags = 128 /* AnchorFlags.EMPTY_DIFF */;
+                    if ((emptyTokenIndex > 0 && emptyTokens[emptyTokenIndex - 1].flags & 2 /* TokenFlags.LINE_END */) ||
+                        (emptyTokenIndex + 1 < emptyTokens.length && emptyTokens[emptyTokenIndex + 1].flags & 1 /* TokenFlags.LINE_START */)) {
+                        filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
+                        emptyAnchorFlags = 128 /* AnchorFlags.EMPTY_DIFF */;
+                    }
                 }
                 if (leftTokenCount > 0) {
                     leftAnchorFlags = filledAnchorFlags;
@@ -5149,7 +5513,7 @@ class DiffSeek {
             }
             let anchorPair = null;
             if (leftAnchorFlags && rightAnchorFlags) {
-                anchorPair = anchorManager.tryAddAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags);
+                anchorPair = anchorManager.addAnchorPair(leftIndex, leftAnchorFlags, rightIndex, rightAnchorFlags, null);
             }
             let leftRange = null;
             let rightRange = null;
@@ -5176,6 +5540,8 @@ class DiffSeek {
                 hue,
                 leftRange,
                 rightRange,
+                leftSpan: { index: leftIndex, count: leftTokenCount },
+                rightSpan: { index: rightIndex, count: rightTokenCount },
             });
             currentDiff = null;
             forceStart = true;
@@ -5189,10 +5555,70 @@ class DiffSeek {
         // rightEditor.observeMutation();
         // 지옥으로 간다...
         diffContext.diffs = diffs;
+        diffContext.leftSectionHeadings = leftSectionHeadings;
+        diffContext.rightSectionHeadings = rightSectionHeadings;
         diffContext.ready = true;
         this.#renderer.setDiffs(diffs);
         this.#sideView.setDiffs(diffs);
         this.#updateTextSelection();
+        console.debug("Diff finalization complete", diffContext);
+    }
+    #buildSectionHeadingTree(editor, tokens) {
+        const rootHeadings = [];
+        const stack = [];
+        for (let i = 0; i < tokens.length; i++) {
+            const token = tokens[i];
+            const headingFlag = token.flags & 33030144 /* TokenFlags.SECTION_HEADING_MASK */;
+            if (!headingFlag)
+                continue;
+            const level = getHeadingLevelFromFlag(headingFlag);
+            const ordinalText = token.text;
+            const ordinalNum = parseOrdinalNumber(ordinalText);
+            let titleEndTokenIndex = i;
+            while (titleEndTokenIndex < tokens.length && (tokens[titleEndTokenIndex++].flags & 2 /* TokenFlags.LINE_END */) === 0)
+                ;
+            const tokenRange = editor.getTokenRange(i, titleEndTokenIndex - i);
+            const title = tokenRange.toString();
+            const heading = {
+                type: headingFlag,
+                level,
+                ordinalText,
+                ordinalNum,
+                title,
+                parent: null,
+                firstChild: null,
+                nextSibling: null,
+                startTokenIndex: i,
+                endTokenIndex: Number.MAX_SAFE_INTEGER, // temp
+            };
+            // 깊이 기반 스택 처리
+            while (stack.length > 0 && heading.level <= stack[stack.length - 1].level) {
+                const closed = stack.pop();
+                closed.endTokenIndex = heading.startTokenIndex;
+            }
+            if (stack.length === 0) {
+                rootHeadings.push(heading);
+            }
+            else {
+                const parent = stack[stack.length - 1];
+                heading.parent = parent;
+                if (!parent.firstChild) {
+                    parent.firstChild = heading;
+                }
+                else {
+                    let sibling = parent.firstChild;
+                    while (sibling.nextSibling)
+                        sibling = sibling.nextSibling;
+                    sibling.nextSibling = heading;
+                }
+            }
+            stack.push(heading);
+        }
+        // 아직 닫히지 않은 것들은 문서 끝까지 범위로 간주
+        for (const remaining of stack) {
+            remaining.endTokenIndex = tokens.length;
+        }
+        return rootHeadings;
     }
     syncScroll(primaryEditor) {
         const followingEditor = primaryEditor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
@@ -5201,50 +5627,27 @@ class DiffSeek {
     #anchorAligning = false;
     #alignAnchorCancelId = null;
     alignAnchors(instantly = false) {
-        if (!this.#diffContext?.ready || this.#preventScrollSync) {
-            if (this.#alignAnchorCancelId !== null) {
-                return;
-            }
-        }
-        else {
-            if (this.#alignAnchorCancelId !== null) {
-                clearTimeout(this.#alignAnchorCancelId);
-                this.#alignAnchorCancelId = null;
-            }
-        }
-        if (!this.#syncMode) {
+        if (!this.#syncMode || !this.#diffContext?.ready) {
             return;
         }
-        if (!instantly) {
-            this.#alignAnchorCancelId = setTimeout(() => {
-                this.#alignAnchorCancelId = null;
-                this.alignAnchors(true);
-            }, 250);
-        }
-        // if (!this.#diffContext?.ready || this.#preventScrollSync) {
-        // 	this.alignAnchors();
-        // 	return;
-        // }
-        this.#preventScrollSync = true;
+        console.time("Aligning anchors");
         const primaryEditor = this.#lastScrolledEditor ?? this.#lastActiveEditor ?? this.#rightEditor;
         const leftEditor = this.#leftEditor;
         const rightEditor = this.#rightEditor;
         this.#anchorAligning = true;
-        let [changed, maxContentHeight] = this.#anchorManager.alignAnchors();
-        if (changed) {
-            if (isNaN(maxContentHeight)) {
-                maxContentHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
-            }
-            leftEditor.height = maxContentHeight;
-            rightEditor.height = maxContentHeight;
+        this.#anchorManager.alignAnchorsGently(() => {
+            leftEditor.forceReflow();
+            rightEditor.forceReflow();
+            let editorHeight = Math.max(leftEditor.contentHeight, rightEditor.contentHeight);
+            leftEditor.height = editorHeight;
+            rightEditor.height = editorHeight;
             //this.#renderer.invalidateScroll();
             //void this.#mainContainer.offsetHeight;
             this.#renderer.invalidateGeometries();
             this.syncScroll(primaryEditor);
-        }
-        this.#anchorAligning = false;
-        this.#preventScrollSync = false;
-        return changed;
+            this.#anchorAligning = false;
+        });
+        console.timeEnd("Aligning anchors");
     }
     #reset() {
         this.#diffContext = null;
@@ -5325,6 +5728,17 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
     }
     return lhsContainer === rhsContainer ? lhsContainer : null;
 }
+function toRange(range) {
+    if (range instanceof Range) {
+        return range;
+    }
+    else {
+        const newRange = document.createRange();
+        newRange.setStart(range.startContainer, range.startOffset);
+        newRange.setEnd(range.endContainer, range.endOffset);
+        return newRange;
+    }
+}
 //# sourceMappingURL=DiffSeek.js.map
 </script>
 <style>
@@ -5335,7 +5749,7 @@ function findCommonEdgeContainer(lhsContainer, lhsTokenIndex, rhsContainer, rhsT
 	--diff-hue: 0;
 	--status-bar-height: 0px;
 	--container-gap: 8px;
-	--sidebar-width: 200px;
+	--sidebar-width: 220px;
 	--sidebar-width-collapsed: 90px;
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
@@ -5424,7 +5838,7 @@ body.sidebar-collapsed {
 	color: #000;
 }
 
-.same-height-besties .editor:focus-within {
+.pose-P9 .editor:focus-within {
 	color: #fff;
 }
 
@@ -5434,7 +5848,7 @@ zen	#fcfaf5	#3a2f1f	정갈하고 부드러움
 readonly-lite	#e2dfdb	#292421	더 집중되고 구분 확실
 full-dark	#121212	#eee	다크팬용 (X for now) */
 
-#main.same-height-besties {
+#main.pose-P9 {
 	background-color: #fef8e7;
 	color: #2f2b20;
 
@@ -5599,7 +6013,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	list-style-position: inside;
 }
 
-.same-height-besties .editor td {
+.pose-P9 .editor td {
 	border: 1px solid #444;
 }
 
@@ -5665,24 +6079,29 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	list-style-position: inside;
 }
 
-.same-height-besties .editor a {
+.pose-P9 .editor a {
 	display: revert;
 }
 
-.same-height-besties .padtop:not(.manual-anchor)::before {
+.pose-P9 .anchor::before,
+.pose-P9 .diff::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 	user-select: none;
 }
 
-.same-height-besties .padtop.striped::before,
-.same-height-besties .maybe-170cm-wasnt-enough {
+.pose-P9 .anchor.striped::before,
+.pose-P9 .diff.striped::before {
 	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
 	opacity: 0.75;
 }
 
-.same-height-besties .maybe-170cm-wasnt-enough {
+.pose-P9 .maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 80% / 0.95) 0px, hsl(0 0% 80% / 0.95) 5px, transparent 5px, transparent 10px);
+}
+
+.pose-P9 .maybe-170cm-wasnt-enough {
 	height: var(--height-boost, 0px);
 }
 
@@ -5698,7 +6117,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	}
 }
 
-.flash-once {
+.tease-once {
 	animation: flash 0.5s ease-in-out;
 }
 
@@ -5713,7 +6132,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 
 a.diff.block {
 	display: inline-block;
-	height: 1em;
+	height: 1.5em;
 	width: 1px;
 }
 
@@ -5748,7 +6167,7 @@ a.diff.block {
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	cursor: pointer;
 	transition: background 0.2s;
-	background: transparent;
+	background-color: transparent;
 }
 
 #fetish-selector button:focus {
@@ -5804,7 +6223,7 @@ a.diff.block {
 }
 
 .eyes-up-here,
-.peach-below {
+.eyes-down-here {
 	position: fixed;
 	left: 0;
 	right: 0;
@@ -5819,9 +6238,12 @@ a.diff.block {
 }
 
 .eyes-up-here::before,
-.peach-below::before {
+.eyes-down-here::before {
 	font-size: 16px;
 	display: inline-block;
+	font-weight: bold;
+	font-family: "Segoe UI", sans-serif;
+	text-shadow: 1px 1px 2px #000;
 }
 
 .eyes-up-here {
@@ -5829,15 +6251,15 @@ a.diff.block {
 }
 
 .eyes-up-here::before {
-	content: "⬆ ⬆ ⬆";
+	content: "Eyes up here! 👀";
 }
 
-.peach-below {
+.eyes-down-here {
 	bottom: 0;
 }
 
-.peach-below::before {
-	content: "⬇ ⬇ ⬇";
+.eyes-down-here::before {
+	content: "Eyes down here! 👀";
 }
 
 #progress {
@@ -5869,6 +6291,18 @@ a.diff.block {
 	opacity: 0;
 	transform: translate(-50%, -10px);
 }
+
+.icon-btn {
+	width: 16px;
+	height: 16px;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: contain;
+	border: none;
+	padding: 0;
+	cursor: pointer;
+}
+
 </style>
 </head>
 
@@ -5890,9 +6324,7 @@ a.diff.block {
 
           <button id="whitespaceToggleBtn">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" width="16" height="16">
-              <path
-                d="M10.896 2H8.75V.75a.75.75 0 0 0-1.5 0V2H5.104a.25.25 0 0 0-.177.427l2.896 2.896a.25.25 0 0 0 .354 0l2.896-2.896A.25.25 0 0 0 10.896 2ZM8.75 15.25a.75.75 0 0 1-1.5 0V14H5.104a.25.25 0 0 1-.177-.427l2.896-2.896a.25.25 0 0 1 .354 0l2.896 2.896a.25.25 0 0 1-.177.427H8.75v1.25Zm-6.5-6.5a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM6 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 6 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5ZM12 8a.75.75 0 0 1-.75.75h-.5a.75.75 0 0 1 0-1.5h.5A.75.75 0 0 1 12 8Zm2.25.75a.75.75 0 0 0 0-1.5h-.5a.75.75 0 0 0 0 1.5h.5Z"
-                transform="rotate(90 8 8)" />
+              <path d="M2 13.25a.75.75 0 0 1 .75-.75h10a.75.75 0 0 1 0 1.5h-10a.75.75 0 0 1-.75-.75Z" />
             </svg>
           </button>
         </div>
@@ -5935,9 +6367,9 @@ a.diff.block {
   </script>
 
   <script>
-    if (false) {
+    if (true) {
       window.DiffSeek.setContent("left", `
-       <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐름을 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
+       <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐르믈 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
 `);
 
 

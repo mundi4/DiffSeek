@@ -169,25 +169,25 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 		entries.push({
 			type: 2,
 			left: {
-				pos: 0,
-				len: leftTokensLength,
+				index: 0,
+				count: leftTokensLength,
 				// empty: true,
 			},
 			right: {
-				pos: 0,
-				len: rightTokensLength,
+				index: 0,
+				count: rightTokensLength,
 			},
 		});
 	} else if (rightTokensLength === 0) {
 		entries.push({
 			type: 1,
 			left: {
-				pos: 0,
-				len: leftTokensLength,
+				index: 0,
+				count: leftTokensLength,
 			},
 			right: {
-				pos: 0,
-				len: rightTokensLength,
+				index: 0,
+				count: rightTokensLength,
 				// empty: true,
 			},
 		});
@@ -218,12 +218,12 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 				entries.push({
 					type: 0,
 					left: {
-						pos: i,
-						len: 1,
+						index: i,
+						count: 1,
 					},
 					right: {
-						pos: j,
-						len: 1,
+						index: j,
+						count: 1,
 					},
 				});
 				i++;
@@ -242,12 +242,12 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 				entries.push({
 					type: 1,
 					left: {
-						pos: i,
-						len: 1,
+						index: i,
+						count: 1,
 					},
 					right: {
-						pos: j,
-						len: 0,
+						index: j,
+						count: 0,
 					},
 				});
 				i++;
@@ -262,12 +262,12 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 				entries.push({
 					type: 2,
 					left: {
-						pos: i,
-						len: 0,
+						index: i,
+						count: 0,
 					},
 					right: {
-						pos: j,
-						len: 1,
+						index: j,
+						count: 1,
 					},
 				});
 				j++;
@@ -337,12 +337,12 @@ async function runHistogramDiff(ctx: WorkContext): Promise<RawDiff[]> {
 		ctx.entries.push({
 			type: 0,
 			left: {
-				pos: lhsAnchor,
-				len: 1,
+				index: lhsAnchor,
+				count: 1,
 			},
 			right: {
-				pos: rhsAnchor,
-				len: 1,
+				index: rhsAnchor,
+				count: 1,
 			},
 		});
 
@@ -670,12 +670,12 @@ async function diffCore(
 			entries.push({
 				type: type as DiffType,
 				left: {
-					pos: lhsLower,
-					len: lhsUpper - lhsLower,
+					index: lhsLower,
+					count: lhsUpper - lhsLower,
 				},
 				right: {
-					pos: rhsLower,
-					len: rhsUpper - rhsLower,
+					index: rhsLower,
+					count: rhsUpper - rhsLower,
 				},
 			});
 		}
@@ -712,8 +712,8 @@ function consumeCommonEdges(
 			if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
 				head.push({
 					type: 0,
-					left: { pos: lhsLower, len: 1 },
-					right: { pos: rhsLower, len: 1 },
+					left: { index: lhsLower, count: 1 },
+					right: { index: rhsLower, count: 1 },
 				});
 				lhsLower++;
 				rhsLower++;
@@ -726,12 +726,12 @@ function consumeCommonEdges(
 				head.push({
 					type: 0,
 					left: {
-						pos: lhsLower,
-						len: matchedCount[0],
+						index: lhsLower,
+						count: matchedCount[0],
 					},
 					right: {
-						pos: rhsLower,
-						len: matchedCount[1],
+						index: rhsLower,
+						count: matchedCount[1],
 					},
 				});
 				lhsLower += matchedCount[0];
@@ -748,8 +748,8 @@ function consumeCommonEdges(
 			if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
 				tail.push({
 					type: 0,
-					left: { pos: lhsUpper - 1, len: 1 },
-					right: { pos: rhsUpper - 1, len: 1 },
+					left: { index: lhsUpper - 1, count: 1 },
+					right: { index: rhsUpper - 1, count: 1 },
 				});
 				lhsUpper--;
 				rhsUpper--;
@@ -762,12 +762,12 @@ function consumeCommonEdges(
 				tail.push({
 					type: 0,
 					left: {
-						pos: lhsUpper - matchedCount[0],
-						len: matchedCount[0],
+						index: lhsUpper - matchedCount[0],
+						count: matchedCount[0],
 					},
 					right: {
-						pos: rhsUpper - matchedCount[1],
-						len: matchedCount[1],
+						index: rhsUpper - matchedCount[1],
+						count: matchedCount[1],
 					},
 				});
 				lhsUpper -= matchedCount[0];

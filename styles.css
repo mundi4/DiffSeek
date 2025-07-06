@@ -5,7 +5,7 @@
 	--diff-hue: 0;
 	--status-bar-height: 0px;
 	--container-gap: 8px;
-	--sidebar-width: 200px;
+	--sidebar-width: 220px;
 	--sidebar-width-collapsed: 90px;
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
@@ -94,7 +94,7 @@ body.sidebar-collapsed {
 	color: #000;
 }
 
-.same-height-besties .editor:focus-within {
+.pose-P9 .editor:focus-within {
 	color: #fff;
 }
 
@@ -104,7 +104,7 @@ zen	#fcfaf5	#3a2f1f	정갈하고 부드러움
 readonly-lite	#e2dfdb	#292421	더 집중되고 구분 확실
 full-dark	#121212	#eee	다크팬용 (X for now) */
 
-#main.same-height-besties {
+#main.pose-P9 {
 	background-color: #fef8e7;
 	color: #2f2b20;
 
@@ -269,7 +269,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	list-style-position: inside;
 }
 
-.same-height-besties .editor td {
+.pose-P9 .editor td {
 	border: 1px solid #444;
 }
 
@@ -335,24 +335,29 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	list-style-position: inside;
 }
 
-.same-height-besties .editor a {
+.pose-P9 .editor a {
 	display: revert;
 }
 
-.same-height-besties .padtop:not(.manual-anchor)::before {
+.pose-P9 .anchor::before,
+.pose-P9 .diff::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 	user-select: none;
 }
 
-.same-height-besties .padtop.striped::before,
-.same-height-besties .maybe-170cm-wasnt-enough {
+.pose-P9 .anchor.striped::before,
+.pose-P9 .diff.striped::before {
 	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
 	opacity: 0.75;
 }
 
-.same-height-besties .maybe-170cm-wasnt-enough {
+.pose-P9 .maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 80% / 0.95) 0px, hsl(0 0% 80% / 0.95) 5px, transparent 5px, transparent 10px);
+}
+
+.pose-P9 .maybe-170cm-wasnt-enough {
 	height: var(--height-boost, 0px);
 }
 
@@ -368,7 +373,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	}
 }
 
-.flash-once {
+.tease-once {
 	animation: flash 0.5s ease-in-out;
 }
 
@@ -383,7 +388,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 
 a.diff.block {
 	display: inline-block;
-	height: 1em;
+	height: 1.5em;
 	width: 1px;
 }
 
@@ -418,7 +423,7 @@ a.diff.block {
 	box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
 	cursor: pointer;
 	transition: background 0.2s;
-	background: transparent;
+	background-color: transparent;
 }
 
 #fetish-selector button:focus {
@@ -474,7 +479,7 @@ a.diff.block {
 }
 
 .eyes-up-here,
-.peach-below {
+.eyes-down-here {
 	position: fixed;
 	left: 0;
 	right: 0;
@@ -489,9 +494,12 @@ a.diff.block {
 }
 
 .eyes-up-here::before,
-.peach-below::before {
+.eyes-down-here::before {
 	font-size: 16px;
 	display: inline-block;
+	font-weight: bold;
+	font-family: "Segoe UI", sans-serif;
+	text-shadow: 1px 1px 2px #000;
 }
 
 .eyes-up-here {
@@ -499,15 +507,15 @@ a.diff.block {
 }
 
 .eyes-up-here::before {
-	content: "⬆ ⬆ ⬆";
+	content: "Eyes up here! 👀";
 }
 
-.peach-below {
+.eyes-down-here {
 	bottom: 0;
 }
 
-.peach-below::before {
-	content: "⬇ ⬇ ⬇";
+.eyes-down-here::before {
+	content: "Eyes down here! 👀";
 }
 
 #progress {
@@ -538,4 +546,15 @@ a.diff.block {
 #progress.fade-out {
 	opacity: 0;
 	transform: translate(-50%, -10px);
+}
+
+.icon-btn {
+	width: 16px;
+	height: 16px;
+	background-repeat: no-repeat;
+	background-position: center;
+	background-size: contain;
+	border: none;
+	padding: 0;
+	cursor: pointer;
 }

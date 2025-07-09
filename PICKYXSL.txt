@@ -1,0 +1,566 @@
+sheets
+요약
+    Summary 테이블
+    ID
+    자세히 =IF(ISREF(INDIRECT("'"&[@ID]&"'!A1")), HYPERLINK(CELL("address",INDIRECT("'"&[@ID]&"'!A1")),IFERROR(INDIRECT("'"&[@ID]&"'!Excerpt_"&[@ID]),"N/A")), "N/A")
+    요약 =IF(ISREF(INDIRECT("'"&[@ID]&"'!A1")),
+IFERROR(INDIRECT("'"&[@ID]&"'!Excerpt_"&[@ID]),
+"Excerpt_"&[@ID]),
+"N/A1")
+    DraftNum?
+
+__CONFIG
+LastUsedID AA000
+BulletSymbol ※
+TemplateTable 테이블
+종류 열 = TemplateKinds
+설명
+중요도
+
+__DETAIL_TEMPLATE
+Excerpt
+Details
+Issues 테이블
+상태
+중요도
+종류
+설명
+leftSectionLabel
+rightSectionLabel
+leftText
+rightText
+
+
+
+
+' worksheet summary
+
+Private Sub Worksheet_BeforeDoubleClick(ByVal Target As Range, Cancel As Boolean)
+    
+    Const DETAILS_COLUMN_NAME As String = "자세히"
+    Const ID_COLUMN_NAME As String = "ID"
+    Const TEMPLATE_SHEET_NAME As String = "__DETAIL_TEMPLATE"
+    Const MAIN_TABLE_NAME As String = "Summary"
+
+    Dim tbl As ListObject
+    On Error Resume Next
+    Set tbl = Me.ListObjects(MAIN_TABLE_NAME)
+    On Error GoTo 0
+    If tbl Is Nothing Then Exit Sub
+
+    If tbl.DataBodyRange Is Nothing Then Exit Sub
+    If Intersect(Target, tbl.DataBodyRange) Is Nothing Then Exit Sub
+
+    Dim detailsCol As ListColumn
+    Dim idCol As ListColumn
+
+    On Error Resume Next
+    Set detailsCol = tbl.ListColumns(DETAILS_COLUMN_NAME)
+    Set idCol = tbl.ListColumns(ID_COLUMN_NAME)
+    On Error GoTo 0
+
+    If detailsCol Is Nothing Or idCol Is Nothing Then Exit Sub
+
+    If Target.Column <> detailsCol.Range.Column Then Exit Sub
+
+    Cancel = True
+
+    Dim rowIndex As Long
+    rowIndex = Target.Row - tbl.HeaderRowRange.Row
+    If rowIndex < 1 Or rowIndex > tbl.ListRows.count Then Exit Sub
+
+    Dim idCell As Range
+    Set idCell = tbl.ListRows(rowIndex).Range.Cells(1, idCol.Index)
+
+    Dim idVal As String
+    idVal = Trim(idCell.Value)
+
+    If idVal = "" Then
+        idVal = GenerateNextID()
+        idCell.Value = idVal
+    End If
+
+    If Not SheetExists(idVal) Then
+        Worksheets(TEMPLATE_SHEET_NAME).Copy After:=Worksheets(Worksheets.count)
+        With ActiveSheet
+            .name = idVal
+            Call RenameSheetObjects(ActiveSheet, idVal)
+        End With
+    Else
+         Worksheets(idVal).Activate
+    End If
+    
+End Sub
+
+
+`workbook
+Private Sub Workbook_BeforeSave(ByVal SaveAsUI As Boolean, Cancel As Boolean)
+    If IsDetailSheet(ActiveSheet) Then
+        UpdateDetailSheetSummary ActiveSheet
+    Else
+        DebugCheckNamedTable
+        Debug.Print 'NO TBL'
+        
+    End If
+End Sub
+
+Private Sub Workbook_SheetChange(ByVal Sh As Object, ByVal Target As Range)
+    On Error Resume Next
+    If TypeOf Sh Is Worksheet Then
+        Dim ws As Worksheet: Set ws = Sh
+
+        Dim tbl As ListObject
+        Set tbl = ws.ListObjects("Issues_" & ws.name)
+        If tbl Is Nothing Then Exit Sub
+
+        HandleIssueKindChange ws, Target
+    End If
+    On Error GoTo 0
+End Sub
+
+
+`module
+Function GenerateNextID() As String
+    Dim lastId As String
+    lastId = Range("LastUsedID").Value
+
+    Dim prefix1 As String, prefix2 As String
+    Dim numberPart As Long
+
+    prefix1 = Mid(lastId, 1, 1)
+    prefix2 = Mid(lastId, 2, 1)
+    numberPart = CLng(Mid(lastId, 3)) + 1
+
+    If numberPart > 999 Then
+        numberPart = 0
+
+        If prefix2 = "Z" Then
+            If prefix1 = "Z" Then
+                MsgBox "ID 범위를 초과했습니다 (ZZ999).", vbCritical
+                Exit Function
+            End If
+            prefix1 = Chr(Asc(prefix1) + 1)
+            prefix2 = "A"
+        Else
+            prefix2 = Chr(Asc(prefix2) + 1)
+        End If
+    End If
+
+    Dim newId As String
+    newId = prefix1 & prefix2 & Format(numberPart, "000")
+
+    Range("LastUsedID").Value = newId
+
+    GenerateNextID = newId
+End Function
+
+Sub RenameSheetObjects(targetSheet As Worksheet, idVal As String)
+    Dim i As Long
+    Dim srcSheet As Worksheet
+    Set srcSheet = Worksheets("__DETAIL_TEMPLATE")
+
+    ' 테이블 이름 변경
+    Dim src As ListObject, dst As ListObject
+    For i = 1 To srcSheet.ListObjects.count
+        If i <= targetSheet.ListObjects.count Then
+            Set src = srcSheet.ListObjects(i)
+            Set dst = targetSheet.ListObjects(i)
+            dst.name = src.name & "_" & idVal
+        End If
+    Next i
+
+    ' 로컬 Named Range 이름 변경
+    Dim nm As name
+    For Each nm In targetSheet.Names
+        If InStr(1, nm.RefersTo, "'" & targetSheet.name & "'!") > 0 Then
+            Dim baseName As String
+            baseName = nm.name
+            If InStr(baseName, "!") > 0 Then
+                baseName = Split(baseName, "!")(1)
+            End If
+
+            On Error Resume Next
+            targetSheet.Names.Add name:=baseName & "_" & idVal, RefersTo:=nm.RefersTo
+            nm.Delete
+            On Error GoTo 0
+        End If
+    Next nm
+End Sub
+
+Function SheetExists(sheetName As String) As Boolean
+    Dim ws As Worksheet
+    On Error Resume Next
+    Set ws = Worksheets(sheetName)
+    On Error GoTo 0
+    SheetExists = Not ws Is Nothing
+End Function
+
+Function IsDetailSheet(ws As Worksheet) As Boolean
+    IsDetailSheet = TableExists(ws, "Issues_" & ws.name)
+End Function
+
+Sub UpdateDetailSheetSummary(ws As Worksheet)
+    FillExcerptCell ws
+    'FillDetailsCell ws
+    FillDetailsTextbox2 ws
+    'FillDetailsComment ws
+End Sub
+
+
+
+
+Function NameExists(name As String) As Boolean
+    On Error Resume Next
+    NameExists = Not ThisWorkbook.Names(name) Is Nothing
+    On Error GoTo 0
+End Function
+
+Sub DebugCheckNamedTable()
+    Dim targetName As String
+    targetName = "Issues_" & ActiveSheet.name
+    
+    Dim nm As name
+    Dim found As Boolean
+    found = False
+    
+    For Each nm In ThisWorkbook.Names
+        If nm.name = targetName Then
+            Debug.Print "? Named Table found: " & targetName
+            found = True
+            Exit For
+        End If
+    Next
+
+    If Not found Then
+        Debug.Print "? Named Table NOT found: " & targetName
+    End If
+End Sub
+
+Function TableExists(ws As Worksheet, tableName As String) As Boolean
+    Dim tbl As ListObject
+    For Each tbl In ws.ListObjects
+        If tbl.name = tableName Then
+            TableExists = True
+            Exit Function
+        End If
+    Next
+    TableExists = False
+End Function
+
+
+Sub FillExcerptCell(ws As Worksheet)
+    On Error Resume Next
+    Dim tbl As ListObject
+    Set tbl = ws.ListObjects("Issues_" & ws.name)
+    
+    If tbl Is Nothing Then Exit Sub
+    
+    Dim excerpt As String
+    excerpt = GenerateExcerptText(tbl)
+    
+    ws.Range("Excerpt_" & ws.name).Value = excerpt
+    On Error GoTo 0
+End Sub
+
+
+Private Function GenerateDetailsMarkup(ws As Worksheet) As Collection
+    Const COL_KIND As String = "종류"
+    Const COL_DESC As String = "설명"
+    Const COL_STATUS As String = "상태"
+    Const DETAILS_LENGTH_PREFIX As String = "Details_"
+
+    Dim result As New Collection
+    Dim tbl As ListObject
+    Set tbl = ws.ListObjects("Issues_" & ws.name)
+    If tbl Is Nothing Then Exit Function
+
+    Dim colKindIndex As Long, colDescIndex As Long
+    Dim header As ListColumn
+    For Each header In tbl.ListColumns
+        If header.name = COL_KIND Then colKindIndex = header.Index
+        If header.name = COL_DESC Then colDescIndex = header.Index
+        If header.name = COL_STATUS Then colStatusIndex = header.Index
+    Next header
+    If colKindIndex = 0 Or colDescIndex = 0 Then Exit Function
+
+    Dim bulletSymbol As String
+    bulletSymbol = Worksheets("__CONFIG").Range("BulletSymbol").Value
+    If bulletSymbol = "" Then bulletSymbol = "" ' 빈 문자열 허용
+
+    Dim totalLength As Long
+    totalLength = 0
+
+    Dim i As Long, count As Long: count = 0
+    For i = 1 To tbl.DataBodyRange.Rows.count
+        Dim statusValue As String
+        statusValue = tbl.DataBodyRange.Cells(i, colStatusIndex).Value
+        If Len(statusValue) <> 0 Then GoTo ContinueLoop
+        
+        Dim kind As String: kind = tbl.DataBodyRange.Cells(i, colKindIndex).Value
+        Dim desc As String: desc = tbl.DataBodyRange.Cells(i, colDescIndex).Value
+        If Len(kind) = 0 And Len(desc) = 0 Then GoTo ContinueLoop
+
+        count = count + 1
+
+        Dim prefix As String
+        If bulletSymbol = "1" Then
+            prefix = count & ". "
+        ElseIf bulletSymbol <> "" Then
+            prefix = bulletSymbol & " "
+        Else
+            prefix = ""
+        End If
+
+        Dim kindText As String
+        kindText = prefix & kind & vbLf
+        Dim descText As String
+        descText = desc & vbLf & vbLf
+
+        result.Add Array(kindText, True)
+        result.Add Array(descText, False)
+
+        totalLength = totalLength + Len(kindText) + Len(descText)
+ContinueLoop:
+    Next i
+
+    ' 네임드 셀 이름 생성
+    Dim lengthName As String
+    lengthName = DETAILS_LENGTH_PREFIX & ws.name
+    
+    ' 길이 저장 (현재 시트 네임드 범위에)
+    On Error Resume Next
+    ws.Range(lengthName).Value = totalLength
+    On Error GoTo 0
+
+    Set GenerateDetailsMarkup = result
+End Function
+
+
+Sub FillDetailsCell(ws As Worksheet)
+    On Error Resume Next
+    Dim detailsText As String
+    detailsText = GenerateDetailsMarkup(ws)
+
+    ws.Range("Details_" & ws.name).Value = detailsText
+    On Error GoTo 0
+End Sub
+
+Sub FillDetailsTextbox2(ws As Worksheet)
+    Const SHAPE_PREFIX As String = "DetailsBox_"
+
+    Dim anchorCell As Range: Set anchorCell = ws.Range("Details_" & ws.name)
+    Dim shpName As String: shpName = SHAPE_PREFIX & ws.name
+    Dim shp As Shape
+    On Error Resume Next
+    Set shp = ws.Shapes(shpName)
+    On Error GoTo 0
+
+    If shp Is Nothing Then
+        Set shp = ws.Shapes.AddTextbox(msoTextOrientationHorizontal, _
+            anchorCell.Left, anchorCell.Top, anchorCell.Width * 5, 100)
+        shp.name = shpName
+    End If
+
+    With shp
+        .Top = anchorCell.Top
+        .Left = anchorCell.Left
+        .Width = anchorCell.Width * 1
+        '.Height = 200
+        .TextFrame2.TextRange.Text = "" ' 초기화
+        '.TextFrame2.AutoSize = True
+        .Placement = xlMoveAndSize
+    End With
+
+    Dim markup As Collection: Set markup = GenerateDetailsMarkup(ws)
+    Dim tf As TextRange2: Set tf = shp.TextFrame2.TextRange
+    Dim item, r As TextRange2
+    For Each item In markup
+        Set r = tf.InsertAfter(item(0))
+        r.Font.Bold = IIf(item(1), msoTrue, msoFalse)
+    Next item
+End Sub
+
+
+Private Function GenerateDetailsMarkup(ws As Worksheet) As Collection
+    Const COL_KIND As String = "종류"
+    Const COL_DESC As String = "설명"
+    Const DETAILS_LENGTH_PREFIX As String = "Details_"
+
+    Dim result As New Collection
+    Dim tbl As ListObject
+    Set tbl = ws.ListObjects("Issues_" & ws.name)
+    If tbl Is Nothing Then Exit Function
+
+    Dim colKindIndex As Long, colDescIndex As Long
+    Dim header As ListColumn
+    For Each header In tbl.ListColumns
+        If header.name = COL_KIND Then colKindIndex = header.Index
+        If header.name = COL_DESC Then colDescIndex = header.Index
+    Next header
+    If colKindIndex = 0 Or colDescIndex = 0 Then Exit Function
+
+    Dim bulletSymbol As String
+    bulletSymbol = Worksheets("__CONFIG").Range("BulletSymbol").Value
+    If bulletSymbol = "" Then bulletSymbol = "" ' 빈 문자열 허용
+
+    Dim totalLength As Long
+    totalLength = 0
+
+    Dim i As Long, count As Long: count = 0
+    For i = 1 To tbl.DataBodyRange.Rows.count
+        Dim kind As String: kind = tbl.DataBodyRange.Cells(i, colKindIndex).Value
+        Dim desc As String: desc = tbl.DataBodyRange.Cells(i, colDescIndex).Value
+        If Len(kind) = 0 And Len(desc) = 0 Then GoTo ContinueLoop
+
+        count = count + 1
+
+        Dim prefix As String
+        If bulletSymbol = "1" Then
+            prefix = count & ". "
+        ElseIf bulletSymbol <> "" Then
+            prefix = bulletSymbol & " "
+        Else
+            prefix = ""
+        End If
+
+        Dim kindText As String
+        kindText = prefix & kind & vbLf
+        Dim descText As String
+        descText = desc & vbLf & vbLf
+
+        result.Add Array(kindText, True)
+        result.Add Array(descText, False)
+
+        totalLength = totalLength + Len(kindText) + Len(descText)
+ContinueLoop:
+    Next i
+
+    ' 네임드 셀 이름 생성
+    Dim lengthName As String
+    lengthName = DETAILS_LENGTH_PREFIX & ws.name
+    
+    ' 길이 저장 (현재 시트 네임드 범위에)
+    On Error Resume Next
+    ws.Range(lengthName).Value = totalLength
+    On Error GoTo 0
+
+    Set GenerateDetailsMarkup = result
+End Function
+
+
+
+
+Sub FillDetailsComment(ws As Worksheet)
+    Dim targetCell As Range: Set targetCell = ws.Range("Details_" & ws.name)
+
+    Dim markup As Collection: Set markup = GenerateDetailsMarkup(ws)
+    If markup.count = 0 Then Exit Sub
+
+    Dim finalText As String, item
+    finalText = ""
+    For Each item In markup
+        finalText = finalText & item(0)
+    Next item
+
+    With targetCell
+        If Not .Comment Is Nothing Then .Comment.Delete
+        .AddComment Text:=finalText
+        .Comment.Visible = False
+    End With
+    
+    With targetCell.Comment
+    .Shape.Top = targetCell.Top
+    .Shape.Left = targetCell.Left + targetCell.Width - 10
+    .Shape.Width = targetCell.Width
+    .Shape.Height = targetCell.Height * 5 ' 적절한 높이
+    .Visible = True
+End With
+End Sub
+
+Public Sub HandleIssueKindChange(ws As Worksheet, ByVal Target As Range)
+    Dim tbl As ListObject
+    Set tbl = ws.ListObjects("Issues_" & ws.name)
+
+    Dim kindColIndex As Long, descColIndex As Long, priorityColIndex As Long
+    Dim header As ListColumn
+    For Each header In tbl.ListColumns
+        If header.name = "종류" Then kindColIndex = header.Index
+        If header.name = "설명" Then descColIndex = header.Index
+        If header.name = "중요도" Then priorityColIndex = header.Index
+    Next header
+
+    Dim intersectRange As Range
+    Set intersectRange = Intersect(Target, tbl.ListColumns(kindColIndex).DataBodyRange)
+    If intersectRange Is Nothing Then Exit Sub
+
+    Dim configTbl As ListObject
+    Set configTbl = ThisWorkbook.Worksheets("__CONFIG").ListObjects("TemplateTable")
+
+    Dim configKindCol As Long, configDescCol As Long, configPriorityCol As Long
+    For Each header In configTbl.ListColumns
+        If header.name = "종류" Then configKindCol = header.Index
+        If header.name = "설명" Then configDescCol = header.Index
+        If header.name = "중요도" Then configPriorityCol = header.Index
+    Next header
+
+    Dim changedCell As Range
+    For Each changedCell In intersectRange
+        Dim newKind As String
+        newKind = changedCell.Value
+
+        Dim foundRow As Range
+        Set foundRow = Nothing
+        On Error Resume Next
+        Set foundRow = configTbl.ListColumns(configKindCol).DataBodyRange.Find( _
+            What:=newKind, LookIn:=xlValues, LookAt:=xlWhole)
+        On Error GoTo 0
+
+        If Not foundRow Is Nothing Then
+            Application.EnableEvents = False
+            ' 플레이스홀더 치환하여 설명 생성
+            Dim templateDesc As String
+            templateDesc = foundRow.Offset(0, configDescCol - configKindCol).Value
+
+            Dim descWithReplace As String
+            descWithReplace = ReplacePlaceholders(templateDesc, changedCell)
+
+            tbl.DataBodyRange.Cells(changedCell.Row - tbl.HeaderRowRange.Row, descColIndex).Value = descWithReplace
+            tbl.DataBodyRange.Cells(changedCell.Row - tbl.HeaderRowRange.Row, priorityColIndex).Value = _
+                foundRow.Offset(0, configPriorityCol - configKindCol).Value
+            Application.EnableEvents = True
+        End If
+    Next changedCell
+End Sub
+
+
+Private Function ReplacePlaceholders(templateStr As String, rowRange As Range) As String
+    Dim result As String
+    result = templateStr
+
+    Dim regex As Object
+    Set regex = CreateObject("VBScript.RegExp")
+    regex.Global = True
+    regex.Pattern = "\{\{(\w+)\}\}"
+
+    Dim matches As Object
+    Set matches = regex.Execute(templateStr)
+
+    Dim match As Object
+    For Each match In matches
+        Dim placeholder As String
+        placeholder = match.SubMatches(0) ' 컬럼명
+
+        On Error Resume Next
+        Dim replacement As String
+        replacement = CStr(rowRange.Worksheet.ListObjects(rowRange.ListObject.name).ListColumns(placeholder).DataBodyRange.Cells(rowRange.Row - rowRange.ListObject.HeaderRowRange.Row).Value)
+        If Err.Number <> 0 Or replacement = "" Then
+            replacement = "___"
+            Err.Clear
+        End If
+        On Error GoTo 0
+
+        result = Replace(result, "{{" & placeholder & "}}", replacement)
+    Next match
+
+    ReplacePlaceholders = result
+End Function

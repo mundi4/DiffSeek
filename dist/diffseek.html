@@ -4909,6 +4909,13 @@ class DiffSeek {
         document.addEventListener("selectionchange", () => {
             this.#updateTextSelection();
         });
+        document.addEventListener("click", (e) => {
+            if (e.target instanceof HTMLElement && e.target.closest(".diff-item")) {
+                if (e.ctrlKey) {
+                    this.#copySelectionToClipboard(e, true);
+                }
+            }
+        });
         document.addEventListener("keydown", (e) => {
             if (e.key === "F2") {
                 e.preventDefault();
@@ -4951,73 +4958,13 @@ class DiffSeek {
                 // this.scrollToDiff(diffIndex);
                 diffItemClickedEvent.emit(diffIndex);
             }
+            if (e.shiftKey && e.ctrlKey && (e.key === "c" || e.key === "C")) {
+                console.log("Copying selection to clipboard…");
+                this.#copySelectionToClipboard(e);
+            }
         }, true);
         document.addEventListener("dragstart", (e) => {
-            if (!this.#diffContext?.ready) {
-                return;
-            }
-            let sourceEditor = undefined;
-            let leftSpan = undefined;
-            let rightSpan = undefined;
-            let hasDiff = false;
-            if (e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
-                const diffIndex = parseInt(e.target.dataset.diffIndex);
-                const diff = this.#diffContext.diffs[diffIndex];
-                leftSpan = diff.leftSpan;
-                rightSpan = diff.rightSpan;
-                hasDiff = true;
-                // const data = {
-                // 	version: 1,
-                // 	left: {
-                // 		text: diff.leftRange.toString().trim(),
-                // 	},
-                // 	right: {
-                // 		text: diff.rightRange.toString().trim(),
-                // 	},
-                // 	hasDiff: true,
-                // };
-                // e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
-            }
-            else {
-                const selection = this.#getSelectionTokenRange();
-                if (selection) {
-                    const { left, right, editor: sourceEditor, hasDiff: hasDiff2 } = selection;
-                    leftSpan = { index: left[0], count: left[1] - left[0] };
-                    rightSpan = { index: right[0], count: right[1] - right[0] };
-                    hasDiff = hasDiff2;
-                    // const leftRange = this.#leftEditor.getTokenRange(left[0], left[1] - left[0]);
-                    // const rightRange = this.#rightEditor.getTokenRange(right[0], right[1] - right[0]);
-                    // const data = {
-                    // 	version: 1,
-                    // 	source: sourceEditor,
-                    // 	left: {
-                    // 		text: leftRange.toString().trim(),
-                    // 	},
-                    // 	right: {
-                    // 		text: rightRange.toString().trim(),
-                    // 	},
-                    // 	hasDiff,
-                    // };
-                    // e.dataTransfer!.setData("application/x-diffseek-json", JSON.stringify(data));
-                }
-            }
-            if (leftSpan && rightSpan) {
-                const data = {
-                    version: 1,
-                    source: sourceEditor,
-                    left: {
-                        text: this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim(),
-                        sectionLabel: getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index),
-                    },
-                    right: {
-                        text: this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim(),
-                        sectionLabel: getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index),
-                    },
-                    hasDiff,
-                };
-                console.log("Dragging data:", data);
-                e.dataTransfer.setData("application/x-diffseek-json", JSON.stringify(data));
-            }
+            this.#copySelectionToClipboard(e, true);
         });
         // this.#mainContainer.addEventListener("mousemove", (e) => {
         // 	const rect = this.#mainContainer.getBoundingClientRect();
@@ -5042,6 +4989,41 @@ class DiffSeek {
         this.showProgress("Computing…");
         this.#editorContentsChanged[editor.name] = true;
         this.#computeDiff();
+    }
+    #copySelectionToClipboard(e, draging = false) {
+        if (!this.#diffContext?.ready) {
+            return false;
+        }
+        let leftSpan = undefined;
+        let rightSpan = undefined;
+        if (draging && e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
+            const diffIndex = parseInt(e.target.dataset.diffIndex);
+            const diff = this.#diffContext.diffs[diffIndex];
+            leftSpan = diff.leftSpan;
+            rightSpan = diff.rightSpan;
+        }
+        else {
+            const selection = this.#getSelectionTokenRange();
+            if (selection) {
+                const { left, right, editor: sourceEditor, hasDiff: hasDiff2 } = selection;
+                leftSpan = { index: left[0], count: left[1] - left[0] };
+                rightSpan = { index: right[0], count: right[1] - right[0] };
+            }
+        }
+        if (leftSpan && rightSpan) {
+            console.log("Copying selection to clipboard:", leftSpan, rightSpan);
+            function replaceTabsWithSingleSpace(str) {
+                return str.replace(/\t+/g, ' ');
+            }
+            const leftText = replaceTabsWithSingleSpace(this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim());
+            const rightText = replaceTabsWithSingleSpace(this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim());
+            const leftSectionLabel = replaceTabsWithSingleSpace(getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index));
+            const rightSectionLabel = replaceTabsWithSingleSpace(getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index));
+            const payload = `${leftSectionLabel}\t${rightSectionLabel}\t${leftText}\t${rightText}`;
+            navigator.clipboard.writeText(payload);
+            return true;
+        }
+        return false;
     }
     // 이건 나중에 renderer로 뺄까...? 하는 일이 비슷하잖아.
     #updateDiffIndicatorOverlay() {

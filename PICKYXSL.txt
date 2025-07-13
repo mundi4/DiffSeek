@@ -1,3 +1,71 @@
+'Excerpt
+=IFERROR(LET(
+  status, Issues_AA000[상태],
+  kind, Issues_AA000[종류],
+  desc, Issues_AA000[설명],
+  prio, Issues_AA000[중요도],
+
+  valid, (status<>"Resolved") * (status<>"Dismissed") * ((kind<>"") + (desc<>"")),
+  kindFiltered, FILTER(kind, valid),
+  prioFiltered, FILTER(prio, valid),
+
+  rowCount, ROWS(kindFiltered),
+  rowIndex, SEQUENCE(rowCount),
+
+  kindExists, --(kindFiltered<>""),
+  prioValid, --ISNUMBER(prioFiltered),
+  prioMasked, IF(prioValid, prioFiltered, -10000000000),
+
+  sortedIdx,
+    SORTBY(
+      rowIndex,
+      kindExists, -1,
+      prioValid, -1,
+      prioMasked, -1,
+      rowIndex, 1
+    ),
+
+  firstIdx, INDEX(sortedIdx, 1),
+  firstKind, INDEX(kindFiltered, firstIdx),
+
+  IF(rowCount=1,
+     IF(firstKind="", "1항목", firstKind),
+     IF(firstKind="", rowCount & "항목", firstKind & " 외 " & (rowCount - 1) & "항목")
+  )
+), "양호")
+
+'GeneratedReviewText
+=IFERROR(LET(
+    cond, (Issues_AA000[상태]<>"Dismissed") * (Issues_AA000[상태]<>"Resolved") * ((Issues_AA000[종류]<>"") + (Issues_AA000[설명]<>"")),
+    kinds, FILTER(Issues_AA000[종류], cond),
+    descs, FILTER(Issues_AA000[설명], cond),
+
+    n, ROWS(kinds),
+    idx, SEQUENCE(n),
+    bullet, BulletSymbol,
+
+    headers,
+        IF(bullet=1,
+           idx & ". " & kinds,
+           IF(bullet="",
+              kinds,
+              bullet & " " & kinds
+           )
+        ),
+
+    newlines,
+        IF(descs<>"", CHAR(10) & CHAR(10), CHAR(10)),
+
+    joinedText,
+        headers & CHAR(10) & descs & newlines,
+
+    TEXTJOIN("", TRUE, joinedText)
+), "")
+
+
+
+=IF(ISREF(INDIRECT("'"&[@ID]&"'!A1")), HYPERLINK(CELL("address",INDIRECT("'"&[@ID]&"'!B1")),IFERROR(INDIRECT("'"&[@ID]&"'!Excerpt"),"N/A")), "")
+
 sheets
 요약
     Summary 테이블

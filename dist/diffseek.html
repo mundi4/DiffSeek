@@ -4911,8 +4911,8 @@ class DiffSeek {
         });
         document.addEventListener("click", (e) => {
             if (e.target instanceof HTMLElement && e.target.closest(".diff-item")) {
-                if (e.ctrlKey) {
-                    this.#copySelectionToClipboard(e, true);
+                if (e.altKey) {
+                    this.#export(e);
                 }
             }
         });
@@ -4960,11 +4960,13 @@ class DiffSeek {
             }
             if (e.shiftKey && e.ctrlKey && (e.key === "c" || e.key === "C")) {
                 console.log("Copying selection to clipboard…");
-                this.#copySelectionToClipboard(e);
+                // this.#export(e);
             }
         }, true);
         document.addEventListener("dragstart", (e) => {
-            this.#copySelectionToClipboard(e, true);
+            if (e.altKey) {
+                this.#export(e);
+            }
         });
         // this.#mainContainer.addEventListener("mousemove", (e) => {
         // 	const rect = this.#mainContainer.getBoundingClientRect();
@@ -4990,13 +4992,27 @@ class DiffSeek {
         this.#editorContentsChanged[editor.name] = true;
         this.#computeDiff();
     }
-    #copySelectionToClipboard(e, draging = false) {
+    #export(e) {
         if (!this.#diffContext?.ready) {
+            return false;
+        }
+        let target = e instanceof DragEvent ? e.dataTransfer : navigator.clipboard;
+        let dragging = false;
+        if (e instanceof DragEvent) {
+            target = e.dataTransfer;
+            dragging = true;
+        }
+        else {
+            target = navigator.clipboard;
+        }
+        if (!target) {
+            console.warn("No clipboard or dataTransfer available for copying selection.");
             return false;
         }
         let leftSpan = undefined;
         let rightSpan = undefined;
-        if (draging && e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
+        console.log(e);
+        if (e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
             const diffIndex = parseInt(e.target.dataset.diffIndex);
             const diff = this.#diffContext.diffs[diffIndex];
             leftSpan = diff.leftSpan;
@@ -5005,25 +5021,65 @@ class DiffSeek {
         else {
             const selection = this.#getSelectionTokenRange();
             if (selection) {
-                const { left, right, editor: sourceEditor, hasDiff: hasDiff2 } = selection;
+                const { left, right } = selection;
                 leftSpan = { index: left[0], count: left[1] - left[0] };
                 rightSpan = { index: right[0], count: right[1] - right[0] };
             }
         }
         if (leftSpan && rightSpan) {
-            console.log("Copying selection to clipboard:", leftSpan, rightSpan);
-            function replaceTabsWithSingleSpace(str) {
-                return str.replace(/\t+/g, ' ');
-            }
-            const leftText = replaceTabsWithSingleSpace(this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim());
-            const rightText = replaceTabsWithSingleSpace(this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim());
-            const leftSectionLabel = replaceTabsWithSingleSpace(getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index));
-            const rightSectionLabel = replaceTabsWithSingleSpace(getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index));
-            const payload = `${leftSectionLabel}\t${rightSectionLabel}\t${leftText}\t${rightText}`;
-            navigator.clipboard.writeText(payload);
+            const leftText = this.#leftEditor.getTokenRange(leftSpan.index, leftSpan.count).toString().trim();
+            const rightText = this.#rightEditor.getTokenRange(rightSpan.index, rightSpan.count).toString().trim();
+            const leftSectionLabel = getSectionTrailText(this.#diffContext.leftSectionHeadings, leftSpan.index);
+            const rightSectionLabel = getSectionTrailText(this.#diffContext.rightSectionHeadings, rightSpan.index);
+            const textArr = [leftSectionLabel, rightSectionLabel, leftText, rightText];
+            this.#exportData(textArr, target);
             return true;
         }
         return false;
+    }
+    #exportData(data, target) {
+        const tsvPayload = toTSV(data);
+        if (target instanceof Clipboard) {
+            target.writeText(tsvPayload).then(() => {
+                console.debug("Copied to clipboard:", tsvPayload);
+            }).catch((err) => {
+                console.warn("Failed to copy TSV to clipboard:", err);
+            });
+            ;
+            // target.write([
+            // 	new ClipboardItem({
+            // 		"text/plain": new Blob([textPayload], { type: "text/plain" }),
+            // 		"text/tab-separated-values": new Blob([tsvPayload], { type: "text/tab-separated-values" })
+            // 	})
+            // ]).catch((err) => {
+            // 	console.error("Failed to copy TSV to clipboard:", err);
+            // });
+        }
+        else if (target instanceof DataTransfer) {
+            const textPayload = data.join("\r\n\r\n--------\r\n\r\n") + "\r\n\r\n";
+            const tbl = document.createElement("TABLE");
+            for (const line of data) {
+                const tr = document.createElement("TR");
+                const td = document.createElement("TD");
+                td.textContent = line;
+                tr.appendChild(td);
+                tbl.appendChild(tr);
+            }
+            const htmlPayload = tbl.outerHTML;
+            target.setData("text/plain", textPayload);
+            target.setData("text/tab-separated-values", tsvPayload);
+            target.setData("text/html", htmlPayload);
+            console.debug("Copied to clipboard.", "plain:", textPayload, "tsv:", tsvPayload);
+        }
+        function escapeTSV(str) {
+            return `"${str.replace(/"/g, '""')}"`;
+        }
+        function toTSV(strings) {
+            return strings.map(replaceTabsWithSingleSpace).map(escapeTSV).join('\r\n');
+        }
+        function replaceTabsWithSingleSpace(str) {
+            return str.replace(/\t+/g, ' ');
+        }
     }
     // 이건 나중에 renderer로 뺄까...? 하는 일이 비슷하잖아.
     #updateDiffIndicatorOverlay() {

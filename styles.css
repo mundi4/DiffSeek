@@ -94,9 +94,7 @@ body.sidebar-collapsed {
 	color: #000;
 }
 
-.pose-P9 .editor:focus-within {
-	color: #fff;
-}
+
 
 /* 모드	배경색	글자색	특징
 기본	#fdfdfd	#222	일반 읽기/편집
@@ -140,15 +138,6 @@ full-dark	#121212	#eee	다크팬용 (X for now) */
 
 .computing #diffList {
 	opacity: 0.5;
-}
-
-.identical #diffList:empty::after {
-	content: "👬";
-	font-size: 128px;
-	font-weight: bold;
-	font-family: monospace;
-	text-align: center;
-	display: block;
 }
 
 #diffList li {
@@ -261,6 +250,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	vertical-align: top;
 	border: 1px solid #666;
 	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
+	min-height: 1.5rem;
 }
 .editor ul,
 .editor ol {
@@ -388,7 +378,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 
 a.diff.block {
 	display: inline-block;
-	height: 1.5em;
+	height: 1em;
 	width: 1px;
 }
 

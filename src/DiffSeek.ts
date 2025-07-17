@@ -956,6 +956,7 @@ class DiffSeek {
 			const hue = DIFF_COLOR_HUES[diffIndex % NUM_DIFF_COLORS];
 			let leftAnchorFlags = AnchorFlags.None;
 			let rightAnchorFlags = AnchorFlags.None;
+			
 			if (leftTokenCount > 0 && rightTokenCount > 0) {
 				const leftToken = leftTokens[leftIndex];
 				const rightToken = rightTokens[rightIndex];
@@ -993,6 +994,7 @@ class DiffSeek {
 					// && filledEndFlags & TokenFlags.LINE_END
 				) {
 					if (
+						emptyTokenIndex === 0 ||
 						(emptyTokenIndex > 0 && emptyTokens[emptyTokenIndex - 1].flags & TokenFlags.LINE_END) ||
 						(emptyTokenIndex + 1 < emptyTokens.length && emptyTokens[emptyTokenIndex + 1].flags & TokenFlags.LINE_START)
 					) {

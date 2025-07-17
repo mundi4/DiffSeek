@@ -44,7 +44,7 @@ class AnchorManager {
 	#rightEditor: Editor;
 	#anchorPairs: AnchorPair[] = [];
 	#anchorMap: Map<HTMLElement, AnchorPair> = new Map();
-	#oldAnchorPairs: AnchorPair[] = [];
+	#oldAnchorPairs: AnchorPair[] | null = null;
 	#chunkCancellationToken: number | null = null;
 	#largestCache: DeltaCacheEntry | null = null;
 	#recentCache: DeltaCacheEntry | null = null;
@@ -67,6 +67,9 @@ class AnchorManager {
 	beginUpdate() {
 		this.cancelAnchorAligning();
 		this.#anchorMap.clear();
+		if (this.#oldAnchorPairs) {
+			this.endUpdate();
+		}
 		this.#oldAnchorPairs = this.#anchorPairs;
 		this.#anchorPairs = [];
 		this.#largestCache = this.#recentCache = null;
@@ -77,24 +80,25 @@ class AnchorManager {
 		// remove() 함수 정말 미쳤다. 자식도 없고 display:none인 상태인데도 전체 파이프라인인의 대부분의 시간을 잡아먹음. 미쳤다 미쳤다
 		// 사실 안지워도 된다... 앵커를 박을 때 해당 위치에 이미 앵커가 있으면 재사용 하고 있으니까.
 		// console.log("AnchorManager.endUpdate: cleaning up old anchors", this.#oldAnchorPairs.length, "pairs");
-		for (const anchorPair of this.#oldAnchorPairs) {
-			const { leftEl, rightEl } = anchorPair;
-			if (!this.#anchorMap.has(leftEl)) {
-				leftEl.style.display = "none";
-				leftEl.style.removeProperty("--padding");
-				leftEl.removeAttribute("class");
-				delete leftEl.dataset.anchorIndex;
-				this.#unusedAnchors.add(leftEl);
-			}
-			if (!this.#anchorMap.has(rightEl)) {
-				rightEl.style.display = "none";
-				rightEl.style.removeProperty("--padding");
-				rightEl.removeAttribute("class");
-				delete rightEl.dataset.anchorIndex;
-				this.#unusedAnchors.add(rightEl);
+		if (this.#oldAnchorPairs) {
+			for (const anchorPair of this.#oldAnchorPairs) {
+				const { leftEl, rightEl } = anchorPair;
+				if (!this.#anchorMap.has(leftEl)) {
+					leftEl.style.display = "none";
+					leftEl.style.removeProperty("--padding");
+					leftEl.removeAttribute("class");
+					delete leftEl.dataset.anchorIndex;
+					this.#unusedAnchors.add(leftEl);
+				}
+				if (!this.#anchorMap.has(rightEl)) {
+					rightEl.style.display = "none";
+					rightEl.style.removeProperty("--padding");
+					rightEl.removeAttribute("class");
+					delete rightEl.dataset.anchorIndex;
+					this.#unusedAnchors.add(rightEl);
+				}
 			}
 		}
-		console.debug("anchorPairs:", this.#anchorPairs);
 	}
 
 	#anchorFlagsToString(flags: AnchorFlags): string {
@@ -222,14 +226,17 @@ class AnchorManager {
 		if (flags & AnchorFlags.EMPTY_DIFF) {
 			let bestScore = -1;
 			for (const point of editor.yieldDiffAnchorPointsInRange(tokenIndex)) {
+				// console.log(editor.name, tokenIndex, "point", point, "flags", flags, "lastAnchorRange", lastAnchorRange);
 				let score = 0;
-				// 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
-
+				
 				const insertionRange = toRange(point.range);
 				if (lastAnchorRange && lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, insertionRange) >= 0) {
 					continue;
 				}
-
+				// bestPoint = point;
+				// break;
+				
+				// 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
 				if (!bestPoint) {
 					bestPoint = point;
 				}

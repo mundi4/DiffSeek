@@ -62,6 +62,8 @@ class Editor {
 		this.#editor.classList.add("editor");
 		this.#editor.contentEditable = "true";
 		this.#editor.spellcheck = false;
+		//this.#editor.innerHTML = "<p></p><p></p><p></p>"
+
 		// this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
 
 		this.#aboveOverlay.className = "eyes-up-here " + editorName;
@@ -213,6 +215,7 @@ class Editor {
 		// if (this.#editor.childNodes.length === 0) {
 		// 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
 		// }
+		// console.log(mutations)
 	}
 
 	observeMutation() {
@@ -575,6 +578,16 @@ class Editor {
 			endContainer = this.#editor;
 			endOffset = this.#editor.childNodes.length;
 		}
+
+		// console.debug(this.#editorName, tokenIndex, {
+		// 	container,
+		// 	childIndex,
+		// 	endContainer,
+		// 	endOffset,
+		// 	prevToken,
+		// 	nextToken,
+
+		// });
 
 		const indexStack: number[] = [];
 

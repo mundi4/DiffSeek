@@ -186,7 +186,7 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	SMALL: DefaultElementOptions,
 	DEL: DefaultElementOptions,
 	INS: DefaultElementOptions,
-	IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+	IMG: { void: true, allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
 	FONT: { replaceTag: "SPAN", allowedStyles: COMMON_ALLOWED_STYLES },
 	SPAN: DefaultElementOptions,
 	LABEL: DefaultElementOptions,
@@ -229,7 +229,7 @@ const WINGDINGS_TRANSFORM: Record<string, CharMap> = {
 		"\u00EC": "🡥",
 		"\u00ED": "🡧",
 		"\u00EE": "🡦",
-		"\u0080": "⓪",	
+		"\u0080": "⓪",
 		"\u0081": "①",
 		"\u0082": "②",
 		"\u0083": "③",
@@ -265,6 +265,10 @@ function transformText(input: string, charMap: CharMap): string {
 // 진짜 병목은 execCommand("insertHTML", ...)임. 이 함수는 죄가 없다.
 function sanitizeHTML(rawHTML: string): Node {
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
+
+	const EMPTY_LINE = document.createElement("P");
+	EMPTY_LINE.appendChild(document.createElement("BR"));
+
 	const START_TAG = "<!--StartFragment-->";
 	const END_TAG = "<!--EndFragment-->";
 	const startIndex = rawHTML.indexOf(START_TAG);
@@ -291,7 +295,14 @@ function sanitizeHTML(rawHTML: string): Node {
 		font: null,
 	};
 
-	function traverse(node: Node) {
+	type TraversalResult = {
+		node: Node;
+		hasText: boolean;
+		hasNonEmptyText: boolean;
+		caretReachable: boolean;
+	}
+
+	function traverse(node: Node): TraversalResult | null {
 		if (
 			node.nodeType !== 1 && // element
 			node.nodeType !== 11 // document fragment
@@ -303,9 +314,18 @@ function sanitizeHTML(rawHTML: string): Node {
 		let elementOptions = ELEMENT_POLICIES[nodeName];
 
 		if (!elementOptions) {
-			if (nodeName === "O:P" && node.childNodes.length === 1 && node.childNodes[0].nodeValue! === "\u00A0") {
-				// 워드에서 복붙할때 빈줄이 <p><o:p>&nbsp;</o:p></p> 이런 형태로 들어올 수도 있다
-				return document.createElement("BR");
+			if (
+				nodeName === "O:P" &&
+				(
+					node.childNodes.length === 0 ||
+					(
+						node.childNodes.length === 1 &&
+						node.firstChild!.nodeType === 3 &&
+						node.firstChild!.nodeValue === "\u00A0"
+					)
+				)
+			) {
+				elementOptions = ELEMENT_POLICIES["BR"];
 			} else if (nodeName.startsWith("ST1:")) {
 				// 워드에서 날짜 같은 값이 종종 <st1:date>태그로 표현됨. WTF?
 				elementOptions = SMART_TAG_OPTIONS;
@@ -318,16 +338,14 @@ function sanitizeHTML(rawHTML: string): Node {
 		if (elementOptions.exclude) {
 			return null;
 		}
-		
-		statesStack.push(states);
-		states = { ...states };
+
+
 
 		let containerNode: ParentNode;
 		if (elementOptions.unwrap || node.nodeType === 11) {
 			containerNode = document.createDocumentFragment();
 		} else {
 			containerNode = document.createElement(elementOptions.replaceTag || nodeName);
-
 			if (elementOptions.allowedAttrs) {
 				for (const attr of (node as HTMLElement).attributes) {
 					if (elementOptions.allowedAttrs[attr.name]) {
@@ -343,72 +361,151 @@ function sanitizeHTML(rawHTML: string): Node {
 					}
 				}
 			}
+		}
 
-			let colorValue = (node as HTMLElement).style?.color;
-			if (colorValue) {
-				if (colorValue === "inherit") {
-					// use parent color
-				} else {
-					if (isReddish(colorValue)) {
-						(containerNode as HTMLElement).classList.add("color-red");
-					}
-				}
-			}
+		if (elementOptions.void) {
+			return {
+				node: containerNode,
+				hasText: false,
+				hasNonEmptyText: false,
+				caretReachable: false,
+			};
+		}
 
-			let fontFamily = (node as HTMLElement).style?.fontFamily;
-			if (fontFamily) {
-				if (fontFamily === "inherit") {
-					// use parent font
-				} else {
-					if (fontFamily !== states.font) {
-						if (WINGDINGS_TRANSFORM[fontFamily]) {
-							states.font = fontFamily;
+		if (containerNode.nodeType === 1) {
+			(containerNode as HTMLElement).contentEditable = "true";
+		}
+
+		
+		statesStack.push(states);
+		states = { ...states };
+
+		const result = {
+			node: containerNode,
+			hasText: false,
+			hasNonEmptyText: false,
+			caretReachable: false,
+		}
+
+		if (containerNode.nodeType === 1) {
+			let color: string | null = null;
+			if ((node as HTMLElement).classList.contains("color-red")) {
+				color = "red";
+			} else {
+				let colorValue = (node as HTMLElement).style?.color;
+				if (colorValue) {
+					if (colorValue === "inherit") {
+						// use parent color
+					} else {
+						if (isReddish(colorValue)) {
+							color = "red";
 						}
 					}
 				}
 			}
+			if (color) {
+				(containerNode as HTMLElement).classList.add(`color-${color}`);
+			}
+
+			let fontFamily = (node as HTMLElement).style?.fontFamily;
+			if (fontFamily && fontFamily !== "inherit") {
+				states.font = fontFamily;
+			}
 		}
 
-		if (!elementOptions.void) {
-			let isTextless = TEXTLESS_ELEMENTS[nodeName];
-			for (const childNode of node.childNodes) {
-				let sanitizedChild: Node | null = null;
-
-				if (childNode.nodeType === 3) {
-					if (isTextless) {
-						continue;
-					}
+		const children: TraversalResult[] = [];
+		let isTextless = TEXTLESS_ELEMENTS[nodeName];
+		for (const childNode of node.childNodes) {
+			let childResult: TraversalResult | null = null;
+			if (childNode.nodeType === 3) {
+				if (!isTextless) {
 					let text = childNode.nodeValue!;
-					if (states.font) {
+					if (states.font && WINGDINGS_TRANSFORM[states.font]) {
 						text = transformText(text, WINGDINGS_TRANSFORM[states.font]!);
 					}
-					sanitizedChild = document.createTextNode(text);
-				} else {
-					sanitizedChild = traverse(childNode);
-					if (!sanitizedChild) {
-						continue;
+
+					childResult = {
+						node: document.createTextNode(text),
+						hasText: false,
+						hasNonEmptyText: false,
+						caretReachable: false,
 					}
 				}
+			} else {
+				childResult = traverse(childNode);
+			}
 
-				containerNode.appendChild(sanitizedChild);
+			if (childResult !== null) {
+				children.push(childResult);
 			}
 		}
 
 		states = statesStack.pop()!;
 
-		if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
-			if (
-				containerNode.childNodes.length === 0 ||
-				(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
-			) {
-				return null;
+		// if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
+		// 	if (
+		// 		containerNode.childNodes.length === 0 ||
+		// 		(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
+		// 	) {
+		// 		return null;
+		// 	}
+		// }
+
+		let prevCaretReachable = false;
+		for (let i = 0; i < children.length; i++) {
+			const childResult = children[i];
+
+			if (node === tmpl.content || nodeName === "TD") {
+
+			}
+
+			if (childResult.node.nodeType === 3) {
+				result.hasText = true;
+				result.hasNonEmptyText ||= childResult.node.nodeValue!.trim().length > 0;
+				if (!result.caretReachable) {
+					result.caretReachable = childResult.node.nodeValue!.length > 0;
+				}
+			} else {
+				result.hasText ||= childResult.hasText;
+				result.hasNonEmptyText ||= childResult.hasNonEmptyText;
+				result.caretReachable ||= childResult.caretReachable || childResult.node.nodeName === "BR";
+			}
+
+			if (node === tmpl.content || nodeName === "TD") {
+				if (childResult.node.nodeName === "TABLE") {
+					if (!prevCaretReachable) {
+						containerNode.appendChild(EMPTY_LINE.cloneNode(true));
+					}
+					prevCaretReachable = false;
+				}
+			}
+
+			containerNode.appendChild(childResult.node);
+
+			if (childResult.node.nodeName === "TABLE") {
+				prevCaretReachable = false;
+			} else {
+				prevCaretReachable ||= childResult.caretReachable;
 			}
 		}
 
-		if ((elementOptions.unwrap || (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName])) && containerNode.childNodes.length === 0) {
-			containerNode.appendChild(document.createTextNode(""));
+
+		if (!prevCaretReachable && (node === tmpl.content || nodeName === "TD")) {
+			containerNode.appendChild(EMPTY_LINE.cloneNode(true));
 		}
-		return containerNode;
+
+		// if (containerNode.nodeName === "TD" && !result.caretReachable) {
+		// 	containerNode.appendChild(EMPTY_LINE.cloneNode());
+		// 	result.caretReachable = true;
+		// }
+
+		if (containerNode.nodeName === "TABLE") {
+			result.caretReachable = false;
+			result.hasText = false;
+			result.hasNonEmptyText = false;
+		}
+
+		return result;
 	}
 
 	const result = traverse(tmpl.content)!;
@@ -416,5 +513,7 @@ function sanitizeHTML(rawHTML: string): Node {
 	// if (result.childNodes.length === 0) {
 	// 	result.appendChild(document.createTextNode(""));
 	// }
-	return result;
+
+
+	return result.node;
 }

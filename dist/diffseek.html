@@ -1725,7 +1725,7 @@ const ELEMENT_POLICIES = {
     SMALL: DefaultElementOptions,
     DEL: DefaultElementOptions,
     INS: DefaultElementOptions,
-    IMG: { allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+    IMG: { void: true, allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
     FONT: { replaceTag: "SPAN", allowedStyles: COMMON_ALLOWED_STYLES },
     SPAN: DefaultElementOptions,
     LABEL: DefaultElementOptions,
@@ -1799,6 +1799,8 @@ function transformText(input, charMap) {
 // 진짜 병목은 execCommand("insertHTML", ...)임. 이 함수는 죄가 없다.
 function sanitizeHTML(rawHTML) {
     // 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
+    const EMPTY_LINE = document.createElement("P");
+    EMPTY_LINE.appendChild(document.createElement("BR"));
     const START_TAG = "<!--StartFragment-->";
     const END_TAG = "<!--EndFragment-->";
     const startIndex = rawHTML.indexOf(START_TAG);
@@ -1826,9 +1828,12 @@ function sanitizeHTML(rawHTML) {
         const nodeName = node.nodeName;
         let elementOptions = ELEMENT_POLICIES[nodeName];
         if (!elementOptions) {
-            if (nodeName === "O:P" && node.childNodes.length === 1 && node.childNodes[0].nodeValue === "\u00A0") {
-                // 워드에서 복붙할때 빈줄이 <p><o:p>&nbsp;</o:p></p> 이런 형태로 들어올 수도 있다
-                return document.createElement("BR");
+            if (nodeName === "O:P" &&
+                (node.childNodes.length === 0 ||
+                    (node.childNodes.length === 1 &&
+                        node.firstChild.nodeType === 3 &&
+                        node.firstChild.nodeValue === "\u00A0"))) {
+                elementOptions = ELEMENT_POLICIES["BR"];
             }
             else if (nodeName.startsWith("ST1:")) {
                 // 워드에서 날짜 같은 값이 종종 <st1:date>태그로 표현됨. WTF?
@@ -1841,8 +1846,6 @@ function sanitizeHTML(rawHTML) {
         if (elementOptions.exclude) {
             return null;
         }
-        statesStack.push(states);
-        states = { ...states };
         let containerNode;
         if (elementOptions.unwrap || node.nodeType === 11) {
             containerNode = document.createDocumentFragment();
@@ -1864,72 +1867,139 @@ function sanitizeHTML(rawHTML) {
                     }
                 }
             }
-            let colorValue = node.style?.color;
-            if (colorValue) {
-                if (colorValue === "inherit") {
-                    // use parent color
-                }
-                else {
-                    if (isReddish(colorValue)) {
-                        containerNode.classList.add("color-red");
-                    }
-                }
+        }
+        if (elementOptions.void) {
+            return {
+                node: containerNode,
+                hasText: false,
+                hasNonEmptyText: false,
+                caretReachable: false,
+            };
+        }
+        if (containerNode.nodeType === 1) {
+            containerNode.contentEditable = "true";
+        }
+        statesStack.push(states);
+        states = { ...states };
+        const result = {
+            node: containerNode,
+            hasText: false,
+            hasNonEmptyText: false,
+            caretReachable: false,
+        };
+        if (containerNode.nodeType === 1) {
+            let color = null;
+            if (node.classList.contains("color-red")) {
+                color = "red";
             }
-            let fontFamily = node.style?.fontFamily;
-            if (fontFamily) {
-                if (fontFamily === "inherit") {
-                    // use parent font
-                }
-                else {
-                    if (fontFamily !== states.font) {
-                        if (WINGDINGS_TRANSFORM[fontFamily]) {
-                            states.font = fontFamily;
+            else {
+                let colorValue = node.style?.color;
+                if (colorValue) {
+                    if (colorValue === "inherit") {
+                        // use parent color
+                    }
+                    else {
+                        if (isReddish(colorValue)) {
+                            color = "red";
                         }
                     }
                 }
             }
+            if (color) {
+                containerNode.classList.add(`color-${color}`);
+            }
+            let fontFamily = node.style?.fontFamily;
+            if (fontFamily && fontFamily !== "inherit") {
+                states.font = fontFamily;
+            }
         }
-        if (!elementOptions.void) {
-            let isTextless = TEXTLESS_ELEMENTS[nodeName];
-            for (const childNode of node.childNodes) {
-                let sanitizedChild = null;
-                if (childNode.nodeType === 3) {
-                    if (isTextless) {
-                        continue;
-                    }
+        const children = [];
+        let isTextless = TEXTLESS_ELEMENTS[nodeName];
+        for (const childNode of node.childNodes) {
+            let childResult = null;
+            if (childNode.nodeType === 3) {
+                if (!isTextless) {
                     let text = childNode.nodeValue;
-                    if (states.font) {
+                    if (states.font && WINGDINGS_TRANSFORM[states.font]) {
                         text = transformText(text, WINGDINGS_TRANSFORM[states.font]);
                     }
-                    sanitizedChild = document.createTextNode(text);
+                    childResult = {
+                        node: document.createTextNode(text),
+                        hasText: false,
+                        hasNonEmptyText: false,
+                        caretReachable: false,
+                    };
                 }
-                else {
-                    sanitizedChild = traverse(childNode);
-                    if (!sanitizedChild) {
-                        continue;
-                    }
-                }
-                containerNode.appendChild(sanitizedChild);
+            }
+            else {
+                childResult = traverse(childNode);
+            }
+            if (childResult !== null) {
+                children.push(childResult);
             }
         }
         states = statesStack.pop();
-        if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
-            if (containerNode.childNodes.length === 0 ||
-                (containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")) {
-                return null;
+        // if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
+        // 	if (
+        // 		containerNode.childNodes.length === 0 ||
+        // 		(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
+        // 	) {
+        // 		return null;
+        // 	}
+        // }
+        let prevCaretReachable = false;
+        for (let i = 0; i < children.length; i++) {
+            const childResult = children[i];
+            if (node === tmpl.content || nodeName === "TD") {
+            }
+            if (childResult.node.nodeType === 3) {
+                result.hasText = true;
+                result.hasNonEmptyText ||= childResult.node.nodeValue.trim().length > 0;
+                if (!result.caretReachable) {
+                    result.caretReachable = childResult.node.nodeValue.length > 0;
+                }
+            }
+            else {
+                result.hasText ||= childResult.hasText;
+                result.hasNonEmptyText ||= childResult.hasNonEmptyText;
+                result.caretReachable ||= childResult.caretReachable || childResult.node.nodeName === "BR";
+            }
+            if (node === tmpl.content || nodeName === "TD") {
+                if (childResult.node.nodeName === "TABLE") {
+                    if (!prevCaretReachable) {
+                        containerNode.appendChild(EMPTY_LINE.cloneNode(true));
+                    }
+                    prevCaretReachable = false;
+                }
+            }
+            containerNode.appendChild(childResult.node);
+            if (childResult.node.nodeName === "TABLE") {
+                prevCaretReachable = false;
+            }
+            else {
+                prevCaretReachable ||= childResult.caretReachable;
             }
         }
-        if ((elementOptions.unwrap || (containerNode.nodeType === 1 && !TEXTLESS_ELEMENTS[containerNode.nodeName])) && containerNode.childNodes.length === 0) {
-            containerNode.appendChild(document.createTextNode(""));
+        if (!prevCaretReachable && (node === tmpl.content || nodeName === "TD")) {
+            containerNode.appendChild(EMPTY_LINE.cloneNode(true));
         }
-        return containerNode;
+        // if (containerNode.nodeName === "TD" && !result.caretReachable) {
+        // 	containerNode.appendChild(EMPTY_LINE.cloneNode());
+        // 	result.caretReachable = true;
+        // }
+        if (containerNode.nodeName === "TABLE") {
+            result.caretReachable = false;
+            result.hasText = false;
+            result.hasNonEmptyText = false;
+        }
+        return result;
     }
     const result = traverse(tmpl.content);
     // result.normalize();
     // if (result.childNodes.length === 0) {
     // 	result.appendChild(document.createTextNode(""));
     // }
-    return result;
+    return result.node;
 }
 //# sourceMappingURL=sanitize.js.map
 </script>
@@ -2530,6 +2600,7 @@ class Editor {
         this.#editor.classList.add("editor");
         this.#editor.contentEditable = "true";
         this.#editor.spellcheck = false;
+        //this.#editor.innerHTML = "<p></p><p></p><p></p>"
         // this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
         this.#aboveOverlay.className = "eyes-up-here " + editorName;
         this.#aboveOverlay.style.opacity = "0";
@@ -2652,6 +2723,7 @@ class Editor {
         // if (this.#editor.childNodes.length === 0) {
         // 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
         // }
+        // console.log(mutations)
     }
     observeMutation() {
         this.#mutationObserver.observe(this.#editor, {
@@ -2994,6 +3066,14 @@ class Editor {
             endContainer = this.#editor;
             endOffset = this.#editor.childNodes.length;
         }
+        // console.debug(this.#editorName, tokenIndex, {
+        // 	container,
+        // 	childIndex,
+        // 	endContainer,
+        // 	endOffset,
+        // 	prevToken,
+        // 	nextToken,
+        // });
         const indexStack = [];
         // sanity check
         if (comparePoint(container, childIndex, endContainer, endOffset) > 0) {
@@ -3198,7 +3278,7 @@ class AnchorManager {
     #rightEditor;
     #anchorPairs = [];
     #anchorMap = new Map();
-    #oldAnchorPairs = [];
+    #oldAnchorPairs = null;
     #chunkCancellationToken = null;
     #largestCache = null;
     #recentCache = null;
@@ -3218,6 +3298,9 @@ class AnchorManager {
     beginUpdate() {
         this.cancelAnchorAligning();
         this.#anchorMap.clear();
+        if (this.#oldAnchorPairs) {
+            this.endUpdate();
+        }
         this.#oldAnchorPairs = this.#anchorPairs;
         this.#anchorPairs = [];
         this.#largestCache = this.#recentCache = null;
@@ -3227,24 +3310,25 @@ class AnchorManager {
         // remove() 함수 정말 미쳤다. 자식도 없고 display:none인 상태인데도 전체 파이프라인인의 대부분의 시간을 잡아먹음. 미쳤다 미쳤다
         // 사실 안지워도 된다... 앵커를 박을 때 해당 위치에 이미 앵커가 있으면 재사용 하고 있으니까.
         // console.log("AnchorManager.endUpdate: cleaning up old anchors", this.#oldAnchorPairs.length, "pairs");
-        for (const anchorPair of this.#oldAnchorPairs) {
-            const { leftEl, rightEl } = anchorPair;
-            if (!this.#anchorMap.has(leftEl)) {
-                leftEl.style.display = "none";
-                leftEl.style.removeProperty("--padding");
-                leftEl.removeAttribute("class");
-                delete leftEl.dataset.anchorIndex;
-                this.#unusedAnchors.add(leftEl);
-            }
-            if (!this.#anchorMap.has(rightEl)) {
-                rightEl.style.display = "none";
-                rightEl.style.removeProperty("--padding");
-                rightEl.removeAttribute("class");
-                delete rightEl.dataset.anchorIndex;
-                this.#unusedAnchors.add(rightEl);
+        if (this.#oldAnchorPairs) {
+            for (const anchorPair of this.#oldAnchorPairs) {
+                const { leftEl, rightEl } = anchorPair;
+                if (!this.#anchorMap.has(leftEl)) {
+                    leftEl.style.display = "none";
+                    leftEl.style.removeProperty("--padding");
+                    leftEl.removeAttribute("class");
+                    delete leftEl.dataset.anchorIndex;
+                    this.#unusedAnchors.add(leftEl);
+                }
+                if (!this.#anchorMap.has(rightEl)) {
+                    rightEl.style.display = "none";
+                    rightEl.style.removeProperty("--padding");
+                    rightEl.removeAttribute("class");
+                    delete rightEl.dataset.anchorIndex;
+                    this.#unusedAnchors.add(rightEl);
+                }
             }
         }
-        console.debug("anchorPairs:", this.#anchorPairs);
     }
     #anchorFlagsToString(flags) {
         const flagsArray = [];
@@ -3355,12 +3439,15 @@ class AnchorManager {
         if (flags & 128 /* AnchorFlags.EMPTY_DIFF */) {
             let bestScore = -1;
             for (const point of editor.yieldDiffAnchorPointsInRange(tokenIndex)) {
+                // console.log(editor.name, tokenIndex, "point", point, "flags", flags, "lastAnchorRange", lastAnchorRange);
                 let score = 0;
-                // 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
                 const insertionRange = toRange(point.range);
                 if (lastAnchorRange && lastAnchorRange.compareBoundaryPoints(Range.START_TO_END, insertionRange) >= 0) {
                     continue;
                 }
+                // bestPoint = point;
+                // break;
+                // 귀찮아... 그냥 가장 바깥에 앵커 박기 ;;;
                 if (!bestPoint) {
                     bestPoint = point;
                 }
@@ -4223,7 +4310,7 @@ class RenderRegion {
                             continue;
                         if (x + width < 0 || x > regionWidth)
                             continue;
-                        ctx.strokeRect(x, y, width, height);
+                        //ctx.strokeRect(x, y, width, height);
                         ctx.fillRect(x, y, width, height);
                         // ctx.lineWidth = 2;
                         // ctx.strokeStyle = "white";
@@ -5534,7 +5621,8 @@ class DiffSeek {
                 if (filledStartFlags & 1 /* TokenFlags.LINE_START */
                 // && filledEndFlags & TokenFlags.LINE_END
                 ) {
-                    if ((emptyTokenIndex > 0 && emptyTokens[emptyTokenIndex - 1].flags & 2 /* TokenFlags.LINE_END */) ||
+                    if (emptyTokenIndex === 0 ||
+                        (emptyTokenIndex > 0 && emptyTokens[emptyTokenIndex - 1].flags & 2 /* TokenFlags.LINE_END */) ||
                         (emptyTokenIndex + 1 < emptyTokens.length && emptyTokens[emptyTokenIndex + 1].flags & 1 /* TokenFlags.LINE_START */)) {
                         filledAnchorFlags = translateTokenFlagsToAnchorFlags(filledStartFlags, filledEndFlags);
                         emptyAnchorFlags = 128 /* AnchorFlags.EMPTY_DIFF */;
@@ -5876,9 +5964,7 @@ body.sidebar-collapsed {
 	color: #000;
 }
 
-.pose-P9 .editor:focus-within {
-	color: #fff;
-}
+
 
 /* 모드	배경색	글자색	특징
 기본	#fdfdfd	#222	일반 읽기/편집
@@ -5922,15 +6008,6 @@ full-dark	#121212	#eee	다크팬용 (X for now) */
 
 .computing #diffList {
 	opacity: 0.5;
-}
-
-.identical #diffList:empty::after {
-	content: "👬";
-	font-size: 128px;
-	font-weight: bold;
-	font-family: monospace;
-	text-align: center;
-	display: block;
 }
 
 #diffList li {
@@ -6043,6 +6120,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	vertical-align: top;
 	border: 1px solid #666;
 	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
+	min-height: 1.5rem;
 }
 .editor ul,
 .editor ol {
@@ -6170,7 +6248,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 
 a.diff.block {
 	display: inline-block;
-	height: 1.5em;
+	height: 1em;
 	width: 1px;
 }
 
@@ -6406,9 +6484,11 @@ a.diff.block {
 
   <script>
     if (true) {
+   
       window.DiffSeek.setContent("left", `
        <table> <tr> <td><p>1. 개요</p></td> <td> <p>이 문서는 우리 회사의 전반적인 업무 흐르믈 이해하는 데 도움을 주기 위한 가이드입니다. 부서 간 업무 방식의 기준을 명확히 하여 협업을 효율적으로 돕는 것을 목표로 합니다.</p> <p>전체 프로세스는 구조적으로 짜여져 있으며, 각 단계마다 구체적인 역할과 책임이 부여되어 있습니다. 이를 통해 오류를 줄이고 협업의 시너지를 높일 수 있습니다.</p> <p>내용은 실무자가 바로 이해하고 적용할 수 있도록 정리되었으며, 업무 수행 중 참고 자료로 활용 가능합니다.</p> <p>또한 실무상 마주할 수 있는 다양한 이슈에 대한 대응책도 포함되어 있어 업무에 실질적인 도움이 됩니다.</p> </td> </tr> <tr> <td><p>2. 작업 흐름</p></td> <td> <p>1) 작업 시작 전, 필요한 자료와 도구를 준비하고 체크리스트를 확인합니다.</p> <p>2) 정해진 단계별 지침에 따라 업무를 수행하며, 문제 발생 시 즉각적으로 대응합니다.</p> <p>3) 중간 결과는 일정 주기마다 검토하여 품질을 유지합니다.</p> <p>4) 최종 산출물은 상급자의 확인을 거쳐 공식 문서로 정리합니다.</p> <p>5) 추가 조치가 필요한 경우, 관련 부서와 협력하여 빠르게 처리합니다.</p> <p>6) 전체 진행 과정은 기록으로 남겨 개선 및 보고에 활용합니다.</p> </td> </tr> <tr> <td><p>3. 역할과 권한</p></td> <td> <p>가. 모든 부서는 고유의 책임과 권한을 갖고 있습니다.</p> <p>나. 발생하는 문제는 해당 책임 부서에서 신속히 처리합니다.</p> <p>다. 업무 권한은 회사 방침 및 관련 규정에 따라 부여되며, 반드시 이를 준수해야 합니다.</p> <p>라. 담당자는 자신에게 부여된 권한 범위 내에서만 의사결정을 할 수 있습니다.</p> </td> </tr> <tr> <td><p>4. 프로세스 세부 단계</p></td> <td> <p>(1) 사전 준비</p> <p>- 업무 범위 설정 및 자원 점검</p> <p>- 관련 법규 및 사내 정책 검토</p> <p>(2) 실행</p> <p>- 계획에 따라 작업 수행</p> <p>- 이슈 발생 시 실시간 대응</p> <p>(3) 종료</p> <p>- 결과 검토 및 문서화</p> <p>- 산출물 보관 및 후속 관리</p> </td> </tr> <tr> <td><p>5. 문서화 및 보관</p></td> <td> <p>가. 모든 업무 기록은 정해진 기준에 따라 정리되고 관리되어야 합니다.</p> <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p> <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p> <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p> </td> </tr> </table>
 `);
+// window.DiffSeek.setContent("left", `<p>  </p>`);
 
 
       window.DiffSeek.setContent("right", `
@@ -6460,7 +6540,6 @@ a.diff.block {
       <p>나. 문서의 생성에서 폐기까지 전 과정은 절차에 맞춰 처리합니다.</p>
       <p>다. 디지털과 인쇄 문서 모두 접근 제한과 보안을 철저히 관리합니다.</p>
       <p>라. 버전 관리를 통해 문서가 항상 최신 상태를 유지하도록 합니다.</p>
-      <p><br></p>
     </td>
   </tr>
 </table>

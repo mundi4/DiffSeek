@@ -686,7 +686,7 @@ class RenderRegion {
 						if (y + height < 0 || y > regionHeight) continue;
 						if (x + width < 0 || x > regionWidth) continue;
 
-						ctx.strokeRect(x, y, width, height);
+						//ctx.strokeRect(x, y, width, height);
 						ctx.fillRect(x, y, width, height);
 
 						// ctx.lineWidth = 2;

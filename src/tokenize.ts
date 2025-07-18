@@ -1,6 +1,14 @@
 const MANUAL_ANCHOR1 = "🔗@";
 const MANUAL_ANCHOR2 = "🔗#";
 
+type RichToken = {
+	text: string;
+	flags: number;
+	range: LightRange | Range;
+	lineNum: number;
+	container: TextFlowContainer;
+};
+
 const enum TokenFlags {
 	LINE_START = 1 << 0, // 1
 	LINE_END = 1 << 1, // 2

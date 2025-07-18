@@ -5415,24 +5415,6 @@ class DiffSeek {
                 rightTokens: rightTokens,
             };
             this.#worker.postMessage(request);
-            // console.debug("Diff computed:", result.processTime, "ms", result);
-            // if (this.#diffComputedCallbackId !== null) {
-            // 	cancelIdleCallback(this.#diffComputedCallbackId);
-            // 	this.#diffComputedCallbackId = null;
-            // }
-            //this.#finalizeDiffResult(diffContext, idleDeadline);
-            // this.#computeDiffCallbackId = requestIdleCallback(
-            // 	(idleDeadline) => {
-            // 		this.#computeDiffCallbackId = null;
-            // 		if (this.#diffContext !== diffContext) {
-            // 			return;
-            // 		}
-            // 		// 행여나 이게 짜증날 정도로 오래 걸린다면 generator로 쪼개서 쬐끔씩 처리해야하는데 지금은 일단 그냥 둠.
-            // 		// =====> 짜증날 정도로 오래 걸린다!!
-            // 		// this.#onDiffComputed(diffContext);
-            // 	},
-            // 	{ timeout: COMPUTE_DIFF_TIMEOUT }
-            // );
         }, { timeout: COMPUTE_DIFF_TIMEOUT });
     }
     #finalizeDiffResult(diffContext) {
@@ -5486,14 +5468,8 @@ class DiffSeek {
         const rightSectionHeadings = this.#buildSectionHeadingTree(rightEditor, rightTokens);
         for (let i = 0; i < rawEntries.length; i++) {
             if ((i & 0x1f) === 0) {
-                if (idleDeadline.timeRemaining() < 5) {
-                    // console.log(diffContext.reqId, "Yielding to idle deadline at entry", i, "remaining:", idleDeadline.timeRemaining());
-                    // console.debug("Yielding to idle deadline at entry", i);
-                    idleDeadline = yield; // yield control to the event loop
-                    // console.debug("loop@%d, elapsed=%d", i,  idleDeadline.timeRemaining());
-                }
-                else {
-                    // console.debug("Processing entry", i, "of", rawEntries.length, "remaining:", idleDeadline.timeRemaining());
+                if (idleDeadline.timeRemaining() < 3) {
+                    idleDeadline = yield;
                 }
             }
             const rawEntry = rawEntries[i];
@@ -5717,7 +5693,6 @@ class DiffSeek {
                 startTokenIndex: i,
                 endTokenIndex: Number.MAX_SAFE_INTEGER, // temp
             };
-            // 깊이 기반 스택 처리
             while (stack.length > 0 && heading.level <= stack[stack.length - 1].level) {
                 const closed = stack.pop();
                 closed.endTokenIndex = heading.startTokenIndex;

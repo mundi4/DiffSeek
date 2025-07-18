@@ -27,7 +27,6 @@ declare type RawDiff = {
 
 declare type AnchorType = "before" | "after";
 
-
 declare type DiffAlgorithm = "lcs" | "histogram";
 
 // declare const TOKENIZE_BY_CHAR: 1;
@@ -101,32 +100,6 @@ declare type DiffContext = {
 	rightSectionHeadings: SectionHeading[];
 };
 
-type LineHint = {
-	pos: number;
-	len: number;
-	empty: boolean;
-	numConsecutiveBlankLines: number;
-};
-
-type OutputOptions = {
-	leftLabel?: string;
-	rightLabel?: string;
-	htmlFormat?: "div" | "table" | "dl";
-	textFormat?: 0 | 1 | 2 | 3;
-	htmlPre?: boolean;
-};
-
-type CopyMode = "raw" | "formatted" | "compare";
-
-type OutlineEntry = {
-	level: 1 | 2 | 3 | 4 | 5 | 6;
-	title: string;
-	leftPos: number;
-	leftLen: number;
-	rightPos: number;
-	rightLen: number;
-};
-
 type SectionHeading = {
 	type: number;
 	level: number;
@@ -138,60 +111,6 @@ type SectionHeading = {
 	nextSibling: SectionHeading | null;
 	startTokenIndex: number;
 	endTokenIndex: number;
-};
-
-type RenderItem = {
-	type: "texthighlight" | "diffhighlight";
-	x: number;
-	y: number;
-	w: number;
-	h: number;
-	fillStyle?: string;
-	strokeStyle?: string;
-};
-
-type TextHighlightRenderItem = {
-	rects: Rect[];
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-};
-
-type RenderLayer = {
-	index: 0 | 1;
-	dirty: boolean;
-};
-
-type TextSelectionHighlight = {
-	startOffset: number;
-	endOffset: number;
-	renderItem?: { rects: Rect[] } & RenderBounds;
-};
-
-type RectSet = {
-	rects: Rect[] | null;
-	// fillStyle: string | null;
-	// strokeStyle: string | null;
-} & RenderBounds;
-
-type RenderBounds = {
-	minX: number;
-	minY: number;
-	maxX: number;
-	maxY: number;
-};
-
-// type RectsWithBoundsOptional = ({ rects: Rect[] } & RenderBounds) | ({ rects?: undefined } & RenderBoundsUndefined);
-// type RenderBoundsUndefined ={ minX?: undefined, minY?: undefined, maxX?: undefined, maxY?: undefined };
-
-
-type RichToken = {
-	text: string;
-	flags: number;
-	range: LightRange | Range;
-	lineNum: number;
-	container: TextFlowContainer;
 };
 
 type TextFlowContainer = {

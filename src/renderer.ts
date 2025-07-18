@@ -1,3 +1,16 @@
+type RectSet = {
+	rects: Rect[] | null;
+	// fillStyle: string | null;
+	// strokeStyle: string | null;
+} & RenderBounds;
+
+type RenderBounds = {
+	minX: number;
+	minY: number;
+	maxX: number;
+	maxY: number;
+};
+
 const enum RenderFlags {
 	NONE = 0,
 	// LAYOUT FLAGS

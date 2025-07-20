@@ -1,6 +1,6 @@
 type SliceDiffCallbacks = {
-    onComplete: (result: SliceDiffResponse) => void;
-    onReject: (reqId: number) => void;
+	onComplete: (result: SliceDiffResponse) => void;
+	onReject: (reqId: number) => void;
 };
 
 function createSliceDiffWorker(onComplete: (result: SliceDiffResponse) => void) {
@@ -21,12 +21,20 @@ function createSliceDiffWorker(onComplete: (result: SliceDiffResponse) => void) 
 	})();
 
 	worker.onmessage = (e: MessageEvent) => {
-        console.debug("Worker message received:", e.data);
 		const data = e.data;
 		if (data.type === "slice" && data.reqId === currentReqId) {
 			onComplete(data);
 		}
 	};
+
+	function getNormalizedCharMap(): Record<number, number> {
+		return normalizedCharMap;
+	}
+
+	worker.postMessage({
+		type: "init",
+		normalizedCharMap: getNormalizedCharMap(),
+	});
 
 	function requestSliceDiff(leftText: string, rightText: string, options: SliceDiffOptions): number {
 		const reqId = ++reqIdCounter;
@@ -37,7 +45,7 @@ function createSliceDiffWorker(onComplete: (result: SliceDiffResponse) => void) 
 			reqId,
 			leftText,
 			rightText,
-			options
+			options,
 		});
 
 		return reqId;
@@ -45,6 +53,6 @@ function createSliceDiffWorker(onComplete: (result: SliceDiffResponse) => void) 
 
 	return {
 		requestSliceDiff,
-		terminate: () => worker.terminate()
+		terminate: () => worker.terminate(),
 	};
 }

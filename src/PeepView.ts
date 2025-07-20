@@ -46,7 +46,6 @@ class PeepView {
 			this.#moveToCenter();
 		}
 
-
 		this.#el.style.display = "block";
 		this.#visible = true;
 
@@ -61,9 +60,7 @@ class PeepView {
 	}
 
 	toggle() {
-		this.#visible
-			? this.hide()
-			: this.show(this.#leftText, this.#rightText, [], []);
+		this.#visible ? this.hide() : this.show(this.#leftText, this.#rightText, [], []);
 	}
 
 	get isVisible() {
@@ -98,7 +95,6 @@ class PeepView {
 
 		container.innerHTML = "";
 
-		console.debug("Rendering slice diff:", entries);
 		for (const entry of entries) {
 			const span = document.createElement("span");
 			let text = "";
@@ -118,12 +114,12 @@ class PeepView {
 			container.appendChild(span);
 		}
 	}
+
 	#renderTrail(leftTrail: SectionHeading[], rightTrail: SectionHeading[]) {
 		const trailEl = this.#el.querySelector(".peep-trail");
 		if (!trailEl) return;
 
 		trailEl.innerHTML = "";
-
 		const renderTrailList = (trail: SectionHeading[], className: "left" | "right") => {
 			const wrapper = document.createElement("div");
 			wrapper.className = `trail-wrapper ${className}`;
@@ -132,9 +128,7 @@ class PeepView {
 			button.textContent = className === "left" ? "L" : "R";
 			button.className = "trail-copy-button";
 			button.addEventListener("click", () => {
-				const text = trail
-					.map(h => `${h.ordinalText} ${h.title}`)
-					.join(" › ");
+				const text = trail.map((h) => `${h.ordinalText} ${h.title}`).join(" › ");
 				navigator.clipboard.writeText(text).then(() => {
 					button.textContent = "✓";
 					setTimeout(() => {
@@ -165,11 +159,14 @@ class PeepView {
 			return wrapper;
 		};
 
-
-		trailEl.appendChild(renderTrailList(leftTrail, "left"));
-		trailEl.appendChild(renderTrailList(rightTrail, "right"));
+		if (leftTrail.length === 0 && rightTrail.length === 0) {
+			(trailEl as HTMLElement).style.display = "none";
+		} else {
+			(trailEl as HTMLElement).style.removeProperty("display");
+			trailEl.appendChild(renderTrailList(leftTrail, "left"));
+			trailEl.appendChild(renderTrailList(rightTrail, "right"));
+		}
 	}
-
 
 	#setLoadingState(loading: boolean) {
 		const body = this.#el.querySelector(".peep-diff-body");
@@ -196,7 +193,7 @@ class PeepView {
 		const closeBtn = document.createElement("button");
 		closeBtn.className = "peep-close";
 		closeBtn.textContent = "×";
-		closeBtn.addEventListener("click", () => this.hide());
+		closeBtn.addEventListener("click", () => peepviewEnabledAtom.set(false));
 
 		header.appendChild(title);
 		header.appendChild(closeBtn);
@@ -302,7 +299,7 @@ class PeepView {
 		const height = el.offsetHeight;
 
 		el.style.left = (vw - width) / 2 + "px";
-		el.style.top = (vh - height) / 3 * 2 + "px";
+		el.style.top = ((vh - height) / 3) * 2 + "px";
 		el.style.position = "fixed";
 
 		el.style.display = "none";

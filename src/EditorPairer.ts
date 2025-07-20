@@ -77,7 +77,7 @@ class EditorPairer {
 		this.#oldDiffMarkers = this.#diffMarkers;
 		for (const marker of this.#diffMarkers) {
 			if (marker) {
-				marker.remove();;
+				marker.remove();
 			}
 		}
 		this.#diffMarkers = [];
@@ -108,47 +108,11 @@ class EditorPairer {
 		if (this.#oldDiffMarkers) {
 			for (const marker of this.#oldDiffMarkers) {
 				if (marker) {
-					console.log("Removing...", marker);
 					marker.remove();
 				}
 			}
 			this.#oldDiffMarkers = null;
 		}
-	}
-
-	#anchorFlagsToString(flags: AnchorFlags): string {
-		const flagsArray: string[] = [];
-		if (flags & AnchorFlags.LINE_START) {
-			flagsArray.push("LINE_START");
-		}
-		if (flags & AnchorFlags.BLOCK_START) {
-			flagsArray.push("BLOCK_START");
-		}
-		if (flags & AnchorFlags.CONTAINER_START) {
-			flagsArray.push("CONTAINER_START");
-		}
-		if (flags & AnchorFlags.TABLECELL_START) {
-			flagsArray.push("TABLECELL_START");
-		}
-		if (flags & AnchorFlags.TABLEROW_START) {
-			flagsArray.push("TABLEROW_START");
-		}
-		if (flags & AnchorFlags.TABLE_START) {
-			flagsArray.push("TABLE_START");
-		}
-		if (flags & AnchorFlags.AFTER_CONTAINER) {
-			flagsArray.push("AFTER_CONTAINER");
-		}
-		if (flags & AnchorFlags.EMPTY_DIFF) {
-			flagsArray.push("EMPTY_DIFF");
-		}
-		if (flags & AnchorFlags.SECTION_HEADING) {
-			flagsArray.push("SECTION_HEADING");
-		}
-		if (flagsArray.length === 0) {
-			return "None";
-		}
-		return flagsArray.join(" | ");
 	}
 
 	insertDiffMarker(container: HTMLElement, offset: number) {
@@ -158,7 +122,6 @@ class EditorPairer {
 			//throw new Error("Diff marker already exists at the specified offset");
 			return null;
 		} else {
-
 		}
 		const insertBefore = markerEl;
 		markerEl = document.createElement(DIFF_ELEMENT_NAME);
@@ -167,15 +130,21 @@ class EditorPairer {
 		return markerEl;
 	}
 
-	addAnchorPair(leftRange: Range | LightRange, leftFlags: AnchorFlags, leftDiffEl: HTMLElement | null, rightRange: Range | LightRange, rightFlags: AnchorFlags, rightDiffEl: HTMLElement | null, diffIndex: number | null) {
+	addAnchorPair(
+		leftRange: Range | LightRange,
+		leftFlags: AnchorFlags,
+		leftDiffEl: HTMLElement | null,
+		rightRange: Range | LightRange,
+		rightFlags: AnchorFlags,
+		rightDiffEl: HTMLElement | null,
+		diffIndex: number | null
+	) {
 		const lastPair = this.#anchorPairs[this.#anchorPairs.length - 1];
 		let leftEl = leftDiffEl ?? this.#leftEditor.getAnchorTargetForToken(leftRange, leftFlags);
 		if (!leftEl) {
-
-
 			return;
 		} else {
-			const lastEl = lastPair?.leftEl
+			const lastEl = lastPair?.leftEl;
 			if (lastEl && !(lastEl.compareDocumentPosition(leftEl) & Node.DOCUMENT_POSITION_FOLLOWING)) {
 				return;
 			}
@@ -184,8 +153,7 @@ class EditorPairer {
 		let rightEl = rightDiffEl ?? this.#rightEditor.getAnchorTargetForToken(rightRange, rightFlags);
 		if (!rightEl) {
 			return;
-		}
-		else {
+		} else {
 			const lastEl = lastPair?.rightEl;
 			if (lastEl && !(lastEl.compareDocumentPosition(rightEl) & Node.DOCUMENT_POSITION_FOLLOWING)) {
 				return;
@@ -280,7 +248,6 @@ class EditorPairer {
 		const leftEditor = this.#leftEditor;
 		const rightEditor = this.#rightEditor;
 
-
 		let leftScrollTop = leftEditor.scrollTop;
 		let rightScrollTop = rightEditor.scrollTop;
 
@@ -354,9 +321,6 @@ class EditorPairer {
 			}
 			onDone();
 		}
-
-
-
 	}
 
 	#queueProcessChunk(startIndex: number, onDone: () => void) {
@@ -376,7 +340,6 @@ class EditorPairer {
 			onDone();
 			return;
 		}
-
 
 		// 초기화
 		//this.#clearAnchorStyles();

@@ -6,7 +6,7 @@
 	--status-bar-height: 0px;
 	--container-gap: 8px;
 	--sidebar-width: 220px;
-	--sidebar-width-collapsed: 90px;
+	--sidebar-width-collapsed: 60px;
 	--text-container-padding-block: 4px;
 	--text-container-padding-inline: 4px;
 }
@@ -93,8 +93,6 @@ body.sidebar-collapsed {
 .editor:focus-within {
 	color: #000;
 }
-
-
 
 /* 모드	배경색	글자색	특징
 기본	#fdfdfd	#222	일반 읽기/편집
@@ -245,7 +243,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	border-collapse: collapse;
 	border-spacing: 0;
 	border-collapse: separate; /* or 'collapse' */
-  	table-layout: auto; /* or 'fixed' */
+	table-layout: auto; /* or 'fixed' */
 }
 
 .editor td {
@@ -402,7 +400,6 @@ a.diff.block {
 	background: rgba(250, 250, 250, 0.95);
 	border-top: 1px solid #ddd;
 	display: flex;
-
 	box-shadow: 0 -1px 3px rgba(0, 0, 0, 0.1);
 	justify-content: space-between;
 }
@@ -418,7 +415,6 @@ a.diff.block {
 	height: 24px;
 	padding: 0;
 	border: none;
-
 	border-radius: 6px;
 	display: flex;
 	align-items: center;
@@ -427,6 +423,10 @@ a.diff.block {
 	cursor: pointer;
 	transition: background 0.2s;
 	background-color: transparent;
+}
+
+.sidebar-collapsed #fetish-selector .left button {
+	display: none !important;
 }
 
 #fetish-selector button:focus {
@@ -438,7 +438,7 @@ a.diff.block {
 	box-shadow: none;
 }
 #fetish-selector button svg {
-	fill: #ccc;
+	fill: #444;
 }
 
 #sideview {
@@ -456,7 +456,8 @@ a.diff.block {
 }
 
 #syncToggleBtn.active svg,
-#sidebarExpandBtn.active svg {
+#sidebarExpandBtn.active svg,
+#peepviewToggleBtn.active svg {
 	fill: #fff;
 }
 
@@ -476,10 +477,6 @@ a.diff.block {
 
 #whitespaceToggleBtn.mode-normalize {
 	background-color: transparent;
-}
-
-#whitespaceToggleBtn.mode-normalize svg {
-	fill: #ccc;
 }
 
 .eyes-up-here,
@@ -563,14 +560,14 @@ a.diff.block {
 	cursor: pointer;
 }
 
-
 mark.diff {
 	all: unset;
 }
 
 mark.diff.block {
-	display: inline-block;/* 적절한 높이를 보장해야함. height가 없을 경우 rect.top이 바닥 지점이 되어버림. */
-	height: 1em;
+	/* 적절한 높이를 보장해야함. height가 없을 경우 rect.top이 바닥 지점이 되어버림. */
+	/* display: inline-block;
+	height: 1em; */
 }
 .peep-view {
 	position: fixed;
@@ -588,7 +585,7 @@ mark.diff.block {
 
 .peep-header {
 	background: #eee;
-	padding: 6px 10px;
+	padding: 2px 10px;
 	font-weight: bold;
 	display: flex;
 	justify-content: space-between;
@@ -666,6 +663,9 @@ dl.trail dd.trail-segment::after {
 	word-break: break-all;
 }
 
+.peep-view .diff-equal {
+	color: #666;
+}
 .peep-view.dark {
 	background: #222;
 	color: #eee;
@@ -784,4 +784,33 @@ dl.trail dd.trail-segment::after {
 	background-color: hsl(0 0% 90%);
 	border-color: hsl(0 0% 80%);
 	color: black;
+}
+
+.editor.busy {
+	opacity: 0.5;
+	pointer-events: none;
+}
+
+.editor.busy::after {
+	content: "";
+	position: absolute;
+	top: 50%;
+	left: 50%;
+	transform: translate(-50%, -50%);
+	border: 4px solid #f3f3f3; /* 회색 배경 */
+	border-top: 4px solid #3498db; /* 파란색 상단 */
+	border-radius: 50%;
+	width: 50px;
+	height: 50px;
+	animation: spin 1s linear infinite; /* 회전 애니메이션 */
+}
+
+/* 로딩 스피너 회전 애니메이션 */
+@keyframes spin {
+	0% {
+		transform: translate(-50%, -50%) rotate(0deg);
+	}
+	100% {
+		transform: translate(-50%, -50%) rotate(360deg);
+	}
 }

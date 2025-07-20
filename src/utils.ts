@@ -437,15 +437,18 @@ function extractRects(sourceRange: Range, emptyDiff: boolean = false): Rect[] {
 }
 
 // plaintext를 복붙할 때...
-function formatPlaintext(plaintext: string) {
+function createParagraphsFromText(plaintext: string, trimLines: boolean = false): DocumentFragment {
 	const lines = plaintext.split(/\r?\n/);
 	const fragment = document.createDocumentFragment();
+
 	for (const line of lines) {
 		const p = document.createElement("P");
-		if (line === "") {
+		const trimmedLine = trimLines ? line.trim() : line;
+		// 빈 줄 처리
+		if (trimmedLine === "") {
 			p.appendChild(document.createElement("BR"));
 		} else {
-			p.appendChild(document.createTextNode(line));
+			p.textContent = trimmedLine;
 		}
 		fragment.appendChild(p);
 	}
@@ -661,8 +664,6 @@ function getElement(container: Node, childIndex: number): HTMLElement | null {
 		return node.parentNode as HTMLElement;
 	}
 
-
-
 	if (container.nodeType === Node.ELEMENT_NODE) {
 		const element = (container as HTMLElement).children[childIndex];
 		if (element && element.nodeType === Node.ELEMENT_NODE) {
@@ -703,7 +704,7 @@ function buildTokenArrayByChar(richTokens: readonly RichToken[], mode: "char" | 
 			result.push({
 				text: richToken.text,
 				flags: flags,
-			})
+			});
 		} else {
 			const text = richToken.text;
 			for (const char of text) {
@@ -736,19 +737,23 @@ function renderUnifiedDiffHTML(leftText: string, rightText: string, diffs: RawDi
 }
 
 function escapeHTML(str: string): string {
-	return str.replace(/[&<>"']/g, m => ({
-		'&': '&amp;',
-		'<': '&lt;',
-		'>': '&gt;',
-		'"': '&quot;',
-		"'": '&#39;',
-	}[m]!));
+	return str.replace(
+		/[&<>"']/g,
+		(m) =>
+			({
+				"&": "&amp;",
+				"<": "&lt;",
+				">": "&gt;",
+				'"': "&quot;",
+				"'": "&#39;",
+			}[m]!)
+	);
 }
 
 function normalizeMultiline(text: string): string {
 	return text
 		.split(/\r?\n/)
-		.map(line => line.trim())
-		.filter(line => line.length > 0)
+		.map((line) => line.trim())
+		.filter((line) => line.length > 0)
 		.join("\n");
 }

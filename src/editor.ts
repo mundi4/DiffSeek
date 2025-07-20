@@ -236,6 +236,8 @@ class Editor {
 	}
 
 	#onPaste(e: ClipboardEvent) {
+		const startTime = performance.now();
+
 		const selection = document.getSelection();
 		if (!selection || selection.rangeCount === 0) {
 			return;
@@ -250,36 +252,142 @@ class Editor {
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
 		e.preventDefault();
-		this.unobserveMutation();
 
-		let rawHTML = e.clipboardData?.getData("text/html") ?? "";
+		let isHTML = true;
+		let data = e.clipboardData?.getData("text/html") ?? "";
+		if (!data) {
+			isHTML = false;
+			data = e.clipboardData?.getData("text/plain") ?? "";
+		}
+
+		this.#setContents({
+			contents: data,
+			asHTML: isHTML,
+			targetRange: range,
+			allowLegacyExecCommand: data.length <= (isHTML ? 10_000 : 1_000),
+		});
+		const endTime = performance.now();
+		console.debug(this.#editorName, "Paste operation took", endTime - startTime, "ms");
+	}
+
+	getSelectionRange(): Range | null {
+		const selection = document.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return null;
+		}
+		const range = selection.getRangeAt(0);
+		if (this.#editor.contains(range.startContainer) && this.#editor.contains(range.endContainer)) {
+			return range;
+		}
+		return null;
+	}
+
+	/**
+	 * 폭탄 붙여넣기! 왜 bomb인가? 되돌릴 수 없기 때문. ctrl-z 안먹힘.
+	 * 전체 내용을 클립보드의 내용으로 교체함.
+	 * 또한 클립보드 액세스를 가능하게 하는 사용자의 동작 없이 실행이 되므로 브라우저에서 "허용" 여부를 묻는 경고창이 뜰 수 있음.
+	 */
+	async pasteBomb(plaintextOnly: boolean = false) {
+		const startTime = performance.now();
+
+		if (!navigator.clipboard || !navigator.clipboard.read) {
+			throw new Error("Clipboard API is not available in this browser");
+		}
+
+		this.#editor.contentEditable = "false";
+		this.#editor.classList.add("busy");
+
+		try {
+			const items = await navigator.clipboard.read();
+			let foundItem: ClipboardItem | null = null;
+			let foundType: string | null = null;
+
+			if (!plaintextOnly) {
+				for (const item of items) {
+					if (item.types.includes("text/html")) {
+						foundItem = item;
+						foundType = "text/html";
+						break;
+					}
+				}
+			}
+			if (!foundItem) {
+				for (const item of items) {
+					if (item.types.includes("text/plain")) {
+						foundItem = item;
+						foundType = "text/plain";
+						break;
+					}
+				}
+			}
+
+			if (!foundItem) {
+				return false;
+			}
+
+			const text = await (await foundItem.getType(foundType!)).text();
+			this.#setContents({
+				contents: text,
+				asHTML: foundType === "text/html",
+				targetRange: null,
+				allowLegacyExecCommand: false,
+			});
+
+			const endTime = performance.now();
+			console.debug(this.#editorName, "Paste bomb operation took", endTime - startTime, "ms");
+			return true;
+		} finally {
+			this.#editor.classList.remove("busy");
+			this.#editor.contentEditable = "true";
+		}
+	}
+
+	#setContents({
+		contents,
+		asHTML = false,
+		targetRange,
+		allowLegacyExecCommand = false,
+	}: {
+		contents: string;
+		asHTML?: boolean;
+		targetRange: Range | null;
+		allowLegacyExecCommand?: boolean;
+	}) {
 		let sanitized: Node;
-		if (rawHTML) {
-			sanitized = sanitizeHTML(rawHTML);
+		if (asHTML) {
+			sanitized = sanitizeHTML(contents);
 		} else {
-			sanitized = formatPlaintext(e.clipboardData?.getData("text/plain") ?? "");
+			sanitized = createParagraphsFromText(contents);
 		}
 
-		// 후...
-		// document.execCommand("insertHTML", ...)를 undo/redo 히스토리가 제대로 업데이트 되지만
-		// 느리다. 미친게 아닌가 싶을 정도로 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
-		// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
-
-		// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
-		if (rawHTML.length <= 200_000) {
-			const div = document.createElement("DIV");
-			div.appendChild(sanitized);
-			const sanitizedHTML = div.innerHTML;
-			document.execCommand("insertHTML", false, sanitizedHTML);
-		} else {
-			range.deleteContents();
-			range.insertNode(sanitized);
-			range.collapse(false);
-			this.#onInput();
+		try {
+			this.unobserveMutation();
+			if (targetRange === null) {
+				this.#editor.innerHTML = "";
+				this.#editor.appendChild(sanitized);
+				this.#onInput();
+			} else if (this.#editor.contains(targetRange.startContainer) && this.#editor.contains(targetRange.endContainer)) {
+				if (allowLegacyExecCommand && contents.length <= 200_000) {
+					// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
+					const div = document.createElement("DIV");
+					div.appendChild(sanitized);
+					const sanitizedHTML = div.innerHTML;
+					document.execCommand("insertHTML", false, sanitizedHTML);
+				} else {
+					// 이 경우는 range를 사용해서 직접 삽입함.
+					// execCommand("insertHTML", ...)는 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
+					// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
+					targetRange.deleteContents();
+					targetRange.insertNode(sanitized);
+					targetRange.collapse(false);
+					this.#onInput();
+				}
+			} else {
+				throw new Error("Target range is not within the editor");
+			}
+		} finally {
+			this.observeMutation();
 		}
-
-		this.observeMutation();
-		// console.timeEnd("paste");
 	}
 
 	selectAll() {
@@ -300,11 +408,11 @@ class Editor {
 		let sanitized = sanitizeHTML(rawHTML);
 		const range = document.createRange();
 		range.selectNodeContents(this.#editor);
-			range.deleteContents();
-			range.insertNode(sanitized);
-			range.collapse(false);
-			this.#onInput();
-		
+		range.deleteContents();
+		range.insertNode(sanitized);
+		range.collapse(false);
+		this.#onInput();
+
 		this.observeMutation();
 	}
 
@@ -440,8 +548,6 @@ class Editor {
 		this.#callbacks.onContentChanged(this);
 	}
 
-
-
 	scrollTo(offset: number, options?: ScrollOptions) {
 		if (this.#wrapper.scrollTop !== offset) {
 			this.#wrapper.scrollTo({
@@ -474,18 +580,6 @@ class Editor {
 		return true;
 	}
 
-	// 디버깅 전용
-	zzsetContent(rawHTML: string) {
-		this.unobserveMutation();
-		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
-		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
-		let sanitized: Node = sanitizeHTML(rawHTML);
-		this.#editor.innerHTML = "";
-		this.#editor.appendChild(sanitized);
-		this.observeMutation();
-		this.#onInput();
-	}
-
 	set height(value: number) {
 		const editorHeight = this.#editor.scrollHeight;
 		const lifting = value - editorHeight;
@@ -511,7 +605,7 @@ class Editor {
 	// 그리고 그 토큰들을 사용해서 앵커와 앵커 사이에 어떤 diff가 있는지 파악 가능
 	// 그리고 alignAnchors()가 되었을때 화면상 첫앵커와 끝앵커 사이의 diff geometries를 invalidate할 수 있다.
 	// TODO
-	removeDanglingAnchors() { }
+	removeDanglingAnchors() {}
 
 	forceReflow() {
 		// force reflow
@@ -519,7 +613,6 @@ class Editor {
 		void this.#wrapper.offsetHeight; // force reflow
 		//void this.#editor.offsetHeight; // force reflow
 		//this.#wrapper.style.display = "";
-
 	}
 
 	toggleDirectionalOverlays(above: boolean, below: boolean) {
@@ -548,9 +641,7 @@ class Editor {
 			DIV: true,
 			P: true,
 			LI: true,
-
-
-		}
+		};
 
 		// 부모로 거슬러 올라가면서 블럭요소를 찾음
 		let target: HTMLElement | null = node as HTMLElement;
@@ -570,4 +661,3 @@ type EditorRegionInfo = {
 	getBoundingClientRect: () => DOMRect;
 	scrollTop: number;
 };
-

@@ -845,14 +845,19 @@ function matchSuffixTokens(leftTokens, lhsLower, lhsUpper, rightTokens, rhsLower
 </script>
 <script id="slice.worker.js" type="text/plain">"use strict";
 let currentReqId = -1;
+let _normalizedCharMap = {};
 onmessage = (e) => {
     const req = e.data;
+    if (req.type === "init") {
+        _normalizedCharMap = req.normalizedCharMap;
+        return;
+    }
     if (req.type !== "slice")
         return;
     currentReqId = req.reqId;
     setTimeout(() => {
         if (req.reqId !== currentReqId)
-            return; // 뒤늦게 도착한 응답 무시
+            return;
         const t0 = performance.now();
         const diffs = computeSliceDiff(req.leftText, req.rightText, req.options || {});
         const t1 = performance.now();
@@ -863,24 +868,37 @@ onmessage = (e) => {
             processTime: t1 - t0,
         };
         postMessage(response);
-    }, 0); // 비동기로 실행해서 요청 연속 처리 시 취소 타이밍 보장
+    }, 0);
 };
 function tokenizeChars(text, options) {
     const tokens = [];
-    for (const char of text) {
-        //if (options.ignoreWhitespace && /\s/.test(char)) continue;
-        //const norm = options.ignoreCase ? char.toLowerCase() : char;
-        tokens.push({ char, norm: char });
+    let i = 0;
+    while (i < text.length) {
+        const charCode = text.codePointAt(i);
+        const normCode = _normalizedCharMap[charCode] ?? charCode;
+        if (charCode === undefined) {
+            throw new Error(`Invalid character at index ${i}`);
+        }
+        const count = charCode > 0xffff ? 2 : 1;
+        tokens.push({
+            char: String.fromCodePoint(normCode),
+            count: count,
+            index: i,
+        });
+        i += count;
     }
     return tokens;
 }
 function computeSliceDiff(leftText, rightText, options) {
     const A = tokenizeChars(leftText, options);
     const B = tokenizeChars(rightText, options);
-    const dp = Array(A.length + 1).fill(null).map(() => Array(B.length + 1).fill(0));
+    const dp = Array(A.length + 1)
+        .fill(null)
+        .map(() => Array(B.length + 1).fill(0));
+    // LCS 계산 (동적 계획법)
     for (let i = A.length - 1; i >= 0; i--) {
         for (let j = B.length - 1; j >= 0; j--) {
-            if (A[i].norm === B[j].norm) {
+            if (A[i].char === B[j].char) {
                 dp[i][j] = dp[i + 1][j + 1] + 1;
             }
             else {
@@ -890,12 +908,13 @@ function computeSliceDiff(leftText, rightText, options) {
     }
     let i = 0, j = 0;
     const diffs = [];
+    // diff 결과 생성
     while (i < A.length || j < B.length) {
-        if (i < A.length && j < B.length && A[i].norm === B[j].norm) {
+        if (i < A.length && j < B.length && A[i].char === B[j].char) {
             diffs.push({
                 type: 0,
-                left: { index: i, count: 1 },
-                right: { index: j, count: 1 }
+                left: { index: A[i].index, count: A[i].count }, // `index`는 이제 실제 문자열의 인덱스
+                right: { index: B[j].index, count: B[j].count },
             });
             i++;
             j++;
@@ -903,14 +922,14 @@ function computeSliceDiff(leftText, rightText, options) {
         else if (i < A.length && (j >= B.length || dp[i + 1][j] >= dp[i][j + 1])) {
             diffs.push({
                 type: 1,
-                left: { index: i, count: 1 }
+                left: { index: A[i].index, count: A[i].count }, // `index`는 그대로 사용
             });
             i++;
         }
         else if (j < B.length) {
             diffs.push({
                 type: 2,
-                right: { index: j, count: 1 }
+                right: { index: B[j].index, count: B[j].count }, // `index`는 그대로 사용
             });
             j++;
         }
@@ -921,7 +940,7 @@ function computeSliceDiff(leftText, rightText, options) {
 </script>
 <script>"use strict";
 const DEBUG = true;
-const MAX_TOKEN_COUNT = 0xFFFFF; // 1,048,575
+const MAX_TOKEN_COUNT = 0xfffff; // 1,048,575
 const COMPUTE_DIFF_TIMEOUT = 500;
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
@@ -1041,6 +1060,84 @@ const BLOCK_ELEMENTS = {
     //TD: true,
     "#document-fragment": true,
 };
+const normalizedCharMap = ((normChars) => {
+    const result = {};
+    let parser;
+    function htmlEntityToChar(entity) {
+        const doc = (parser = parser || new DOMParser()).parseFromString(entity, "text/html");
+        const char = doc.body.textContent;
+        if (char.length !== 1) {
+            throw new Error("htmlEntityToChar: not a single character entity: " + entity);
+        }
+        return char.codePointAt(0);
+    }
+    function getCharCode(char) {
+        if (typeof char === "number") {
+            return char;
+        }
+        let charCode = char.codePointAt(0);
+        if (charCode === 0x26) {
+            // &
+            charCode = htmlEntityToChar(char);
+        }
+        return charCode;
+    }
+    for (const entry of normChars) {
+        const [norm, ...variants] = entry;
+        const normCharCode = getCharCode(norm);
+        for (const variant of variants) {
+            const variantCharCode = getCharCode(variant);
+            result[variantCharCode] = normCharCode;
+        }
+    }
+    return result;
+})([
+    ['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
+    ["-", "‐", "‑", "‒", "–", "﹘", "—", "－"],
+    [".", "․", "．"],
+    [",", "，"],
+    ["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
+    ["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만 많더라.
+    ["■", "▪", "◼"],
+    ["□", "▫", "◻", "ㅁ"],
+    ["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?...
+    ["…", "⋯"],
+    ["(", "（"],
+    [")", "）"],
+    ["[", "［"],
+    ["]", "］"],
+    ["{", "｛"],
+    ["}", "｝"],
+    ["<", "＜"],
+    [">", "＞"],
+    ["=", "＝"],
+    ["+", "＋"],
+    ["*", "＊", "✱", "×", "∗"],
+    ["/", "／", "÷"],
+    ["\\", "₩"], // 아마도 원화 기호로 사용했겠지
+    ["&", "＆"],
+    ["#", "＃"],
+    ["@", "＠"],
+    ["$", "＄"],
+    ["%", "％"],
+    ["^", "＾"],
+    ["~", "～"],
+    ["`", "｀"],
+    ["|", "｜"],
+    [":", "："],
+    [";", "；"],
+    ["?", "？"],
+    ["!", "！"],
+    ["_", "＿"],
+    ["→", "⇒", "➡", "➔", "➞", "➟"],
+    ["←", "⇐", "⬅", "⟵", "⟸"],
+    ["↑", "⇑", "⬆"],
+    ["↓", "⇓", "⬇"],
+    ["↔", "⇔"],
+    ["↕", "⇕"],
+    [" ", "\u00A0"],
+    ["0", "😒"],
+]);
 const FRAME_BUDGET_MS = 1000 / 60;
 //# sourceMappingURL=constants.js.map
 </script>
@@ -1822,12 +1919,18 @@ function createSliceDiffWorker(onComplete) {
         return new Worker(workerURL);
     })();
     worker.onmessage = (e) => {
-        console.debug("Worker message received:", e.data);
         const data = e.data;
         if (data.type === "slice" && data.reqId === currentReqId) {
             onComplete(data);
         }
     };
+    function getNormalizedCharMap() {
+        return normalizedCharMap;
+    }
+    worker.postMessage({
+        type: "init",
+        normalizedCharMap: getNormalizedCharMap(),
+    });
     function requestSliceDiff(leftText, rightText, options) {
         const reqId = ++reqIdCounter;
         currentReqId = reqId;
@@ -1836,13 +1939,13 @@ function createSliceDiffWorker(onComplete) {
             reqId,
             leftText,
             rightText,
-            options
+            options,
         });
         return reqId;
     }
     return {
         requestSliceDiff,
-        terminate: () => worker.terminate()
+        terminate: () => worker.terminate(),
     };
 }
 //# sourceMappingURL=slice.diff.js.map
@@ -2436,83 +2539,6 @@ const splitChars = {
 // 	normalizedChar: number;
 // 	trieNode: TrieNode | null;
 // }
-const normalizedCharMap = ((normChars) => {
-    const result = {};
-    let parser;
-    function htmlEntityToChar(entity) {
-        const doc = (parser = parser || new DOMParser()).parseFromString(entity, "text/html");
-        const char = doc.body.textContent;
-        if (char.length !== 1) {
-            throw new Error("htmlEntityToChar: not a single character entity: " + entity);
-        }
-        return char.codePointAt(0);
-    }
-    function getCharCode(char) {
-        if (typeof char === "number") {
-            return char;
-        }
-        let charCode = char.codePointAt(0);
-        if (charCode === 0x26) {
-            // &
-            charCode = htmlEntityToChar(char);
-        }
-        return charCode;
-    }
-    for (const entry of normChars) {
-        const [norm, ...variants] = entry;
-        const normCharCode = getCharCode(norm);
-        for (const variant of variants) {
-            const variantCharCode = getCharCode(variant);
-            result[variantCharCode] = normCharCode;
-        }
-    }
-    return result;
-})([
-    ['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
-    ["-", "‐", "‑", "‒", "–", "﹘", "—", "－"],
-    [".", "․", "．"],
-    [",", "，"],
-    ["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
-    ["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만 많더라.
-    ["■", "▪", "◼"],
-    ["□", "▫", "◻", "ㅁ"],
-    ["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?...
-    ["…", "⋯"],
-    ["(", "（"],
-    [")", "）"],
-    ["[", "［"],
-    ["]", "］"],
-    ["{", "｛"],
-    ["}", "｝"],
-    ["<", "＜"],
-    [">", "＞"],
-    ["=", "＝"],
-    ["+", "＋"],
-    ["*", "＊", "✱", "×", "∗"],
-    ["/", "／", "÷"],
-    ["\\", "₩"], // 아마도 원화 기호로 사용했겠지
-    ["&", "＆"],
-    ["#", "＃"],
-    ["@", "＠"],
-    ["$", "＄"],
-    ["%", "％"],
-    ["^", "＾"],
-    ["~", "～"],
-    ["`", "｀"],
-    ["|", "｜"],
-    [":", "："],
-    [";", "；"],
-    ["?", "？"],
-    ["!", "！"],
-    ["_", "＿"],
-    ["→", "⇒", "➡", "➔", "➞", "➟"],
-    ["←", "⇐", "⬅", "⟵", "⟸"],
-    ["↑", "⇑", "⬆"],
-    ["↓", "⇓", "⬇"],
-    ["↔", "⇔"],
-    ["↕", "⇕"],
-    [" ", "\u00A0"],
-]);
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
 // 글자단위로 토큰화하는 경우에도 얘네들은 (...) 통채로 하나의 토큰으로 취급.
@@ -3456,17 +3482,6 @@ class Editor {
         }
         return true;
     }
-    // 디버깅 전용
-    zzsetContent(rawHTML) {
-        this.unobserveMutation();
-        // 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
-        // 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
-        let sanitized = sanitizeHTML(rawHTML);
-        this.#editor.innerHTML = "";
-        this.#editor.appendChild(sanitized);
-        this.observeMutation();
-        this.#onInput();
-    }
     set height(value) {
         const editorHeight = this.#editor.scrollHeight;
         const lifting = value - editorHeight;
@@ -3575,7 +3590,6 @@ class EditorPairer {
         for (const marker of this.#diffMarkers) {
             if (marker) {
                 marker.remove();
-                ;
             }
         }
         this.#diffMarkers = [];
@@ -3605,46 +3619,11 @@ class EditorPairer {
         if (this.#oldDiffMarkers) {
             for (const marker of this.#oldDiffMarkers) {
                 if (marker) {
-                    console.log("Removing...", marker);
                     marker.remove();
                 }
             }
             this.#oldDiffMarkers = null;
         }
-    }
-    #anchorFlagsToString(flags) {
-        const flagsArray = [];
-        if (flags & 1 /* AnchorFlags.LINE_START */) {
-            flagsArray.push("LINE_START");
-        }
-        if (flags & 2 /* AnchorFlags.BLOCK_START */) {
-            flagsArray.push("BLOCK_START");
-        }
-        if (flags & 4 /* AnchorFlags.CONTAINER_START */) {
-            flagsArray.push("CONTAINER_START");
-        }
-        if (flags & 8 /* AnchorFlags.TABLECELL_START */) {
-            flagsArray.push("TABLECELL_START");
-        }
-        if (flags & 16 /* AnchorFlags.TABLEROW_START */) {
-            flagsArray.push("TABLEROW_START");
-        }
-        if (flags & 32 /* AnchorFlags.TABLE_START */) {
-            flagsArray.push("TABLE_START");
-        }
-        if (flags & 64 /* AnchorFlags.AFTER_CONTAINER */) {
-            flagsArray.push("AFTER_CONTAINER");
-        }
-        if (flags & 128 /* AnchorFlags.EMPTY_DIFF */) {
-            flagsArray.push("EMPTY_DIFF");
-        }
-        if (flags & 256 /* AnchorFlags.SECTION_HEADING */) {
-            flagsArray.push("SECTION_HEADING");
-        }
-        if (flagsArray.length === 0) {
-            return "None";
-        }
-        return flagsArray.join(" | ");
     }
     insertDiffMarker(container, offset) {
         let markerEl = container.childNodes[offset];
@@ -4849,6 +4828,7 @@ class FetishSelector {
 <script>"use strict";
 class DiffPostProcessor {
     // #ctx: DiffContext;
+    #diffseek;
     #leftEditor;
     #rightEditor;
     #editorPairer;
@@ -4864,8 +4844,9 @@ class DiffPostProcessor {
     #rightTokens;
     #diffOptions;
     #rawDiffs;
-    constructor(leftEditor, rightEditor, editorPairer, diffOptions, rawDiffs) {
+    constructor(diffseek, leftEditor, rightEditor, editorPairer, diffOptions, rawDiffs) {
         // this.#ctx = ctx;
+        this.#diffseek = diffseek;
         this.#leftEditor = leftEditor;
         this.#rightEditor = rightEditor;
         this.#editorPairer = editorPairer;
@@ -4889,7 +4870,7 @@ class DiffPostProcessor {
                 return;
             }
             if (generator === null) {
-                generator = this.applyGenerator(idleDeadline);
+                generator = this.#processGenerator(idleDeadline);
             }
             const { done } = generator.next(idleDeadline);
             if (this.#cancelled) {
@@ -4923,7 +4904,7 @@ class DiffPostProcessor {
             timeout: COMPUTE_DIFF_TIMEOUT,
         });
     }
-    *applyGenerator(idleDeadline) {
+    *#processGenerator(idleDeadline) {
         this.#buildDiffEntries();
         if (idleDeadline.timeRemaining() <= 0) {
             idleDeadline = yield;
@@ -5110,7 +5091,11 @@ class DiffPostProcessor {
                     if (container.nodeName === "TD" && childIndex === 0) {
                         const rowcol = getTableCellPosition(container);
                         if (rowcol && rowcol[0] === 0 && rowcol[1] === 0) {
-                            return [container, childIndex, 64 /* TokenFlags.TABLE_START */ | 256 /* TokenFlags.TABLEROW_START */ | 1024 /* TokenFlags.TABLECELL_START */ | 1 /* TokenFlags.LINE_START */];
+                            return [
+                                container,
+                                childIndex,
+                                64 /* TokenFlags.TABLE_START */ | 256 /* TokenFlags.TABLEROW_START */ | 1024 /* TokenFlags.TABLECELL_START */ | 1 /* TokenFlags.LINE_START */,
+                            ];
                         }
                     }
                 }
@@ -5428,7 +5413,6 @@ class PeepView {
         if (!container)
             return;
         container.innerHTML = "";
-        console.debug("Rendering slice diff:", entries);
         for (const entry of entries) {
             const span = document.createElement("span");
             let text = "";
@@ -6149,12 +6133,10 @@ class DiffSeek {
                 if (editor) {
                     // onContentChanging에서 diffContext를 null로 설정하므로 이 시점에서 에디터는 유효한 토큰 배열을 가지고 있다고 볼 수 있다.
                     const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(range);
-                    console.log("Selection token indices:", startTokenIndex, endTokenIndex);
                     if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
                         let otherStartTokenIndex;
                         let otherEndTokenIndex;
                         const otherEntries = editor === this.#leftEditor ? this.#diffContext.leftEntries : this.#diffContext.rightEntries;
-                        console.log("otherEntries:", otherEntries, editor.name);
                         const otherSpanKey = editor === this.#leftEditor ? "right" : "left";
                         otherStartTokenIndex = otherEntries[startTokenIndex][otherSpanKey].index;
                         if (endTokenIndex > 0) {
@@ -6348,13 +6330,12 @@ class DiffSeek {
         };
     }
     #onWorkerMessage(msg) {
-        console.log("worker message:", msg);
         if (msg.type === "diff") {
             if (this.#fullDiffReqId !== msg.reqId) {
                 return;
             }
             this.#diffProcessor?.cancel();
-            this.#diffProcessor = new DiffPostProcessor(this.#leftEditor, this.#rightEditor, this.editorPairer, msg.options, msg.diffs);
+            this.#diffProcessor = new DiffPostProcessor(this, this.#leftEditor, this.#rightEditor, this.editorPairer, msg.options, msg.diffs);
             this.#diffProcessor.process((diffContext) => this.#onDiffPostProcessed(diffContext));
         }
         else if (msg.type === "slice") {
@@ -6375,13 +6356,15 @@ class DiffSeek {
         }
     }
     #onDiffPostProcessed(diffContext) {
-        console.log("Diff post-processed:", diffContext);
         this.showMessage(null);
         this.#diffContext = diffContext;
         this.#diffProcessor = null;
         this.#renderer.setDiffs(diffContext.diffs);
         this.#sideView.setDiffs(diffContext.diffs);
         this.#updateTextSelection();
+        if (this.#syncMode) {
+            this.alignAnchors();
+        }
     }
     syncScroll(primaryEditor) {
         const followingEditor = primaryEditor === this.#leftEditor ? this.#rightEditor : this.#leftEditor;
@@ -7043,8 +7026,9 @@ mark.diff {
 }
 
 mark.diff.block {
-	display: inline-block; /* 적절한 높이를 보장해야함. height가 없을 경우 rect.top이 바닥 지점이 되어버림. */
-	height: 1em;
+	/* 적절한 높이를 보장해야함. height가 없을 경우 rect.top이 바닥 지점이 되어버림. */
+	/* display: inline-block;
+	height: 1em; */
 }
 .peep-view {
 	position: fixed;

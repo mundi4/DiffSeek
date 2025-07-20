@@ -38,11 +38,11 @@ const enum TokenFlags {
 	SECTION_HEADING_TYPE6 = 1 << 24, // 가)
 
 	SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 |
-	SECTION_HEADING_TYPE2 |
-	SECTION_HEADING_TYPE3 |
-	SECTION_HEADING_TYPE4 |
-	SECTION_HEADING_TYPE5 |
-	SECTION_HEADING_TYPE6,
+		SECTION_HEADING_TYPE2 |
+		SECTION_HEADING_TYPE3 |
+		SECTION_HEADING_TYPE4 |
+		SECTION_HEADING_TYPE5 |
+		SECTION_HEADING_TYPE6,
 }
 
 // const normalizeChars: { [ch: string]: string } = {};
@@ -72,87 +72,6 @@ const splitChars: Record<string, boolean> = {
 // 	normalizedChar: number;
 // 	trieNode: TrieNode | null;
 // }
-
-const normalizedCharMap = ((normChars: (string | number)[][]) => {
-	const result: Record<number, number> = {};
-
-	let parser: DOMParser;
-	function htmlEntityToChar(entity: string) {
-		const doc = (parser = parser || new DOMParser()).parseFromString(entity, "text/html");
-		const char = doc.body.textContent!;
-		if (char.length !== 1) {
-			throw new Error("htmlEntityToChar: not a single character entity: " + entity);
-		}
-		return char.codePointAt(0);
-	}
-
-	function getCharCode(char: string | number): number {
-		if (typeof char === "number") {
-			return char;
-		}
-		let charCode = char.codePointAt(0);
-		if (charCode === 0x26) {
-			// &
-			charCode = htmlEntityToChar(char);
-		}
-		return charCode!;
-	}
-
-	for (const entry of normChars) {
-		const [norm, ...variants] = entry;
-		const normCharCode = getCharCode(norm);
-		for (const variant of variants) {
-			const variantCharCode = getCharCode(variant);
-			result[variantCharCode] = normCharCode;
-		}
-	}
-	return result;
-})([
-	['"', "“", "”", "'", "‘", "’"], // 비즈플랫폼 편집기에서 작은따옴표를 큰따옴표로 바꾸어버림. WHY?
-	["-", "‐", "‑", "‒", "–", "﹘", "—", "－"],
-	[".", "․", "．"],
-	[",", "，"],
-	["•", "●"], // 이걸 중간점 용도로 쓰는 사람들은 정말 갈아마셔야된다. 도저히 용납해줄 수 없고 같은 문자로 인식하게 만들고 싶지 않다.
-	["◦", "○", "ㅇ"], // 자음 "이응"을 쓰는 사람들도 개인적으로 이해가 안되지만 많더라.
-	["■", "▪", "◼"],
-	["□", "▫", "◻", "ㅁ"],
-	["·", "⋅", "∙", "ㆍ", "‧"], // 유니코드를 만든 집단은 도대체 무슨 생각이었던걸까?...
-	["…", "⋯"],
-	["(", "（"],
-	[")", "）"],
-	["[", "［"],
-	["]", "］"],
-	["{", "｛"],
-	["}", "｝"],
-	["<", "＜"],
-	[">", "＞"],
-	["=", "＝"],
-	["+", "＋"],
-	["*", "＊", "✱", "×", "∗"],
-	["/", "／", "÷"],
-	["\\", "₩"], // 아마도 원화 기호로 사용했겠지
-	["&", "＆"],
-	["#", "＃"],
-	["@", "＠"],
-	["$", "＄"],
-	["%", "％"],
-	["^", "＾"],
-	["~", "～"],
-	["`", "｀"],
-	["|", "｜"],
-	[":", "："],
-	[";", "；"],
-	["?", "？"],
-	["!", "！"],
-	["_", "＿"],
-	["→", "⇒", "➡", "➔", "➞", "➟"],
-	["←", "⇐", "⬅", "⟵", "⟸"],
-	["↑", "⇑", "⬆"],
-	["↓", "⇓", "⬇"],
-	["↔", "⇔"],
-	["↕", "⇕"],
-	[" ", "\u00A0"],
-]);
 
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)

@@ -15,7 +15,6 @@ type WorkerContext = {
 };
 
 class DiffSeek {
-
 	#mainContainer: HTMLElement;
 	#leftEditor: Editor;
 	#rightEditor: Editor;
@@ -40,7 +39,7 @@ class DiffSeek {
 	#worker = initializeWorker((msg) => this.#onWorkerMessage(msg));
 	#fullDiffReqId: number | null = null;
 	#sliceDiffReqId: number | null = null;
-	#sliceDiffContext: { leftText: string, rightText: string, diffs: RawDiff[] | null, options: DiffOptions, reqId: number } | null = null;
+	#sliceDiffContext: { leftText: string; rightText: string; diffs: RawDiff[] | null; options: DiffOptions; reqId: number } | null = null;
 	#editorContentsChanged: Record<EditorName, boolean> = {
 		left: false,
 		right: false,
@@ -192,7 +191,7 @@ class DiffSeek {
 		// }
 	}
 
-	#onRendererDraw(time: number) { }
+	#onRendererDraw(time: number) {}
 
 	get syncMode() {
 		return this.#syncMode;
@@ -317,25 +316,8 @@ class DiffSeek {
 
 				if (e.ctrlKey && (e.key === "1" || e.key === "2")) {
 					e.preventDefault();
-					console.debug("Ctrl+1 or Ctrl+2 pressed, focusing editor:", e.key);
 					const editor = e.key === "1" ? this.#leftEditor : this.#rightEditor;
-					editor.selectAll();
-					navigator.clipboard.read().then((items) => {
-						if (items.length > 0) {
-							const orderedTypes = ["text/html", "text/plain"];
-							for (const type of orderedTypes) {
-								if (items[0].types.includes(type)) {
-									items[0].getType(type).then((blob) => {
-										blob.text().then((text) => {
-											console.debug(`Clipboard ${type}:`, text);
-											editor.setContent(text);
-										});
-									});
-									break;
-								}
-							}
-						}
-					});
+					editor.pasteBomb();
 				}
 			},
 			true
@@ -397,13 +379,11 @@ class DiffSeek {
 			return false;
 		}
 
-
 		let leftSpan: Span | undefined = undefined;
 		let rightSpan: Span | undefined = undefined;
 
 		console.log(e);
 		if (e.target instanceof HTMLElement && e.target.matches(".diff-item")) {
-
 			const diffIndex = parseInt(e.target.dataset.diffIndex!);
 			const diff = this.#diffContext.diffs[diffIndex];
 			leftSpan = diff.leftSpan;
@@ -431,14 +411,16 @@ class DiffSeek {
 	}
 
 	#exportData(data: string[], target: Clipboard | DataTransfer) {
-
 		const tsvPayload = toTSV(data);
 		if (target instanceof Clipboard) {
-			target.writeText(tsvPayload).then(() => {
-				console.debug("Copied to clipboard:", tsvPayload);
-			}).catch((err) => {
-				console.warn("Failed to copy TSV to clipboard:", err);
-			});;
+			target
+				.writeText(tsvPayload)
+				.then(() => {
+					console.debug("Copied to clipboard:", tsvPayload);
+				})
+				.catch((err) => {
+					console.warn("Failed to copy TSV to clipboard:", err);
+				});
 			// target.write([
 			// 	new ClipboardItem({
 			// 		"text/plain": new Blob([textPayload], { type: "text/plain" }),
@@ -465,15 +447,15 @@ class DiffSeek {
 		}
 
 		function escapeTSV(str: string) {
-			return `"${str.replace(/"/g, '""')}"`
+			return `"${str.replace(/"/g, '""')}"`;
 		}
 
 		function toTSV(strings: string[]) {
-			return strings.map(replaceTabsWithSingleSpace).map(escapeTSV).join('\r\n');
+			return strings.map(replaceTabsWithSingleSpace).map(escapeTSV).join("\r\n");
 		}
 
 		function replaceTabsWithSingleSpace(str: string) {
-			return str.replace(/\t+/g, ' ');
+			return str.replace(/\t+/g, " ");
 		}
 	}
 
@@ -630,7 +612,7 @@ class DiffSeek {
 		}
 	}
 
-	#onEditorResize(editor: Editor) { }
+	#onEditorResize(editor: Editor) {}
 
 	#onDiffVisibilityChanged(region: "left" | "right", entries: VisibilityChangeEntry[]) {
 		this.#sideView.onDiffVisibilityChange(region, entries);
@@ -654,16 +636,14 @@ class DiffSeek {
 				if (editor) {
 					// onContentChanging에서 diffContext를 null로 설정하므로 이 시점에서 에디터는 유효한 토큰 배열을 가지고 있다고 볼 수 있다.
 					const [startTokenIndex, endTokenIndex] = editor.findTokenOverlapIndices(range);
-					console.log("Selection token indices:", startTokenIndex, endTokenIndex);
 					if (startTokenIndex >= 0 && endTokenIndex >= startTokenIndex) {
 						let otherStartTokenIndex: number;
 						let otherEndTokenIndex: number;
 						const otherEntries = editor === this.#leftEditor ? this.#diffContext.leftEntries : this.#diffContext.rightEntries;
-						console.log("otherEntries:", otherEntries, editor.name);
 						const otherSpanKey = editor === this.#leftEditor ? "right" : "left";
 						otherStartTokenIndex = otherEntries[startTokenIndex][otherSpanKey].index;
 						if (endTokenIndex > 0) {
-							otherEndTokenIndex = otherEntries[endTokenIndex - 1][otherSpanKey].index + otherEntries[endTokenIndex - 1][otherSpanKey].count
+							otherEndTokenIndex = otherEntries[endTokenIndex - 1][otherSpanKey].index + otherEntries[endTokenIndex - 1][otherSpanKey].count;
 						} else {
 							otherEndTokenIndex = otherEntries[startTokenIndex][otherSpanKey].index + otherEntries[startTokenIndex][otherSpanKey].count;
 						}
@@ -755,12 +735,7 @@ class DiffSeek {
 					}
 					const leftTrail = leftSpan ? getSectionTrail(this.#diffContext.leftSectionHeadings, leftSpan.index) : [];
 					const rightTrail = rightSpan ? getSectionTrail(this.#diffContext.rightSectionHeadings, rightSpan.index) : [];
-					this.#peepView.show(
-						leftText,
-						rightText,
-						leftTrail,
-						rightTrail
-					);
+					this.#peepView.show(leftText, rightText, leftTrail, rightTrail);
 				}
 			}
 		}
@@ -875,47 +850,32 @@ class DiffSeek {
 
 	#runSliceDiff(leftText: string, rightText: string) {
 		const options: DiffOptions = { ...this.#diffOptions, algorithm: "lcs", tokenization: "char" };
-		const reqId = this.#fullDiffReqId = this.#worker.sliceDiff(
-			leftText,
-			rightText,
-			options
-		);
+		const reqId = (this.#fullDiffReqId = this.#worker.sliceDiff(leftText, rightText, options));
 		this.#sliceDiffContext = {
 			leftText,
 			rightText,
 			options,
 			reqId,
-			diffs: null
-		}
+			diffs: null,
+		};
 	}
 
 	#onWorkerMessage(msg: WorkerMessage) {
-		console.log("worker message:", msg);
 		if (msg.type === "diff") {
 			if (this.#fullDiffReqId !== msg.reqId) {
 				return;
 			}
 
 			this.#diffProcessor?.cancel();
-			this.#diffProcessor = new DiffPostProcessor(
-				this.#leftEditor,
-				this.#rightEditor,
-				this.editorPairer,
-				msg.options,
-				msg.diffs
-			);
+			this.#diffProcessor = new DiffPostProcessor(this, this.#leftEditor, this.#rightEditor, this.editorPairer, msg.options, msg.diffs);
 			this.#diffProcessor.process((diffContext) => this.#onDiffPostProcessed(diffContext));
 		} else if (msg.type === "slice") {
 			if (this.#sliceDiffContext && this.#sliceDiffContext.reqId === msg.reqId) {
 				if (msg.accepted) {
 					this.#sliceDiffContext.diffs = msg.diffs;
-					const html = renderUnifiedDiffHTML(
-						this.#sliceDiffContext.leftText,
-						this.#sliceDiffContext.rightText,
-						this.#sliceDiffContext.diffs
-					);
+					const html = renderUnifiedDiffHTML(this.#sliceDiffContext.leftText, this.#sliceDiffContext.rightText, this.#sliceDiffContext.diffs);
 					//this.#peepView.show(`<div class="diff-view">${html}</div>`);
-					console.log(html)
+					console.log(html);
 				} else {
 					console.warn("Slice diff was not accepted by the worker:", msg);
 				}
@@ -926,7 +886,6 @@ class DiffSeek {
 	}
 
 	#onDiffPostProcessed(diffContext: DiffContext) {
-		console.log("Diff post-processed:", diffContext);
 		this.showMessage(null);
 		this.#diffContext = diffContext;
 		this.#diffProcessor = null;
@@ -934,6 +893,10 @@ class DiffSeek {
 		this.#renderer.setDiffs(diffContext.diffs);
 		this.#sideView.setDiffs(diffContext.diffs);
 		this.#updateTextSelection();
+
+		if (this.#syncMode) {
+			this.alignAnchors();
+		}
 	}
 
 	syncScroll(primaryEditor: Editor) {
@@ -1033,12 +996,8 @@ class DiffSeek {
 }
 
 const progressMessages = {
-	tokenize: [
-		"Tokenizing... ✂️",
-	],
-	compute: [
-		"Computing... 🧠",
-	],
+	tokenize: ["Tokenizing... ✂️"],
+	compute: ["Computing... 🧠"],
 };
 
 function getRandomMessage(key: keyof typeof progressMessages): string {

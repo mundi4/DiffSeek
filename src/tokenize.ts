@@ -10,6 +10,7 @@ type RichToken = {
 };
 
 const enum TokenFlags {
+	None = 0,
 	LINE_START = 1 << 0, // 1
 	LINE_END = 1 << 1, // 2
 	BLOCK_START = 1 << 2, // 4
@@ -37,11 +38,11 @@ const enum TokenFlags {
 	SECTION_HEADING_TYPE6 = 1 << 24, // 가)
 
 	SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 |
-		SECTION_HEADING_TYPE2 |
-		SECTION_HEADING_TYPE3 |
-		SECTION_HEADING_TYPE4 |
-		SECTION_HEADING_TYPE5 |
-		SECTION_HEADING_TYPE6,
+	SECTION_HEADING_TYPE2 |
+	SECTION_HEADING_TYPE3 |
+	SECTION_HEADING_TYPE4 |
+	SECTION_HEADING_TYPE5 |
+	SECTION_HEADING_TYPE6,
 }
 
 // const normalizeChars: { [ch: string]: string } = {};
@@ -518,56 +519,66 @@ class TokenizeContext {
 				} else if (child.nodeType === 1) {
 					const childNodeName = child.nodeName;
 
-					// 재귀 호출을 안해도 되는 단순한 case
-					if (childNodeName === "A" || VOID_ELEMENTS[childNodeName]) {
-						if (childNodeName === "A") {
-							// IGNORE THIS
-						} else if (childNodeName === "BR" || childNodeName === "HR") {
-							if (textNodeBuf.length > 0) {
-								doTokenizeText();
-							}
-							nextTokenFlags |= TokenFlags.LINE_START;
-							lineNum++;
-							if (childNodeName === "HR" && (child as HTMLAnchorElement).classList.contains("manual-anchor")) {
-								if (textNodeBuf.length > 0) {
-									doTokenizeText();
-								}
-								const range = document.createRange();
-								range.selectNode(child);
-								currentToken = {
-									text: (child as HTMLAnchorElement).dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
-									flags:
-										TokenFlags.MANUAL_ANCHOR |
-										TokenFlags.NO_JOIN_PREV |
-										TokenFlags.NO_JOIN_NEXT |
-										nextTokenFlags |
-										TokenFlags.LINE_START |
-										TokenFlags.LINE_END,
-									range,
-									container: currentContainer,
-									lineNum: lineNum,
-								};
-								nextTokenFlags = 0;
-								// console.log("manual anchor found", currentToken.text, currentToken.range);
-								finalizeToken();
-							}
-						} else if (childNodeName === "IMG") {
-							if (textNodeBuf.length > 0) {
-								doTokenizeText();
-							}
+					if (childNodeName === DIFF_ELEMENT_NAME) {
+						continue;
+					}
 
-							const range = document.createRange();
-							range.selectNode(child);
-							currentToken = {
-								text: quickHash53ToString((child as HTMLImageElement).src),
-								flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
-								range,
-								container: currentContainer,
-								lineNum: lineNum,
-							};
-							nextTokenFlags = 0;
-							finalizeToken();
+					if (childNodeName === "IMG") {
+						if (textNodeBuf.length > 0) {
+							doTokenizeText();
 						}
+
+						const range = document.createRange();
+						range.selectNode(child);
+						currentToken = {
+							text: quickHash53ToString((child as HTMLImageElement).src),
+							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
+							range,
+							container: currentContainer,
+							lineNum: lineNum,
+						};
+						nextTokenFlags = 0;
+						finalizeToken();
+						continue;
+					}
+
+					if (childNodeName === MANUAL_ANCHOR_ELEMENT_NAME && (child as HTMLAnchorElement).classList.contains("manual-anchor")) {
+						if (textNodeBuf.length > 0) {
+							doTokenizeText();
+						}
+						nextTokenFlags |= TokenFlags.LINE_START;
+						lineNum++;
+
+						if (textNodeBuf.length > 0) {
+							doTokenizeText();
+						}
+						const range = document.createRange();
+						range.selectNode(child);
+						currentToken = {
+							text: (child as HTMLAnchorElement).dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
+							flags:
+								TokenFlags.MANUAL_ANCHOR |
+								TokenFlags.NO_JOIN_PREV |
+								TokenFlags.NO_JOIN_NEXT |
+								nextTokenFlags |
+								TokenFlags.LINE_START |
+								TokenFlags.LINE_END,
+							range,
+							container: currentContainer,
+							lineNum: lineNum,
+						};
+						nextTokenFlags = 0;
+						// console.log("manual anchor found", currentToken.text, currentToken.range);
+						finalizeToken();
+						continue;
+					}
+
+					if (childNodeName === "BR" || childNodeName === "HR") {
+						if (textNodeBuf.length > 0) {
+							doTokenizeText();
+						}
+						nextTokenFlags |= TokenFlags.LINE_START;
+						lineNum++;
 						continue;
 					}
 

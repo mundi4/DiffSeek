@@ -1,70 +1,52 @@
-// 현재 진행 중인 작업이 있다면 무조건 reject/cancel하고 새 작업을 시작함
-const computeDiffAsync = (() => {
+type WorkerMessage =
+	| { type: "diff"; reqId: number; diffs: RawDiff[]; options: DiffOptions; processTime: number }
+	| { type: "slice"; reqId: number; accepted: true; diffs: RawDiff[]; options: DiffOptions; processTime: number }
+	| { type: "slice"; reqId: number; accepted: false }
+	| { type: "error"; reqId: number; error: string };
+
+function initializeWorker(onMessage: (msg: WorkerMessage) => void) {
+	let _currentReqId = 0;
+
 	const worker = (() => {
-		let workerURL;
-		const scriptElement = document.getElementById("worker.js") as HTMLScriptElement;
-		const workerCode = scriptElement.textContent;
-		if (workerCode!.length < 10) {
-			workerURL = scriptElement.src; // "./dist/worker.js";
-		} else {
-			const blob = new Blob([workerCode!], { type: "application/javascript" });
-			workerURL = URL.createObjectURL(blob);
-		}
+		const scriptEl = document.getElementById("worker.js") as HTMLScriptElement;
+		const code = scriptEl.textContent!;
+		const workerURL = code.length < 10
+			? scriptEl.src
+			: URL.createObjectURL(new Blob([code], { type: "application/javascript" }));
 		return new Worker(workerURL);
 	})();
 
-	type WorkerContext = {
-		resolve: (response: DiffResult) => void;
-		reject: (error: Error) => void;
-		request: DiffRequest;
+	worker.onmessage = (e: MessageEvent<WorkerMessage>) => {
+		onMessage(e.data);
 	};
 
-	let _reqId = 0;
-	let _current: WorkerContext | null = null;
-	worker.onmessage = (e: MessageEvent) => {
-		const data = e.data;
-		if (data.type === "diff") {
-			if (_current && data.reqId === _current.request.reqId) {
-				if (data.reqId === _current.request.reqId) {
-					const result: DiffResult = {
-						diffs: data.diffs,
-						processTime: data.processTime,
-					};
-					_current.resolve(result);
-				} else {
-                    // 이 경우는 worker가 이전 요청을 처리하는 도중 새 요청이 들어온 경우임
-                    _current.reject(new Error("cancelled"));
-				}
-			}
-		}
-	};
-
-	worker.onerror = (e) => {
-		//
-	};
-
-	function computeDiffAsync(leftTokens: Token[] | null, rightTokens: Token[] | null, options: DiffOptions): Promise<DiffResult> {
-		if (_current) {
-			// 작업 중인 worker는 새 작업을 받으면 알아서 기존 작업은 취소하게 되어있으니 신경 쓸 필요 없음.
-			_current.reject(new Error("cancelled"));
-		}
-
-		return new Promise((resolve, reject) => {
-			const request: DiffRequest = {
-				type: "diff",
-				reqId: ++_reqId,
-				options: { ...options },
-				leftTokens: leftTokens,
-				rightTokens: rightTokens,
-			};
-			_current = {
-				resolve,
-				reject,
-				request,
-			};
-			worker.postMessage(request);
+	function fullDiff(leftTokens: Token[] | null, rightTokens: Token[] | null, options: DiffOptions) {
+		const reqId = ++_currentReqId;
+		worker.postMessage({
+			type: "diff",
+			reqId,
+			leftTokens,
+			rightTokens,
+			options,
 		});
+		return reqId;
 	}
 
-	return computeDiffAsync;
-})();
+	function sliceDiff(leftText: string, rightText: string, options: DiffOptions) {
+		const reqId = ++_currentReqId;
+		worker.postMessage({
+			type: "slice",
+			reqId,
+			leftText,
+			rightText,
+			options,
+		});
+		return reqId;
+	}
+
+	return {
+		fullDiff,
+		sliceDiff,
+		worker,
+	};
+}

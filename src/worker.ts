@@ -3,6 +3,7 @@ let _currentCtx: WorkContext | null = null;
 
 type WorkContext = {
 	reqId: number;
+	type: "diff" | "slice";
 	cancel: boolean;
 	// leftText: string;
 	// rightText: string;
@@ -42,8 +43,41 @@ self.onmessage = (e) => {
 			return;
 		}
 		runDiff(ctx);
+	} else if (e.data.type === "slice") {
+		if (_currentCtx) {
+			self.postMessage({
+				reqId: e.data.reqId,
+				type: "slice",
+				accepted: false,
+			});
+			return;
+		}
+
+		const ctx: WorkContext = {
+			reqId: e.data.reqId,
+			type: "slice",
+			cancel: false,
+			leftTokens: tokenizeSimple(e.data.leftText),
+			rightTokens: tokenizeSimple(e.data.rightText),
+			start: 0,
+			finish: 0,
+			lastYield: 0,
+			options: e.data.options,
+			entries: [],
+			states: {},
+		};
+		runDiff(ctx);
 	}
 };
+
+function tokenizeSimple(text: string): Token[] {
+	const len = text.length;
+	const result = new Array<Token>(len);
+	for (let i = 0; i < len; i++) {
+		result[i] = { text: text[i], flags: 0 };
+	}
+	return result;
+}
 
 async function runDiff(ctx: WorkContext) {
 	_currentCtx = ctx;
@@ -53,6 +87,7 @@ async function runDiff(ctx: WorkContext) {
 			reqId: ctx.reqId,
 			type: "start",
 			start: ctx.start,
+
 		});
 
 		let result: RawDiff[];
@@ -66,12 +101,26 @@ async function runDiff(ctx: WorkContext) {
 		ctx.finish = performance.now();
 		_currentCtx = null;
 
-		self.postMessage({
-			reqId: ctx.reqId,
-			type: "diff",
-			processTime: ctx.finish - ctx.start,
-			diffs: result,
-		} as DiffResponse);
+		if (ctx.type === "diff") {
+			self.postMessage({
+				reqId: ctx.reqId,
+				type: ctx.type,
+				processTime: ctx.finish - ctx.start,
+				diffs: result,
+				options: ctx.options,
+			} as DiffResponse);
+		} else if (ctx.type === "slice") {
+			self.postMessage({
+				reqId: ctx.reqId,
+				type: ctx.type,
+				accepted: true,
+				processTime: ctx.finish - ctx.start,
+				diffs: result,
+				options: ctx.options,
+			});
+		}
+
+
 	} catch (e) {
 		if (e instanceof Error && e.message === "cancelled") {
 			// console.debug("Diff canceled");

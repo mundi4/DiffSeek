@@ -151,7 +151,7 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	TFOOT: { unwrap: true },
 	CAPTION: DefaultElementOptions,
 	TR: DefaultElementOptions,
-	TD: { allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
+	TD: { allowedAttrs: { colspan: true, rowspan: true, width: true, }, allowedStyles: { ...COMMON_ALLOWED_STYLES, width: true, } },
 	TH: { replaceTag: "TD", allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
 	H1: DefaultElementOptions,
 	H2: DefaultElementOptions,
@@ -180,7 +180,6 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	ADDRESS: DefaultElementOptions,
 	FIELDSET: DefaultElementOptions,
 	LEGEND: DefaultElementOptions,
-	MARK: DefaultElementOptions,
 	CODE: DefaultElementOptions,
 	PRE: DefaultElementOptions,
 	SMALL: DefaultElementOptions,
@@ -201,6 +200,10 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	ARTICLE: AsDivElementOptions,
 	ASIDE: AsDivElementOptions,
 	A: {
+		replaceTag: "SPAN",
+		allowedStyles: COMMON_ALLOWED_STYLES,
+	},
+	MARK: {
 		replaceTag: "SPAN",
 		allowedStyles: COMMON_ALLOWED_STYLES,
 	},
@@ -302,6 +305,8 @@ function sanitizeHTML(rawHTML: string): Node {
 		caretReachable: boolean;
 	}
 
+	let isFromBizPlatform = false;
+
 	function traverse(node: Node): TraversalResult | null {
 		if (
 			node.nodeType !== 1 && // element
@@ -309,6 +314,35 @@ function sanitizeHTML(rawHTML: string): Node {
 		) {
 			return null;
 		}
+
+		if (node.nodeName === "DIV") {
+			if ((node as HTMLElement).className === "aspNetHidden") {
+				return null;
+			}
+			if ((node as HTMLElement).className === "pak_aside clear") {
+				return null;
+			}
+			if ((node as HTMLElement).className === "pak_tab_menu") {
+				return null;
+			}
+			if ((node as HTMLElement).className === "listBtn") {
+				return null;
+			}
+			if ((node as HTMLElement).id === "ManualWrap") {
+				isFromBizPlatform = true;
+			} else {
+			}
+			
+			if ((node as HTMLElement).className === "ManualEvalWrap") {
+				return null;
+			}
+		}
+		else if (node.nodeName === "P") {
+			if ((node as HTMLElement).className === "pak_search") {
+				return null;
+			}
+		}
+
 
 		const nodeName = node.nodeName;
 		let elementOptions = ELEMENT_POLICIES[nodeName];
@@ -372,11 +406,6 @@ function sanitizeHTML(rawHTML: string): Node {
 			};
 		}
 
-		if (containerNode.nodeType === 1) {
-			(containerNode as HTMLElement).contentEditable = "true";
-		}
-
-		
 		statesStack.push(states);
 		states = { ...states };
 

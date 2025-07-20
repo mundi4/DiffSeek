@@ -36,7 +36,7 @@ const enum RenderStage {
 }
 
 const DIFF_EXPAND_X = 2;
-const DIFF_EXPAND_Y = 1;
+const DIFF_EXPAND_Y = 2;
 const DIFF_LINE_EXPAND_Y = 0;
 const DIFF_LINE_FILL_STYLE = "hsl(0 100% 90% / 0.5)";
 const DIFF_LINE_HEIGHT_MULTIPLIER = 1.2;
@@ -47,6 +47,7 @@ type DiffRenderItem = {
 	diffIndex: number;
 	range: Range;
 	hue: number;
+	empty: boolean;
 	//geometry: RectSet | null;
 };
 
@@ -318,16 +319,17 @@ class Renderer {
 			const diff = diffs[i];
 			const leftRange = diff.leftRange;
 			const rightRange = diff.rightRange;
-
 			leftDiffs[i] = {
 				diffIndex: i,
 				range: leftRange,
 				hue: diff.hue,
+				empty: diff.leftSpan.count === 0,
 			};
 			rightDiffs[i] = {
 				diffIndex: i,
 				range: rightRange,
 				hue: diff.hue,
+				empty: diff.rightSpan.count === 0,
 			};
 		}
 
@@ -563,7 +565,7 @@ class RenderRegion {
 			}
 
 			if (geometry.rects === null) {
-				const rangeRects = extractRects(diffs[diffIndex].range, true);
+				const rangeRects = extractRects(diffs[diffIndex].range, diffs[diffIndex].empty);
 				for (const rect of rangeRects) {
 					rect.x += offsetX - DIFF_EXPAND_X;
 					rect.y += offsetY - DIFF_EXPAND_Y;
@@ -638,7 +640,7 @@ class RenderRegion {
 				if (y + height < 0) continue;
 				if (y + height < 0 || y > regionHeight) break;
 
-				ctx.strokeRect(x, y, width, height);
+				// ctx.strokeRect(x, y, width, height);
 				ctx.fillRect(x, y, width, height);
 				rendered = true;
 			}
@@ -813,91 +815,6 @@ class RenderRegion {
 			}
 		}
 		this.#diffLineRects.push(current);
-	}
-
-	buildDiffGeometries() {
-		const scrollTop = this.#regionInfo.scrollTop;
-		const offsetX = -this.regionX;
-		const offsetY = -this.regionY + scrollTop;
-
-		//void this.#container.offsetWidth; // force reflow
-
-		const allDiffRects: Rect[] = [];
-
-		for (let diffIndex = 0; diffIndex < this.#diffs.length; diffIndex++) {
-			const item = this.#diffs[diffIndex];
-			const range = item.range;
-			const rawRects = extractRects(range, true);
-			for (const rect of rawRects) {
-				rect.x += offsetX - DIFF_EXPAND_X;
-				rect.y += offsetY - DIFF_EXPAND_Y;
-				rect.width += DIFF_EXPAND_X * 2;
-				rect.height += DIFF_EXPAND_Y * 2;
-				allDiffRects.push(rect);
-			}
-			const mergedRects = mergeRects(rawRects, 1, 1) as RectSet;
-
-			this.#diffGeometries[diffIndex] = mergedRects;
-		}
-
-		this.buildDiffLineRects(allDiffRects);
-	}
-
-	buildDiffLineRects(diffRects: Rect[]) {
-		const TOLERANCE = 1;
-
-		const lineRects: Rect[] = [];
-
-		diffRects.sort((a, b) => a.y - b.y);
-		const rects: Rect[] = [];
-
-		const canvasWidth = this.regionWidth;
-		let lineRect: Rect | null = null;
-		for (const rect of diffRects) {
-			const height = rect.height * DIFF_LINE_HEIGHT_MULTIPLIER + DIFF_LINE_EXPAND_Y * 2;
-			const heightDelta = height - rect.height;
-			const y = rect.y - DIFF_LINE_EXPAND_Y - heightDelta / 2;
-			if (lineRect === null || y > lineRect.y + lineRect.height) {
-				lineRect = {
-					x: 0,
-					y: y,
-					width: canvasWidth,
-					height: height,
-				};
-				rects.push(lineRect);
-			} else {
-				lineRect.height = y + height - lineRect.y;
-			}
-		}
-
-		if (rects.length > 0) {
-			let current = rects[0];
-
-			for (let i = 1; i < rects.length; i++) {
-				const next = rects[i];
-
-				const currentBottom = current.y + current.height;
-				const nextTop = next.y;
-				const gap = nextTop - currentBottom;
-
-				if (gap <= TOLERANCE) {
-					const newBottom = Math.max(currentBottom, next.y + next.height);
-					current = {
-						x: current.x,
-						y: current.y,
-						width: current.width,
-						height: newBottom - current.y,
-					};
-				} else {
-					// 병합 불가: 현재까지 병합된 것 push
-					lineRects.push(current);
-					current = next;
-				}
-			}
-			lineRects.push(current);
-		}
-
-		this.#diffLineRects = lineRects;
 	}
 
 	hitTest(x: number, y: number) {

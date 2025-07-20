@@ -20,6 +20,9 @@ class SideView {
 				item.scrollIntoView();
 			}	
 		});
+		peepviewEnabledAtom.subscribe((enabled) => {
+
+		});
 	}
 	
 	setDiffs(diffs: DiffItem[]) {

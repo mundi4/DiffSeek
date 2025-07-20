@@ -268,7 +268,7 @@ function mergeRects(rects: Rect[], toleranceX: number = 0, toleranceY: number = 
 	};
 }
 
-function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Rect[] {
+function extractRects(sourceRange: Range, emptyDiff: boolean = false): Rect[] {
 	// console.debug("extractRects", sourceRange);
 
 	const result: Rect[] = [];
@@ -278,10 +278,14 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 	let startNode: Node | null;
 	if (sourceRange.startContainer.nodeType === 3) {
 		tempRange.setStart(sourceRange.startContainer, sourceRange.startOffset);
-		if (sourceRange.startContainer === sourceRange.endContainer) {
-			tempRange.setEnd(sourceRange.startContainer, sourceRange.endOffset);
+		if (emptyDiff) {
+			tempRange.collapse(true);
 		} else {
-			tempRange.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue!.length);
+			if (sourceRange.startContainer === sourceRange.endContainer) {
+				tempRange.setEnd(sourceRange.startContainer, sourceRange.endOffset);
+			} else {
+				tempRange.setEnd(sourceRange.startContainer, sourceRange.startContainer.nodeValue!.length);
+			}
 		}
 		for (const rect of tempRange.getClientRects()) {
 			result.push({
@@ -290,6 +294,11 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 				width: rect.width,
 				height: rect.height,
 			});
+			if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) {
+				return result;
+				// 빈 diff가 아닌 경우에만 rect를 추가
+				// console.warn("extractRects: emptyDiff but rect found", rect);
+			}
 		}
 		startNode = advanceNode(sourceRange.startContainer)!;
 	} else {
@@ -341,7 +350,11 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 		if (currentNode === endNode) {
 			if (currentNode.nodeType === 3 && endOffset >= 0) {
 				tempRange.setStart(endNode, 0);
-				tempRange.setEnd(endNode, endOffset);
+				if (emptyDiff) {
+					tempRange.collapse(true); // collapse to start
+				} else {
+					tempRange.setEnd(endNode, endOffset);
+				}
 				for (const rect of tempRange.getClientRects()) {
 					result.push({
 						x: rect.x,
@@ -349,6 +362,11 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 						width: rect.width,
 						height: rect.height,
 					});
+					if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) {
+						return result;
+						// 빈 diff가 아닌 경우에만 rect를 추가
+						// console.warn("extractRects: emptyDiff but rect found", rect);
+					}
 				}
 			}
 			break;
@@ -371,8 +389,8 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 			}
 		} else if (currentNode.nodeName === "BR") {
 			//
-		} else if (currentNode.nodeName === "A") {
-			if (forceAnchorRects && (currentNode as HTMLElement).classList.contains("diff")) {
+		} else if (currentNode.nodeName === DIFF_ELEMENT_NAME) {
+			if (emptyDiff && (currentNode as HTMLElement).classList.contains("diff")) {
 				// 가장 확실한 방법이지만 넣었다 뺐다 잘못하면 인생 망가짐... reflow 유발 => 많이 느리다.
 				const tempText = document.createTextNode("\u200B"); // zero-width space
 				currentNode.appendChild(tempText);
@@ -382,7 +400,7 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 						x: rect.x,
 						y: rect.y - 1.5,
 						width: rect.width,
-						height: rect.height + 3,
+						height: rect.height,
 					});
 				}
 				tempText.remove();
@@ -412,6 +430,9 @@ function extractRects(sourceRange: Range, forceAnchorRects: boolean = false): Re
 		}
 	} while (walker.nextNode());
 
+	// if (emptyDiff && result.length > 1) {
+	// 	result.length = 1;
+	// }
 	return result;
 }
 
@@ -563,17 +584,171 @@ function buildSectionTrail(heading: SectionHeading): SectionHeading[] {
 	return trail;
 }
 
-function getSectionTrailText(sectionRoots: SectionHeading[], tokenIndex: number) {
+function getSectionTrail(sectionRoots: SectionHeading[], tokenIndex: number): SectionHeading[] {
 	const deepest = findDeepestSectionHeading(sectionRoots, tokenIndex);
-	if (!deepest) return "";
+	if (!deepest) return [];
 	const trail = buildSectionTrail(deepest);
-	let result = "";
+	return trail;
+}
 
+function getSectionTrailText(sectionRoots: SectionHeading[], tokenIndex: number) {
+	const trail = getSectionTrail(sectionRoots, tokenIndex);
+	let result = "";
 	for (let i = 0; i < trail.length; i++) {
 		const heading = trail[i];
 		if (i > 0) result += " > "; // 구분자
 		result += heading.title;
 	}
-
 	return result;
+}
+
+function getTableCellPosition(td: HTMLElement): [rowIndex: number, colIndex: number] | null {
+	if (td.tagName !== "TD") return null;
+
+	const tr = td.parentElement as HTMLTableRowElement;
+	if (!tr || tr.tagName !== "TR") return null;
+
+	const table = tr.parentElement as HTMLTableElement;
+	if (!table || table.tagName !== "TABLE") return null;
+
+	const rowIndex = Array.prototype.indexOf.call(table.rows, tr);
+	const colIndex = Array.prototype.indexOf.call(tr.cells, td);
+
+	if (rowIndex === -1 || colIndex === -1) return null;
+
+	return [rowIndex, colIndex];
+}
+
+function clampRange(range: Range, startAfter: HTMLElement | null, endBefore: HTMLElement | null): Range {
+	try {
+		if (startAfter && range.comparePoint(startAfter, 0) >= 0) {
+			range.setStartAfter(startAfter);
+		}
+	} catch (e) {
+		console.warn("modifyRange 실패", e);
+	}
+	try {
+		if (endBefore && range.comparePoint(endBefore, 0) <= 0) {
+			range.setEndBefore(endBefore);
+		}
+	} catch (e) {
+		console.warn("modifyRange 실패", e);
+	}
+	return range;
+}
+
+function getParentElement(node: Node): HTMLElement {
+	const element = node.nodeType === Node.TEXT_NODE ? node.parentNode : node;
+	return element as HTMLElement;
+}
+
+function findClosestContainer(node: Node, selector: string): HTMLElement | null {
+	return getParentElement(node).closest(selector);
+}
+
+function findBlockContainer(node: Node): HTMLElement | null {
+	let el: HTMLElement | null = getParentElement(node);
+	while (el) {
+		if (BLOCK_ELEMENTS[el.nodeName]) return el;
+		el = el.parentElement;
+	}
+	return null;
+}
+
+function getElement(container: Node, childIndex: number): HTMLElement | null {
+	let node = container;
+	if (node.nodeType === 3) {
+		return node.parentNode as HTMLElement;
+	}
+
+
+
+	if (container.nodeType === Node.ELEMENT_NODE) {
+		const element = (container as HTMLElement).children[childIndex];
+		if (element && element.nodeType === Node.ELEMENT_NODE) {
+			return element as HTMLElement;
+		}
+	}
+	return null;
+}
+
+function buildTokenArray(richTokens: readonly RichToken[], mode: "char" | "word" = "word"): Token[] {
+	if (mode === "word") {
+		return buildTokenArrayWord(richTokens, mode);
+	} else if (mode === "char") {
+		return buildTokenArrayByChar(richTokens, mode);
+	} else {
+		throw new Error(`Unsupported tokenization mode: ${mode}`);
+	}
+}
+
+function buildTokenArrayWord(richTokens: readonly RichToken[], mode: "char" | "word" = "word"): Token[] {
+	const result: Token[] = new Array(richTokens.length);
+	for (let i = 0; i < richTokens.length; i++) {
+		const richToken = richTokens[i];
+		result[i] = {
+			text: richToken.text,
+			flags: richToken.flags,
+		};
+	}
+	return result;
+}
+
+function buildTokenArrayByChar(richTokens: readonly RichToken[], mode: "char" | "word" = "word"): Token[] {
+	const result: Token[] = [];
+	for (let i = 0; i < richTokens.length; i++) {
+		const richToken = richTokens[i];
+		const flags = richToken.flags;
+		if (flags & (TokenFlags.WILD_CARD | TokenFlags.IMAGE)) {
+			result.push({
+				text: richToken.text,
+				flags: flags,
+			})
+		} else {
+			const text = richToken.text;
+			for (const char of text) {
+				result.push({
+					text: char,
+					flags: 0,
+				});
+			}
+		}
+	}
+	return result;
+}
+
+function renderUnifiedDiffHTML(leftText: string, rightText: string, diffs: RawDiff[]): string {
+	let html = "";
+
+	for (const diff of diffs) {
+		const { type, left, right } = diff;
+
+		if (type === 0) {
+			html += escapeHTML(rightText.slice(right.index, right.index + right.count));
+		} else if (type === 1) {
+			html += `<del>${escapeHTML(leftText.slice(left.index, left.index + left.count))}</del>`;
+		} else if (type === 2) {
+			html += `<ins>${escapeHTML(rightText.slice(right.index, right.index + right.count))}</ins>`;
+		}
+	}
+
+	return html;
+}
+
+function escapeHTML(str: string): string {
+	return str.replace(/[&<>"']/g, m => ({
+		'&': '&amp;',
+		'<': '&lt;',
+		'>': '&gt;',
+		'"': '&quot;',
+		"'": '&#39;',
+	}[m]!));
+}
+
+function normalizeMultiline(text: string): string {
+	return text
+		.split(/\r?\n/)
+		.map(line => line.trim())
+		.filter(line => line.length > 0)
+		.join("\n");
 }

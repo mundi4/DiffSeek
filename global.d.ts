@@ -39,11 +39,9 @@ declare type DiffOptions = {
 	algorithm: DiffAlgorithm;
 	tokenization: TokenizationMode;
 	ignoreWhitespace: WhitespaceHandling;
-
 	greedyMatch?: boolean;
 	useLengthBias?: boolean;
 	maxGram: number;
-
 	lengthBiasFactor: number;
 	sectionHeadingMultiplier: number;
 	containerStartMultiplier: number;
@@ -56,10 +54,14 @@ declare type DiffOptions = {
 declare type DiffRequest = {
 	type: "diff";
 	reqId: number;
-	// leftText: string;
-	// rightText: string;
 	leftTokens: Token[] | null;
 	rightTokens: Token[] | null;
+	options: DiffOptions;
+} | {
+	type: "slice";
+	reqId: number;
+	leftText: string;
+	rightText: string;
 	options: DiffOptions;
 };
 
@@ -87,18 +89,6 @@ type TextRun = {
 	dataIndex: number | null;
 };
 
-declare type DiffContext = {
-	reqId: number;
-	leftTokens: readonly RichToken[];
-	rightTokens: readonly RichToken[];
-	diffOptions: DiffOptions;
-	rawDiffs: RawDiff[];
-	processTime: number;
-	diffs: DiffItem[];
-	ready: boolean;
-	leftSectionHeadings: SectionHeading[];
-	rightSectionHeadings: SectionHeading[];
-};
 
 type SectionHeading = {
 	type: number;
@@ -130,6 +120,7 @@ type LightRange = {
 
 type DiffResult = {
 	diffs: RawDiff[];
+	options: DiffOptions;
 	processTime: number;
 };
 
@@ -140,6 +131,8 @@ type DiffItem = {
 	rightRange: Range;
 	leftSpan: Span;
 	rightSpan: Span;
+	leftMarkerEl: HTMLElement | null;
+	rightMarkerEl: HTMLElement | null;
 };
 
 type VisibilityChangeEntry = {

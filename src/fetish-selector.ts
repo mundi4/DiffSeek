@@ -3,13 +3,14 @@ class FetishSelector {
 	#btnSync: HTMLButtonElement;
 	#btnWhitespace: HTMLButtonElement;
 	#btnSidebarExpand: HTMLButtonElement;
+	#btnPeepViewToggle: HTMLButtonElement;
 
 	constructor(container: HTMLElement) {
 		this.#el = container;
 		this.#btnSync = container.querySelector("#syncToggleBtn")!;
 		this.#btnWhitespace = container.querySelector("#whitespaceToggleBtn")!;
 		this.#btnSidebarExpand = container.querySelector("#sidebarExpandBtn")!;
-
+		this.#btnPeepViewToggle = container.querySelector("#peepviewToggleBtn")!;
 
 		this.#btnSync.title = "F2";
 		this.#btnSync.addEventListener("click", () => {
@@ -28,6 +29,12 @@ class FetishSelector {
 			sidebarExpandedAtom.set(expanded);
 		});
 
+		this.#btnPeepViewToggle.title = "F3";
+		this.#btnPeepViewToggle.addEventListener("click", () => {
+			const enabled = !peepviewEnabledAtom.get();
+			peepviewEnabledAtom.set(enabled);
+		});
+
 		// Subscribe to atom changes
 		const update = this.#update.bind(this);
 		syncModeAtom.subscribe(update);
@@ -36,6 +43,8 @@ class FetishSelector {
 
 		sidebarExpandedAtom.subscribe(update);
 
+		peepviewEnabledAtom.subscribe(update);
+
 		this.#update();
 	}
 
@@ -43,5 +52,6 @@ class FetishSelector {
 		this.#btnSync.classList.toggle("active", syncModeAtom.get());
 		this.#btnWhitespace.className = `mode-${whitespaceHandlingAtom.get()}`;
 		this.#btnSidebarExpand.classList.toggle("active", sidebarExpandedAtom.get());
+		this.#btnPeepViewToggle.classList.toggle("active", peepviewEnabledAtom.get());
 	}
 }

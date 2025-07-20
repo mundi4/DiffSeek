@@ -1,5 +1,8 @@
 const DEBUG = true;
 
+const MAX_TOKEN_COUNT = 0xFFFFF; // 1,048,575
+const COMPUTE_DIFF_TIMEOUT = 500;
+
 // DIFF 색(HUE). 0(빨)은 DIFF 배경색으로 쓰이니 패스
 // 완전한 색상 코드보다 HUE만 사용하면 용도에 따라 색을 조절하기 쉬움.
 // 인접한 색상과 너무 가깝지 않도록 아주 CAREFUL하게 고른 순서. 과학이다.
@@ -16,7 +19,7 @@ const NUM_DIFF_COLORS = DIFF_COLOR_HUES.length;
 
 const LINE_TAG = "DIV";
 const BASE_FONT_SIZE = 16;
-const ANCHOR_TAG = "HR";
+const MANUAL_ANCHOR_ELEMENT_NAME = "HR";
 const DIFF_ELEMENT_NAME = "MARK";
 const EDITOR_PADDING = 8;
 const LINE_HEIGHT = 1.5;

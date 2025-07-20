@@ -244,6 +244,8 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 .editor table {
 	border-collapse: collapse;
 	border-spacing: 0;
+	border-collapse: separate; /* or 'collapse' */
+  	table-layout: auto; /* or 'fixed' */
 }
 
 .editor td {
@@ -251,6 +253,7 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	border: 1px solid #666;
 	padding: var(--text-container-padding-block, 0px) var(--text-container-padding-inline, 0px);
 	min-height: 1.5rem;
+	position: relative;
 }
 .editor ul,
 .editor ol {
@@ -329,12 +332,22 @@ body:not(.sidebar-collapsed) #diffList .right-visible .right::before {
 	display: revert;
 }
 
-.pose-P9 .anchor::before,
+/* .pose-P9 .anchor::before,
 .pose-P9 .diff::before {
 	content: "";
 	display: block;
 	height: var(--padding, 0px);
 	user-select: none;
+} */
+
+.pose-P9 .anchor:not(mark)::before {
+	content: "";
+	display: block;
+	height: var(--anchor-adjust, 0px);
+}
+
+.pose-P9 mark.anchor {
+	margin-top: var(--anchor-adjust, 0px);
 }
 
 .pose-P9 .anchor.striped::before,
@@ -437,7 +450,8 @@ a.diff.block {
 }
 
 #syncToggleBtn.active,
-#sidebarExpandBtn.active {
+#sidebarExpandBtn.active,
+#peepviewToggleBtn.active {
 	background-color: #3b82f6;
 }
 
@@ -547,4 +561,227 @@ a.diff.block {
 	border: none;
 	padding: 0;
 	cursor: pointer;
+}
+
+
+mark.diff {
+	all: unset;
+}
+
+mark.diff.block {
+	display: inline-block;/* 적절한 높이를 보장해야함. height가 없을 경우 rect.top이 바닥 지점이 되어버림. */
+	height: 1em;
+}
+.peep-view {
+	position: fixed;
+	top: 20px;
+	left: 20px;
+	width: 400px;
+	max-height: 80vh;
+	overflow-y: hidden;
+	z-index: 9999;
+	background: white;
+	border: 1px solid #ccc;
+	box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+	font-family: sans-serif;
+}
+
+.peep-header {
+	background: #eee;
+	padding: 6px 10px;
+	font-weight: bold;
+	display: flex;
+	justify-content: space-between;
+	align-items: center;
+	cursor: move;
+	max-height: 100px;
+	overflow-y: auto;
+}
+
+.peep-title {
+	cursor: pointer;
+}
+
+.peep-close {
+	background: none;
+	border: none;
+	font-size: 18px;
+	cursor: pointer;
+	color: #333;
+}
+
+.peep-view.dark .peep-close {
+	color: #fff;
+}
+
+.peep-trail {
+	padding: 6px 10px;
+	font-size: 12px;
+	color: #444;
+	background: #f9f9f9;
+	border-bottom: 1px solid #ddd;
+	word-break: break-word;
+	overflow-wrap: break-word;
+	display: flex;
+	flex-direction: column;
+	gap: 4px;
+	max-height: 150px;
+	overflow-y: auto;
+}
+
+.peep-diff-body {
+	padding: 10px;
+	white-space: pre-wrap;
+	font-size: 14px;
+	font-family: monospace;
+	overflow-y: auto;
+	max-height: 10em;
+}
+
+dl.trail {
+	display: flex;
+	flex-wrap: wrap;
+	align-items: baseline;
+	margin: 0;
+}
+
+dl.trail dt,
+dl.trail dd {
+	margin: 0;
+	padding: 0 4px;
+	display: inline;
+}
+
+dl.trail dt {
+	font-weight: bold;
+	font-style: italic;
+	overflow-wrap: normal;
+}
+
+dl.trail dd.trail-segment::after {
+	content: " ›";
+	margin-right: 4px;
+	color: #999;
+	overflow-wrap: break-word;
+	word-break: break-all;
+}
+
+.peep-view.dark {
+	background: #222;
+	color: #eee;
+	border-color: #444;
+}
+
+.peep-view.dark .peep-header {
+	background: #333;
+	color: #fff;
+}
+
+.peep-view.dark .peep-diff-body {
+	background: #2a2a2a;
+}
+
+.peep-view.dark .diff-equal {
+	color: #ccc;
+}
+
+.peep-view.dark .diff-insert {
+	background-color: #006400;
+	color: #b5fdb5;
+}
+
+.peep-view.dark .diff-delete {
+	background-color: #8b0000;
+	color: #ffbcbc;
+}
+
+.peep-view.dark .diff-replace {
+	background-color: #333300;
+	color: #f8e888;
+}
+
+.peep-view.dark .peep-trail {
+	background: #1a1a1a;
+	color: #bbb;
+	border-color: #333;
+}
+
+.peep-view.dark dl.trail dd.trail-segment::after {
+	color: #666;
+}
+
+.peep-view.dark .peep-trail dl::before {
+	background-color: hsl(0 0% 90%);
+	border-color: hsl(0 0% 80%);
+	color: black;
+}
+
+.diff-insert {
+	color: #000;
+}
+
+.diff-delete {
+	color: #000;
+}
+
+.diff-replace {
+	color: #000;
+}
+
+.peep-view:not(.dark) .diff-insert {
+	background-color: #a6f3a6;
+}
+
+.peep-view:not(.dark) .diff-delete {
+	background-color: #ffc1c1;
+}
+
+.peep-view:not(.dark) .diff-replace {
+	background-color: #fff3a6;
+}
+
+.peep-view.dark .diff-insert {
+	background-color: #2ecc71;
+	color: #000;
+}
+
+.peep-view.dark .diff-delete {
+	background-color: #e74c3c;
+	color: #000;
+}
+
+.peep-view.dark .diff-replace {
+	background-color: #f1c40f;
+	color: #000;
+}
+
+.trail-wrapper {
+	display: flex;
+	align-items: flex-start;
+	gap: 6px;
+}
+
+.trail-copy-button {
+	vertical-align: top;
+	display: inline-flex;
+	justify-content: center;
+	align-items: center;
+	width: 20px;
+	height: 20px;
+	font-size: 12px;
+	font-family: monospace;
+	font-weight: bold;
+	border-radius: 25%;
+	border: 1px solid hsl(0 0% 10%);
+	background-color: hsl(0 0% 20%);
+	color: white;
+	cursor: pointer;
+	padding: 0;
+	flex-shrink: 0;
+}
+
+.peep-view.dark .trail-copy-button {
+	background-color: hsl(0 0% 90%);
+	border-color: hsl(0 0% 80%);
+	color: black;
 }

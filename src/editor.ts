@@ -13,8 +13,8 @@ type EditorCallbacks = {
 };
 
 type AnchorInsertionPoint = {
-	range: Range | LightRange;
-	flags: InsertionPointFlags
+	container: HTMLElement;
+	offset: number;
 };
 
 const enum InsertionPointFlags {
@@ -282,6 +282,32 @@ class Editor {
 		// console.timeEnd("paste");
 	}
 
+	selectAll() {
+		const selection = window.getSelection();
+		if (selection) {
+			const range = document.createRange();
+			range.selectNodeContents(this.#editor);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			return true;
+		}
+		return false;
+	}
+
+	setContent(rawHTML: string) {
+		this.unobserveMutation();
+
+		let sanitized = sanitizeHTML(rawHTML);
+		const range = document.createRange();
+		range.selectNodeContents(this.#editor);
+			range.deleteContents();
+			range.insertNode(sanitized);
+			range.collapse(false);
+			this.#onInput();
+		
+		this.observeMutation();
+	}
+
 	findTokenOverlapIndices(range: Range): [number, number] {
 		let low = 0;
 		let high = this.#tokens.length - 1;
@@ -382,17 +408,16 @@ class Editor {
 			const prevToken = this.#tokens[index - 1];
 			if (prevToken) {
 				range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
-				range.setEnd(prevToken.range.endContainer, prevToken.range.endOffset);
-				return range;
+			} else {
+				range.setStart(this.#editor, 0);
 			}
+
 			const nextToken = this.#tokens[index];
 			if (nextToken) {
-				range.setStart(nextToken.range.startContainer, 0);
-				range.setEnd(nextToken.range.startContainer, 0);
-				return range;
+				range.setEnd(nextToken.range.startContainer, nextToken.range.startOffset);
+			} else {
+				range.setEnd(this.#editor, this.#editor.childNodes.length);
 			}
-			range.setStart(this.#editor, 0);
-			range.setEnd(this.#editor, this.#editor.childNodes.length);
 		}
 		return range;
 	}
@@ -415,316 +440,7 @@ class Editor {
 		this.#callbacks.onContentChanged(this);
 	}
 
-	getAnchorInsertionPoint(tokenIndex: number, flags: AnchorFlags): AnchorInsertionPoint | null {
-		const token = this.#tokens[tokenIndex];
-		if (!token) {
-			console.warn(this.#editorName, "getAnchorInsertionPoint", "No token found for index", tokenIndex);
-			return null;
-		}
 
-		const editor = this.#editor;
-
-		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
-			const anchorContainer = token.range.startContainer;
-			if (anchorContainer.nodeType !== 1) {
-				console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token is not in an element node", token);
-				return null;
-			}
-			const anchorEl = anchorContainer.childNodes[token.range.startOffset];
-			if (anchorEl) {
-				// IDEA: manual anchor 앞에 앵커를 넣을 필요 있을까? manual anchor 요소 자체를 앵커로 사용해도 되지 않을까?
-				const insertionRange: Range = document.createRange();
-				insertionRange.setStartBefore(anchorEl);
-				insertionRange.collapse(true);
-				return {
-					range: insertionRange,
-					existingAnchor: anchorEl as HTMLElement,
-					flags: 0,
-				} as AnchorInsertionPoint;
-			} else {
-				console.warn(this.#editorName, "getAnchorInsertionPoint", "Manual anchor token does not have a child node at the specified offset", token);
-				return null;
-			}
-		}
-
-		let anchorInsertionPoint: AnchorInsertionPoint | null = null;
-		let container: Node = token.range.startContainer;
-		let insertionOffset: number = token.range.startOffset;
-		if (container.nodeType === 3) {
-			// container를 부모로 교체하기 전에 먼저 현재 container의 인덱스를 구해야함.
-			insertionOffset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
-			container = container.parentElement!;
-		}
-
-		let containerNodeName = container.nodeName;
-		do {
-			if (flags & AnchorFlags.TABLECELL_START) {
-				if (containerNodeName === "TD") {
-					anchorInsertionPoint = {
-						range: {
-							startContainer: container,
-							startOffset: 0,
-							endContainer: container,
-							endOffset: 0,
-						},
-						flags: InsertionPointFlags.TABLECELL_START,
-					};
-					break;
-					// insertionRange.setStart(container, 0);
-					// insertionRange.collapse(true);
-					// return insertionRange;
-				}
-			} else if (flags & AnchorFlags.CONTAINER_START) {
-				if (container === editor || TEXT_FLOW_CONTAINERS[containerNodeName]) {
-					anchorInsertionPoint = {
-						range: {
-							startContainer: container,
-							startOffset: 0,
-							endContainer: container,
-							endOffset: 0,
-						},
-						flags: InsertionPointFlags.CONTAINER_START,
-					};
-					break;
-					// insertionRange.setStart(container, 0);
-					// insertionRange.collapse(true);
-					// return insertionRange;
-				}
-			} else if (flags & AnchorFlags.BLOCK_START) {
-				if (BLOCK_ELEMENTS[containerNodeName]) {
-					anchorInsertionPoint = {
-						range: {
-							startContainer: container,
-							startOffset: 0,
-							endContainer: container,
-							endOffset: 0,
-						},
-						flags: InsertionPointFlags.BLOCK_START,
-					};
-					break;
-					// insertionRange.setStart(container, 0);
-					// insertionRange.collapse(true);
-					// return insertionRange;
-				}
-			} else {
-				const currentNode = container.childNodes[insertionOffset] as HTMLElement;
-				const currentNodeName = currentNode.nodeName;
-				if (currentNodeName === "BR") {
-					// <BR>이 토큰이 범위에 들어있을 리는 없기 때문에 이건 토큰 앞에 있는 노드임
-					// BLOCK_START 조건이 없다면 <BR> 뒤에 앵커 삽입
-					if (!(flags & AnchorFlags.BLOCK_START)) {
-						const insertionRange: Range = document.createRange();
-						insertionRange.setStartAfter(currentNode);
-						insertionRange.collapse(true);
-						anchorInsertionPoint = {
-							range: insertionRange,
-							flags: InsertionPointFlags.LINE_START,
-						};
-						break;
-					}
-				}
-			}
-			insertionOffset--;
-			if (insertionOffset < 0) {
-				// We reached the start of the container, so we need to move up to the parent node.
-				if (container === editor) {
-					// If we are at the editor root, we cannot go further up.
-					break;
-				}
-				insertionOffset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
-				container = container.parentNode!;
-				containerNodeName = container.nodeName;
-			}
-		} while (comparePoint(token.range.startContainer, token.range.startOffset, container, insertionOffset) >= 0);
-
-		return anchorInsertionPoint;
-	}
-
-	*yieldDiffAnchorPointsInRange(tokenIndex: number): Generator<AnchorInsertionPoint> {
-		const prevToken = this.#tokens[tokenIndex - 1];
-		const nextToken = this.#tokens[tokenIndex];
-		const root = this.#editor;
-
-		let container: Node;
-		let childIndex: number;
-		let endContainer: Node;
-		let endOffset: number;
-
-		if (prevToken) {
-			container = prevToken.range.endContainer;
-			childIndex = prevToken.range.endOffset;
-			if (container.nodeType === 3) {
-				if (nextToken && nextToken.range.startContainer === container) {
-					// 하나의 텍스트노드에 걸쳐져있는 경우
-					// 텍스트노드를 쪼갤 수는 없으므로(쪼갤 수는 있지만 굳이 그렇게까지...?)
-					return;
-				}
-				childIndex = Array.prototype.indexOf.call(container.parentNode!.childNodes, container) + 1;
-				container = container.parentNode!;
-			}
-		} else {
-			container = this.#editor;
-			childIndex = 0;
-		}
-
-		if (nextToken) {
-			endContainer = nextToken.range.startContainer;
-			endOffset = nextToken.range.startOffset;
-			if (endContainer.nodeType === 3) {
-				endOffset = Array.prototype.indexOf.call(endContainer.parentNode!.childNodes, endContainer);
-				endContainer = endContainer.parentNode!;
-			}
-		} else {
-			endContainer = this.#editor;
-			endOffset = this.#editor.childNodes.length;
-		}
-
-		// console.debug(this.#editorName, tokenIndex, {
-		// 	container,
-		// 	childIndex,
-		// 	endContainer,
-		// 	endOffset,
-		// 	prevToken,
-		// 	nextToken,
-
-		// });
-
-		const indexStack: number[] = [];
-
-		// sanity check
-		if (comparePoint(container, childIndex, endContainer, endOffset) > 0) {
-			return;
-		}
-
-		while (container) {
-			if (!TEXTLESS_ELEMENTS[container.nodeName]) {
-				yield* createPoint(container, childIndex);
-			}
-
-			if (container === endContainer && childIndex >= endOffset) {
-				break;
-			}
-
-			let current: Node = container.childNodes[childIndex];
-
-			// childIndex에 해당하는 노드가 없는 경우 - container의 마지막 자식까지 처리를 한 상황. 부모로 거슬러 올라가서 sibling node 방향으로 탐색.
-			if (!current) {
-				current = container;
-				container = container.parentNode!;
-				if (indexStack.length > 0) {
-					childIndex = indexStack.pop()!;
-				} else {
-					childIndex = Array.prototype.indexOf.call(container.childNodes, current);
-				}
-				childIndex++;
-				continue;
-			}
-
-			if (current.nodeName === "A") {
-				// sanitize 단계에서 A태그는 다 걸러내므로 이건 마커용 앵커태그임 => 자식노드로 파고들 필요 없음. 자식노드 자체가 없어야 정상.
-			} else {
-				if (current.nodeType === 1 && !VOID_ELEMENTS[current.nodeName]) {
-					// current의 자식 방향으로 탐색.
-					indexStack.push(childIndex);
-					container = current;
-					childIndex = 0;
-					continue;
-				}
-			}
-
-			childIndex++;
-		}
-
-		function* createPoint(container: Node, offset: number, flags: number = 0) {
-			if (container.nodeType !== 1) {
-				return;
-			}
-
-			const nodeName = container.nodeName;
-			const childNodes = container.childNodes;
-			let existingAnchor: HTMLElement | null = (childNodes[offset] as HTMLElement) || null;
-			if (existingAnchor && (existingAnchor.nodeName !== "A" || !existingAnchor.classList.contains("diff"))) {
-				existingAnchor = null;
-			}
-
-			if (
-				offset === 0 ||
-				!prevToken ||
-				!(container.compareDocumentPosition(prevToken.range.endContainer) & Node.DOCUMENT_POSITION_CONTAINED_BY) //이전 토큰이 현재 컨테이너에 포함되어 있지 않음
-			) {
-				if (BLOCK_ELEMENTS[nodeName]) {
-					flags |= InsertionPointFlags.BLOCK_START;
-				}
-				if (TEXT_FLOW_CONTAINERS[nodeName] || container === root) {
-					flags |= InsertionPointFlags.CONTAINER_START;
-				}
-				if (nodeName === "TD" || nodeName === "TH") {
-					flags |= InsertionPointFlags.TABLECELL_START;
-					const tr = container.parentNode as HTMLElement;
-					if (tr.firstElementChild === container) {
-						flags |= InsertionPointFlags.TABLEROW_START;
-						if (!tr.previousElementSibling || tr.previousElementSibling.nodeName !== "TR") {
-							flags |= InsertionPointFlags.TABLE_START;
-						}
-					}
-				}
-			}
-
-			if (
-				offset === childNodes.length ||
-				!nextToken ||
-				!(container.compareDocumentPosition(nextToken.range.startContainer) & Node.DOCUMENT_POSITION_CONTAINED_BY) //다음 토큰이 현재 컨테이너에 포함되어 있지 않음
-			) {
-				if (BLOCK_ELEMENTS[nodeName]) {
-					flags |= InsertionPointFlags.BLOCK_END;
-				}
-				if (TEXT_FLOW_CONTAINERS[nodeName] || container === root) {
-					flags |= InsertionPointFlags.CONTAINER_END;
-				}
-				if (nodeName === "TD" || nodeName === "TH") {
-					flags |= InsertionPointFlags.TABLECELL_END;
-					const tr = container.parentNode as HTMLElement;
-					if (tr.lastElementChild === container) {
-						flags |= InsertionPointFlags.TABLEROW_END;
-						if (!tr.nextElementSibling || tr.nextElementSibling.nodeName !== "TR") {
-							flags |= InsertionPointFlags.TABLE_END;
-						}
-					}
-				}
-			}
-
-			let prevEl: Node | null = childNodes[offset - 1];
-			while (prevEl && prevEl.nodeType !== 1) {
-				prevEl = prevEl.previousSibling;
-			}
-			if (prevEl && prevEl.nodeName === "TABLE") {
-				flags |= InsertionPointFlags.AFTER_TABLE;
-			}
-
-			let nextEl: Node | null = childNodes[offset];
-			while (nextEl && nextEl.nodeType !== 1) {
-				nextEl = nextEl.nextSibling;
-			}
-			if (nextEl && nextEl.nodeName === "TABLE") {
-				flags |= InsertionPointFlags.BEFORE_TABLE;
-			}
-
-			// let depth = 0;
-			// let temp = container;
-			// while (temp && temp !== root) {
-			// 	depth++;
-			// 	temp = temp.parentNode!;
-			// }
-
-			const range: LightRange = {
-				startContainer: container,
-				startOffset: offset,
-				endContainer: container,
-				endOffset: offset,
-			};
-			yield { range, existingAnchor, flags };
-		}
-	}
 
 	scrollTo(offset: number, options?: ScrollOptions) {
 		if (this.#wrapper.scrollTop !== offset) {
@@ -759,7 +475,7 @@ class Editor {
 	}
 
 	// 디버깅 전용
-	setContent(rawHTML: string) {
+	zzsetContent(rawHTML: string) {
 		this.unobserveMutation();
 		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
 		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
@@ -795,18 +511,58 @@ class Editor {
 	// 그리고 그 토큰들을 사용해서 앵커와 앵커 사이에 어떤 diff가 있는지 파악 가능
 	// 그리고 alignAnchors()가 되었을때 화면상 첫앵커와 끝앵커 사이의 diff geometries를 invalidate할 수 있다.
 	// TODO
-	removeDanglingAnchors() {}
+	removeDanglingAnchors() { }
 
 	forceReflow() {
 		// force reflow
-		this.#wrapper.style.display = "none";
-		this.#wrapper.offsetHeight; // force reflow
-		this.#wrapper.style.display = "";
+		//this.#wrapper.style.display = "none";
+		void this.#wrapper.offsetHeight; // force reflow
+		//void this.#editor.offsetHeight; // force reflow
+		//this.#wrapper.style.display = "";
+
 	}
 
 	toggleDirectionalOverlays(above: boolean, below: boolean) {
 		this.#aboveOverlay.style.opacity = above ? "1" : "0";
 		this.#belowOverlay.style.opacity = below ? "1" : "0";
+	}
+
+	getAnchorTargetForToken(range: Range | LightRange, flags: AnchorFlags = AnchorFlags.None): HTMLElement | null {
+		let node = range.startContainer;
+		if (node.nodeType === 1 && node === range.endContainer && range.startOffset + 1 === range.endOffset) {
+			const theNode = node.childNodes[range.startOffset];
+			if (theNode.nodeName === DIFF_ELEMENT_NAME) {
+				return theNode as HTMLElement;
+			}
+		} else if (node.nodeType !== 3) {
+			node = node.childNodes[range.startOffset];
+			if (!node) {
+				// 토큰화 단계에서 이런 경우를 잘 대비를 해야함.
+				// 텍스트노드가 아닌 요소로 range를 설정하는 경우 반드시 selectNode로 선택할 것.
+				console.warn(this.#editorName, "getAnchorTargetForToken", "No child node found at the specified offset", range);
+				return null;
+			}
+		}
+
+		const ANCHOR_ELIGIBLE_ELEMENTS: Record<string, boolean> = {
+			DIV: true,
+			P: true,
+			LI: true,
+
+
+		}
+
+		// 부모로 거슬러 올라가면서 블럭요소를 찾음
+		let target: HTMLElement | null = node as HTMLElement;
+		while (target && !ANCHOR_ELIGIBLE_ELEMENTS[target.nodeName]) {
+			target = target.parentNode as HTMLElement;
+		}
+
+		if (target === this.#editor) {
+			return null;
+		}
+
+		return target;
 	}
 }
 
@@ -814,3 +570,4 @@ type EditorRegionInfo = {
 	getBoundingClientRect: () => DOMRect;
 	scrollTop: number;
 };
+

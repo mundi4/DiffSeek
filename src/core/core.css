@@ -1,0 +1,100 @@
+diff-marker {
+	display: inline-block;
+	min-height: 1em;
+	user-select: none;
+}
+
+diff-marker.block {
+	display: block;
+}
+
+.sync-mode .anchor::before {
+	content: "";
+	display: block;
+	height: var(--anchor-adjust, 0px);
+}
+
+.sync-mode .striped::before {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
+	opacity: 0.75;
+}
+
+.sync-mode diff-marker {
+	min-height: calc(1em + var(--anchor-adjust, 0px));
+}
+
+/* Editor Styles */
+.editor-wrapper {
+	overflow-y: scroll;
+	height: 100%;
+	min-height: 0;
+}
+
+.editor-wrapper:has(:focus) {
+	background-color: transparent;
+}
+
+.editor {
+	position: relative;
+	width: 100%;
+	min-height: 100%;
+	overflow-y: visible;
+	font-size: var(--editor-font-size, 14px);
+	padding: var(--editor-padding, 4px);
+	line-height: var(--editor-line-height, 1.5);
+	scroll-padding-block: calc(2em * var(--editor-line-height, 1.5));
+	word-break: break-all;
+	overflow-wrap: anywhere;
+	outline: none;
+	background-color: transparent;
+	z-index: 30;
+}
+
+.editor table {
+	table-layout: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+}
+
+.editor td {
+	padding: 4px;
+	position: relative;
+	vertical-align: top;
+	border: 1px solid var(--editor-td-border-color, #666);
+	padding: var(--editor-td-padding, 2px 4px);
+	min-height: calc(1em * var(--editor-line-height, 1.5));
+}
+
+.editor-maybe-170cm-wasnt-enough {
+	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 90% / 0.95) 0px, hsl(0 0% 90% / 0.95) 5px, transparent 5px, transparent 10px);
+	height: var(--height-boost, 0px);
+}
+
+/* Renderer Styles */
+.renderer {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	overflow: hidden;
+	pointer-events: none;
+	z-index: 0;
+}
+
+.renderer canvas {
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	will-change: transform;
+}
+
+.renderer canvas.diff-layer {
+	z-index: 20;
+}
+
+.renderer canvas.highlight-layer {
+	z-index: 50;
+}

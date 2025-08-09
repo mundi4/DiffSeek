@@ -1,0 +1,16 @@
+/* globals.css 등에 추가 */
+.sidedock-handle {
+	background: transparent !important;
+	border: none !important;
+	outline: none !important;
+	position: relative;
+	z-index: 1;
+}
+[data-panel-group-direction="vertical"] .sidedock-handle {
+	height: 6px;
+	cursor: row-resize;
+}
+[data-panel-group-direction="horizontal"] .sidedock-handle {
+	width: 6px;
+	cursor: col-resize;
+}

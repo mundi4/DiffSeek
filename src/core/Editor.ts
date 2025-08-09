@@ -1,0 +1,708 @@
+import type { EditorName } from "@/core/types";
+//import * as styles from "./Editor.css";
+import { TokenizeContext, type RichToken } from "@/core/tokenization/TokenizeContext";
+import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/constants";
+
+import { sanitizeHTML } from "@/core/sanitize";
+import { createParagraphsFromText } from "@/utils/createParagraphsFromText";
+import { findAdjacentTextNode } from "@/utils/findAdjacentTextNode";
+import type { EditorContext } from "@/core/EditorContext";
+import { mountHelper } from "@/utils/mountHelper";
+
+export type EditorCallbacks = {
+	contentChanging: (editor: Editor) => void;
+	contentChanged: (editor: Editor) => void;
+	scroll: (editor: Editor) => void;
+	scrollEnd: (editor: Editor) => void;
+	resize: (editor: Editor) => void;
+	focus: (editor: Editor) => void;
+	blur: (editor: Editor) => void;
+	click: (editor: Editor, event: MouseEvent) => void;
+	copy: (editor: Editor, event: ClipboardEvent) => void;
+	mouseMove: (editor: Editor, e: MouseEvent) => void;
+	mouseLeave: (editor: Editor, e: MouseEvent) => void;
+};
+
+const INITIAL_EDITOR_HTML = document.createElement("P");
+INITIAL_EDITOR_HTML.appendChild(document.createElement("BR"));
+
+// const templateHTML = `<div class="editor-wrapper">
+//     <div class="editor" contenteditable="true" spellcheck="false"></div>
+//     <div class="maybe-170cm-wasnt-enough"></div>
+// </div>`;
+
+export class Editor implements EditorContext {
+	#wrapper: HTMLElement;
+	#editorName: EditorName;
+	#editor = document.createElement("div");
+	#heightBoost: HTMLElement = document.createElement("div");
+	// #wrapper: HTMLElement; // = document.createElement("div");
+	#mutationObserver: MutationObserver;
+	#tokens: RichToken[] = [];
+	#tokenizeContext: TokenizeContext | null = null;
+	#callbacks: Partial<EditorCallbacks> = {};
+	#readonly: boolean = false;
+	#mountHelper: ReturnType<typeof mountHelper>;
+
+	constructor(editorName: "left" | "right") {
+		this.#editorName = editorName;
+
+		this.#editor.contentEditable = "true";
+		this.#editor.spellcheck = false;
+		this.#editor.id = `diffseek-editor-${editorName}`;
+		this.#editor.classList.add("editor", `editor-${editorName}`);
+		this.#heightBoost.classList.add("editor-maybe-170cm-wasnt-enough");
+
+		this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
+		this.observeMutation();
+
+		this.#editor.addEventListener("copy", (e) => this.#onCopy(e));
+		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
+		this.#editor.addEventListener("input", () => this.#onInput());
+		this.#editor.addEventListener("click", (e) => {
+			this.#callbacks.click?.(this, e);
+		});
+		this.#editor.addEventListener("keydown", (e) => this.#onKeyDown(e));
+		this.#editor.addEventListener("focus", () => {
+			this.#callbacks.focus?.(this);
+		});
+		this.#editor.addEventListener("blur", () => {
+			this.#callbacks.blur?.(this);
+		});
+
+		this.#wrapper = document.createElement("div");
+		this.#wrapper.appendChild(this.#editor);
+		this.#wrapper.appendChild(this.#heightBoost);
+		this.#wrapper.classList.add("editor-wrapper", `editor-wrapper-${editorName}`);
+		this.#wrapper.addEventListener("scroll", this.#onContainerScroll);
+		this.#wrapper.addEventListener("scrollend", this.#onContainerScrollEnd);
+		this.#wrapper.addEventListener("mousemove", this.#onContainerMouseMove);
+		this.#wrapper.addEventListener("mouseleave", this.#onContainerMouseLeave);
+
+		this.#mountHelper = mountHelper(this.#wrapper);
+	}
+
+	mount(target: HTMLElement) {
+		this.#mountHelper.mount(target);
+	}
+
+	unmount() {
+		this.#mountHelper.unmount();
+	}
+
+	get contentEditableElement(): HTMLElement {
+		return this.#editor;
+	}
+
+	setCallbacks(callbacks: Partial<EditorCallbacks>) {
+		Object.assign(this.#callbacks, callbacks);
+	}
+
+	#onContainerScroll = () => {
+		this.#callbacks.scroll?.(this);
+	};
+
+	#onContainerScrollEnd = () => {
+		this.#callbacks.scrollEnd?.(this);
+	};
+
+	#onContainerMouseMove = (e: MouseEvent) => {
+		this.#callbacks.mouseMove?.(this, e);
+	};
+
+	#onContainerMouseLeave = (e: MouseEvent) => {
+		this.#callbacks.mouseLeave?.(this, e);
+	};
+
+	get name(): EditorName {
+		return this.#editorName;
+	}
+
+	get readonly(): boolean {
+		return this.#readonly;
+	}
+
+	set readonly(value: boolean) {
+		if (this.#readonly === value) {
+			return;
+		}
+		this.#readonly = value;
+		this.#editor.contentEditable = value ? "false" : "true";
+	}
+
+	get tokens(): readonly RichToken[] {
+		return this.#tokens;
+	}
+
+	get container() {
+		return this.#wrapper;
+	}
+
+	get editor() {
+		return this.#editor;
+	}
+
+	get scrollTop(): number {
+		return this.#wrapper?.scrollTop ?? 0;
+	}
+
+	set scrollTop(value: number) {
+		if (this.#wrapper) {
+			this.#wrapper.scrollTop = value;
+		}
+	}
+
+	get scrollLeft(): number {
+		return this.#wrapper?.scrollLeft ?? 0;
+	}
+
+	set scrollLeft(value: number) {
+		if (this.#wrapper) {
+			this.#wrapper.scrollLeft = value;
+		}
+	}
+
+	#onKeyDown(e: KeyboardEvent) {
+		if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+			// vscode나 기타 등등 코드에디터나 IDE에서 흔하게 사용하는 단축키.
+			// 마우스에 손대지 않고 살짝 2-3줄 정도만 스크롤하고 싶은데 커서가 너무 멀리 있는 경우...
+			if (this.#wrapper) {
+				e.preventDefault();
+				const fontSize = parseFloat(getComputedStyle(this.#editor).fontSize);
+				const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2 * fontSize;
+
+				this.#wrapper.scrollBy({
+					top: delta,
+					behavior: "instant",
+				});
+			}
+		}
+
+		if (e.altKey && (e.key === "2" || e.key === "3")) {
+			const selection = document.getSelection();
+			if (!selection || selection.rangeCount === 0) {
+				return;
+			}
+
+			const range = selection.getRangeAt(0);
+			if (!this.#editor.contains(range.commonAncestorContainer)) {
+				return;
+			}
+
+			e.preventDefault();
+			const html = e.key === "2" ? "<hr data-manual-anchor='A' class=\"manual-anchor\">" : "<hr data-manual-anchor='B' class=\"manual-anchor\">";
+			document.execCommand("insertHTML", false, html); // 줄바꿈 추가
+		}
+	}
+
+	#onInput() {
+		this.#callbacks.contentChanging?.(this);
+		this.#tokenize();
+	}
+
+	#onMutation(_mutations: MutationRecord[]) {
+		// if (this.#editor.childNodes.length === 0) {
+		// 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+		// }
+		// console.log(mutations)
+	}
+
+	observeMutation() {
+		this.#mutationObserver.observe(this.#editor, {
+			childList: true,
+			subtree: true,
+			//attributes: true,
+			//characterData: true,
+		});
+	}
+
+	unobserveMutation() {
+		this.#mutationObserver.disconnect();
+	}
+
+	#onCopy(e: ClipboardEvent) {
+		this.#callbacks.copy?.(this, e);
+	}
+
+	#onPaste(e: ClipboardEvent) {
+		const startTime = performance.now();
+
+		const selection = document.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return;
+		}
+
+		const range = selection.getRangeAt(0);
+		if (!this.#editor.contains(range.commonAncestorContainer)) {
+			return;
+		}
+
+		// console.time("paste");
+		// 비교적 무거운 작업이지만 뒤로 미루면 안되는 작업이기 때문에 UI blocking을 피할 뾰족한 수가 없다.
+		// 사용자가 붙여넣기 이후 바로 추가 입력을 하는 경우 => 붙여넣기를 뒤로 미루면 입력이 먼저 될테니까.
+		e.preventDefault();
+
+		let isHTML = true;
+		let data = e.clipboardData?.getData("text/html") ?? "";
+		if (!data) {
+			isHTML = false;
+			data = e.clipboardData?.getData("text/plain") ?? "";
+		}
+
+		this.#setContents({
+			contents: data,
+			asHTML: isHTML,
+			targetRange: range,
+			allowLegacyExecCommand: data.length <= (isHTML ? 10_000 : 1_000),
+		});
+		const endTime = performance.now();
+		console.debug(this.#editorName, "Paste operation took", endTime - startTime, "ms");
+	}
+
+	getSelectionRange(): Range | null {
+		const selection = document.getSelection();
+		if (!selection || selection.rangeCount === 0) {
+			return null;
+		}
+		const range = selection.getRangeAt(0);
+		if (this.#editor.contains(range.startContainer) && this.#editor.contains(range.endContainer)) {
+			return range;
+		}
+		return null;
+	}
+
+	/**
+	 * 폭탄 붙여넣기! 왜 bomb인가? 되돌릴 수 없기 때문. ctrl-z 안먹힘.
+	 * 전체 내용을 클립보드의 내용으로 교체함.
+	 * 또한 클립보드 액세스를 가능하게 하는 사용자의 동작 없이 실행이 되므로 브라우저에서 "허용" 여부를 묻는 경고창이 뜰 수 있음.
+	 */
+	async pasteBomb(plaintextOnly: boolean = false) {
+		const startTime = performance.now();
+
+		if (!navigator.clipboard || !navigator.clipboard.read) {
+			throw new Error("Clipboard API is not available in this browser");
+		}
+
+		//this.#editor.contentEditable = "false";
+		this.#editor.classList.add("busy");
+
+		try {
+			const items = await navigator.clipboard.read();
+			let foundItem: ClipboardItem | null = null;
+			let foundType: string | null = null;
+
+			if (!plaintextOnly) {
+				for (const item of items) {
+					if (item.types.includes("text/html")) {
+						foundItem = item;
+						foundType = "text/html";
+						break;
+					}
+				}
+			}
+			if (!foundItem) {
+				for (const item of items) {
+					if (item.types.includes("text/plain")) {
+						foundItem = item;
+						foundType = "text/plain";
+						break;
+					}
+				}
+			}
+
+			if (!foundItem) {
+				return false;
+			}
+
+			const text = await (await foundItem.getType(foundType!)).text();
+			this.#setContents({
+				contents: text,
+				asHTML: foundType === "text/html",
+				targetRange: null,
+				allowLegacyExecCommand: false,
+			});
+
+			const endTime = performance.now();
+			console.debug(this.#editorName, "Paste bomb operation took", endTime - startTime, "ms");
+			return true;
+		} finally {
+			this.#editor.classList.remove("busy");
+			//this.#editor.contentEditable = "true";
+		}
+	}
+
+	#setContents({
+		contents,
+		asHTML = false,
+		targetRange,
+		allowLegacyExecCommand = false,
+	}: {
+		contents: string;
+		asHTML?: boolean;
+		targetRange: Range | null;
+		allowLegacyExecCommand?: boolean;
+	}) {
+		let sanitized: Node;
+
+		if (asHTML) {
+			sanitized = sanitizeHTML(contents);
+		} else {
+			sanitized = createParagraphsFromText(contents);
+		}
+
+		try {
+			this.unobserveMutation();
+			if (targetRange === null) {
+				this.#editor.innerHTML = "";
+				this.#editor.appendChild(sanitized);
+				this.#onInput();
+			} else if (this.#editor.contains(targetRange.startContainer) && this.#editor.contains(targetRange.endContainer)) {
+				if (allowLegacyExecCommand && contents.length <= 200_000) {
+					// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
+					// execCommand("insertHTML", ...)는 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
+					// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
+					const div = document.createElement("DIV");
+					div.appendChild(sanitized);
+					const sanitizedHTML = div.innerHTML;
+					document.execCommand("insertHTML", false, sanitizedHTML);
+				} else {
+					// 이 경우는 range를 사용해서 직접 삽입함.
+					targetRange.deleteContents();
+					let hasBlockElements = false;
+					for (const child of sanitized.childNodes) {
+						if (BLOCK_ELEMENTS[child.nodeName]) {
+							hasBlockElements = true;
+							break;
+						}
+					}
+
+					if (hasBlockElements) {
+						targetRange = this.ensureInsertableRange(targetRange, true);
+					}
+
+					targetRange.insertNode(sanitized);
+					targetRange.collapse(false);
+					this.#onInput();
+				}
+			} else {
+				throw new Error("Target range is not within the editor");
+			}
+		} finally {
+			this.observeMutation();
+		}
+	}
+
+	selectAll() {
+		const selection = window.getSelection();
+		if (selection) {
+			const range = document.createRange();
+			range.selectNodeContents(this.#editor);
+			selection.removeAllRanges();
+			selection.addRange(range);
+			return true;
+		}
+		return false;
+	}
+
+	setContent(rawHTML: string) {
+		this.unobserveMutation();
+
+		let sanitized = sanitizeHTML(rawHTML);
+		const range = document.createRange();
+		range.selectNodeContents(this.#editor);
+		range.deleteContents();
+		range.insertNode(sanitized);
+		range.collapse(false);
+		this.#onInput();
+
+		this.observeMutation();
+	}
+
+	findTokenOverlapIndices(range: Range): Span | null {
+		let low = 0;
+		let high = this.#tokens.length - 1;
+		let startIndex = -1;
+		let endIndex = -1;
+
+		// collapsed, 즉 범위 없이 텍스트커서만 있는 경우 커서가 토큰의 맨앞이나 맨뒤에 있어도 해당 토큰이 선택된 것으로 간주함.
+		// 범위가 있는 경우는 범위 밖 토큰들이 같이 선택되면 안됨!
+		const collapsed = range.collapsed;
+
+		// range의 끝부분이 텍스트노드의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 텍스트노드의 시작점(0)에 있는 경우
+		// 그 토큰의 범위에 커서가 걸쳐있다고 봐야 맞는데(단어 앞에 커서가 있는 경우 그 단어가 선택되었다고 판단)
+		// 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 의도적으로 범위를 확장시켜줘야함.
+		// 단순히 <textnode><textnode>의 경우는 쉽지만
+		// <textnode><span><em>text</em></span><textnode>의 경우 span,em 안을 파고 들어가야함.
+		if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue!.length) {
+			let adjText = findAdjacentTextNode(range.endContainer, true);
+			if (adjText) {
+				range = range.cloneRange(); // 지금으로써는 clone까지는 필요는 없지만... 일단 뭐...
+				range.setEnd(adjText, 0);
+			}
+		}
+
+		try {
+			// console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
+			const tokenRange = document.createRange();
+			while (low <= high) {
+				const mid = (low + high) >> 1;
+				const token = this.#tokens[mid].range;
+				tokenRange.setStart(token.startContainer, token.startOffset);
+				tokenRange.setEnd(token.endContainer, token.endOffset);
+
+				let c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
+				if (c < 0 || (collapsed && c === 0)) {
+					// 토큰의 끝점이 range의 시작점보다 뒤에 있다. 이 토큰을 포함해서 왼쪽토큰들이 첫 토큰 후보.
+					// 단, range의 끝점도 토큰의 시작점 이후에 있어야 intersecting이라고 볼 수 있음.
+					// 단단, startIndex가 이미 -1이 아니라면 startIndex의 토큰보다 왼쪽의 토큰이므로 비교하지 않아도 됨(무조건 통과)
+					if (startIndex !== -1 || (c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange)) > 0 || (collapsed && c === 0)) {
+						startIndex = mid;
+						// } else {
+						// 	console.warn(this.#editorName, "NOT THIS TOKEN", mid, {
+						// 		range,
+						// 		tokenRange: tokenRange.cloneRange(),
+						// 		c: tokenRange.compareBoundaryPoints(Range.END_TO_START, range),
+						// 	});
+					}
+					high = mid - 1; // 왼쪽으로
+				} else {
+					low = mid + 1; // 오른쪽으로
+				}
+			}
+
+			// console.debug("after 1st loop", "findTokenOverlapIndices",  startIndex);
+
+			if (startIndex !== -1) {
+				tokenRange.setStart(this.#tokens[startIndex].range.startContainer, this.#tokens[startIndex].range.startOffset);
+				low = endIndex = startIndex;
+				high = this.#tokens.length - 1;
+				while (low <= high) {
+					const mid = (low + high) >> 1;
+					const token = this.#tokens[mid].range;
+					tokenRange.setStart(token.startContainer, token.startOffset);
+					tokenRange.setEnd(token.endContainer, token.endOffset);
+					const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
+					if (c > 0) {
+						endIndex = mid + 1;
+						low = mid + 1; // 오른쪽으로
+					} else {
+						high = mid - 1; // 왼쪽으로
+					}
+				}
+			}
+		} catch {
+			// range가 DOM에서 삭제된 경우 findTokenOverlapIndices가 실패함.
+			//console.warn(this.#editorName, "findTokenOverlapIndices failed", range);
+			startIndex = -1;
+			endIndex = -1;
+		}
+
+		return endIndex >= 0 ? { start: startIndex, end: endIndex } : null;
+	}
+
+	getTokenRange(index: number, end: number = index + 1) {
+		// count 대신 end로 바꿔서 구현해야함.
+		const range = document.createRange();
+		const count = end - index;
+		if (count === 1 && index >= 0 && index < this.#tokens.length) {
+			const token = this.#tokens[index];
+			range.setStart(token.range.startContainer, token.range.startOffset);
+			range.setEnd(token.range.endContainer, token.range.endOffset);
+		} else if (count > 0) {
+			const startToken = this.#tokens[index];
+			const endToken = this.#tokens[index + count - 1];
+			if (startToken) {
+				range.setStart(startToken.range.startContainer, startToken.range.startOffset);
+			} else {
+				range.setStart(this.#editor, 0);
+			}
+			if (endToken) {
+				range.setEnd(endToken.range.endContainer, endToken.range.endOffset);
+			} else {
+				range.setEnd(this.#editor, this.#editor.childNodes.length);
+			}
+		} else {
+			// count === 0
+
+			const prevToken = this.#tokens[index - 1];
+			if (prevToken) {
+				range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
+			} else {
+				range.setStart(this.#editor, 0);
+			}
+
+			const nextToken = this.#tokens[index];
+			if (nextToken) {
+				range.setEnd(nextToken.range.startContainer, nextToken.range.startOffset);
+			} else {
+				range.setEnd(this.#editor, this.#editor.childNodes.length);
+			}
+		}
+		return range;
+	}
+
+	#tokenize() {
+		if (this.#tokenizeContext) {
+			this.#tokenizeContext.cancel();
+		}
+
+		this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
+			console.debug(this.#editorName, "Tokenization done", tokens);
+			this.#tokens = tokens;
+			this.#onTokenizeDone();
+		});
+
+		this.#tokenizeContext.start();
+	}
+
+	#onTokenizeDone() {
+		this.#callbacks.contentChanged?.(this);
+	}
+
+	scrollTo(offset: number, options?: ScrollOptions) {
+		if (!this.#wrapper) {
+			return;
+		}
+
+		if (this.#wrapper.scrollTop !== offset) {
+			this.#wrapper.scrollTo({
+				top: offset,
+				behavior: options?.behavior,
+			});
+		}
+	}
+
+	get contentHeight(): number {
+		return this.#editor.offsetHeight;
+	}
+
+	focus() {
+		this.#editor.focus();
+	}
+
+	contains(range: Range): boolean {
+		if (!range || !this.#editor.contains(range.startContainer) || !this.#editor.contains(range.endContainer)) {
+			return false;
+		}
+		return true;
+	}
+
+	set height(value: number) {
+		const editorHeight = this.#editor.offsetHeight;
+		const delta = value - editorHeight;
+		if (delta < 0) {
+			console.warn("WTF? The taller the better", this.#editorName, value, editorHeight);
+			return;
+		}
+		if (delta > 0) {
+			this.#heightBoost.style.setProperty("--height-boost", delta + "px");
+		} else {
+			this.#heightBoost.style.removeProperty("--height-boost");
+		}
+	}
+
+	forceReflow() {
+		// force reflow
+		if (!this.#wrapper) {
+			return;
+		}
+		//this.#wrapper.style.display = "none";
+		void this.#wrapper.offsetHeight; // force reflow
+		//void this.#editor.offsetHeight; // force reflow
+		//this.#wrapper.style.display = "";
+	}
+
+	getBoundingClientRect(): Rect {
+		if (!this.#wrapper) {
+			return { x: 0, y: 0, width: 0, height: 0 };
+		}
+		return this.#wrapper.getBoundingClientRect();
+	}
+
+	getScroll(): [x: number, y: number] {
+		if (!this.#wrapper) {
+			return [0, 0];
+		}
+		return [this.#wrapper.scrollLeft, this.#wrapper.scrollTop];
+	}
+
+	// 텍스트노드, 인라인노드, P태그 안에는 블럭요소를 집어넣으면 안되지만 contenteditable 안에서 브라우저는 그런걸 제어해주지 않음.
+	// 몇번 붙여넣기 하다보면 <SPAN> 태그 안에 <P>, <DIV>, <TABLE>들이 들어가 있는 광경을 보게 된다.
+	// 따라서 붙여넣기 하기 전에 insertion point를 확인하고 텍스트노드이거나 인라인요소 사이를 반으로 쪼개야 한다.
+	// 그리고 이 작업은 부모를 거슬러올라가면서 계속... 해야함.
+	ensureInsertableRange(range: Range, forBlock: boolean): Range {
+		if (range.startContainer.nodeType !== 1 && range.startContainer.nodeType !== 3) {
+			throw new Error("Range start container is not a text node or an element");
+		}
+
+		if (!this.#editor.contains(range.startContainer)) {
+			throw new Error("Range start container is not within the editor");
+		}
+
+		if (forBlock) {
+			let container = range.startContainer;
+			let offset = range.startOffset;
+
+			if (container.nodeType === 3) {
+				if (offset === 0) {
+					// 텍스트노드의 시작부분. 텍스트노드를 쪼갤 필요 없이 텍스트 노드 앞으로 삽입하면 됨.
+					offset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
+					range.setStartBefore(container);
+				} else if (offset === container.nodeValue!.length) {
+					// 텍스트노드의 끝부분. 텍스트노드를 쪼갤 필요 없이 텍스트 노드 뒤로... 삽입 +_+
+					offset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container) + 1;
+					range.setStartAfter(container);
+				} else {
+					// 블럭요소가 들어갈 수 있도록 벌려야함 +_+
+					const prevText = document.createTextNode(container.nodeValue!.slice(0, offset));
+					container.nodeValue = container.nodeValue!.slice(offset);
+					container.parentNode!.insertBefore(prevText, container);
+					offset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container);
+					range.setStartAfter(prevText);
+				}
+				container = range.startContainer;
+			}
+
+			// void 요소나 textless 요소(tr,...)등을 고려해야할까?
+			// 정상적인 상황이라면 그런 일은 절대로 나오지... 않음.
+
+			let adjusted = false;
+			while (
+				container !== this.#editor &&
+				!TEXT_FLOW_CONTAINERS[container.nodeName] && // editor루트나 TD, ...등은 더 이상 쪼개면 안됨
+				(container.nodeName === "P" || !BLOCK_ELEMENTS[container.nodeName]) // 블럭요소는 쪼갤 필요 없지만 P는 쪼개야함
+			) {
+				const parentNode = container.parentNode!;
+				if (offset === 0) {
+					offset = Array.prototype.indexOf.call(parentNode!.childNodes, container);
+					container = parentNode;
+				} else if (offset === container.childNodes.length) {
+					offset = Array.prototype.indexOf.call(parentNode!.childNodes, container) + 1;
+					container = parentNode;
+				} else {
+					const clone = container.cloneNode(false);
+					for (let i = 0; i < offset; i++) {
+						clone.appendChild(container.firstChild!);
+					}
+					parentNode.insertBefore(clone, container);
+					offset = Array.prototype.indexOf.call(parentNode!.childNodes, container);
+				}
+				container = parentNode;
+				adjusted = true;
+			}
+
+			if (adjusted) {
+				range = range.cloneRange();
+				range.setStart(container, offset);
+				range.collapse(true);
+			}
+		}
+
+		return range;
+	}
+}
+
+// export type EditorRegionInfo = {
+// 	getBoundingClientRect: () => DOMRect;
+// 	scrollTop: number;
+// };

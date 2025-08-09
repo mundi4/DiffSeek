@@ -1,0 +1,16 @@
+{
+	"files": [],
+	"compilerOptions": {
+		"baseUrl": ".",
+		"paths": {
+			"@/*": ["./src/*"],
+		},
+		"isolatedModules": false,
+		"preserveConstEnums": false,
+		"declaration": false,
+		"outDir": "tscompile",
+		"target": "esnext",
+		"jsx": "react-jsx"
+	},
+	"include": ["src"],
+}

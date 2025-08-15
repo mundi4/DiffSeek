@@ -7,22 +7,18 @@ export type CharToken = {
 };
 
 export function tokenizeByChar(text: string, _options: {}): CharToken[] {
-    const tokens: CharToken[] = [];
-    let i = 0;
-    while (i < text.length) {
-        const charCode = text.codePointAt(i)!;
-        const normCode =charCode;// normalizedCharMap[charCode] ?? charCode;
-        if (charCode === undefined) {
-            throw new Error(`Invalid character at index ${i}`);
-        }
-        const count = charCode > 0xffff ? 2 : 1;
-        tokens.push({
-            char: String.fromCodePoint(normCode),
-            count: count,
-            index: i,
-        });
-
-        i += count;
-    }
-    return tokens;
+	const tokens: CharToken[] = [];
+	let i = 0;
+	while (i < text.length) {
+		const charCode = text.codePointAt(i)!;
+		const count = charCode > 0xffff ? 2 : 1;
+		const normCode = normalizedCharMap[charCode] ?? charCode;
+		tokens.push({
+			char: String.fromCodePoint(normCode),
+			count: count,
+			index: i,
+		});
+		i += count;
+	}
+	return tokens;
 }

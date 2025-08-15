@@ -1,14 +1,17 @@
 import * as React from "react";
-import { cn } from "@/lib/utils";
 import { useAtomValue } from "jotai";
 import { ListTree } from "lucide-react";
-import { DropdownMenuLabel } from "@/components/ui/dropdown-menu";
 import { useDiffContext } from "@/hooks/useDiffContext";
 import { editorTextSelectionAtom } from "@/states/atoms";
-import { SectionTrail } from "@/components/AppSidebar/SectionTrail";
-import { SidebarPanel } from "./SidebarPanel";
+import { SidebarPanel, type SidebarPanelRootProps } from "./SidebarPanel";
+import clsx from "clsx";
+import * as styles from "./TrailViewPanel.css";
+import { descMessage, messageContainer } from "./SidebarPanel.css";
+import { SideTagCopyButton } from "./SideTagButton";
+import { useDiffControllerContext } from "@/hooks/useDiffController";
 
-interface TrailViewProps { className?: string }
+type TrailViewProps = SidebarPanelRootProps & {}
+
 interface EditorTextSelection {
     leftTokenRange?: Range;
     rightTokenRange?: Range;
@@ -18,8 +21,7 @@ interface EditorTextSelection {
     sourceSpan: { start: number; end: number };
 }
 
-export function TrailViewPanel({ className }: TrailViewProps) {
-    // selection fallback 유지
+export function TrailViewPanel({ className, ...props }: TrailViewProps) {
     const fallbackSelection = React.useRef<EditorTextSelection | null>(null);
     let editorTextSelection = useAtomValue(editorTextSelectionAtom) as EditorTextSelection | null;
     if (!editorTextSelection) editorTextSelection = fallbackSelection.current;
@@ -44,34 +46,77 @@ export function TrailViewPanel({ className }: TrailViewProps) {
 
     return (
         <SidebarPanel.Root
-            ariaLabel="Trail 패널"
-            divided
-            className={cn("shadow-none rounded-none", className)}
+            ariaLabel="Breadcrumbs"
+            className={clsx(className)}
+            {...props}
+
         >
             <SidebarPanel.Header
                 // 타이틀 없이 leading 아이콘 하나만 (드롭다운 트리거)
                 leading={
-                    <SidebarPanel.HeaderMenu
-                        trigger={
-                            <button
-                                aria-label="보기 옵션"
-                                className="grid place-items-center size-6 rounded hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-                            >
-                                <ListTree size={14} />
-                            </button>
-                        }
-                    >
-                        <DropdownMenuLabel>보기 방식</DropdownMenuLabel>
-                        {/* 여기에 라디오/토글 등 옵션 */}
-                    </SidebarPanel.HeaderMenu>
+                    <ListTree size={14} />
+                    // <SidebarPanel.HeaderMenu
+                    //     trigger={
+                    //         <button
+                    //             aria-label="보기 옵션"
+                    //             className="grid place-items-center size-6 rounded hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+                    //         >
+                    //             <ListTree size={14} />
+                    //         </button>
+                    //     }
+                    // >
+                    //     <DropdownMenuLabel>보기 방식</DropdownMenuLabel>
+                    //     {/* 여기에 라디오/토글 등 옵션 */}
+                    // </SidebarPanel.HeaderMenu>
                 }
-            />
+            >Breadcrumbs</SidebarPanel.Header>
             <SidebarPanel.Body>
-                {/* 컨텐츠만 스크롤: Body가 ScrollArea를 감싸줌 */}
-                <div className="h-full min-h-0 overflow-x-hidden [scrollbar-gutter:stable] pr-2">
-                    <SectionTrail leftTrail={leftHeadings} rightTrail={rightHeadings} />
-                </div>
+                {!editorTextSelection && <div className={messageContainer}>
+                    <p className={descMessage}>선택된 위치 없음</p>
+                </div>}
+                {(leftHeadings.length > 0 || rightHeadings.length > 0) && (
+                    <>
+                        <Trail trail={leftHeadings} side="left" />
+                        <Trail trail={rightHeadings} side="right" />
+                    </>
+                )}
             </SidebarPanel.Body>
         </SidebarPanel.Root>
     );
 }
+
+interface TrailProps {
+    side: "left" | "right";
+    trail: SectionHeading[];
+}
+
+function getTrailText(trail: SectionHeading[]) {
+    return trail.map((h) => `${h.ordinalText} ${h.title}`).join(" › ");
+}
+
+function Trail({ side, trail }: TrailProps) {
+    const { diffController } = useDiffControllerContext();
+    const getValue = () => getTrailText(trail);
+    const onHeadingClick = (heading: SectionHeading) => {
+        //console.log("heading clicked", heading)
+        diffController.scrollToTokenIndex(side, heading.startTokenIndex);
+    };
+    return (
+        <div className={clsx(styles.trail)}>
+            <SideTagCopyButton getValue={getValue} side={side} />
+            <div>
+                {trail.map((h, i) => (
+                    <React.Fragment key={i}>
+                        <a className={styles.trailLink} onClick={() => onHeadingClick(h)}>
+                            <span className={clsx(styles.ordinalText)}>{h.ordinalText}</span>{" "}
+                            <span className={clsx(styles.headingTitle)}>{h.title}</span>
+                        </a>
+                        {i < trail.length - 1 && <span className={clsx(styles.separator)}> › </span>}
+                    </React.Fragment>
+                ))}
+
+            </div>
+        </div>
+    );
+}
+

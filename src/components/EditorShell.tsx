@@ -1,6 +1,7 @@
 import { useRef, forwardRef, useEffect, useImperativeHandle } from "react";
 import type { Editor } from "@/core/Editor";
-import { cn } from "@/lib/utils";
+import * as styles from "./EditorShell.css";
+import clsx from "clsx";
 
 type EditorShellProps = React.HTMLAttributes<HTMLDivElement> & {
     editor: Editor;
@@ -26,5 +27,5 @@ export const EditorShell = forwardRef<EditorShellHandle, EditorShellProps>(({ ed
         getRootElement: () => containerRef.current,
     }));
 
-    return <div className={cn("h-full min-h-0 border-1 z-10", className)} ref={containerRef}></div>;
+    return <div className={clsx(styles.root, className)} ref={containerRef}></div>;
 });

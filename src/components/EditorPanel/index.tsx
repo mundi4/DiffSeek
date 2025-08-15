@@ -5,7 +5,7 @@ import { editorPanelLayoutAtom, syncModeAtom } from "../../states/atoms";
 import { useAtomValue } from "jotai";
 import { useEffect, useMemo, useRef } from "react";
 import * as styles from "./EditorPanel.css";
-import { useDiffControllerContext} from "@/hooks/useDiffController";
+import { useDiffControllerContext } from "@/hooks/useDiffController";
 
 type EditorPanelProps = React.HTMLAttributes<HTMLDivElement> & {
 
@@ -60,10 +60,18 @@ function EditorPanel({ }: EditorPanelProps) {
     // /className="absolute top-0 left-0 w-full h-full pointer-events-none z-[0]"
     return (
         <div className={styles.container({
-            layout: layout === 'vertical' ? 'vertical' : 'horizontal',
+            layout,
             syncMode: syncMode ? 'on' : 'off',
         })}>
             {rendererShell}
+
+            <div
+                aria-hidden
+                className={styles.divider({
+                    layout,
+                })}
+            />
+
             {leftEditorShell}
             {rightEditorShell}
         </div>

@@ -217,16 +217,16 @@ export class DiffController {
 			this.#invalidateGeometriesRequestId = requestAnimationFrame(() => {
 				this.#renderer.invalidateGeometries();
 			});
-			setTimeout(() => {
-				console.log(
-					"scrolling editor:",
-					this.#scrollingEditor?.name,
-					"last scrolled editor:",
-					this.#lastScrolledEditor?.name,
-					"last focused editor:",
-					this.#lastFocusedEditor?.name
-				);
-			}, 100);
+			// setTimeout(() => {
+			// 	console.log(
+			// 		"scrolling editor:",
+			// 		this.#scrollingEditor?.name,
+			// 		"last scrolled editor:",
+			// 		this.#lastScrolledEditor?.name,
+			// 		"last focused editor:",
+			// 		this.#lastFocusedEditor?.name
+			// 	);
+			// }, 100);
 		}, reset);
 	}
 
@@ -279,13 +279,13 @@ export class DiffController {
 		if (selection) {
 			this.#textSelectionEvent.emit({
 				selection: {
-					sourceEditor: selection.sourceEditor ,
+					sourceEditor: selection.sourceEditor,
 					sourceSpan: selection.sourceSpan,
-					sourceRange: sourceRange!,
+					sourceRange: selection.sourceEditor === "left" ? sourceRange! : targetRange!,
 					leftTokenSpan: leftSpan!,
 					rightTokenSpan: rightSpan!,
-					leftTokenRange: sourceRange!,
-					rightTokenRange: targetRange!,
+					leftTokenRange: selection.sourceEditor === "left"?  sourceRange! : targetRange!,
+					rightTokenRange: selection.sourceEditor === "right" ? sourceRange! : targetRange!,
 				},
 			});
 		} else {
@@ -410,6 +410,9 @@ export class DiffController {
 	}
 
 	#handleEditorResize(_editor: Editor) {
+		if (this.#syncMode) {
+			this.alignEditors();
+		}
 		//this.#renderer.invalidateLayout();
 	}
 
@@ -468,6 +471,7 @@ export class DiffController {
 		this.diffContext = diffContext;
 		this.#renderer.setDiffs(diffContext.diffs);
 		this.#diffWorkflowDone.emit(diffContext);
+		this.#handleSelectionChange();
 		if (this.#syncMode) {
 			if (this.#alignEditorsRequestId) {
 				cancelAnimationFrame(this.#alignEditorsRequestId);
@@ -597,6 +601,41 @@ export class DiffController {
 			this.#leftEditor.scrollTo(leftScrollTop, { behavior: "smooth" });
 			this.#rightEditor.scrollTo(rightScrollTop, { behavior: "smooth" });
 		}
+	}
+
+	scrollToTokenIndex(side: EditorName, tokenIndex: number) {
+		if (!this.diffContext) {
+			return;
+		}
+
+		const tokens = side === "left" ? this.#leftEditor.tokens : this.#rightEditor.tokens;
+		const token = tokens[tokenIndex];
+		if (!token) {
+			return;
+		}
+
+		let raw = token.range;
+		let range: Range;
+		if (raw instanceof Range) {
+			range = raw;
+		} else {
+			range = document.createRange();
+			range.setStart(raw.startContainer, raw.startOffset);
+			range.setEnd(raw.endContainer, raw.endOffset);
+		}
+
+		if (!range.startContainer.isConnected || !range.endContainer.isConnected) {
+			return;
+		}
+
+		const rect = range.getBoundingClientRect();
+		if (rect.y === 0 && rect.x === 0 && rect.height === 0 && rect.width === 0) {
+			return 0;
+		}
+
+		const editor = side === "left" ? this.#leftEditor : this.#rightEditor;
+		let top = rect.y - EDITOR_SCROLL_MARGIN + editor.scrollTop;
+		editor.scrollTo(top, { behavior: "smooth" });
 	}
 
 	setHoveredDiffIndex(diffIndex: number | null) {

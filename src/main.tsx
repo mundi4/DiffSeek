@@ -2,10 +2,11 @@
 
 import { createRoot } from "react-dom/client";
 
-import "./index.css";
+import "./styles/vars.css";
 import "./globals.css";
 import "./core/core.css";
-import "./styles/global.css";
+import "./styles/globals.css";
+
 
 import { StrictMode } from "react";
 import App from "./App.tsx";

@@ -50,6 +50,10 @@ diff-marker.block {
 	z-index: 30;
 }
 
+.editor .color-red {
+	color: red;
+}
+
 .editor table {
 	table-layout: auto;
 	border-collapse: collapse;
@@ -98,3 +102,4 @@ diff-marker.block {
 .renderer canvas.highlight-layer {
 	z-index: 50;
 }
+

@@ -23,6 +23,8 @@ export type EditorCallbacks = {
 	mouseLeave: (editor: Editor, e: MouseEvent) => void;
 };
 
+const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000;
+
 const INITIAL_EDITOR_HTML = document.createElement("P");
 INITIAL_EDITOR_HTML.appendChild(document.createElement("BR"));
 
@@ -43,6 +45,7 @@ export class Editor implements EditorContext {
 	#callbacks: Partial<EditorCallbacks> = {};
 	#readonly: boolean = false;
 	#mountHelper: ReturnType<typeof mountHelper>;
+	#resizeObserver = new ResizeObserver(() => this.#onResize());
 
 	constructor(editorName: "left" | "right") {
 		this.#editorName = editorName;
@@ -80,6 +83,7 @@ export class Editor implements EditorContext {
 		this.#wrapper.addEventListener("mouseleave", this.#onContainerMouseLeave);
 
 		this.#mountHelper = mountHelper(this.#wrapper);
+		this.#resizeObserver.observe(this.#wrapper);
 	}
 
 	mount(target: HTMLElement) {
@@ -160,6 +164,10 @@ export class Editor implements EditorContext {
 		if (this.#wrapper) {
 			this.#wrapper.scrollLeft = value;
 		}
+	}
+
+	#onResize() {
+		this.#callbacks.resize?.(this);
 	}
 
 	#onKeyDown(e: KeyboardEvent) {
@@ -253,7 +261,7 @@ export class Editor implements EditorContext {
 			contents: data,
 			asHTML: isHTML,
 			targetRange: range,
-			allowLegacyExecCommand: data.length <= (isHTML ? 10_000 : 1_000),
+			allowLegacyExecCommand: data.length <= (isHTML ? MAX_LENGTH_FOR_EXECCOMMAND_PASTE : MAX_LENGTH_FOR_EXECCOMMAND_PASTE),
 		});
 		const endTime = performance.now();
 		console.debug(this.#editorName, "Paste operation took", endTime - startTime, "ms");
@@ -357,7 +365,7 @@ export class Editor implements EditorContext {
 				this.#editor.appendChild(sanitized);
 				this.#onInput();
 			} else if (this.#editor.contains(targetRange.startContainer) && this.#editor.contains(targetRange.endContainer)) {
-				if (allowLegacyExecCommand && contents.length <= 200_000) {
+				if (allowLegacyExecCommand && contents.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE) {
 					// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
 					// execCommand("insertHTML", ...)는 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
 					// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...

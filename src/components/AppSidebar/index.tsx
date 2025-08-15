@@ -1,33 +1,27 @@
 import { DiffListPanel } from "./DiffListPanel";
-import {
-    ResizableHandle,
-    ResizablePanel,
-    ResizablePanelGroup,
-} from "@/components/ui/resizable"
-import { cn } from "@/lib/utils";
 import { TrailViewPanel } from "./TrailViewPanel";
 import { InlineDiffViewPanel } from "./InlineDiffViewPanel";
+import { ResizablePanelGroup } from "../resizable/ResizablePanelGroup";
+import { ResizablePanel } from "../resizable/ResizablePanel";
+import clsx from "clsx";
+import * as styles from "./AppSidebar.css";
+import { FetishBar } from "../FetishBar";
 
 export function AppSidebar() {
     return (
-        <aside className={cn("flex flex-col w-full h-full min-h-0 bg-[#f3f4f6] border-l border-l-[#d1d5db]")}>
+        <aside className={clsx(styles.root)}>
             <ResizablePanelGroup direction="vertical">
-                <ResizablePanel >
+                <ResizablePanel initialSize="50%" minSize={25}>
                     <DiffListPanel />
                 </ResizablePanel>
-
-                <ResizableHandle />
-
-                <ResizablePanel defaultSize={20} minSize={15} maxSize={50}>
+                <ResizablePanel initialSize="25%" minSize={25}>
                     <TrailViewPanel />
                 </ResizablePanel>
-
-                <ResizableHandle />
-
-                <ResizablePanel defaultSize={20} minSize={15} maxSize={50}>
+                <ResizablePanel initialSize="25%" minSize={25}>
                     <InlineDiffViewPanel />
                 </ResizablePanel>
             </ResizablePanelGroup>
+            <FetishBar />
         </aside>
     );
 }

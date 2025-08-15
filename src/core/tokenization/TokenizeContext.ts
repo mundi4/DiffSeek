@@ -36,13 +36,14 @@ export const enum TokenFlags {
 	IMAGE = 1 << 16, // 65536
 	HTML_SUP = 1 << 17, // 131072
 	HTML_SUB = 1 << 18, // 262144
+
+	// Section Headings
 	SECTION_HEADING_TYPE1 = 1 << 19, // 1.
 	SECTION_HEADING_TYPE2 = 1 << 20, // 가.
 	SECTION_HEADING_TYPE3 = 1 << 21, // (1)
 	SECTION_HEADING_TYPE4 = 1 << 22, // (가)
 	SECTION_HEADING_TYPE5 = 1 << 23, // 1)
 	SECTION_HEADING_TYPE6 = 1 << 24, // 가)
-
 	SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 |
 		SECTION_HEADING_TYPE2 |
 		SECTION_HEADING_TYPE3 |
@@ -114,6 +115,8 @@ function normalize(text: string): string {
 	}
 	return result;
 }
+
+let imgSeen = 0;
 
 export class TokenizeContext {
 	#rootContent: HTMLElement;
@@ -446,8 +449,20 @@ export class TokenizeContext {
 
 						const range = document.createRange();
 						range.selectNode(child);
+
+						const src = (child as HTMLImageElement).src;
+						let tokenText;
+						if (src && src.startsWith("data:")) {
+							tokenText = quickHash53ToString(src);
+						} else {
+							// 워드에서 복붙할때 임시 경로에 그림파일이 들어가는 경우가 있는데 이후 다른 그림을 복붙할 때 같은 경로에 다른 그림파일이 저장될 수 있다.
+							// 그렇기 때문에 경로가 같더라도 같은 그림으로 취급하면 안됨.
+							// => 안전빵으로 무조건 다른 그림으로 취급.
+							tokenText = `(img${++imgSeen})`;
+						}
+
 						currentToken = {
-							text: quickHash53ToString((child as HTMLImageElement).src),
+							text: tokenText,
 							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
 							range,
 							container: currentContainer,

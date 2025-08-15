@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { Renderer } from "@/core/Renderer";
-import { cn } from "@/lib/utils";
+import clsx from "clsx";
+import * as styles from "./RendererShell.css";
 
 type RendererShellProps = React.HTMLAttributes<HTMLDivElement> & {
     renderer: Renderer;
@@ -20,6 +21,6 @@ export function RendererShell({ renderer, className }: RendererShellProps) {
     ]);
 
     return (
-        <div className={cn("absolute top-0 left-0 w-full h-full pointer-events-none", className)} ref={containerRef}></div>
+        <div className={clsx(styles.root, className)} ref={containerRef}></div>
     )
 }

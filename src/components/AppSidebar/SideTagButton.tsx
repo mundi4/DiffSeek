@@ -1,50 +1,75 @@
-import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
-import React from "react";
+import { Button, type ButtonProps } from "@/components/ui/button";
+import { useState } from "react";
+import * as styles from "./SideTagButton.css";
+import clsx from "clsx";
+import { Check } from "lucide-react";
 
-export type SideTagButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
+export type SideTagButtonProps = ButtonProps & {
     side: "left" | "right";
     visible?: boolean;
-    background?: string;           // e.g. "220 60% 55%"
-    foreground?: string;           // e.g. "0 0% 100%"
-    border?: string;               // e.g. "0 0% 35%"
+    // background?: string;           // e.g. "220 60% 55%"
+    // foreground?: string;           // e.g. "0 0% 100%"
+    // border?: string;               // e.g. "0 0% 35%"
     "aria-label"?: string;
 };
 
 export function SideTagButton({
     side,
     visible = true,
-    background,
-    foreground,
-    border,
+    // background,
+    // foreground,
+    // border,
+    children,
     className,
     "aria-label": ariaLabel,
     onClick,
     ...props
 }: SideTagButtonProps) {
-    const style = {
-        ...(background ? ({ ["--primary" as any]: background } as React.CSSProperties) : null),
-        ...(foreground ? ({ ["--primary-foreground" as any]: foreground } as React.CSSProperties) : null),
-        ...(border ? ({ ["--border" as any]: border } as React.CSSProperties) : null),
-    };
 
     return (
         <Button
             onClick={onClick}
             variant="default"
             aria-label={ariaLabel}
-            size="icon"
-            style={style}
-            className={cn(
-                "size-5 inline-flex items-center justify-center font-bold font-mono text-sm rounded-[25%] border",
-                visible ? "opacity-100" : "opacity-20",
+            size="xxs"
+            //style={style}
+            className={clsx(
+                styles.root({ visible }),
                 className
             )}
             {...props}
         >
-            {side === "left" ? <span className="text-left">L</span> : <span className="text-right">R</span>}
+            {children ?? (side === "left" ? <span>L</span> : <span>R</span>)}
         </Button>
     );
 }
 
-//"border text-primary-foreground bg-[hsl(var(--diff-hue)_100%_40%)] border-[hsl(var(--diff-hue)_100%_20%)]",
+export type SideTagCopyButtonProps = Omit<SideTagButtonProps, "onClick"> & {
+    getValue?: () => string;
+    onCopied?: () => void;
+}
+
+export function SideTagCopyButton({
+    getValue,
+    onCopied,
+    ...props
+}: SideTagCopyButtonProps) {
+    const [copied, setCopied] = useState(false);
+    const copy = async () => {
+        try {
+            const content = getValue?.();
+            if (content) {
+                await navigator.clipboard.writeText(content);
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1000);
+                onCopied?.();
+            }
+        } catch {
+        }
+    };
+
+
+    return (
+        <SideTagButton onClick={copy} {...props} children={copied ? (<Check size={8} className={clsx()} />) : null} />
+    )
+}

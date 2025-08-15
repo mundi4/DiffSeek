@@ -64,7 +64,9 @@ export class EditorPairer {
 
 	cancelAnchorAligning() {
 		if (this.#chunkCancellationToken !== null) {
-			console.debug("AnchorManager: canceling anchor aligning");
+			if (import.meta.env.DEV) {
+				console.debug("AnchorManager: canceling anchor aligning");
+			}
 			cancelAnimationFrame(this.#chunkCancellationToken);
 			this.#chunkCancellationToken = null;
 		}
@@ -459,7 +461,7 @@ export class EditorPairer {
 				break;
 			}
 
-			if (current.nodeType === 1 && current.childNodes.length > 0) {
+			if (current.nodeType === 1 && current.childNodes.length > 0 && !current.contains(endContainer)) {
 				// 자식 노드로 내려가서 마찬가지로 뒤에서부터 탐색.
 				offsetStack.push(offset);
 				offset = current.childNodes.length - 1;

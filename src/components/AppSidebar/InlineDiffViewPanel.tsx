@@ -1,34 +1,28 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { cn } from "@/lib/utils";
 import { SearchCode } from "lucide-react";
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuLabel,
-    DropdownMenuRadioGroup,
-    DropdownMenuRadioItem,
-    DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
-
 import { requestQuickDiff, type QuickDiffOptions } from "@/lib/quick-diff";
 import type { EditorTextSelection } from "@/core/DiffController";
 import { editorTextSelectionAtom } from "@/states/atoms";
 import { extractTextFromRange } from "@/utils/extractTextFromRange";
-import { SidebarPanel } from "./SidebarPanel";
-import { SideCopyButton } from "../SideCopyButton";
+//import { SideCopyButton } from "../SideCopyButton";
 import { atomWithStorage } from "jotai/utils";
+import { SidebarPanel, type SidebarPanelRootProps } from "./SidebarPanel";
+import * as styles from "./InlineDiffViewPanel.css";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from "../DropdownMenu";
+import { descMessage, errorMessage, messageContainer } from "./SidebarPanel.css";
+import clsx from "clsx";
+import { SideTagCopyButton } from "./SideTagButton";
 
 const diffOptions: QuickDiffOptions = {};
-export const MagnifierMaxTextLength = 500;
+export const MaxTextLength = 300;
 
 type RenderMode = "inline" | "side-by-side" | "stacked";
 const renderModeAtom = atomWithStorage<RenderMode>("inlineDiffRenderMode", "stacked");
 
-interface InlineDiffViewProps { }
+type InlineDiffViewProps = SidebarPanelRootProps & {}
 
-
-export function InlineDiffViewPanel({ }: InlineDiffViewProps) {
+export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
     const fallbackSelection = useRef<EditorTextSelection | null>(null);
     let editorTextSelection = useAtomValue(editorTextSelectionAtom);
     if (!editorTextSelection) {
@@ -52,16 +46,16 @@ export function InlineDiffViewPanel({ }: InlineDiffViewProps) {
 
     const [textPair, setTextPair] = useState<{ left: string; right: string }>({ left: "", right: "" });
     const { left: leftText, right: rightText } = textPair;
-    const tooLong = leftText.length > MagnifierMaxTextLength || rightText.length > MagnifierMaxTextLength;
+    const tooLong = leftText.length > MaxTextLength || rightText.length > MaxTextLength;
 
     useEffect(() => {
         if (leftRange && rightRange) {
-            const leftText = extractTextFromRange(leftRange, { maxLength: MagnifierMaxTextLength + 1 })[0];
-            const rightText = extractTextFromRange(rightRange, { maxLength: MagnifierMaxTextLength + 1 })[0];
+            const leftText = extractTextFromRange(leftRange, { maxLength: MaxTextLength + 1 })[0];
+            const rightText = extractTextFromRange(rightRange, { maxLength: MaxTextLength + 1 })[0];
             setTextPair((prev) => {
                 if (prev.left === leftText && prev.right === rightText) return prev;
                 setEntries(null);
-                if (leftText.length <= MagnifierMaxTextLength && rightText.length <= MagnifierMaxTextLength) {
+                if (leftText.length <= MaxTextLength && rightText.length <= MaxTextLength) {
                     requestQuickDiff(leftText, rightText, diffOptions, (result) => setEntries(result));
                 }
                 return { left: leftText, right: rightText };
@@ -73,19 +67,18 @@ export function InlineDiffViewPanel({ }: InlineDiffViewProps) {
     }, [leftRange, rightRange, diffOptions]);
 
     return (
-        <SidebarPanel.Root ariaLabel="Inline Diff 패널" divided className="shadow-none rounded-none">
+        <SidebarPanel.Root ariaLabel="Inline Diff 패널" {...props}>
             <SidebarPanel.Header
                 leading={
                     <DropdownMenu modal={false}>
                         <DropdownMenuTrigger asChild>
                             <button
                                 aria-label="보기 옵션"
-                                className="grid place-items-center size-6 rounded hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
                             >
                                 <SearchCode size={14} />
                             </button>
                         </DropdownMenuTrigger>
-                        <DropdownMenuContent className="w-48" onCloseAutoFocus={(e) => e.preventDefault()}>
+                        <DropdownMenuContent onCloseAutoFocus={(e) => e.preventDefault()}>
                             <DropdownMenuLabel>보기 방식</DropdownMenuLabel>
                             <DropdownMenuRadioGroup value={renderMode} onValueChange={(v) => setRenderMode(v as RenderMode)}>
                                 <DropdownMenuRadioItem value="stacked">위/아래</DropdownMenuRadioItem>
@@ -95,24 +88,24 @@ export function InlineDiffViewPanel({ }: InlineDiffViewProps) {
                         </DropdownMenuContent>
                     </DropdownMenu>
                 }
-            />
+            >Inline Diff</SidebarPanel.Header>
             <SidebarPanel.Body>
-                <div className="h-full min-h-0">
-                    {tooLong ? (
-                        <div className="p-4 text-center">
-                            <p className="text-destructive text-md font-semibold">욕심이 과하세요.</p>
-                            <p className="text-muted-foreground text-sm italic">{MagnifierMaxTextLength}글자까지만...</p>
-                        </div>
-                    ) : !leftText && !rightText ? (
-                        <div className="p-4 text-center">
-                            <p className="text-muted-foreground text-sm italic">선택된 텍스트 없음</p>
-                        </div>
-                    ) : entries === null ? (
-                        <div className="p-4 text-center text-sm italic text-muted-foreground">아, 잠깐만요...</div>
-                    ) : (
-                        <RenderContents leftText={leftText} rightText={rightText} entries={entries} renderMode={renderMode} className="p-1" />
-                    )}
-                </div>
+                {tooLong ? (
+                    <div className={messageContainer}>
+                        <p className={errorMessage}>욕심이 과하세요.</p>
+                        <p className={descMessage}>{MaxTextLength}글자까지만...</p>
+                    </div>
+                ) : !leftText && !rightText ? (
+                    <div className={messageContainer}>
+                        <p className={descMessage}>선택된 텍스트 없음</p>
+                    </div>
+                ) : entries === null ? (
+                    <div className={messageContainer}>
+                        <p className={descMessage}>아, 잠깐만요...</p>
+                    </div>
+                ) : (
+                    <RenderContents leftText={leftText} rightText={rightText} entries={entries} renderMode={renderMode} className="p-1" />
+                )}
             </SidebarPanel.Body>
         </SidebarPanel.Root>
     );
@@ -130,7 +123,7 @@ export type RenderContentsProps = React.HTMLAttributes<HTMLDivElement> & {
 function RenderContents({ leftText, rightText, entries, className, renderMode }: RenderContentsProps) {
     //const renderMode = useAtomValue(renderModeAtom);
     return (
-        <div className={cn("text-sm font-mono whitespace-pre-wrap break-words", className)}>
+        <div className={clsx(styles.content, className)}>
             {renderMode === "inline"
                 ? renderInlineDiff(entries, leftText, rightText)
                 : RenderSplitDiff(entries, leftText, rightText, renderMode === "side-by-side" ? "row" : "col")}
@@ -147,18 +140,11 @@ function renderInlineDiff(entries: RawDiff[], leftText: string, rightText: strin
             text = rightText.slice(entry.right.start, entry.right.end);
         }
 
-        const styleClass =
-            entry.type === 0
-                ? "bg-[hsl(var(--diff-equal-bg))] text-[hsl(var(--diff-equal-text))]"
-                : entry.type === 1
-                    ? "bg-[hsl(var(--diff-delete-bg))] text-[hsl(var(--diff-delete-text))]"
-                    : "bg-[hsl(var(--diff-insert-bg))] text-[hsl(var(--diff-insert-text))]";
-
         const displayText =
             entry.type === 0 ? text : text === "\n" ? "↵\n" : text === "\t" ? "→" : text;
 
         return (
-            <span key={i} className={styleClass}>
+            <span key={i} className={styles.diff({ type: entry.type as any })}>
                 {displayText}
             </span>
         );
@@ -179,15 +165,8 @@ function RenderSplitDiff(
 
         const flush = () => {
             if (buffer.length === 0) return;
-            const className =
-                currentType === 0
-                    ? "bg-[hsl(var(--diff-equal-bg))] text-[hsl(var(--diff-equal-text))]"
-                    : currentType === 1
-                        ? "bg-[hsl(var(--diff-delete-bg))] text-[hsl(var(--diff-delete-text))]"
-                        : "bg-[hsl(var(--diff-insert-bg))] text-[hsl(var(--diff-insert-text))]";
-
             out.push(
-                <span key={++spanIndex} className={className}>
+                <span key={++spanIndex} className={styles.diff({ type: currentType as any })}>
                     {buffer.join("")}
                 </span>
             );
@@ -214,17 +193,18 @@ function RenderSplitDiff(
         return out;
     }
 
+    // className="min-w-0 whitespace-pre-wrap break-words"
     return (
-        <div className={cn("grid gap-1 relative text-sm font-mono", dir === "col" ? "grid-rows-[1fr_auto_1fr]" : "grid-cols-[1fr_auto_1fr]")}>
-            <div className="min-w-0 whitespace-pre-wrap break-words">
-                <SideCopyButton side="left" getValue={() => leftText} />{" "}
+        <div className={clsx(styles.splitWrapper({ dir }))}>
+            <div>
+                <SideTagCopyButton side="left" getValue={() => leftText} />{" "}
                 {build(leftText, "left", 1)}
             </div>
 
-            <div className={dir === "col" ? "h-px border-t border-t-muted" : "w-px border-l border-l-muted"} />
+            <div className={styles.splitter({ dir })} />
 
-            <div className="min-w-0 whitespace-pre-wrap break-words">
-                <SideCopyButton side="right" getValue={() => rightText} />{" "}
+            <div >
+                <SideTagCopyButton side="right" getValue={() => rightText} />{" "}
                 {build(rightText, "right", 2)}
             </div>
         </div>

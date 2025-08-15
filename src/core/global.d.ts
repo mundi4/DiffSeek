@@ -1,4 +1,3 @@
-
 declare type Token = {
 	text: string;
 	pos?: number;

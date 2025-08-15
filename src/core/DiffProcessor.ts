@@ -121,7 +121,6 @@ export class DiffProcessor {
 
 		this.#editorPairer.endUpdate();
 		console.debug("section headings built:", this.#leftSectionHeadings, this.#rightSectionHeadings);
-
 	}
 
 	#handleCommonEntry(entryIndex: number) {

@@ -1,136 +1,81 @@
-import * as React from "react";
-import { cn } from "@/lib/utils";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
+import { forwardRef, useRef, type HTMLAttributes } from "react";
+import React from "react";
+import clsx from "clsx";
+import * as styles from "./SidebarPanel.css";
 
-type SidebarPanelContextValue = {
-    headerId: string;
-    divided: boolean;
-};
-
-const SidebarPanelContext = React.createContext<SidebarPanelContextValue | null>(null);
-function useSidebarPanelContext() {
-    const ctx = React.useContext(SidebarPanelContext);
-    if (!ctx) throw new Error("SidebarPanel components must be used inside <SidebarPanel.Root>");
-    return ctx;
-}
-
-// Root
-export type SidebarPanelRootProps = React.HTMLAttributes<HTMLDivElement> & {
-    divided?: boolean;
+// ===== Root =====
+export type SidebarPanelRootProps = HTMLAttributes<HTMLDivElement> &
+{
     ariaLabel?: string;
 };
-export const SidebarPanelRoot = React.forwardRef<HTMLDivElement, SidebarPanelRootProps>(function SidebarPanelRoot(
-    { className, divided = true, ariaLabel, ...props },
+
+export const SidebarPanelRoot = forwardRef<HTMLDivElement, SidebarPanelRootProps>(function SidebarPanelRoot(
+    { className, ariaLabel, children, ...props },
     ref
 ) {
-    const headerId = React.useId();
-    const ctx: SidebarPanelContextValue = { headerId, divided };
-
-    return (
-        <SidebarPanelContext.Provider value={ctx}>
-            <div
-                ref={ref}
-                role="region"
-                aria-labelledby={headerId}
-                aria-label={ariaLabel}
-                className={cn(
-                    "grid grid-rows-[auto_minmax(0,1fr)] h-full min-h-0 w-full overflow-hidden",
-                    "bg-background text-foreground",
-                    divided && "border border-border",
-                    "rounded-none shadow-none",
-                    className
-                )}
-                {...props}
-            />
-        </SidebarPanelContext.Provider>
-    );
-});
-
-// Header
-export type SidebarPanelHeaderProps = React.HTMLAttributes<HTMLDivElement> & {
-    leading?: React.ReactNode;
-    actions?: React.ReactNode;
-};
-export const SidebarPanelHeader = React.forwardRef<HTMLDivElement, SidebarPanelHeaderProps>(function SidebarPanelHeader(
-    { className, leading, actions, children, ...props },
-    ref
-) {
-    const ctx = useSidebarPanelContext();
+    const hostRef = useRef<HTMLDivElement | null>(null);
+    React.useImperativeHandle(ref, () => hostRef.current as HTMLDivElement, []);
 
     return (
         <div
-            ref={ref}
-            id={ctx.headerId}
-            className={cn(
-                "px-2 py-[2px] select-none text-sm font-medium leading-none",
-                "bg-muted border-b border-border",
-                "flex items-center justify-between gap-2",
-                className
-            )}
+            ref={hostRef}
+            aria-label={ariaLabel}
+            className={clsx(styles.root, className)}
             {...props}
+        // className={[
+        //     // 기본 그리드: 헤더(auto) + 바디(1fr)
+        //     "grid grid-rows-[auto_minmax(0,1fr)] min-h-0 w-full overflow-hidden",
+        //     className,
+        // ]
+        //     .filter(Boolean)
+        //     .join(" ")}
         >
-            <div className="flex items-center gap-2 min-w-0">
-                {leading ? <div className="grid place-items-center size-5 shrink-0">{leading}</div> : null}
-                {children}
-            </div>
-            {actions ? <div className="flex items-center gap-1 shrink-0">{actions}</div> : null}
-        </div>
-    );
-});
-
-// Body
-export type SidebarPanelBodyProps = React.HTMLAttributes<HTMLDivElement> & {
-    scroll?: boolean;
-};
-export const SidebarPanelBody = React.forwardRef<HTMLDivElement, SidebarPanelBodyProps>(function SidebarPanelBody(
-    { className, children, scroll = true, ...props },
-    ref
-) {
-    const content = (
-        <div ref={ref} className={cn("h-full min-h-0", className)} {...props}>
             {children}
         </div>
     );
-    return scroll ? <ScrollArea className="h-full min-h-0">{content}</ScrollArea> : content;
 });
 
-export type HeaderMenuTriggerProps = React.HTMLAttributes<HTMLElement> & {
-    className?: string;
-    "aria-label"?: string;
+// ===== Header =====
+export type SidebarPanelHeaderProps = HTMLAttributes<HTMLDivElement> & {
+    leading?: React.ReactNode;
+    actions?: React.ReactNode;
 };
-
-// HeaderMenu Helper
-export type SidebarPanelHeaderMenuProps = {
-    trigger: React.ReactElement<HeaderMenuTriggerProps>;
-    children: React.ReactNode;
-    contentClassName?: string;
-};
-export function SidebarPanelHeaderMenu({ trigger, children, contentClassName }: SidebarPanelHeaderMenuProps) {
-    const triggerClass = cn(
-        "grid place-items-center size-6 rounded",
-        "hover:bg-muted/60 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-        (trigger.props && (trigger.props as any).className) || ""
-    );
-
-    const safeTrigger = React.cloneElement(trigger, {
-        className: triggerClass,
-        "aria-label": (trigger.props && (trigger.props as any)["aria-label"]) ?? "패널 메뉴",
-    });
-
+export const SidebarPanelHeader = forwardRef<HTMLDivElement, SidebarPanelHeaderProps>(function SidebarPanelHeader(
+    { className, leading, actions, children, ...props },
+    ref
+) {
     return (
-        <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>{safeTrigger}</DropdownMenuTrigger>
-            <DropdownMenuContent className={cn("w-48", contentClassName)} onCloseAutoFocus={(e) => e.preventDefault()}>
+        <div
+            ref={ref}
+            className={clsx(styles.header, className)}
+            {...props}
+        >
+            <div className={styles.headerRow}>
+                {leading ? <div className={styles.headerContentLeading}>{leading}</div> : null}
                 {children}
-            </DropdownMenuContent>
-        </DropdownMenu>
+            </div>
+            {actions ? <div className={styles.headerContentActions}>{actions}</div> : null}
+        </div>
     );
-}
+});
+
+// ===== Body =====
+export type SidebarPanelBodyProps = HTMLAttributes<HTMLDivElement> & {
+    scroll?: boolean;
+};
+export const SidebarPanelBody = forwardRef<HTMLDivElement, SidebarPanelBodyProps>(function SidebarPanelBody(
+    { className, children, scroll = true, ...props },
+    ref
+) {
+    return (
+        <div ref={ref as any} className={clsx(styles.body({ scroll }))} {...props}>
+            {children}
+        </div>
+    );
+});
 
 export const SidebarPanel = Object.assign(SidebarPanelRoot, {
     Root: SidebarPanelRoot,
     Header: SidebarPanelHeader,
     Body: SidebarPanelBody,
-    HeaderMenu: SidebarPanelHeaderMenu,
 });

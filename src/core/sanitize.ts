@@ -256,6 +256,11 @@ const WINGDINGS_TRANSFORM: Record<string, CharMap> = {
 		"\u0093": "❽",
 		"\u0094": "❾",
 		"\u0095": "❿",
+		"\xAB":  "↔",
+		"\xAC":  "←",
+		"\xAD":  "↑",
+		"\xAE":  "→",
+		"\xAF":  "↓",
 	},
 };
 

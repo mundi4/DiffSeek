@@ -1,5 +1,5 @@
 import { AnchorFlags } from "@/core/EditorPairer";
-import { TokenFlags } from "@/core/tokenization/TokenizeContext";
+import { TokenFlags } from "@/core/tokenization/types";
 
 export function translateTokenFlagsToAnchorFlags(tokenFlags: number, endTokenFlags?: number): AnchorFlags {
 	endTokenFlags ??= tokenFlags;

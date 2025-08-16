@@ -1,8 +1,11 @@
-import { BLOCK_ELEMENTS, DIFF_TAG_NAME, HANGUL_ORDER, MANUAL_ANCHOR_ELEMENT_NAME, TEXT_FLOW_CONTAINERS } from "../../constants";
+import { BLOCK_ELEMENTS, DIFF_TAG_NAME, MANUAL_ANCHOR_ELEMENT_NAME, TEXT_FLOW_CONTAINERS } from "../../constants";
 
-import { createTrie, extractStartCharsFromTrie, type TrieNode } from "./trie";
+import { type TrieNode } from "./trie";
 import { normalizedCharMap } from "./normalizedCharMap";
 import { quickHash53ToString } from "@/utils/quickHash53ToString";
+import { wildcardTrieNode } from "./wildcards";
+import { sectionHeadingStartChars, SectionHeadingTrieNode } from "./section-headings";
+import { TokenFlags } from "./types";
 
 export const MANUAL_ANCHOR1 = "🔗@";
 export const MANUAL_ANCHOR2 = "🔗#";
@@ -15,43 +18,6 @@ export type RichToken = {
 	container: TextFlowContainer;
 };
 
-export const enum TokenFlags {
-	None = 0,
-	LINE_START = 1 << 0, // 1
-	LINE_END = 1 << 1, // 2
-	BLOCK_START = 1 << 2, // 4
-	BLOCK_END = 1 << 3, // 8
-	CONTAINER_START = 1 << 4, // 16
-	CONTAINER_END = 1 << 5, // 32
-	TABLE_START = 1 << 6, // 64
-	TABLE_END = 1 << 7, // 128
-	TABLEROW_START = 1 << 8, // 256
-	TABLEROW_END = 1 << 9, // 512
-	TABLECELL_START = 1 << 10, // 1024
-	TABLECELL_END = 1 << 11, // 2048
-	NO_JOIN_PREV = 1 << 12, // 4096 @@@, ### 등등
-	NO_JOIN_NEXT = 1 << 13, // 8192 @@@, ### 등등
-	WILD_CARD = 1 << 14, // 16384
-	MANUAL_ANCHOR = 1 << 15, // 32768  @@@, ### 등등
-	IMAGE = 1 << 16, // 65536
-	HTML_SUP = 1 << 17, // 131072
-	HTML_SUB = 1 << 18, // 262144
-
-	// Section Headings
-	SECTION_HEADING_TYPE1 = 1 << 19, // 1.
-	SECTION_HEADING_TYPE2 = 1 << 20, // 가.
-	SECTION_HEADING_TYPE3 = 1 << 21, // (1)
-	SECTION_HEADING_TYPE4 = 1 << 22, // (가)
-	SECTION_HEADING_TYPE5 = 1 << 23, // 1)
-	SECTION_HEADING_TYPE6 = 1 << 24, // 가)
-	SECTION_HEADING_MASK = SECTION_HEADING_TYPE1 |
-		SECTION_HEADING_TYPE2 |
-		SECTION_HEADING_TYPE3 |
-		SECTION_HEADING_TYPE4 |
-		SECTION_HEADING_TYPE5 |
-		SECTION_HEADING_TYPE6,
-}
-
 // const normalizeChars: { [ch: string]: string } = {};
 
 const spaceChars: Record<string, boolean> = {
@@ -63,44 +29,6 @@ const spaceChars: Record<string, boolean> = {
 	"\f": true, // 이것들은...
 	"\v": true, // 볼일이 없을것...
 };
-
-// type CharMetadata = {
-// 	isSpace: boolean;
-// 	isSplit: boolean;
-// 	normalizedChar: number;
-// 	trieNode: TrieNode | null;
-// }
-
-// wildcards.
-// 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
-// 글자단위로 토큰화하는 경우에도 얘네들은 (...) 통채로 하나의 토큰으로 취급.
-// 와일드카드diff인 경우 다른 diff와 병합되지 않으면 좋지만 와일드카드가 얼마나 greedy하게 반대쪽 텍스트를 잡아먹어야 할지
-// 양쪽에 wildcard가 동시에 나오는 경우 경계를 어디서 어떻게 짤라야할지 쉽지 않음.
-// 또한 wildcard를 강제로 다른 diff와 분리하는 경우 diff가 같은 위치에 두 개 이상 생기게 되는 수가 있다. (wildcard와 wildcard가 아닌 것)
-// 이 경우 정확히 같은 위치에 두개의 diff를 렌더링해야하고 결국 두개가 겹쳐보이게 되는데 분간이 잘 안된다.
-const wildcardTrie = createTrie(true);
-wildcardTrie.insert("(추가)", TokenFlags.WILD_CARD);
-wildcardTrie.insert("(삭제)", TokenFlags.WILD_CARD);
-wildcardTrie.insert("(신설)", TokenFlags.WILD_CARD);
-wildcardTrie.insert("(생략)", TokenFlags.WILD_CARD);
-wildcardTrie.insert("(현행과같음)", TokenFlags.WILD_CARD);
-
-const wildcardTrieNode = wildcardTrie.root.next("(")!;
-
-const sectionHeadingTrie = createTrie(false);
-for (let i = 1; i < 40; i++) {
-	sectionHeadingTrie.insert(`${i}.`, TokenFlags.SECTION_HEADING_TYPE1);
-	sectionHeadingTrie.insert(`(${i})`, TokenFlags.SECTION_HEADING_TYPE3);
-	sectionHeadingTrie.insert(`${i})`, TokenFlags.SECTION_HEADING_TYPE5);
-}
-
-for (let i = 0; i < HANGUL_ORDER.length; i++) {
-	sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, TokenFlags.SECTION_HEADING_TYPE2);
-	sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, TokenFlags.SECTION_HEADING_TYPE4);
-	sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, TokenFlags.SECTION_HEADING_TYPE6);
-}
-const SectionHeadingTrieNode = sectionHeadingTrie.root;
-const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
 
 function normalize(text: string): string {
 	let result = "";

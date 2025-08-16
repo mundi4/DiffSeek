@@ -1,4 +1,4 @@
-import { TokenFlags } from "../tokenization/TokenizeContext";
+import { TokenFlags } from "../tokenization/types";
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;

@@ -1,4 +1,4 @@
-import { TokenFlags } from "@/core/tokenization/TokenizeContext";
+import { TokenFlags } from "@/core/tokenization/types";
 
 export function getHeadingLevelFromFlag(flag: number): number {
 	switch (flag) {

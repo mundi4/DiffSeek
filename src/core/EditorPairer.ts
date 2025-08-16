@@ -12,8 +12,8 @@ import {
 } from "../constants";
 import type { EditorName } from "./types";
 import { clampRange } from "@/utils/clampRange";
-import { TokenFlags } from "./tokenization/TokenizeContext";
 import { getTableCellPosition } from "@/utils/getTableCellPosition";
+import { TokenFlags } from "./tokenization/types";
 
 export const enum AnchorFlags {
 	None = 0,

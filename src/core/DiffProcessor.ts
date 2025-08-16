@@ -1,6 +1,6 @@
 import { COMPUTE_DIFF_TIMEOUT, DIFF_COLOR_HUES, NUM_DIFF_COLORS } from "../constants";
 import type { EditorPairer } from "./EditorPairer";
-import { TokenFlags, type RichToken } from "./tokenization/TokenizeContext";
+import { type RichToken } from "./tokenization/TokenizeContext";
 import { DiffContext } from "./DiffContext";
 import { clampRange } from "@/utils/clampRange";
 import { findClosestContainer } from "@/utils/findClosestContainer";
@@ -8,6 +8,7 @@ import { getHeadingLevelFromFlag } from "@/utils/getHeadingLevelFromFlag";
 import { parseOrdinalNumber } from "@/utils/parseOrdinalNumber";
 import type { Editor } from "./Editor";
 import type { EditorName } from "./types";
+import { TokenFlags } from "./tokenization/types";
 
 // 1회용
 export class DiffProcessor {

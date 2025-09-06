@@ -1,4 +1,4 @@
-import { BLOCK_ELEMENTS } from "@/constants";
+import { BLOCK_ELEMENTS } from "@/core/constants/index";
 import { advanceNode } from "./advanceNode";
 
 export function findAdjacentTextNode(node: Node, skipEmpty = false): Text | null {

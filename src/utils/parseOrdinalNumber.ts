@@ -1,4 +1,4 @@
-import { HANGUL_ORDER } from "@/constants";
+import { HANGUL_ORDER } from "@/core/constants/index";
 
 export function parseOrdinalNumber(ordinalText: string): number {
 	const norm = ordinalText.replace(/[\(\)\.]/g, "");

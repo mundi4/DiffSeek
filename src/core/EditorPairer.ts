@@ -9,11 +9,11 @@ import {
 	FRAME_BUDGET_MS,
 	TEXTLESS_ELEMENTS,
 	VOID_ELEMENTS,
-} from "../constants";
+} from "./constants";
 import type { EditorName } from "./types";
 import { clampRange } from "@/utils/clampRange";
 import { getTableCellPosition } from "@/utils/getTableCellPosition";
-import { TokenFlags } from "./tokenization/types";
+import { TokenFlags } from "./tokenization/TokenFlags";
 
 export const enum AnchorFlags {
 	None = 0,
@@ -443,13 +443,14 @@ export class EditorPairer {
 			}
 
 			const current = container.childNodes[offset--];
-			const isBlockElement = BLOCK_ELEMENTS[current.nodeName];
-			if (isBlockElement && current.contains(endContainer)) {
+			const currentNodeName = current.nodeName;
+			const isBlockElement = BLOCK_ELEMENTS[currentNodeName];
+			if (isBlockElement && !TEXTLESS_ELEMENTS[currentNodeName] && current.contains(endContainer)) {
 				// 현재 블록 요소가 endContainer를 포함하고 있으므로, 앵커를 이 블록 요소의 시작 부분에 삽입해야 함.
 				insertContainer = current as HTMLElement;
 				insertBeforeMe = current.firstChild;
 				break;
-			} else if (isBlockElement || current.nodeName === "BR" || current.nodeName === "HR") {
+			} else if (!TEXTLESS_ELEMENTS[container.nodeName] && (isBlockElement || currentNodeName === "BR" || currentNodeName === "HR")) {
 				// 해당 요소가 끝남으로써 새 줄이 시작되는 경우
 				insertContainer = container;
 				insertBeforeMe = current.nextSibling;
@@ -576,7 +577,7 @@ export class EditorPairer {
 		if (i < pairs.length) {
 			this.#queueProcessChunk(i, onDone);
 		} else {
-			if (DEBUG) {
+			if (import.meta.env.DEV) {
 				console.debug("AnchorManager: processed", count, "/", this.#anchorPairs.length, "pairs in", this.#elapsedTotal.toFixed(2), "ms");
 			}
 			this.#onAlignDone(onDone);

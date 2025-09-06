@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { SearchCode } from "lucide-react";
-import { requestQuickDiff, type QuickDiffOptions } from "@/lib/quick-diff";
+import { createQuickDiff, type QuickDiffOptions } from "@/utils/quick-diff";
 import type { EditorTextSelection } from "@/core/DiffController";
 import { editorTextSelectionAtom } from "@/states/atoms";
 import { extractTextFromRange } from "@/utils/extractTextFromRange";
@@ -33,13 +33,13 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
 
     const [renderMode, setRenderMode] = useAtom(renderModeAtom);
 
-    const lastInputOutput = useRef<{ left: string; right: string; options: QuickDiffOptions; diffs: RawDiff[] | null }>({
+    const lastInputOutput = useRef<{ left: string; right: string; options: QuickDiffOptions; diffs: DiffEntry[] | null }>({
         left: "",
         right: "",
         options: diffOptions,
         diffs: [],
     });
-    const [entries, setEntries] = useState<RawDiff[] | null>(null);
+    const [entries, setEntries] = useState<DiffEntry[] | null>(null);
 
     const leftRange = editorTextSelection?.leftTokenRange;
     const rightRange = editorTextSelection?.rightTokenRange;
@@ -47,6 +47,13 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
     const [textPair, setTextPair] = useState<{ left: string; right: string }>({ left: "", right: "" });
     const { left: leftText, right: rightText } = textPair;
     const tooLong = leftText.length > MaxTextLength || rightText.length > MaxTextLength;
+
+    // Create a quickDiff instance (one per component instance)
+    const quickDiffInstanceRef = useRef<ReturnType<typeof createQuickDiff> | null>(null);
+    if (!quickDiffInstanceRef.current) {
+        quickDiffInstanceRef.current = createQuickDiff();
+    }
+    const quickDiffInstance = quickDiffInstanceRef.current;
 
     useEffect(() => {
         if (leftRange && rightRange) {
@@ -56,7 +63,7 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
                 if (prev.left === leftText && prev.right === rightText) return prev;
                 setEntries(null);
                 if (leftText.length <= MaxTextLength && rightText.length <= MaxTextLength) {
-                    requestQuickDiff(leftText, rightText, diffOptions, (result) => setEntries(result));
+                    quickDiffInstance.requestQuickDiff(leftText, rightText, diffOptions, (result) => setEntries(result));
                 }
                 return { left: leftText, right: rightText };
             });
@@ -64,7 +71,12 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
             lastInputOutput.current.left = "";
             lastInputOutput.current.right = "";
         }
-    }, [leftRange, rightRange, diffOptions]);
+        // Clean up: cancel any pending diff if unmounting or changing selection
+        return () => {
+            // 
+            //quickDiffInstance.cancel();
+        };
+    }, [leftRange, rightRange, diffOptions, quickDiffInstance]);
 
     return (
         <SidebarPanel.Root ariaLabel="Inline Diff 패널" {...props}>
@@ -114,7 +126,7 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
 /* ---------- renderers ---------- */
 
 export type RenderContentsProps = React.HTMLAttributes<HTMLDivElement> & {
-    entries: RawDiff[];
+    entries: DiffEntry[];
     leftText: string;
     rightText: string;
     renderMode: RenderMode;
@@ -131,7 +143,7 @@ function RenderContents({ leftText, rightText, entries, className, renderMode }:
     );
 }
 
-function renderInlineDiff(entries: RawDiff[], leftText: string, rightText: string) {
+function renderInlineDiff(entries: DiffEntry[], leftText: string, rightText: string) {
     return entries.map((entry, i) => {
         let text = "";
         if ((entry.type === 0 || entry.type === 1) && entry.left) {
@@ -152,7 +164,7 @@ function renderInlineDiff(entries: RawDiff[], leftText: string, rightText: strin
 }
 
 function RenderSplitDiff(
-    entries: RawDiff[],
+    entries: DiffEntry[],
     leftText: string,
     rightText: string,
     dir: "row" | "col" = "row"
@@ -165,18 +177,23 @@ function RenderSplitDiff(
 
         const flush = () => {
             if (buffer.length === 0) return;
+            const htmlContent = buffer.join("");
             out.push(
-                <span key={++spanIndex} className={styles.diff({ type: currentType as any })}>
-                    {buffer.join("")}
-                </span>
+                <span
+                    key={++spanIndex}
+                    className={styles.diff({ type: currentType as any })}
+                    dangerouslySetInnerHTML={{ __html: htmlContent }}
+                />
             );
             buffer = [];
         };
 
         for (const entry of entries) {
             if (entry.type !== 0 && !(entry.type & typeFlags)) continue;
+
             const seg = entry[key];
             if (!seg) continue;
+
             const segText = text.slice(seg.start, seg.end);
             const type = entry.type;
 
@@ -186,7 +203,21 @@ function RenderSplitDiff(
                 currentType = type;
             }
 
-            buffer.push(entry.type !== 0 && segText === "\n" ? "↵\n" : entry.type !== 0 && segText === "\t" ? "→" : segText);
+            if (segText) {
+                // HTML 문자열로 특수 문자 처리
+                if (entry.type !== 0 && segText === "\n") {
+                    buffer.push(`<span class="${styles.specialChar}">↵</span>\n`);
+                } else if (entry.type !== 0 && segText === "\t") {
+                    buffer.push(`<span class="${styles.specialChar}">→</span>`);
+                } else {
+                    // HTML 이스케이프 처리
+                    const escaped = segText
+                        .replace(/&/g, '&amp;')
+                        .replace(/</g, '&lt;')
+                        .replace(/>/g, '&gt;');
+                    buffer.push(escaped);
+                }
+            }
         }
 
         flush();

@@ -1,4 +1,4 @@
-import { COMPUTE_DIFF_TIMEOUT, DIFF_COLOR_HUES, NUM_DIFF_COLORS } from "../constants";
+import { COMPUTE_DIFF_TIMEOUT, DIFF_COLOR_HUES, NUM_DIFF_COLORS } from "./constants";
 import type { EditorPairer } from "./EditorPairer";
 import { type RichToken } from "./tokenization/TokenizeContext";
 import { DiffContext } from "./DiffContext";
@@ -8,7 +8,7 @@ import { getHeadingLevelFromFlag } from "@/utils/getHeadingLevelFromFlag";
 import { parseOrdinalNumber } from "@/utils/parseOrdinalNumber";
 import type { Editor } from "./Editor";
 import type { EditorName } from "./types";
-import { TokenFlags } from "./tokenization/types";
+import { TokenFlags } from "./tokenization/TokenFlags";
 
 // 1회용
 export class DiffProcessor {
@@ -20,20 +20,20 @@ export class DiffProcessor {
 	#leftTokens: readonly RichToken[];
 	#rightTokens: readonly RichToken[];
 	#diffOptions: DiffOptions;
-	#rawDiffs: RawDiff[];
+	#rawEntries: DiffEntry[];
 	#diffs: DiffItem[] = [];
-	#entries: RawDiff[] | null = null;
-	#leftEntries: RawDiff[] | null = null;
-	#rightEntries: RawDiff[] | null = null;
+	#entries: DiffEntry[] | null = null;
+	#leftEntries: DiffEntry[] | null = null;
+	#rightEntries: DiffEntry[] | null = null;
 	#leftSectionHeadings: SectionHeading[] | null = null;
 	#rightSectionHeadings: SectionHeading[] | null = null;
 
-	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, rawDiffs: RawDiff[], diffOptions: DiffOptions) {
+	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, rawEntries: DiffEntry[], diffOptions: DiffOptions) {
 		// this.#ctx = ctx;
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
 		this.#editorPairer = editorPairer;
-		this.#rawDiffs = rawDiffs;
+		this.#rawEntries = rawEntries;
 		this.#diffOptions = diffOptions;
 
 		this.#leftTokens = leftEditor.tokens;
@@ -70,7 +70,7 @@ export class DiffProcessor {
 					this.#leftTokens,
 					this.#rightTokens,
 					this.#diffOptions,
-					this.#rawDiffs,
+					this.#rawEntries,
 					this.#entries!,
 					this.#leftEntries!,
 					this.#rightEntries!,
@@ -121,7 +121,6 @@ export class DiffProcessor {
 		}
 
 		this.#editorPairer.endUpdate();
-		console.debug("section headings built:", this.#leftSectionHeadings, this.#rightSectionHeadings);
 	}
 
 	#handleCommonEntry(entryIndex: number) {
@@ -284,14 +283,14 @@ export class DiffProcessor {
 	}
 
 	#buildDiffEntries() {
-		const entries: RawDiff[] = [];
-		const leftEntries: RawDiff[] = new Array(this.#leftTokens.length);
-		const rightEntries: RawDiff[] = new Array(this.#rightTokens.length);
+		const entries: DiffEntry[] = [];
+		const leftEntries: DiffEntry[] = new Array(this.#leftTokens.length);
+		const rightEntries: DiffEntry[] = new Array(this.#rightTokens.length);
 
-		const rawDiffs = this.#rawDiffs;
-		let currentDiff: RawDiff | null = null;
-		for (let i = 0; i < rawDiffs.length; i++) {
-			const rawEntry = rawDiffs[i];
+		const rawEntries = this.#rawEntries;
+		let currentDiff: DiffEntry | null = null;
+		for (let i = 0; i < rawEntries.length; i++) {
+			const rawEntry = rawEntries[i];
 			const { left, right, type } = rawEntry;
 			if (type) {
 				if (currentDiff) {

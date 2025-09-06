@@ -34,13 +34,25 @@ export function TrailViewPanel({ className, ...props }: TrailViewProps) {
 
     if (diffContext && editorTextSelection) {
         const { leftTokenSpan, rightTokenSpan, sourceEditor, sourceSpan } = editorTextSelection;
+
+        // source쪽은 조정(expand)되지 않은 원본 sourceSpan 사용하기.
+        const leftSpan = sourceEditor === "left" ? sourceSpan : leftTokenSpan;
+        const rightSpan = sourceEditor === "right" ? sourceSpan : rightTokenSpan;
+        let leftIndex = leftSpan.start;
+        let rightIndex = rightSpan.start;
+        if (leftSpan.start === leftSpan.end) {
+            leftIndex--;
+        }
+        if (rightSpan.start === rightSpan.end) {
+            rightIndex--;
+        }
         leftHeadings = diffContext.getSelectionTrailFromTokenIndex(
             "left",
-            (sourceEditor === "left" ? sourceSpan : leftTokenSpan).start
+            leftIndex,
         );
         rightHeadings = diffContext.getSelectionTrailFromTokenIndex(
             "right",
-            (sourceEditor === "right" ? sourceSpan : rightTokenSpan).start
+            rightIndex,
         );
     }
 
@@ -98,7 +110,6 @@ function Trail({ side, trail }: TrailProps) {
     const { diffController } = useDiffControllerContext();
     const getValue = () => getTrailText(trail);
     const onHeadingClick = (heading: SectionHeading) => {
-        //console.log("heading clicked", heading)
         diffController.scrollToTokenIndex(side, heading.startTokenIndex);
     };
     return (

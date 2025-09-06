@@ -22,7 +22,7 @@ export const root = recipe({
 				opacity: 1,
 			},
 			false: {
-				opacity: 0.2,
+				opacity: vars.opacity.invisible,
 			},
 		},
 	},

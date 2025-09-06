@@ -1,4 +1,4 @@
-import { BLOCK_ELEMENTS, VOID_ELEMENTS } from "@/constants";
+import { BLOCK_ELEMENTS, VOID_ELEMENTS } from "@/core/constants/index";
 
 type extractTextFromRangeOptions = {
 	maxLength?: number; // Optional max length for the extracted text

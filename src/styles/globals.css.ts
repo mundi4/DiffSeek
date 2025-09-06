@@ -105,6 +105,7 @@ globalStyle("ul, ol", {
 
 globalStyle("button", {
 	all: "unset",
+	cursor: "pointer",
 });
 
 globalStyle("a", {
@@ -119,7 +120,6 @@ globalStyle("a:visited", {
 	textDecorationColor: vars.color.link.visited,
 });
 globalStyle("a:hover", {
-	// 색은 그대로, 밑줄만 강조 (B/W 유지)
 	textDecorationThickness: "2px",
 	textUnderlineOffset: "3px",
 });
@@ -130,4 +130,33 @@ globalStyle("a:focus-visible", {
 	outline: "none",
 	boxShadow: `0 0 0 ${vars.ring.width} ${vars.color.ring.focus}`,
 	borderRadius: vars.radius.sm,
+});
+
+// globalStyle(":root", {
+// 	vars: {
+// 		["--editor-font-size"]: "14px",
+// 		["--editor-line-height"]: "1.5",
+// 		["--editor-padding"]: "4px",
+// 		["--editor-td-border-color"]: "#666666",
+// 	}
+// });
+
+// globalStyle(":root", {
+// 	vars: {
+// 		["--bg-sync-mode"]: "#f5f0e6",
+// 		["--text-sync-mode"]: "#2f2a24",
+// 	}
+// });
+
+globalStyle(":root", {
+	vars: {
+		["--diff-equal-bg"]: "0 0% 94%",
+		["--diff-equal-text"]: "0 0% 10%",
+		["--diff-insert-bg"]: "120 80% 85%",
+		["--diff-insert-text"]: "140 100% 10%",
+		["--diff-delete-bg"]: "0 80% 85%",
+		["--diff-delete-text"]: "0 100% 30%",
+		["--diff-special-bg"]: "240 100% 85%",
+		["--diff-special-text"]: "240 100% 10%",
+	}
 });

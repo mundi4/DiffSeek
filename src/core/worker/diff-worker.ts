@@ -1,4 +1,4 @@
-import { TokenFlags } from "../tokenization/types";
+import { TokenFlags } from "../tokenization/TokenFlags";
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
@@ -12,7 +12,7 @@ export type DiffWorkerRequest = {
 };
 
 export type DiffWorkerMessage =
-	| { type: "diff"; reqId: number; diffs: RawDiff[]; options: DiffOptions; processTime: number }
+	| { type: "diff"; reqId: number; diffs: DiffEntry[]; options: DiffOptions; processTime: number }
 	| { type: "error"; reqId: number; error: string };
 
 
@@ -28,7 +28,7 @@ type WorkContext = {
 	finish: number;
 	lastYield: number;
 	options: DiffOptions;
-	entries: RawDiff[];
+	entries: DiffEntry[];
 	//states: Record<string, any>;
 };
 
@@ -97,7 +97,7 @@ async function runDiff(ctx: WorkContext) {
 			start: ctx.start,
 		});
 
-		let result: RawDiff[];
+		let result: DiffEntry[];
 		if (ctx.options.algorithm === "histogram") {
 			result = await runHistogramDiff(ctx);
 		} else if (ctx.options.algorithm === "lcs") {
@@ -145,7 +145,7 @@ async function runDiff(ctx: WorkContext) {
 // LCS Algorithm
 // =============================================================
 
-async function runLcsDiff(ctx: WorkContext): Promise<RawDiff[]> {
+async function runLcsDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
 	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
 	const rawResult = await computeDiff(lhsTokens, rhsTokens, !!ctx.options.greedyMatch, ctx);
@@ -211,8 +211,8 @@ async function computeLCS(leftTokens: Token[], rightTokens: Token[], ctx?: WorkC
 }
 
 // 정들었던 diff 함수. 폐기처분 예정.
-async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch = false, ctx: WorkContext): Promise<RawDiff[]> {
-	const entries: RawDiff[] = [];
+async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch = false, ctx: WorkContext): Promise<DiffEntry[]> {
+	const entries: DiffEntry[] = [];
 	const lcs = await computeLCS(lhsTokens as Token[], rhsTokens as Token[], ctx);
 	const lcsLength = lcs.length;
 	const leftTokensLength = lhsTokens.length;
@@ -335,7 +335,7 @@ async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch =
 // Histogram Algorithm
 // 일단 지금은 이놈이 디폴트
 // ============================================================
-async function runHistogramDiff(ctx: WorkContext): Promise<RawDiff[]> {
+async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
 	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
 	// ctx.entries = [] as DiffEntry[];
@@ -654,14 +654,14 @@ async function diffCore(
 	rhsUpper: number,
 	findAnchor: FindAnchorFunc,
 	consumeDirections: 0 | 1 | 2 | 3 = 3
-): Promise<RawDiff[]> {
+): Promise<DiffEntry[]> {
 	if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
 		throw new Error("Invalid range");
 	}
 
 	// 사실 이걸 쓰면 리턴값이 필요 없는데...
 	// 함수 시그니처를 고치기 귀찮아서 일단 내비둠.
-	const entries: RawDiff[] = ctx.entries;
+	const entries: DiffEntry[] = ctx.entries;
 
 	const now = performance.now();
 	if (now - ctx.lastYield > 100) {
@@ -676,8 +676,8 @@ async function diffCore(
 	// 더 이상 스킵할 게 없으니 결과에는 차이가 없겠지만 불필요한 시도를 안하는 쪽으로 개선해 볼 필요가 있음!
 	// 생각해볼 것: 공통 prefix,suffix를 스킵하지 않았을 경우 스킵되지 않은 부분에서 더 나은 앵커가 나올 확률이 있다.
 	// 그렇지만 스킵하지 않으면 성능 상 아주 큰 문제가 생김!
-	let skippedHead: RawDiff[];
-	let skippedTail: RawDiff[];
+	let skippedHead: DiffEntry[];
+	let skippedTail: DiffEntry[];
 	[lhsLower, lhsUpper, rhsLower, rhsUpper, skippedHead, skippedTail] = consumeCommonEdges(
 		leftTokens,
 		rightTokens,
@@ -753,9 +753,9 @@ function consumeCommonEdges(
 	rhsUpper: number,
 	whitespace: WhitespaceHandling = "onlyAtEdge",
 	consumeDirections: 0 | 1 | 2 | 3 = 3
-): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: RawDiff[], tail: RawDiff[]] {
-	const head: RawDiff[] = [];
-	const tail: RawDiff[] = [];
+): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: DiffEntry[], tail: DiffEntry[]] {
+	const head: DiffEntry[] = [];
+	const tail: DiffEntry[] = [];
 	let matchedCount;
 
 	// Prefix

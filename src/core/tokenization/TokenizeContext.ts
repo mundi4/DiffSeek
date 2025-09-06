@@ -1,11 +1,10 @@
-import { BLOCK_ELEMENTS, DIFF_TAG_NAME, MANUAL_ANCHOR_ELEMENT_NAME, TEXT_FLOW_CONTAINERS } from "../../constants";
-
 import { type TrieNode } from "./trie";
 import { normalizedCharMap } from "./normalizedCharMap";
 import { quickHash53ToString } from "@/utils/quickHash53ToString";
 import { wildcardTrieNode } from "./wildcards";
 import { sectionHeadingStartChars, SectionHeadingTrieNode } from "./section-headings";
-import { TokenFlags } from "./types";
+import { TokenFlags } from "./TokenFlags";
+import { BLOCK_ELEMENTS, DIFF_TAG_NAME, MANUAL_ANCHOR_ELEMENT_NAME, TEXT_FLOW_CONTAINERS } from "../constants";
 
 export const MANUAL_ANCHOR1 = "🔗@";
 export const MANUAL_ANCHOR2 = "🔗#";
@@ -184,14 +183,17 @@ export class TokenizeContext {
 			do {
 				const text = textNodeBuf[i].nodeValue!;
 				for (; j < text.length; j++) {
-					let ch = text[j];
-					// ch = normalizedCharMap[ch] || ch;
-					node = node!.next(ch);
+					const cp = text.codePointAt(j)!;
+					node = node!.next(cp);
 					if (!node) {
 						return null;
 					}
 					if (node.word) {
-						return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
+						return { bufferIndex: i, charIndex: j + (cp > 0xFFFF ? 2 : 1), word: node.word, flags: node.flags };
+					}
+					// Handle 4-byte unicode characters
+					if (cp > 0xFFFF) {
+						j++; // Skip the next surrogate pair
 					}
 				}
 
@@ -214,12 +216,11 @@ export class TokenizeContext {
 				let currentStart = -1;
 
 				while (charIndex < textLen) {
-					// 4byte 문자를 생각해야한다. later....
+					// Handle 4-byte characters properly
 					const cp = text.codePointAt(charIndex)!;
 					if (normalizedCharMap[cp] !== undefined) {
 						shouldNormalize = true;
 					}
-					// todo 문자가 아니라 코드포인트로 spaceChar나 normalizeChar 등등 확인하기
 
 					let char = text[charIndex];
 
@@ -294,11 +295,10 @@ export class TokenizeContext {
 							currentStart = charIndex;
 						}
 					}
-					// ...
-					// ...
+					// Properly advance through characters, including 4-byte unicode characters
 					charIndex++;
 					if (cp > 0xffff) {
-						charIndex++;
+						charIndex++; // Skip the second surrogate pair for 4-byte characters
 					}
 				}
 				if (currentStart !== -1) {

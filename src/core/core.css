@@ -1,3 +1,15 @@
+:root {
+	--editor-font-size: 14px;
+	--editor-line-height: 1.5;
+	--editor-padding: 4px;
+	--editor-td-border-color: #666666;
+	--editor-underline-offset: 0.2em;
+	--bg-normal: #ffffff;
+	--bg-sync-mode: #f5f0e6;
+	--text-normal: #000000;
+	--text-sync-mode: #2f2a24;
+}
+
 diff-marker {
 	display: inline-block;
 	min-height: 1em;
@@ -30,24 +42,26 @@ diff-marker.block {
 	min-height: 0;
 }
 
-.editor-wrapper:has(:focus) {
-	background-color: transparent;
-}
-
 .editor {
 	position: relative;
+	border: 0;
+	min-width: 0;
 	width: 100%;
 	min-height: 100%;
 	overflow-y: visible;
-	font-size: var(--editor-font-size, 14px);
-	padding: var(--editor-padding, 4px);
-	line-height: var(--editor-line-height, 1.5);
-	scroll-padding-block: calc(2em * var(--editor-line-height, 1.5));
+	font-size: var(--editor-font-size);
+	padding: var(--editor-padding);
+	line-height: var(--editor-line-height);
+	scroll-padding-top: calc(3em * var(--editor-line-height));
 	word-break: break-all;
 	overflow-wrap: anywhere;
 	outline: none;
-	background-color: transparent;
 	z-index: 30;
+	background-color: transparent;
+}
+
+.editor, .color-default {
+	color: var(--text-normal);
 }
 
 .editor .color-red {
@@ -58,18 +72,28 @@ diff-marker.block {
 	table-layout: auto;
 	border-collapse: collapse;
 	border-spacing: 0;
+	width: 100%;
 }
 
 .editor td {
 	padding: 4px;
 	position: relative;
 	vertical-align: top;
-	border: 1px solid var(--editor-td-border-color, #666);
-	padding: var(--editor-td-padding, 2px 4px);
-	min-height: calc(1em * var(--editor-line-height, 1.5));
+	border: 1px solid var(--editor-td-border-color);
+	padding: var(--editor-td-padding);
+	min-height: calc(1em * var(--editor-line-height));
+}
+
+.editor u {
+	text-underline-offset: var(--editor-underline-offset);
 }
 
 .editor-maybe-170cm-wasnt-enough {
+	display: none;
+}
+
+.sync-mode .editor-maybe-170cm-wasnt-enough {
+	display: block;
 	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 90% / 0.95) 0px, hsl(0 0% 90% / 0.95) 5px, transparent 5px, transparent 10px);
 	height: var(--height-boost, 0px);
 }
@@ -102,4 +126,3 @@ diff-marker.block {
 .renderer canvas.highlight-layer {
 	z-index: 50;
 }
-

@@ -1,10 +1,10 @@
 
 export type TrieNode = {
-	next: (char: string) => TrieNode | null;
-	addChild: (char: string) => TrieNode;
+	next: (charCode: number) => TrieNode | null;
+	addChild: (charCode: number) => TrieNode;
 	word: string | null;
 	flags: number;
-	children: Record<string, TrieNode>;
+	children: Record<number, TrieNode>;
 };
 
 export function createTrie(ignoreSpaces = false) {
@@ -13,7 +13,12 @@ export function createTrie(ignoreSpaces = false) {
 	function insert(word: string, flags = 0) {
 		let node = root;
 		for (let i = 0; i < word.length; i++) {
-			node = node.addChild(word[i]);
+			const charCode = word.codePointAt(i)!;
+			node = node.addChild(charCode);
+			// Handle 4-byte unicode characters (surrogate pairs)
+			if (charCode > 0xFFFF) {
+				i++; // Skip the next surrogate pair
+			}
 		}
 		node.word = word;
 		node.flags = flags;
@@ -23,18 +28,18 @@ export function createTrie(ignoreSpaces = false) {
 }
 
 function createTrieNode(ignoreSpaces: boolean): TrieNode {
-	const children: Record<string, TrieNode> = {};
+	const children: Record<number, TrieNode> = {};
 
 	const node: TrieNode = {
 		children,
 		word: null,
 		flags: 0,
-		next(char: string) {
-			if (ignoreSpaces && char === " ") return node;
-			return children[char] || null;
+		next(charCode: number) {
+			if (ignoreSpaces && charCode === 32) return node; // 32 = ' '.charCodeAt(0)
+			return children[charCode] || null;
 		},
-		addChild(char: string) {
-			return children[char] ?? (children[char] = createTrieNode(ignoreSpaces));
+		addChild(charCode: number) {
+			return children[charCode] ?? (children[charCode] = createTrieNode(ignoreSpaces));
 		},
 	};
 
@@ -43,8 +48,9 @@ function createTrieNode(ignoreSpaces: boolean): TrieNode {
 
 export function extractStartCharsFromTrie(trie: TrieNode): Record<string, 1> {
 	const table: Record<string, 1> = {};
-	for (const ch in trie.children) {
-		table[ch] = 1;
+	for (const charCode in trie.children) {
+		const char = String.fromCodePoint(Number(charCode));
+		table[char] = 1;
 	}
 	return table;
 }

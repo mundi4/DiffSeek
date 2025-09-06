@@ -68,7 +68,6 @@ export function SideTagCopyButton({
         }
     };
 
-
     return (
         <SideTagButton onClick={copy} {...props} children={copied ? (<Check size={8} className={clsx()} />) : null} />
     )

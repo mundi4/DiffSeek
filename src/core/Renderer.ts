@@ -1,5 +1,5 @@
 import { mergeRects } from "@/utils/mergeRects";
-import { DIFF_TAG_NAME, MANUAL_ANCHOR_CLASS_NAME } from "@/constants";
+import { DIFF_TAG_NAME, MANUAL_ANCHOR_CLASS_NAME } from "@/core/constants/index";
 import { advanceNode } from "@/utils/advanceNode";
 import { mountHelper } from "@/utils/mountHelper";
 import type { EditorName } from "./types";
@@ -39,7 +39,7 @@ export interface RendererOptions {
 	};
 }
 
-export const defaultRendererOptions: RendererOptions = {
+const _defaultRendererOptions: RendererOptions = {
 	styles: {
 		diff: {
 			normal: {
@@ -72,6 +72,10 @@ export const defaultRendererOptions: RendererOptions = {
 		diffLineHeightMultiplier: 1.2,
 	},
 };
+
+export function getDefaultRendererOptions(): RendererOptions {
+	return structuredClone(_defaultRendererOptions);
+}
 
 type RectSet = {
 	rects: Rect[] | null;
@@ -141,7 +145,7 @@ export class Renderer {
 	#highlightCanvas: HTMLCanvasElement;
 	#highlightCtx: CanvasRenderingContext2D;
 	#resizeObserver: ResizeObserver = new ResizeObserver(this.#handleResize.bind(this));
-	#options: RendererOptions = structuredClone(defaultRendererOptions);
+	#options: RendererOptions = getDefaultRendererOptions();
 	#leftRegion: RenderRegion;
 	#rightRegion: RenderRegion;
 	#canvasX: number = 0;

@@ -1,4 +1,4 @@
-export function mapTokenRangeToOtherSide(rawEntries: RawDiff[], side: "left" | "right", startIndex: number, endIndex: number): [number, number, boolean] {
+export function mapTokenRangeToOtherSide(rawEntries: DiffEntry[], side: "left" | "right", startIndex: number, endIndex: number): [number, number, boolean] {
 	// console.log("mapTokenRangeToOtherSide", { rawEntries, side, startIndex, endIndex });
 	const otherSide = side === "left" ? "right" : "left";
 	let low = 0;

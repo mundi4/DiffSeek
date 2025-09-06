@@ -6,30 +6,34 @@ import type { DiffContext } from "./DiffContext";
 import type { EditorName } from "./types";
 import type { Editor, EditorCallbacks } from "@/core/Editor";
 import type { Renderer, RendererCallbacks } from "@/core/Renderer";
-import { EDITOR_SCROLL_MARGIN } from "@/constants";
+import { EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
 import { EditorPairer } from "./EditorPairer";
 
 export type DiffResult = {
-	diffs: RawDiff[];
+	diffs: DiffEntry[];
 	options: DiffOptions;
 	processTime: number;
 };
 
-const defaultDiffOptions: DiffOptions = {
-	algorithm: "histogram",
-	tokenization: "word",
-	ignoreWhitespace: "ignore",
-	greedyMatch: false,
-	useLengthBias: true,
-	maxGram: 4,
-	lengthBiasFactor: 0.7,
-	containerStartMultiplier: 1 / 0.85,
-	containerEndMultiplier: 1 / 0.9,
-	sectionHeadingMultiplier: 1 / 0.75,
-	lineStartMultiplier: 1 / 0.9,
-	lineEndMultiplier: 1 / 0.95,
-	uniqueMultiplier: 1 / 0.6667,
-};
+// const defaultDiffOptions: DiffOptions = {
+// 	algorithm: "histogram",
+// 	tokenization: "word",
+// 	ignoreWhitespace: "ignore",
+// 	greedyMatch: false,
+// 	useLengthBias: true,
+// 	maxGram: 4,
+// 	lengthBiasFactor: 0.7,
+// 	containerStartMultiplier: 1 / 0.85,
+// 	containerEndMultiplier: 1 / 0.9,
+// 	sectionHeadingMultiplier: 1 / 0.75,
+// 	lineStartMultiplier: 1 / 0.9,
+// 	lineEndMultiplier: 1 / 0.95,
+// 	uniqueMultiplier: 1 / 0.6667,
+// };
+
+// export function getDefaultDiffOptions(): DiffOptions {
+// 	return structuredClone(defaultDiffOptions);
+// }
 
 const SCROLL_TIMEOUT = 100;
 
@@ -97,7 +101,7 @@ export class DiffController {
 	};
 	#lastTextSelectionRange: Range | null = null;
 
-	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions = { ...defaultDiffOptions }) {
+	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions) {
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
 		this.#renderer = renderer;
@@ -148,7 +152,6 @@ export class DiffController {
 
 	updateDiffOptions(newOptions: Partial<DiffOptions>) {
 		this.#diffOptions = { ...this.#diffOptions, ...newOptions };
-		this.computeDiff();
 	}
 
 	get leftEditor() {
@@ -284,7 +287,7 @@ export class DiffController {
 					sourceRange: selection.sourceEditor === "left" ? sourceRange! : targetRange!,
 					leftTokenSpan: leftSpan!,
 					rightTokenSpan: rightSpan!,
-					leftTokenRange: selection.sourceEditor === "left"?  sourceRange! : targetRange!,
+					leftTokenRange: selection.sourceEditor === "left" ? sourceRange! : targetRange!,
 					rightTokenRange: selection.sourceEditor === "right" ? sourceRange! : targetRange!,
 				},
 			});
@@ -325,6 +328,7 @@ export class DiffController {
 	}
 
 	#handleEditorContentChanging() {
+		this.diffContext = null;
 		this.#postProcessor?.cancel();
 		this.#editorPairer.cancelAnchorAligning();
 
@@ -411,7 +415,7 @@ export class DiffController {
 
 	#handleEditorResize(_editor: Editor) {
 		if (this.#syncMode) {
-			this.alignEditors();
+			this.alignEditors(true);
 		}
 		//this.#renderer.invalidateLayout();
 	}
@@ -556,10 +560,10 @@ export class DiffController {
 
 		if (selection) {
 			const editor = selection.editor === "left" ? this.#leftEditor : this.#rightEditor;
-			let sourceSpan = editor.findTokenOverlapIndices(selection.range);
+			let sourceSpan = editor.getTokenSpanForRange(selection.range);
 			if (sourceSpan) {
 				if (sourceSpan.end === sourceSpan.start) {
-					sourceSpan.end += 1;
+					//sourceSpan.end += 1;
 				}
 				const matchingPair = this.diffContext.resolveMatchingSpanPair(editor.name, sourceSpan);
 				if (matchingPair) {

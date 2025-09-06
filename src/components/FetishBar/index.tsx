@@ -6,6 +6,7 @@ import clsx from "clsx";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Toggle } from "../ui/toggle";
 import { syncModeAtom } from "@/states/atoms";
+import { useCallback } from "react";
 
 interface FetishBarProps {
 }
@@ -26,7 +27,7 @@ export function FetishBar({ }: FetishBarProps) {
             <div className={clsx(styles.rightButtons)}>
                 <ModeSelector value={whitespaceHandling} onChange={(v) => setWhitespaceHandling(v)} />
                 {/* <Toggle size="sm" variant="outline" pressed={syncMode} onPressedChange={setSyncMode}><BookOpen size={14} /></Toggle> */}
-                
+
             </div>
         </div>
     );
@@ -40,8 +41,10 @@ interface ModeSelectorProps {
 }
 
 export function ModeSelector({ value, onChange }: ModeSelectorProps) {
+    const onValueChange = useCallback((v: Mode) => v && onChange(v), [onChange]);
+
     return (
-        <ToggleGroup variant="default" type="single" size="xs" value={value} onValueChange={onChange} className="" style={{
+        <ToggleGroup variant="default" type="single" size="xs" value={value} onValueChange={onValueChange} className="" style={{
             "--accent": "var(--primary)",
             "--accent-foreground": "var(--primary-foreground)"
 

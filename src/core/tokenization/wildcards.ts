@@ -1,5 +1,5 @@
 import { createTrie } from "./trie";
-import { TokenFlags } from "./types";
+import { TokenFlags } from "./TokenFlags";
 
 // wildcards.
 // 이걸 어떻게 구현해야할지 감이 안오지만 지금으로써는 얘네들을 atomic하게 취급(사이에 공백이 있어도 하나의 토큰으로 만듬. '(현행과 같음)'에서 일부분만 매치되는 것을 방지)
@@ -16,4 +16,4 @@ wildcardTrie.insert("(신설)", TokenFlags.WILD_CARD);
 wildcardTrie.insert("(생략)", TokenFlags.WILD_CARD);
 wildcardTrie.insert("(현행과같음)", TokenFlags.WILD_CARD);
 
-export const wildcardTrieNode = wildcardTrie.root.next("(")!;
+export const wildcardTrieNode = wildcardTrie.root.next("(".codePointAt(0)!)!;

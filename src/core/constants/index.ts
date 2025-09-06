@@ -64,16 +64,6 @@ export const TEXTLESS_ELEMENTS: Record<string, boolean> = {
     SCRIPT: true,
 };
 
-export const LINE_ELEMENTS: Record<string, boolean> = {
-    P: true,
-    H1: true,
-    H2: true,
-    H3: true,
-    H4: true,
-    H5: true,
-    H6: true,
-};
-
 // 많은 요소들이 있지만 다 무시하고 root와 td/th만 생각함.
 // 다른 요소들은 어차피 레이아웃과 무관
 export const TEXT_FLOW_CONTAINERS: Record<string, boolean> = {

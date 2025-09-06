@@ -1,89 +1,4 @@
-import { TEXTLESS_ELEMENTS } from "../constants";
-
-// const INLINE_ELEMENTS: Record<string, boolean> = {
-// 	SPAN: true,
-// 	A: true,
-// 	B: true,
-// 	I: true,
-// 	U: true,
-// 	EM: true,
-// 	STRONG: true,
-// 	S: true,
-// 	STRIKE: true,
-// 	SUB: true,
-// 	SUP: true,
-// 	SMALL: true,
-// 	BIG: true,
-// 	MARK: true,
-// 	INS: true,
-// 	DEL: true,
-// 	CODE: true,
-// 	KBD: true,
-// 	SAMP: true,
-// 	VAR: true,
-// 	DFN: true,
-// 	ABBR: true,
-// 	TIME: true,
-// 	CITE: true,
-// 	Q: true,
-// 	LABEL: true,
-// };
-
-// const LINEBREAK_ELEMENTS: Record<string, boolean> = {
-// 	DD: true,
-// 	DT: true,
-// 	DIV: true,
-// 	P: true,
-// 	H1: true,
-// 	H2: true,
-// 	H3: true,
-// 	H4: true,
-// 	H5: true,
-// 	H6: true,
-// 	UL: true,
-// 	OL: true,
-// 	LI: true,
-// 	BLOCKQUOTE: true,
-// 	FORM: true,
-// 	HEADER: true,
-// 	FOOTER: true,
-// 	ARTICLE: true,
-// 	SECTION: true,
-// 	ASIDE: true,
-// 	NAV: true,
-// 	ADDRESS: true,
-// 	FIGURE: true,
-// 	FIGCAPTION: true,
-// 	TABLE: true,
-// 	CAPTION: true,
-// 	TR: true,
-// };
-
-// const EXCLUDED_HTML_TAGS: Record<string, number> = {
-// 	SCRIPT: 1,
-// 	STYLE: 1,
-// 	IFRAME: 1,
-// 	OBJECT: 1,
-// 	EMBED: 1,
-// 	LINK: 1,
-// 	META: 1,
-// 	BASE: 1,
-// 	APPLET: 1,
-// 	FRAME: 1,
-// 	FRAMESET: 1,
-// 	NOSCRIPT: 1,
-// 	SVG: 1,
-// 	MATH: 1,
-// 	TEMPLATE: 1,
-// 	HEAD: 1,
-// 	TITLE: 1,
-// 	CANVAS: 1,
-// 	AUDIO: 1,
-// 	VIDEO: 1,
-// 	TRACK: 1,
-// 	SOURCE: 1,
-// 	BGSOUND: 1,
-// };
+import { TEXTLESS_ELEMENTS } from "./constants";
 
 type ElementOptions = {
 	allowedAttrs?: Record<string, boolean>;
@@ -92,6 +7,10 @@ type ElementOptions = {
 	void?: boolean;
 	unwrap?: boolean;
 	exclude?: boolean;
+};
+
+const EXCLUDED_TAG_OPTIONS: ElementOptions = {
+	exclude: true,
 };
 
 const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
@@ -107,20 +26,15 @@ const DefaultElementOptions: ElementOptions = {
 
 const AsDivElementOptions: ElementOptions = {
 	replaceTag: "DIV",
-};
-
-const SMART_TAG_OPTIONS: ElementOptions = {
-	unwrap: true,
-};
-
-const EXCLUDED_TAG_OPTIONS: ElementOptions = {
-	exclude: true,
+	allowedStyles: COMMON_ALLOWED_STYLES,
 };
 
 const COMMON_INLINE_ELEMENT_OPTIONS: ElementOptions = {
-	allowedStyles: COMMON_ALLOWED_STYLES,
 	replaceTag: "SPAN",
+	allowedStyles: COMMON_ALLOWED_STYLES,
 };
+
+const SMART_TAG_OPTIONS: ElementOptions = COMMON_INLINE_ELEMENT_OPTIONS;
 
 const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	SCRIPT: EXCLUDED_TAG_OPTIONS,
@@ -146,14 +60,13 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	TRACK: EXCLUDED_TAG_OPTIONS,
 	SOURCE: EXCLUDED_TAG_OPTIONS,
 	BGSOUND: EXCLUDED_TAG_OPTIONS,
-
 	TABLE: DefaultElementOptions,
 	TBODY: { unwrap: true },
 	THEAD: { unwrap: true },
 	TFOOT: { unwrap: true },
 	CAPTION: DefaultElementOptions,
 	TR: DefaultElementOptions,
-	TD: { allowedAttrs: { colspan: true, rowspan: true, width: true, }, allowedStyles: { ...COMMON_ALLOWED_STYLES, width: true, } },
+	TD: { allowedAttrs: { colspan: true, rowspan: true, width: true }, allowedStyles: { ...COMMON_ALLOWED_STYLES, width: true } },
 	TH: { replaceTag: "TD", allowedAttrs: { colspan: true, rowspan: true }, allowedStyles: COMMON_ALLOWED_STYLES },
 	H1: DefaultElementOptions,
 	H2: DefaultElementOptions,
@@ -209,15 +122,15 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 		replaceTag: "SPAN",
 		allowedStyles: COMMON_ALLOWED_STYLES,
 	},
-	"#document-fragment": DefaultElementOptions,
 	FIGURE: DefaultElementOptions,
 	FIGCAPTION: DefaultElementOptions,
+	"#document-fragment": DefaultElementOptions,
 };
 
 // die. just die.
 type CharMap = Record<string, string>;
-const WINGDINGS_TRANSFORM: Record<string, CharMap> = {
-	Wingdings: {
+const DINGBAT_TRANSFORM: Record<string, CharMap> = {
+	wingdings: {
 		"\u00DF": "🡠",
 		"\u00E0": "🡢",
 		"\u00E1": "🡡",
@@ -256,15 +169,31 @@ const WINGDINGS_TRANSFORM: Record<string, CharMap> = {
 		"\u0093": "❽",
 		"\u0094": "❾",
 		"\u0095": "❿",
-		"\xAB":  "↔",
-		"\xAC":  "←",
-		"\xAD":  "↑",
-		"\xAE":  "→",
-		"\xAF":  "↓",
+		"\x9E": "·",
+		"\x9F": "•",
+		"\xA0": "▪",
+		"\xA2": "🞆",
+		"\xA4": "◉",
+		"\xA5": "◎",
+	},
+	["wingdings 2"]: {
+		"\x3F": "🖙",
+		"\x9F": "⬝",
+		"\xA0": "▪",
+		"\xA1": "■",
+		"\xF8": "※",
+	},
+	symbol: {
+		"\xAB": "↔",
+		"\xAC": "←",
+		"\xAD": "↑",
+		"\xAE": "→",
+		"\xAF": "↓",
 	},
 };
 
-function transformText(input: string, charMap: CharMap): string {
+function transformText(input: string, font: keyof typeof DINGBAT_TRANSFORM): string {
+	const charMap = DINGBAT_TRANSFORM[font];
 	let result = "";
 	for (const ch of input) {
 		result += charMap[ch] || ch;
@@ -272,37 +201,126 @@ function transformText(input: string, charMap: CharMap): string {
 	return result;
 }
 
-// 진짜 병목은 execCommand("insertHTML", ...)임. 이 함수는 죄가 없다.
-export function sanitizeHTML(rawHTML: string): Node {
-	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
+const START_TAG = "<!--StartFragment-->";
+const END_TAG = "<!--EndFragment-->";
+function sliceFragment(html: string): string {
+	const s = html.indexOf(START_TAG);
+	if (s < 0) return html;
+	const e = html.lastIndexOf(END_TAG);
+	return e >= 0 ? html.slice(s + START_TAG.length, e) : html.slice(s + START_TAG.length);
+}
 
-	const EMPTY_LINE = document.createElement("P");
-	EMPTY_LINE.appendChild(document.createElement("BR"));
+const _EMPTY_LINE = (() => {
+	const p = document.createElement("P");
+	p.appendChild(document.createElement("BR"));
+	return p;
+})();
 
-	const START_TAG = "<!--StartFragment-->";
-	const END_TAG = "<!--EndFragment-->";
-	const startIndex = rawHTML.indexOf(START_TAG);
-	if (startIndex >= 0) {
-		const endIndex = rawHTML.lastIndexOf(END_TAG);
-		if (endIndex >= 0) {
-			rawHTML = rawHTML.slice(startIndex + START_TAG.length, endIndex);
-		} else {
-			rawHTML = rawHTML.slice(startIndex + START_TAG.length);
+function appendEmptyLine(parent: ParentNode) {
+	parent.appendChild(_EMPTY_LINE.cloneNode(true));
+}
+
+function getElementPolicy(node: Node): ElementOptions {
+	const nodeName = node.nodeName; // 변환 금지: DOM 그대로
+
+	const direct = ELEMENT_POLICIES[nodeName];
+	if (direct) return direct;
+
+	// 워드에서 복붙할 때 따라오는 잡다한 태그들
+	if (
+		nodeName === "O:P" &&
+		(node.childNodes.length === 0 ||
+			(node.childNodes.length === 1 && node.firstChild?.nodeType === Node.TEXT_NODE && (node.firstChild as Text).nodeValue === "\u00A0"))
+	) {
+		return ELEMENT_POLICIES["BR"]; // <o:p>&nbsp;</o:p> => <br>
+	}
+
+	if (nodeName.startsWith("ST1:")) {
+		return SMART_TAG_OPTIONS; // 날짜 따위가 이런 태그로 들어오는 경우가 있다.
+	}
+
+	// 나머지는 인라인 요소로 처리하기. 완전히 버려버리면 안된다!
+	return COMMON_INLINE_ELEMENT_OPTIONS;
+}
+
+function copyAllowedAttributes(from: Element, to: Element, allowed?: Record<string, boolean>) {
+	if (!allowed) return;
+	for (const attr of from.attributes) {
+		if (allowed[attr.name]) to.setAttribute(attr.name, attr.value);
+	}
+}
+
+function copyAllowedStyles(from: CSSStyleDeclaration, to: CSSStyleDeclaration, allowed?: Record<string, boolean>) {
+	if (!allowed) return;
+	for (const k in allowed) {
+		const v = (from as any)[k];
+		if (v) (to as any)[k] = v;
+	}
+}
+
+function normalizeFont(raw: string | null | undefined) {
+	if (!raw) return null;
+	let s = raw.split(",")[0].trim();
+	s = s.replace(/^['"]+|['"]+$/g, "").toLowerCase();
+	return s || null;
+}
+
+function resolveDingbatFont(node: HTMLElement, prev: string | null): string | null {
+	const el = node as HTMLElement;
+
+	let raw = el.style?.fontFamily || (node.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
+	const fam = normalizeFont(raw);
+
+	if (!fam || fam === "inherit") return prev;
+	return DINGBAT_TRANSFORM[fam] ? fam : null;
+}
+
+function resolveColor(node: HTMLElement, prev: string | null) {
+	let color: string | null = null;
+	
+	if ((node as HTMLElement).classList.contains("color-red")) {
+		color = "red";
+	} else {
+		let colorValue = (node as HTMLElement).style?.color || "inherit";
+		console.log("Resolvecolor:", node.nodeName, colorValue, node.textContent)
+		if (colorValue) {
+			if (colorValue === "inherit") {
+				// use parent color
+				color = prev;
+			} else {
+				// 빨간색에만... 나는 빨간색만 알고 싶다.
+				if (isReddish(colorValue)) {
+					color = "red";
+				} else {
+					console.log("colorValue", colorValue)
+					color = "default";
+				}
+			}
 		}
 	}
+	return color;
+}
+
+export function sanitizeHTML(rawHTML: string): Node {
+	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
+	rawHTML = sliceFragment(rawHTML);
+	if (import.meta.env.DEV) {
+		console.debug("rawHTML", rawHTML);
+	}
+	// console.debug("rawHTML", rawHTML); // 회사에서 급할 때... ㅋ
 
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
 
-	// console.debug("rawHTML", rawHTML);
-
 	type _States = {
 		font: string | null;
+		color: string | null;
 	};
 
 	const statesStack: _States[] = [];
 	let states: _States = {
 		font: null,
+		color: null,
 	};
 
 	type TraversalResult = {
@@ -310,9 +328,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 		hasText: boolean;
 		hasNonEmptyText: boolean;
 		caretReachable: boolean;
-	}
-
-	let isFromBizPlatform = false;
+	};
 
 	function traverse(node: Node): TraversalResult | null {
 		if (
@@ -322,91 +338,41 @@ export function sanitizeHTML(rawHTML: string): Node {
 			return null;
 		}
 
-		if (node.nodeName === "DIV") {
-			if ((node as HTMLElement).className === "aspNetHidden") {
-				return null;
-			}
-			if ((node as HTMLElement).className === "pak_aside clear") {
-				return null;
-			}
-			if ((node as HTMLElement).className === "pak_tab_menu") {
-				return null;
-			}
-			if ((node as HTMLElement).className === "listBtn") {
-				return null;
-			}
-			if ((node as HTMLElement).id === "ManualWrap") {
-				isFromBizPlatform = true;
-			} else {
-			}
-			
-			if ((node as HTMLElement).className === "ManualEvalWrap") {
-				return null;
-			}
-		}
-		else if (node.nodeName === "P") {
-			if ((node as HTMLElement).className === "pak_search") {
-				return null;
-			}
-		}
-
-
-		const nodeName = node.nodeName;
-		let elementOptions = ELEMENT_POLICIES[nodeName];
-
-		if (!elementOptions) {
-			if (
-				nodeName === "O:P" &&
-				(
-					node.childNodes.length === 0 ||
-					(
-						node.childNodes.length === 1 &&
-						node.firstChild!.nodeType === 3 &&
-						node.firstChild!.nodeValue === "\u00A0"
-					)
+		// ctrl-a로 전체 페이지 복붙 했을때 따라오는 잡다한 unwanted 요소들 제거.
+		if (node.nodeType === 1) {
+			const el = node as HTMLElement;
+			if (node.nodeName === "DIV") {
+				if (
+					el.className === "aspNetHidden" ||
+					el.className === "pak_aside clear" ||
+					el.className === "pak_tab_menu" ||
+					el.className === "listBtn" ||
+					el.className === "ManualEvalWrap"
 				)
-			) {
-				elementOptions = ELEMENT_POLICIES["BR"];
-			} else if (nodeName.startsWith("ST1:")) {
-				// 워드에서 날짜 같은 값이 종종 <st1:date>태그로 표현됨. WTF?
-				elementOptions = SMART_TAG_OPTIONS;
-			}
-			if (!elementOptions) {
-				elementOptions = COMMON_INLINE_ELEMENT_OPTIONS;
+					return null;
+			} else if (node.nodeName === "P") {
+				if (el.className === "pak_search") return null;
 			}
 		}
 
-		if (elementOptions.exclude) {
+		const policy = getElementPolicy(node);
+		if (policy.exclude) {
 			return null;
 		}
 
-
-
-		let containerNode: ParentNode;
-		if (elementOptions.unwrap || node.nodeType === 11) {
-			containerNode = document.createDocumentFragment();
+		const nodeName = node.nodeName;
+		let container: ParentNode;
+		if (policy.unwrap || node.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+			container = document.createDocumentFragment();
 		} else {
-			containerNode = document.createElement(elementOptions.replaceTag || nodeName);
-			if (elementOptions.allowedAttrs) {
-				for (const attr of (node as HTMLElement).attributes) {
-					if (elementOptions.allowedAttrs[attr.name]) {
-						(containerNode as HTMLElement).setAttribute(attr.name, attr.value);
-					}
-				}
-			}
-			if (elementOptions.allowedStyles) {
-				const style = (node as HTMLElement).style;
-				for (const prop in elementOptions.allowedStyles) {
-					if (style[prop as any]) {
-						(containerNode as HTMLElement).style[prop as any] = style[prop as any];
-					}
-				}
-			}
+			container = document.createElement(policy.replaceTag || nodeName);
+			copyAllowedAttributes(node as HTMLElement, container as HTMLElement, policy.allowedAttrs);
+			copyAllowedStyles((node as HTMLElement).style, (container as HTMLElement).style, policy.allowedStyles);
 		}
 
-		if (elementOptions.void) {
+		if (policy.void) {
 			return {
-				node: containerNode,
+				node: container,
 				hasText: false,
 				hasNonEmptyText: false,
 				caretReachable: false,
@@ -417,36 +383,18 @@ export function sanitizeHTML(rawHTML: string): Node {
 		states = { ...states };
 
 		const result = {
-			node: containerNode,
+			node: container,
 			hasText: false,
 			hasNonEmptyText: false,
 			caretReachable: false,
-		}
+		};
 
-		if (containerNode.nodeType === 1) {
-			let color: string | null = null;
-			if ((node as HTMLElement).classList.contains("color-red")) {
-				color = "red";
-			} else {
-				let colorValue = (node as HTMLElement).style?.color;
-				if (colorValue) {
-					if (colorValue === "inherit") {
-						// use parent color
-					} else {
-						if (isReddish(colorValue)) {
-							color = "red";
-						}
-					}
-				}
+		if (container.nodeType === Node.ELEMENT_NODE && node.nodeType === Node.ELEMENT_NODE) {
+			states.color = resolveColor(node as HTMLElement, states.color);
+			if (states.color) {
+				(container as HTMLElement).classList.add(`color-${states.color}`);
 			}
-			if (color) {
-				(containerNode as HTMLElement).classList.add(`color-${color}`);
-			}
-
-			let fontFamily = (node as HTMLElement).style?.fontFamily;
-			if (fontFamily && fontFamily !== "inherit") {
-				states.font = fontFamily;
-			}
+			states.font = resolveDingbatFont(node as HTMLElement, states.font);
 		}
 
 		const children: TraversalResult[] = [];
@@ -456,8 +404,8 @@ export function sanitizeHTML(rawHTML: string): Node {
 			if (childNode.nodeType === 3) {
 				if (!isTextless) {
 					let text = childNode.nodeValue!;
-					if (states.font && WINGDINGS_TRANSFORM[states.font]) {
-						text = transformText(text, WINGDINGS_TRANSFORM[states.font]!);
+					if (states.font) {
+						text = transformText(text, states.font);
 					}
 
 					childResult = {
@@ -465,7 +413,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 						hasText: false,
 						hasNonEmptyText: false,
 						caretReachable: false,
-					}
+					};
 				}
 			} else {
 				childResult = traverse(childNode);
@@ -478,21 +426,11 @@ export function sanitizeHTML(rawHTML: string): Node {
 
 		states = statesStack.pop()!;
 
-		// if (!BLOCK_ELEMENTS[nodeName] && !VOID_ELEMENTS[nodeName]) {
-		// 	if (
-		// 		containerNode.childNodes.length === 0 ||
-		// 		(containerNode.childNodes.length === 1 && containerNode.firstChild?.nodeType === 3 && containerNode.firstChild.nodeValue === "")
-		// 	) {
-		// 		return null;
-		// 	}
-		// }
-
 		let prevCaretReachable = false;
 		for (let i = 0; i < children.length; i++) {
 			const childResult = children[i];
 
 			if (node === tmpl.content || nodeName === "TD") {
-
 			}
 
 			if (childResult.node.nodeType === 3) {
@@ -510,13 +448,13 @@ export function sanitizeHTML(rawHTML: string): Node {
 			if (node === tmpl.content || nodeName === "TD") {
 				if (childResult.node.nodeName === "TABLE") {
 					if (!prevCaretReachable) {
-						containerNode.appendChild(EMPTY_LINE.cloneNode(true));
+						appendEmptyLine(container);
 					}
 					prevCaretReachable = false;
 				}
 			}
 
-			containerNode.appendChild(childResult.node);
+			container.appendChild(childResult.node);
 
 			if (childResult.node.nodeName === "TABLE") {
 				prevCaretReachable = false;
@@ -525,17 +463,11 @@ export function sanitizeHTML(rawHTML: string): Node {
 			}
 		}
 
-
 		if (!prevCaretReachable && (node === tmpl.content || nodeName === "TD")) {
-			containerNode.appendChild(EMPTY_LINE.cloneNode(true));
+			appendEmptyLine(container);
 		}
 
-		// if (containerNode.nodeName === "TD" && !result.caretReachable) {
-		// 	containerNode.appendChild(EMPTY_LINE.cloneNode());
-		// 	result.caretReachable = true;
-		// }
-
-		if (containerNode.nodeName === "TABLE") {
+		if (container.nodeName === "TABLE") {
 			result.caretReachable = false;
 			result.hasText = false;
 			result.hasNonEmptyText = false;
@@ -545,82 +477,75 @@ export function sanitizeHTML(rawHTML: string): Node {
 	}
 
 	const result = traverse(tmpl.content)!;
-	// result.normalize();
-	// if (result.childNodes.length === 0) {
-	// 	result.appendChild(document.createTextNode(""));
-	// }
-
-
 	return result.node;
 }
 
 const isReddish = (() => {
-    let ctx: CanvasRenderingContext2D | null = null;
+	let ctx: OffscreenCanvasRenderingContext2D | null = null;
 
-    const reddishCache = new Map<string, boolean>([
-        ["red", true],
-        ["#ff0000", true],
-        ["#e60000", true],
-        ["#c00000", true],
-        ["rgb(255,0,0)", true],
-        ["rgb(230,0,0)", true],
-        ["#000000", false],
-        ["#333333", false],
-        ["#ffffff", false],
-        ["black", false],
-        ["blue", false],
-        ["white", false],
-        ["window", false],
-        ["windowtext", false],
-    ]);
+	const reddishCache = new Map<string, boolean>([
+		["red", true],
+		["#ff0000", true],
+		["#e60000", true],
+		["#c00000", true],
+		["rgb(255,0,0)", true],
+		["rgb(230,0,0)", true],
+		["#000000", false],
+		["#333333", false],
+		["#ffffff", false],
+		["black", false],
+		["blue", false],
+		["white", false],
+		["window", false],
+		["windowtext", false],
+	]);
 
-    function getRGB(color: string): [number, number, number] | null {
-        // #rrggbb
-        const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
-        if (hex6) {
-            const n = parseInt(hex6[1], 16);
-            return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
-        }
+	function getRGB(color: string): [number, number, number] | null {
+		// #rrggbb
+		const hex6 = /^#([0-9a-f]{6})$/i.exec(color);
+		if (hex6) {
+			const n = parseInt(hex6[1], 16);
+			return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
+		}
 
-        // #rgb
-        const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
-        if (hex3) {
-            const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
-            return [r, g, b];
-        }
+		// #rgb
+		const hex3 = /^#([0-9a-f]{3})$/i.exec(color);
+		if (hex3) {
+			const [r, g, b] = hex3[1].split("").map((c) => parseInt(c + c, 16));
+			return [r, g, b];
+		}
 
-        // rgb(...) / rgba(...)
-        const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
-        if (rgb) {
-            const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
-            if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
-        }
+		// rgb(...) / rgba(...)
+		const rgb = /^rgba?\(([^)]+)\)$/i.exec(color);
+		if (rgb) {
+			const parts = rgb[1].split(",").map((s) => parseInt(s.trim(), 10));
+			if (parts.length >= 3) return [parts[0], parts[1], parts[2]];
+		}
 
-        // fallback
-        if (!ctx) {
-            const canvas = document.createElement("canvas");
-            canvas.width = canvas.height = 1;
-            ctx = canvas.getContext("2d")!;
-        }
+		// fallback
+		if (!ctx) {
+			const canvas = new OffscreenCanvas(1, 1);
+			ctx = canvas.getContext("2d")!;
+		}
 
-        try {
-            ctx.clearRect(0, 0, 1, 1);
-            ctx.fillStyle = color;
-            ctx.fillRect(0, 0, 1, 1);
-            const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
-            return [r, g, b];
-        } catch {
-            return null;
-        }
-    }
+		try {
+			ctx.clearRect(0, 0, 1, 1);
+			ctx.fillStyle = color;
+			ctx.fillRect(0, 0, 1, 1);
+			const [r, g, b] = ctx.getImageData(0, 0, 1, 1).data;
+			return [r, g, b];
+		} catch {
+			return null;
+		}
+	}
 
-    return (color: string) => {
-        let isRed = reddishCache.get(color);
-        if (isRed !== undefined) return isRed;
+	return (color: string) => {
+		let isRed = reddishCache.get(color);
+		if (isRed !== undefined) return isRed;
 
-        const rgb = getRGB(color);
-        isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
-        reddishCache.set(color, isRed);
-        return isRed;
-    };
+		const rgb = getRGB(color);
+		isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
+		reddishCache.set(color, isRed);
+		return isRed;
+	};
 })();

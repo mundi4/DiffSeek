@@ -55,10 +55,15 @@ export const text = style({
 	overflow: "hidden",
 	textOverflow: "ellipsis",
 	whiteSpace: "nowrap",
-	// selectors: {
-	//     "&:empty::after": {
-	//         content: "'💭'",
-	//         userSelect: "none",
-	//     }
-	// }
+	selectors: {
+		"&:empty::after": {
+			content: "'💭'",
+			// content: "'∅'",
+			userSelect: "none",
+			//opacity: vars.opacity.disabled,
+			// fontWeight: vars.typography.weight.light,
+			fontFamily: vars.typography.family.mono,
+			// fontStyle: "italic",
+		},
+	},
 });

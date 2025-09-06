@@ -63,6 +63,7 @@ const app = defineConfig({
 				"react/jsx-runtime",
 				//"react/jsx-dev-runtime",
 				"jotai",
+				"jotai/utils",
 				"clsx",
 				"@vanilla-extract/dynamic",
 				"@radix-ui/react-slot",
@@ -79,6 +80,7 @@ const app = defineConfig({
 					//"react/jsx-dev-runtime": "Vendor.ReactJSXDevRuntime",
 
 					jotai: "Vendor.jotai",
+					"jotai/utils": "Vendor.jotaiUtils",
 					clsx: "Vendor.clsx",
 					"@vanilla-extract/dynamic": "Vendor.VanillaExtractDynamic",
 					"@radix-ui/react-slot": "Vendor.RadixUI.Slot",

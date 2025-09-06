@@ -1,8 +1,6 @@
 import type { EditorName } from "@/core/types";
-//import * as styles from "./Editor.css";
 import { TokenizeContext, type RichToken } from "@/core/tokenization/TokenizeContext";
-import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/constants";
-
+import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/core/constants/index";
 import { sanitizeHTML } from "@/core/sanitize";
 import { createParagraphsFromText } from "@/utils/createParagraphsFromText";
 import { findAdjacentTextNode } from "@/utils/findAdjacentTextNode";
@@ -23,16 +21,25 @@ export type EditorCallbacks = {
 	mouseLeave: (editor: Editor, e: MouseEvent) => void;
 };
 
+/**
+ * 붙여넣기를 할때 `execCommand("paste", ...)`를 사용할 최대 길이
+ */
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000;
 
 const INITIAL_EDITOR_HTML = document.createElement("P");
 INITIAL_EDITOR_HTML.appendChild(document.createElement("BR"));
 
-// const templateHTML = `<div class="editor-wrapper">
-//     <div class="editor" contenteditable="true" spellcheck="false"></div>
-//     <div class="maybe-170cm-wasnt-enough"></div>
-// </div>`;
-
+/**
+ * Editor
+ *
+ * Editor라 쓰고 contenteditable라 읽는다. 별다른 기능이 없다는 뜻...
+ * 그냥 입력된 내용을 토큰화한 뒤 이벤트를 발생시켜서 알려주는 것이 주 역할임.
+ *
+ * 토큰화는 변경이 감지되면 상당히 일찍(100ms? ain't nobody got time for that) 수행되지만
+ * 연속적인 변경이 감지되면 이전 작업은 취소되고 새로 작업이 시작됨.
+ *
+ * mount메서드로 DOM에 추가하고 unmount로 제거함. 이렇게 번거로운 방법을 쓰는 이유? React 컴포넌트에 붙이려고...
+ */
 export class Editor implements EditorContext {
 	#wrapper: HTMLElement;
 	#editorName: EditorName;
@@ -47,13 +54,15 @@ export class Editor implements EditorContext {
 	#mountHelper: ReturnType<typeof mountHelper>;
 	#resizeObserver = new ResizeObserver(() => this.#onResize());
 
-	constructor(editorName: "left" | "right") {
+	constructor(editorName: EditorName) {
 		this.#editorName = editorName;
 
 		this.#editor.contentEditable = "true";
 		this.#editor.spellcheck = false;
 		this.#editor.id = `diffseek-editor-${editorName}`;
 		this.#editor.classList.add("editor", `editor-${editorName}`);
+		this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+
 		this.#heightBoost.classList.add("editor-maybe-170cm-wasnt-enough");
 
 		this.#mutationObserver = new MutationObserver((mutations) => this.#onMutation(mutations));
@@ -61,7 +70,7 @@ export class Editor implements EditorContext {
 
 		this.#editor.addEventListener("copy", (e) => this.#onCopy(e));
 		this.#editor.addEventListener("paste", (e) => this.#onPaste(e));
-		this.#editor.addEventListener("input", () => this.#onInput());
+		this.#editor.addEventListener("input", () => this.#handleContentChangedInternal());
 		this.#editor.addEventListener("click", (e) => {
 			this.#callbacks.click?.(this, e);
 		});
@@ -86,16 +95,18 @@ export class Editor implements EditorContext {
 		this.#resizeObserver.observe(this.#wrapper);
 	}
 
+	/**
+	 * 대상 노드에 편집기(정확히는 `wrapper` 엘러먼트)를 집어넣음.
+	 * 넣었다 뺐다를 잘못하면 인생이 아작나는 수가 있으니 신중할 것.
+	 *
+	 * @param target 마운트 대상 노드
+	 */
 	mount(target: HTMLElement) {
 		this.#mountHelper.mount(target);
 	}
 
 	unmount() {
 		this.#mountHelper.unmount();
-	}
-
-	get contentEditableElement(): HTMLElement {
-		return this.#editor;
 	}
 
 	setCallbacks(callbacks: Partial<EditorCallbacks>) {
@@ -134,6 +145,9 @@ export class Editor implements EditorContext {
 		this.#editor.contentEditable = value ? "false" : "true";
 	}
 
+	/**
+	 * 절대 수정 금지. 읽기만.
+	 */
 	get tokens(): readonly RichToken[] {
 		return this.#tokens;
 	}
@@ -142,7 +156,7 @@ export class Editor implements EditorContext {
 		return this.#wrapper;
 	}
 
-	get editor() {
+	get contentEditableElement(): HTMLElement {
 		return this.#editor;
 	}
 
@@ -172,13 +186,12 @@ export class Editor implements EditorContext {
 
 	#onKeyDown(e: KeyboardEvent) {
 		if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-			// vscode나 기타 등등 코드에디터나 IDE에서 흔하게 사용하는 단축키.
-			// 마우스에 손대지 않고 살짝 2-3줄 정도만 스크롤하고 싶은데 커서가 너무 멀리 있는 경우...
+			// vscode같은 코드에디터에서 흔하게 사용하는 단축키.
+			// 마우스에 손대지 않고 한두줄 정도 스크롤하고 싶은데 커서를 화면 경계까지 옮기다가 손가락에 굳은살이 생길까 염려되는 경우
 			if (this.#wrapper) {
 				e.preventDefault();
 				const fontSize = parseFloat(getComputedStyle(this.#editor).fontSize);
 				const delta = (e.key === "ArrowUp" ? -LINE_HEIGHT : LINE_HEIGHT) * 2 * fontSize;
-
 				this.#wrapper.scrollBy({
 					top: delta,
 					behavior: "instant",
@@ -197,21 +210,26 @@ export class Editor implements EditorContext {
 				return;
 			}
 
+			if (!range.collapsed) {
+				// for safety
+				return;
+			}
+
 			e.preventDefault();
 			const html = e.key === "2" ? "<hr data-manual-anchor='A' class=\"manual-anchor\">" : "<hr data-manual-anchor='B' class=\"manual-anchor\">";
-			document.execCommand("insertHTML", false, html); // 줄바꿈 추가
+			document.execCommand("insertHTML", false, html);
 		}
 	}
 
-	#onInput() {
+	#handleContentChangedInternal() {
 		this.#callbacks.contentChanging?.(this);
 		this.#tokenize();
 	}
 
 	#onMutation(_mutations: MutationRecord[]) {
-		// if (this.#editor.childNodes.length === 0) {
-		// 	this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
-		// }
+		if (this.#editor.childNodes.length === 0) {
+			this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
+		}
 		// console.log(mutations)
 	}
 
@@ -226,6 +244,25 @@ export class Editor implements EditorContext {
 
 	unobserveMutation() {
 		this.#mutationObserver.disconnect();
+	}
+
+	#tokenize() {
+		if (this.#tokenizeContext) {
+			this.#tokenizeContext.cancel();
+		}
+
+		this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
+			console.debug(this.#editorName, "Tokenization done", tokens);
+			this.#tokens = tokens;
+			this.#onTokenizeDone();
+		});
+
+		this.#tokenizeContext.start();
+	}
+
+	#onTokenizeDone() {
+		this.#tokenizeContext = null;
+		this.#callbacks.contentChanged?.(this);
 	}
 
 	#onCopy(e: ClipboardEvent) {
@@ -257,11 +294,11 @@ export class Editor implements EditorContext {
 			data = e.clipboardData?.getData("text/plain") ?? "";
 		}
 
-		this.#setContents({
-			contents: data,
+		this.setContent({
+			text: data,
 			asHTML: isHTML,
 			targetRange: range,
-			allowLegacyExecCommand: data.length <= (isHTML ? MAX_LENGTH_FOR_EXECCOMMAND_PASTE : MAX_LENGTH_FOR_EXECCOMMAND_PASTE),
+			allowLegacyExecCommand: data.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE,
 		});
 		const endTime = performance.now();
 		console.debug(this.#editorName, "Paste operation took", endTime - startTime, "ms");
@@ -323,11 +360,11 @@ export class Editor implements EditorContext {
 			}
 
 			const text = await (await foundItem.getType(foundType!)).text();
-			this.#setContents({
-				contents: text,
+			this.setContent({
+				text,
 				asHTML: foundType === "text/html",
-				targetRange: null,
-				allowLegacyExecCommand: false,
+				targetRange: undefined, // 전체 내용 교체
+				allowLegacyExecCommand: false, // bomb투하 이전으로 돌아가는건 허용 안함.
 			});
 
 			const endTime = performance.now();
@@ -339,33 +376,33 @@ export class Editor implements EditorContext {
 		}
 	}
 
-	#setContents({
-		contents,
-		asHTML = false,
-		targetRange,
-		allowLegacyExecCommand = false,
+	setContent({
+		text,
+		asHTML = true,
+		targetRange = undefined,
+		allowLegacyExecCommand = true,
 	}: {
-		contents: string;
+		text: string;
 		asHTML?: boolean;
-		targetRange: Range | null;
+		targetRange?: Range;
 		allowLegacyExecCommand?: boolean;
 	}) {
 		let sanitized: Node;
 
 		if (asHTML) {
-			sanitized = sanitizeHTML(contents);
+			sanitized = sanitizeHTML(text);
 		} else {
-			sanitized = createParagraphsFromText(contents);
+			sanitized = createParagraphsFromText(text);
 		}
 
 		try {
 			this.unobserveMutation();
-			if (targetRange === null) {
+			if (targetRange === undefined) {
 				this.#editor.innerHTML = "";
 				this.#editor.appendChild(sanitized);
-				this.#onInput();
+				this.#handleContentChangedInternal();
 			} else if (this.#editor.contains(targetRange.startContainer) && this.#editor.contains(targetRange.endContainer)) {
-				if (allowLegacyExecCommand && contents.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE) {
+				if (allowLegacyExecCommand && text.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE) {
 					// 이정도 길이면 execCommand("insertHTML", ...)를 써도 참을만 하지 않을까?
 					// execCommand("insertHTML", ...)는 느리다. 100배 느리다. undo/redo는 포기하고 싶지 않지만 포기하고 싶을정도로 느리다.
 					// undo/redo는 단순히 내용만 stack에 쌓는다고 해결될 문제가 아니다. 커서의 위치와 선택범위, 트랜잭션, 스크롤 위치, ... 이걸 다 해야된다면 아예 아무것도 안하는 것이...
@@ -390,7 +427,7 @@ export class Editor implements EditorContext {
 
 					targetRange.insertNode(sanitized);
 					targetRange.collapse(false);
-					this.#onInput();
+					this.#handleContentChangedInternal();
 				}
 			} else {
 				throw new Error("Target range is not within the editor");
@@ -412,100 +449,181 @@ export class Editor implements EditorContext {
 		return false;
 	}
 
-	setContent(rawHTML: string) {
-		this.unobserveMutation();
+	/**
+	 * 주어진 range에 해당하는 토큰 인덱스를 [start, end)로 반환.
+	 * range가 collapsed인 경우 range와 오른쪽으로 붙어있는 토큰만 포함함.
+	 *
+	 * @param range DOM Range
+	 * @returns 겹치는 구간이 있으면 [start, end)를 객체로 반환, 없으면 null 반환.
+	 */
+	getTokenSpanForRange(range: Range): Span | null {
+		const tokens = this.#tokens;
+		const n = tokens.length;
+		//if (n === 0) return null;
 
-		let sanitized = sanitizeHTML(rawHTML);
-		const range = document.createRange();
-		range.selectNodeContents(this.#editor);
-		range.deleteContents();
-		range.insertNode(sanitized);
-		range.collapse(false);
-		this.#onInput();
-
-		this.observeMutation();
-	}
-
-	findTokenOverlapIndices(range: Range): Span | null {
-		let low = 0;
-		let high = this.#tokens.length - 1;
-		let startIndex = -1;
-		let endIndex = -1;
-
-		// collapsed, 즉 범위 없이 텍스트커서만 있는 경우 커서가 토큰의 맨앞이나 맨뒤에 있어도 해당 토큰이 선택된 것으로 간주함.
-		// 범위가 있는 경우는 범위 밖 토큰들이 같이 선택되면 안됨!
-		const collapsed = range.collapsed;
-
-		// range의 끝부분이 텍스트노드의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 텍스트노드의 시작점(0)에 있는 경우
-		// 그 토큰의 범위에 커서가 걸쳐있다고 봐야 맞는데(단어 앞에 커서가 있는 경우 그 단어가 선택되었다고 판단)
-		// 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 의도적으로 범위를 확장시켜줘야함.
-		// 단순히 <textnode><textnode>의 경우는 쉽지만
-		// <textnode><span><em>text</em></span><textnode>의 경우 span,em 안을 파고 들어가야함.
-		if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue!.length) {
-			let adjText = findAdjacentTextNode(range.endContainer, true);
-			if (adjText) {
-				range = range.cloneRange(); // 지금으로써는 clone까지는 필요는 없지만... 일단 뭐...
-				range.setEnd(adjText, 0);
+		// A|B 경계 보정: caret이 텍스트 노드 끝이면 다음 텍스트 시작으로 end 이동
+		let r = range;
+		if (r.collapsed && r.endContainer.nodeType === 3 && r.endOffset === (r.endContainer.nodeValue?.length ?? 0)) {
+			const adj = findAdjacentTextNode(r.endContainer, true);
+			if (adj) {
+				const clone = r.cloneRange();
+				clone.setEnd(adj, 0);
+				r = clone;
 			}
 		}
 
-		try {
-			// console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
-			const tokenRange = document.createRange();
-			while (low <= high) {
-				const mid = (low + high) >> 1;
-				const token = this.#tokens[mid].range;
-				tokenRange.setStart(token.startContainer, token.startOffset);
-				tokenRange.setEnd(token.endContainer, token.endOffset);
+		const tr = document.createRange();
 
-				let c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
-				if (c < 0 || (collapsed && c === 0)) {
-					// 토큰의 끝점이 range의 시작점보다 뒤에 있다. 이 토큰을 포함해서 왼쪽토큰들이 첫 토큰 후보.
-					// 단, range의 끝점도 토큰의 시작점 이후에 있어야 intersecting이라고 볼 수 있음.
-					// 단단, startIndex가 이미 -1이 아니라면 startIndex의 토큰보다 왼쪽의 토큰이므로 비교하지 않아도 됨(무조건 통과)
-					if (startIndex !== -1 || (c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange)) > 0 || (collapsed && c === 0)) {
-						startIndex = mid;
-						// } else {
-						// 	console.warn(this.#editorName, "NOT THIS TOKEN", mid, {
-						// 		range,
-						// 		tokenRange: tokenRange.cloneRange(),
-						// 		c: tokenRange.compareBoundaryPoints(Range.END_TO_START, range),
-						// 	});
-					}
-					high = mid - 1; // 왼쪽으로
-				} else {
-					low = mid + 1; // 오른쪽으로
-				}
-			}
-
-			// console.debug("after 1st loop", "findTokenOverlapIndices",  startIndex);
-
-			if (startIndex !== -1) {
-				tokenRange.setStart(this.#tokens[startIndex].range.startContainer, this.#tokens[startIndex].range.startOffset);
-				low = endIndex = startIndex;
-				high = this.#tokens.length - 1;
-				while (low <= high) {
-					const mid = (low + high) >> 1;
-					const token = this.#tokens[mid].range;
-					tokenRange.setStart(token.startContainer, token.startOffset);
-					tokenRange.setEnd(token.endContainer, token.endOffset);
-					const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
-					if (c > 0) {
-						endIndex = mid + 1;
-						low = mid + 1; // 오른쪽으로
+		// collapsed
+		if (r.collapsed) {
+			// i = token.end > caret 인 첫 토큰  (START_TO_END: this.end ? other.start)
+			let i = n;
+			{
+				let lo = 0,
+					hi = n - 1;
+				while (lo <= hi) {
+					const mid = (lo + hi) >> 1;
+					const t = tokens[mid].range;
+					tr.setStart(t.startContainer, t.startOffset);
+					tr.setEnd(t.endContainer, t.endOffset);
+					const cmp = tr.compareBoundaryPoints(Range.START_TO_END, r);
+					if (cmp > 0) {
+						i = mid;
+						hi = mid - 1;
 					} else {
-						high = mid - 1; // 왼쪽으로
+						lo = mid + 1;
 					}
 				}
 			}
-		} catch {
-			// range가 DOM에서 삭제된 경우 findTokenOverlapIndices가 실패함.
-			//console.warn(this.#editorName, "findTokenOverlapIndices failed", range);
-			startIndex = -1;
-			endIndex = -1;
+
+			if (i === n) return { start: n, end: n }; // 마지막 뒤
+
+			// token.start <= caret 이면 { i, i+1 }, 아니면 { i, i }
+			// END_TO_START: this.start ? other.end
+			const t = tokens[i].range;
+			tr.setStart(t.startContainer, t.startOffset);
+			tr.setEnd(t.endContainer, t.endOffset);
+			const cmpStart = tr.compareBoundaryPoints(Range.END_TO_START, r);
+			return cmpStart <= 0 ? { start: i, end: i + 1 } : { start: i, end: i };
 		}
 
-		return endIndex >= 0 ? { start: startIndex, end: endIndex } : null;
+		// non-collapsed
+		// start = token.end > r.start 인 첫 토큰
+		let start = n;
+		{
+			let lo = 0,
+				hi = n - 1;
+			while (lo <= hi) {
+				const mid = (lo + hi) >> 1;
+				const t = tokens[mid].range;
+				tr.setStart(t.startContainer, t.startOffset);
+				tr.setEnd(t.endContainer, t.endOffset);
+				const cmp = tr.compareBoundaryPoints(Range.START_TO_END, r); // token.end ? r.start
+				if (cmp > 0) {
+					start = mid;
+					hi = mid - 1;
+				} else {
+					lo = mid + 1;
+				}
+			}
+		}
+		if (start === n) return null;
+
+		// end = token.start >= r.end 인 첫 토큰
+		let end = n;
+		{
+			let lo = start,
+				hi = n - 1;
+			while (lo <= hi) {
+				const mid = (lo + hi) >> 1;
+				const t = tokens[mid].range;
+				tr.setStart(t.startContainer, t.startOffset);
+				tr.setEnd(t.endContainer, t.endOffset);
+				const cmp = tr.compareBoundaryPoints(Range.END_TO_START, r); // token.start ? r.end
+				if (cmp >= 0) {
+					end = mid;
+					hi = mid - 1;
+				} else {
+					lo = mid + 1;
+				}
+			}
+		}
+
+		if (end <= start) return null;
+	
+		return { start, end };
+
+		// let low = 0;
+		// let high = this.#tokens.length - 1;
+		// let startIndex = -1;
+		// let endIndex = -1;
+
+		// // collapsed, 즉 범위 없이 텍스트커서만 있는 경우 커서가 토큰의 맨앞이나 맨뒤에 있어도 해당 토큰이 선택된 것으로 간주함.
+		// // 단 collapsed가 아닌 경우 범위 밖 토큰들이 같이 선택되면 안됨!
+		// const collapsed = range.collapsed;
+
+		// // range의 끝부분이 텍스트노드 A의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 다음 텍스트노드 B의 시작점(0)에 있는 경우
+		// // (즉 A|B. => A,B는 붙어있는 별개의 텍스트노드이고 커서는 그 사이에 위치)
+		// // range는 텍스트노드 B까지 오버랩 중이라고 판단하고 싶다!
+		// // 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 B의 시작점을 range의 end를 확장시켜줘야함.
+		// // 단순히 A|B인 경우는 쉽지만 A|<span><em>B</em></span> 이렇게 거지 같은 경우 span과 em을 뚫고 들어가야한다...
+		// if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue!.length) {
+		// 	let adjText = findAdjacentTextNode(range.endContainer, true);
+		// 	if (adjText) {
+		// 		range = range.cloneRange();
+		// 		range.setEnd(adjText, 0);
+		// 	}
+		// }
+
+		// try {
+		// 	// console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
+		// 	const tokenRange = document.createRange();
+		// 	while (low <= high) {
+		// 		const mid = (low + high) >> 1;
+		// 		const token = this.#tokens[mid].range;
+		// 		tokenRange.setStart(token.startContainer, token.startOffset);
+		// 		tokenRange.setEnd(token.endContainer, token.endOffset);
+
+		// 		let c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
+		// 		if (c < 0 || (collapsed && c === 0)) {
+		// 			// 토큰의 끝점이 range의 시작점보다 뒤에 있다. 이 토큰을 포함해서 왼쪽토큰들이 첫 토큰 후보.
+		// 			// 단, range의 끝점도 토큰의 시작점 이후에 있어야 intersecting이라고 볼 수 있음.
+		// 			// 단단, startIndex가 이미 -1이 아니라면 startIndex의 토큰보다 왼쪽의 토큰이므로 비교하지 않아도 됨(무조건 통과)
+		// 			if (startIndex !== -1 || (c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange)) > 0 || (collapsed && c === 0)) {
+		// 				startIndex = mid;
+		// 			}
+		// 			high = mid - 1; // 왼쪽으로
+		// 		} else {
+		// 			low = mid + 1; // 오른쪽으로
+		// 		}
+		// 	}
+
+		// 	// console.debug("after 1st loop", "findTokenOverlapIndices",  startIndex);
+
+		// 	if (startIndex !== -1) {
+		// 		tokenRange.setStart(this.#tokens[startIndex].range.startContainer, this.#tokens[startIndex].range.startOffset);
+		// 		low = endIndex = startIndex;
+		// 		high = this.#tokens.length - 1;
+		// 		while (low <= high) {
+		// 			const mid = (low + high) >> 1;
+		// 			const token = this.#tokens[mid].range;
+		// 			tokenRange.setStart(token.startContainer, token.startOffset);
+		// 			tokenRange.setEnd(token.endContainer, token.endOffset);
+		// 			const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
+		// 			if (c > 0) {
+		// 				endIndex = mid + 1;
+		// 				low = mid + 1; // 오른쪽으로
+		// 			} else {
+		// 				high = mid - 1; // 왼쪽으로
+		// 			}
+		// 		}
+		// 	}
+		// } catch {
+		// 	// range가 DOM에서 삭제된 경우 에러남.
+		// 	return null;
+		// }
+
+		// return endIndex >= 0 ? { start: startIndex, end: endIndex } : null;
 	}
 
 	getTokenRange(index: number, end: number = index + 1) {
@@ -547,24 +665,6 @@ export class Editor implements EditorContext {
 			}
 		}
 		return range;
-	}
-
-	#tokenize() {
-		if (this.#tokenizeContext) {
-			this.#tokenizeContext.cancel();
-		}
-
-		this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
-			console.debug(this.#editorName, "Tokenization done", tokens);
-			this.#tokens = tokens;
-			this.#onTokenizeDone();
-		});
-
-		this.#tokenizeContext.start();
-	}
-
-	#onTokenizeDone() {
-		this.#callbacks.contentChanged?.(this);
 	}
 
 	scrollTo(offset: number, options?: ScrollOptions) {
@@ -709,8 +809,3 @@ export class Editor implements EditorContext {
 		return range;
 	}
 }
-
-// export type EditorRegionInfo = {
-// 	getBoundingClientRect: () => DOMRect;
-// 	scrollTop: number;
-// };

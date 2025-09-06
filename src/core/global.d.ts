@@ -19,7 +19,7 @@ declare type Span = {
 
 declare type DiffType = 0 | 1 | 2 | 3;
 
-declare type RawDiff = {
+declare type DiffEntry = {
 	type: DiffType;
 	left: Span;
 	right: Span;
@@ -55,7 +55,7 @@ declare type DiffOptions = {
 declare type DiffResponse = {
 	type: "diff";
 	reqId: number;
-	diffs: RawDiff[];
+	diffs: DiffEntry[];
 	// anchors: Anchor[];
 	// leftTokenCount: number;
 	// rightTokenCount: number;

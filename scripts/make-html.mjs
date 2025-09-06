@@ -4,19 +4,20 @@ import { createWriteStream } from "fs";
 import archiver from "archiver";
 
 /** ✅ 순서 중요: 여기서 복사/병합할 lib 파일을 지정 */
-const LIB_FILES = ["react.production.min.js", "react-dom.production.min.js"];
+const LIB_FILES = ["./vendor.js"];
 
 /** 경로들 */
 const distDir = "./dist";
 const partsDir = join(distDir, "parts");
-const libDir = "./lib";
+const libDir = "./build";
 
-const appJsPath = "./build/index.js";
+const appJsPath = "./build/app.js";
+const appCssPath = "./build/app.css";
 const appHtmlPath = join(distDir, "diffseek.html");
 const appZipPath = join(distDir, "diffseek.zip");
 
-const distLibBundle = join(distDir, "lib.js");
-const distLibZip = join(distDir, "lib.js.zip");
+const distLibBundle = join(distDir, "vendor.js");
+const distLibZip = join(distDir, "vendor.js.zip");
 
 /** =========================
  *  공통 유틸 함수
@@ -110,14 +111,17 @@ async function cleanDist() {
 /** 1) 앱 HTML 생성 (빌드 JS 인라인 + lib 스크립트 태그) */
 async function createHTML() {
 	const js = await readFile(appJsPath, "utf-8");
+	const css = await readFile(appCssPath, "utf-8");
 	const html = `<!DOCTYPE html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Diffseek</title>
-    <script src="react.production.min.js"></script>
-    <script src="react-dom.production.min.js"></script>
+    <script src="vendor.js"></script>
+	<style>
+${css}
+	</style>
   </head>
   <body>
     <div id="root"></div>
@@ -151,8 +155,8 @@ async function packageApp() {
 
 /** 5) lib.js → zip → PEM 분할 */
 async function packageLib() {
-	await zipEntries(distLibZip, [{ fsPath: distLibBundle, nameInZip: "lib.js" }]);
-	await savePemPartsFromFile(distLibZip, partsDir, "lib");
+	await zipEntries(distLibZip, [{ fsPath: distLibBundle, nameInZip: "vendor.js" }]);
+	await savePemPartsFromFile(distLibZip, partsDir, "vendor");
 }
 
 /** 전체 실행 */

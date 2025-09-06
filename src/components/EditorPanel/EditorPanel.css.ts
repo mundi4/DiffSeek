@@ -23,7 +23,7 @@ export const container = recipe({
 				color: "var(--text-sync-mode)",
 			},
 			off: {
-				backgroundColor: "transparent",
+				backgroundColor: "var(--bg-normal)",
 				color: "inherit",
 			},
 		},

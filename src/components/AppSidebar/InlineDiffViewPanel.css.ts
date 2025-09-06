@@ -38,7 +38,7 @@ export const splitWrapper = recipe({
 	variants: {
 		dir: {
 			col: {
-				gridTemplateRows: "1fr auto 1fr",
+				gridTemplateRows: "auto auto auto",
 			},
 			row: {
 				gridTemplateColumns: "1fr auto 1fr",
@@ -60,4 +60,14 @@ export const splitter = recipe({
             }
         }
     }
+});
+
+
+export const specialChar = style({
+	// color: "hsl(var(--diff-special-text))",
+	color: vars.color.text.subtle,
+	//backgroundColor: "hsl(var(--diff-special-bg))",
+	fontSize: "0.8em",
+	borderRadius: vars.radius.xs,
+	fontStyle: "italic",
 });

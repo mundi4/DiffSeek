@@ -1,10 +1,8 @@
 import path from "path";
 import react from "@vitejs/plugin-react-swc";
-//import tailwindcss from "@tailwindcss/vite"
 import { defineConfig } from "vite";
 import { vanillaExtractPlugin } from "@vanilla-extract/vite-plugin";
 import { visualizer } from "rollup-plugin-visualizer";
-
 
 export default defineConfig({
 	plugins: [
@@ -48,6 +46,9 @@ export default defineConfig({
 		// 	fileName: (format) => `index.${format}.js`, // 출력 파일명
 		// },
 		rollupOptions: {
+			output: {
+				manualChunks: undefined,
+			},
 			// input: {
 			// 	main: resolve(__dirname, "", "index.html"),
 			// },

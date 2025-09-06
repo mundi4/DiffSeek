@@ -269,7 +269,7 @@ export class Editor implements EditorContext {
 		this.#callbacks.copy?.(this, e);
 	}
 
-	#onPaste(e: ClipboardEvent) {
+	async #onPaste(e: ClipboardEvent) {
 		const startTime = performance.now();
 
 		const selection = document.getSelection();
@@ -294,7 +294,7 @@ export class Editor implements EditorContext {
 			data = e.clipboardData?.getData("text/plain") ?? "";
 		}
 
-		this.setContent({
+		await this.setContent({
 			text: data,
 			asHTML: isHTML,
 			targetRange: range,
@@ -360,7 +360,7 @@ export class Editor implements EditorContext {
 			}
 
 			const text = await (await foundItem.getType(foundType!)).text();
-			this.setContent({
+			await this.setContent({
 				text,
 				asHTML: foundType === "text/html",
 				targetRange: undefined, // 전체 내용 교체
@@ -376,7 +376,7 @@ export class Editor implements EditorContext {
 		}
 	}
 
-	setContent({
+	async setContent({
 		text,
 		asHTML = true,
 		targetRange = undefined,
@@ -390,7 +390,7 @@ export class Editor implements EditorContext {
 		let sanitized: Node;
 
 		if (asHTML) {
-			sanitized = sanitizeHTML(text);
+			sanitized = await sanitizeHTML(text);
 		} else {
 			sanitized = createParagraphsFromText(text);
 		}

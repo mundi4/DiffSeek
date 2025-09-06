@@ -1,4 +1,5 @@
 import { TEXTLESS_ELEMENTS } from "./constants";
+import { isLocalFilePath, convertFileToDataUrl } from "../utils/imageConverter";
 
 type ElementOptions = {
 	allowedAttrs?: Record<string, boolean>;
@@ -301,7 +302,7 @@ function resolveColor(node: HTMLElement, prev: string | null) {
 	return color;
 }
 
-export function sanitizeHTML(rawHTML: string): Node {
+export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
 	rawHTML = sliceFragment(rawHTML);
 	if (import.meta.env.DEV) {
@@ -330,7 +331,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 		caretReachable: boolean;
 	};
 
-	function traverse(node: Node): TraversalResult | null {
+	async function traverse(node: Node): Promise<TraversalResult | null> {
 		if (
 			node.nodeType !== 1 && // element
 			node.nodeType !== 11 // document fragment
@@ -368,6 +369,22 @@ export function sanitizeHTML(rawHTML: string): Node {
 			container = document.createElement(policy.replaceTag || nodeName);
 			copyAllowedAttributes(node as HTMLElement, container as HTMLElement, policy.allowedAttrs);
 			copyAllowedStyles((node as HTMLElement).style, (container as HTMLElement).style, policy.allowedStyles);
+			
+			// IMG 태그인 경우 src 속성을 data URL로 변환
+			if (nodeName === 'IMG' && node.nodeType === Node.ELEMENT_NODE) {
+				const imgElement = node as HTMLElement;
+				const src = imgElement.getAttribute('src');
+				if (src && isLocalFilePath(src)) {
+					try {
+						const dataUrl = await convertFileToDataUrl(src);
+						(container as HTMLElement).setAttribute('src', dataUrl);
+						console.log(`Converted image during sanitize: ${src} -> data URL`);
+					} catch (error) {
+						console.warn(`Failed to convert image during sanitize: ${src}`, error);
+						// 실패 시 원본 src 유지
+					}
+				}
+			}
 		}
 
 		if (policy.void) {
@@ -416,7 +433,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 					};
 				}
 			} else {
-				childResult = traverse(childNode);
+				childResult = await traverse(childNode);
 			}
 
 			if (childResult !== null) {
@@ -476,7 +493,11 @@ export function sanitizeHTML(rawHTML: string): Node {
 		return result;
 	}
 
-	const result = traverse(tmpl.content)!;
+	const result = await traverse(tmpl.content);
+	if (!result) {
+		throw new Error("Failed to traverse template content");
+	}
+	
 	return result.node;
 }
 

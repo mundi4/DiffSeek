@@ -18697,7 +18697,11 @@ function createTrie(ignoreSpaces = false) {
   function insert(word, flags = 0) {
     let node = root;
     for (let i = 0; i < word.length; i++) {
-      node = node.addChild(word[i]);
+      const charCode = word.codePointAt(i);
+      node = node.addChild(charCode);
+      if (charCode > 65535) {
+        i++;
+      }
     }
     node.word = word;
     node.flags = flags;
@@ -18710,20 +18714,21 @@ function createTrieNode(ignoreSpaces) {
     children,
     word: null,
     flags: 0,
-    next(char) {
-      if (ignoreSpaces && char === " ") return node;
-      return children[char] || null;
+    next(charCode) {
+      if (ignoreSpaces && charCode === 32) return node;
+      return children[charCode] || null;
     },
-    addChild(char) {
-      return children[char] ?? (children[char] = createTrieNode(ignoreSpaces));
+    addChild(charCode) {
+      return children[charCode] ?? (children[charCode] = createTrieNode(ignoreSpaces));
     }
   };
   return node;
 }
 function extractStartCharsFromTrie(trie) {
   const table = {};
-  for (const ch in trie.children) {
-    table[ch] = 1;
+  for (const charCode in trie.children) {
+    const char = String.fromCodePoint(Number(charCode));
+    table[char] = 1;
   }
   return table;
 }
@@ -18843,18 +18848,18 @@ wildcardTrie.insert("(삭제)", TokenFlags.WILD_CARD);
 wildcardTrie.insert("(신설)", TokenFlags.WILD_CARD);
 wildcardTrie.insert("(생략)", TokenFlags.WILD_CARD);
 wildcardTrie.insert("(현행과같음)", TokenFlags.WILD_CARD);
-const wildcardTrieNode = wildcardTrie.root.next("(");
+const wildcardTrieNode = wildcardTrie.root.next("(".codePointAt(0));
 
 const sectionHeadingTrie = createTrie(false);
 for (let i = 1; i < 40; i++) {
-  sectionHeadingTrie.insert(`${i}.`, TokenFlags.SECTION_HEADING_TYPE1);
-  sectionHeadingTrie.insert(`(${i})`, TokenFlags.SECTION_HEADING_TYPE3);
-  sectionHeadingTrie.insert(`${i})`, TokenFlags.SECTION_HEADING_TYPE5);
+  sectionHeadingTrie.insert(`${i}. `, TokenFlags.SECTION_HEADING_TYPE1);
+  sectionHeadingTrie.insert(`(${i}) `, TokenFlags.SECTION_HEADING_TYPE3);
+  sectionHeadingTrie.insert(`${i}) `, TokenFlags.SECTION_HEADING_TYPE5);
 }
 for (let i = 0; i < HANGUL_ORDER.length; i++) {
-  sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}.`, TokenFlags.SECTION_HEADING_TYPE2);
-  sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]})`, TokenFlags.SECTION_HEADING_TYPE4);
-  sectionHeadingTrie.insert(`${HANGUL_ORDER[i]})`, TokenFlags.SECTION_HEADING_TYPE6);
+  sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}. `, TokenFlags.SECTION_HEADING_TYPE2);
+  sectionHeadingTrie.insert(`(${HANGUL_ORDER[i]}) `, TokenFlags.SECTION_HEADING_TYPE4);
+  sectionHeadingTrie.insert(`${HANGUL_ORDER[i]}) `, TokenFlags.SECTION_HEADING_TYPE6);
 }
 const SectionHeadingTrieNode = sectionHeadingTrie.root;
 const sectionHeadingStartChars = extractStartCharsFromTrie(SectionHeadingTrieNode);
@@ -19000,13 +19005,16 @@ class TokenizeContext {
       do {
         const text = textNodeBuf[i].nodeValue;
         for (; j < text.length; j++) {
-          let ch = text[j];
-          node = node.next(ch);
+          const cp = text.codePointAt(j);
+          node = node.next(cp);
           if (!node) {
             return null;
           }
           if (node.word) {
-            return { bufferIndex: i, charIndex: j + 1, word: node.word, flags: node.flags };
+            return { bufferIndex: i, charIndex: j + (cp > 65535 ? 2 : 1), word: node.word, flags: node.flags };
+          }
+          if (cp > 65535) {
+            j++;
           }
         }
         i++;
@@ -21000,12 +21008,13 @@ class EditorPairer {
         continue;
       }
       const current = container.childNodes[offset--];
-      const isBlockElement = BLOCK_ELEMENTS[current.nodeName];
-      if (isBlockElement && current.contains(endContainer)) {
+      const currentNodeName = current.nodeName;
+      const isBlockElement = BLOCK_ELEMENTS[currentNodeName];
+      if (isBlockElement && !TEXTLESS_ELEMENTS[currentNodeName] && current.contains(endContainer)) {
         insertContainer = current;
         insertBeforeMe = current.firstChild;
         break;
-      } else if (isBlockElement || current.nodeName === "BR" || current.nodeName === "HR") {
+      } else if (!TEXTLESS_ELEMENTS[container.nodeName] && (isBlockElement || currentNodeName === "BR" || currentNodeName === "HR")) {
         insertContainer = container;
         insertBeforeMe = current.nextSibling;
         break;
@@ -21428,7 +21437,7 @@ class DiffController {
   }
   #handleEditorResize(_editor) {
     if (this.#syncMode) {
-      this.alignEditors();
+      this.alignEditors(true);
     }
   }
   #handleEditorFocus(_editor) {
@@ -21627,6 +21636,23 @@ function buildTokenArray(richTokens) {
   return result;
 }
 
+function isLocalFilePath(src) {
+  return !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:") && !src.startsWith("blob:");
+}
+async function convertFileToDataUrl(filePath) {
+  if (!window.electronAPI) {
+    console.warn("electronAPI not available, returning original path");
+    return filePath;
+  }
+  try {
+    const dataUrl = await window.electronAPI.fileToDataUrl(filePath);
+    return dataUrl;
+  } catch (error) {
+    console.error("Failed to convert file to data URL:", error);
+    return filePath;
+  }
+}
+
 const EXCLUDED_TAG_OPTIONS = {
   exclude: true
 };
@@ -21738,7 +21764,7 @@ const ELEMENT_POLICIES = {
   FIGCAPTION: DefaultElementOptions,
   "#document-fragment": DefaultElementOptions
 };
-const WINGDINGS_TRANSFORM = {
+const DINGBAT_TRANSFORM = {
   wingdings: {
     "ß": "🡠",
     "à": "🡢",
@@ -21789,7 +21815,8 @@ const WINGDINGS_TRANSFORM = {
     "?": "🖙",
     "": "⬝",
     " ": "▪",
-    "¡": "■"
+    "¡": "■",
+    "ø": "※"
   },
   symbol: {
     "«": "↔",
@@ -21800,7 +21827,7 @@ const WINGDINGS_TRANSFORM = {
   }
 };
 function transformText(input, font) {
-  const charMap = WINGDINGS_TRANSFORM[font];
+  const charMap = DINGBAT_TRANSFORM[font];
   let result = "";
   for (const ch of input) {
     result += charMap[ch] || ch;
@@ -21858,19 +21885,41 @@ function resolveDingbatFont(node, prev) {
   const el = node;
   let raw = el.style?.fontFamily || (node.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
   const fam = normalizeFont(raw);
-  if (!fam) return null;
-  if (fam === "inherit") return prev;
-  return WINGDINGS_TRANSFORM[fam] ? fam : null;
+  if (!fam || fam === "inherit") return prev;
+  return DINGBAT_TRANSFORM[fam] ? fam : null;
 }
-function sanitizeHTML(rawHTML) {
+function resolveColor(node, prev) {
+  let color = null;
+  if (node.classList.contains("color-red")) {
+    color = "red";
+  } else {
+    let colorValue = node.style?.color || "inherit";
+    console.log("Resolvecolor:", node.nodeName, colorValue, node.textContent);
+    {
+      if (colorValue === "inherit") {
+        color = prev;
+      } else {
+        if (isReddish(colorValue)) {
+          color = "red";
+        } else {
+          console.log("colorValue", colorValue);
+          color = "default";
+        }
+      }
+    }
+  }
+  return color;
+}
+async function sanitizeHTML(rawHTML) {
   rawHTML = sliceFragment(rawHTML);
   const tmpl = document.createElement("template");
   tmpl.innerHTML = rawHTML;
   const statesStack = [];
   let states = {
-    font: null
+    font: null,
+    color: null
   };
-  function traverse(node) {
+  async function traverse(node) {
     if (node.nodeType !== 1 && // element
     node.nodeType !== 11) {
       return null;
@@ -21896,6 +21945,19 @@ function sanitizeHTML(rawHTML) {
       container = document.createElement(policy.replaceTag || nodeName);
       copyAllowedAttributes(node, container, policy.allowedAttrs);
       copyAllowedStyles(node.style, container.style, policy.allowedStyles);
+      if (nodeName === "IMG" && node.nodeType === Node.ELEMENT_NODE) {
+        const imgElement = node;
+        const src = imgElement.getAttribute("src");
+        if (src && isLocalFilePath(src)) {
+          try {
+            const dataUrl = await convertFileToDataUrl(src);
+            container.setAttribute("src", dataUrl);
+            console.log(`Converted image during sanitize: ${src} -> data URL`);
+          } catch (error) {
+            console.warn(`Failed to convert image during sanitize: ${src}`, error);
+          }
+        }
+      }
     }
     if (policy.void) {
       return {
@@ -21914,21 +21976,9 @@ function sanitizeHTML(rawHTML) {
       caretReachable: false
     };
     if (container.nodeType === Node.ELEMENT_NODE && node.nodeType === Node.ELEMENT_NODE) {
-      let color = null;
-      if (node.classList.contains("color-red")) {
-        color = "red";
-      } else {
-        let colorValue = node.style?.color;
-        if (colorValue) {
-          if (colorValue === "inherit") ; else {
-            if (isReddish(colorValue)) {
-              color = "red";
-            }
-          }
-        }
-      }
-      if (color) {
-        container.classList.add(`color-${color}`);
+      states.color = resolveColor(node, states.color);
+      if (states.color) {
+        container.classList.add(`color-${states.color}`);
       }
       states.font = resolveDingbatFont(node, states.font);
     }
@@ -21950,7 +22000,7 @@ function sanitizeHTML(rawHTML) {
           };
         }
       } else {
-        childResult = traverse(childNode);
+        childResult = await traverse(childNode);
       }
       if (childResult !== null) {
         children.push(childResult);
@@ -21997,7 +22047,10 @@ function sanitizeHTML(rawHTML) {
     }
     return result2;
   }
-  const result = traverse(tmpl.content);
+  const result = await traverse(tmpl.content);
+  if (!result) {
+    throw new Error("Failed to traverse template content");
+  }
   return result.node;
 }
 const isReddish = /* @__PURE__ */ (() => {
@@ -22291,7 +22344,7 @@ class Editor {
   #onCopy(e) {
     this.#callbacks.copy?.(this, e);
   }
-  #onPaste(e) {
+  async #onPaste(e) {
     const startTime = performance.now();
     const selection = document.getSelection();
     if (!selection || selection.rangeCount === 0) {
@@ -22308,7 +22361,7 @@ class Editor {
       isHTML = false;
       data = e.clipboardData?.getData("text/plain") ?? "";
     }
-    this.setContent({
+    await this.setContent({
       text: data,
       asHTML: isHTML,
       targetRange: range,
@@ -22365,7 +22418,7 @@ class Editor {
         return false;
       }
       const text = await (await foundItem.getType(foundType)).text();
-      this.setContent({
+      await this.setContent({
         text,
         asHTML: foundType === "text/html",
         targetRange: void 0,
@@ -22380,7 +22433,7 @@ class Editor {
       this.#editor.classList.remove("busy");
     }
   }
-  setContent({
+  async setContent({
     text,
     asHTML = true,
     targetRange = void 0,
@@ -22388,7 +22441,7 @@ class Editor {
   }) {
     let sanitized;
     if (asHTML) {
-      sanitized = sanitizeHTML(text);
+      sanitized = await sanitizeHTML(text);
     } else {
       sanitized = createParagraphsFromText(text);
     }
@@ -23731,6 +23784,7 @@ var content$1 = 'InlineDiffViewPanel_content__1vjk93w0';
 var diff = createRuntimeFn({defaultClassName:'InlineDiffViewPanel_diff__1vjk93w1',variantClassNames:{type:{'0':'InlineDiffViewPanel_diff_type_0__1vjk93w2','1':'InlineDiffViewPanel_diff_type_1__1vjk93w3','2':'InlineDiffViewPanel_diff_type_2__1vjk93w4'}},defaultVariants:{},compoundVariants:[]});
 var splitWrapper = createRuntimeFn({defaultClassName:'InlineDiffViewPanel_splitWrapper__1vjk93w5',variantClassNames:{dir:{col:'InlineDiffViewPanel_splitWrapper_dir_col__1vjk93w6',row:'InlineDiffViewPanel_splitWrapper_dir_row__1vjk93w7'}},defaultVariants:{},compoundVariants:[]});
 var splitter = createRuntimeFn({defaultClassName:'InlineDiffViewPanel__1vjk93w8',variantClassNames:{dir:{col:'InlineDiffViewPanel_splitter_dir_col__1vjk93w9',row:'InlineDiffViewPanel_splitter_dir_row__1vjk93wa'}},defaultVariants:{},compoundVariants:[]});
+var specialChar = 'InlineDiffViewPanel_specialChar__1vjk93wb';
 
 // src/primitive.tsx
 function composeEventHandlers(originalEventHandler, ourEventHandler, { checkForDefaultPrevented = true } = {}) {
@@ -29335,7 +29389,6 @@ function InlineDiffViewPanel({ ...props }) {
       lastInputOutput.current.right = "";
     }
     return () => {
-      quickDiffInstance.cancel();
     };
   }, [leftRange, rightRange, diffOptions, quickDiffInstance]);
   return /* @__PURE__ */ jsxRuntimeExports.jsxs(SidebarPanel.Root, { ariaLabel: "Inline Diff 패널", ...props, children: [
@@ -29394,8 +29447,16 @@ function RenderSplitDiff(entries, leftText, rightText, dir = "row") {
     let spanIndex = 0;
     const flush = () => {
       if (buffer.length === 0) return;
+      const htmlContent = buffer.join("");
       out.push(
-        /* @__PURE__ */ jsxRuntimeExports.jsx("span", { className: diff({ type: currentType }), children: buffer.join("") }, ++spanIndex)
+        /* @__PURE__ */ jsxRuntimeExports.jsx(
+          "span",
+          {
+            className: diff({ type: currentType }),
+            dangerouslySetInnerHTML: { __html: htmlContent }
+          },
+          ++spanIndex
+        )
       );
       buffer = [];
     };
@@ -29410,7 +29471,17 @@ function RenderSplitDiff(entries, leftText, rightText, dir = "row") {
         flush();
         currentType = type;
       }
-      buffer.push(entry.type !== 0 && segText === "\n" ? "↵\n" : entry.type !== 0 && segText === "	" ? "→" : segText);
+      if (segText) {
+        if (entry.type !== 0 && segText === "\n") {
+          buffer.push(`<span class="${specialChar}">↵</span>
+`);
+        } else if (entry.type !== 0 && segText === "	") {
+          buffer.push(`<span class="${specialChar}">→</span>`);
+        } else {
+          const escaped = segText.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+          buffer.push(escaped);
+        }
+      }
     }
     flush();
     return out;
@@ -30212,8 +30283,10 @@ function useKeyboardShortcuts() {
       }
       if (matchesShortcut(e, KEYBOARD_SHORTCUTS.CLEAR_ALL_CONTENT)) {
         e.preventDefault();
-        leftEditor.setContent({ text: "", asHTML: false });
-        rightEditor.setContent({ text: "", asHTML: false });
+        (async () => {
+          await leftEditor.setContent({ text: "", asHTML: false });
+          await rightEditor.setContent({ text: "", asHTML: false });
+        })();
         return;
       }
     };
@@ -30248,14 +30321,14 @@ function App() {
   }, [diffController]);
   const loadDemoContent = async () => {
     {
-      loadFallbackContent();
+      await loadFallbackContent();
     }
   };
-  const loadFallbackContent = () => {
+  const loadFallbackContent = async () => {
     const leftContent = ``;
     const rightContent = ``;
-    leftEditor.setContent({ text: leftContent, asHTML: false });
-    rightEditor.setContent({ text: rightContent, asHTML: false });
+    await leftEditor.setContent({ text: leftContent, asHTML: false });
+    await rightEditor.setContent({ text: rightContent, asHTML: false });
   };
   reactExports.useEffect(() => {
     const unsubscribe = [];

@@ -67,8 +67,10 @@ export function useKeyboardShortcuts() {
             // Ctrl+R: Clear all content from both editors
             if (matchesShortcut(e, KEYBOARD_SHORTCUTS.CLEAR_ALL_CONTENT)) {
                 e.preventDefault();
-                leftEditor.setContent({ text: '', asHTML: false });
-                rightEditor.setContent({ text: '', asHTML: false });
+                (async () => {
+                    await leftEditor.setContent({ text: '', asHTML: false });
+                    await rightEditor.setContent({ text: '', asHTML: false });
+                })();
                 return;
             }
 

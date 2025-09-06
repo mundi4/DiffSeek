@@ -4161,6 +4161,32 @@
 	  return result;
 	}
 
+	function isLocalFilePath(src) {
+	  return !src.startsWith("http://") && !src.startsWith("https://") && !src.startsWith("data:") && !src.startsWith("blob:");
+	}
+	function fileUrlToPath(fileUrl) {
+	  if (fileUrl.startsWith("file:///")) {
+	    return fileUrl.substring(8);
+	  } else if (fileUrl.startsWith("file://")) {
+	    return fileUrl.substring(7);
+	  }
+	  return fileUrl;
+	}
+	async function convertFileToDataUrl(filePath) {
+	  if (!window.electronAPI) {
+	    console.warn("electronAPI not available, returning original path");
+	    return filePath;
+	  }
+	  try {
+	    const actualPath = fileUrlToPath(filePath);
+	    const dataUrl = await window.electronAPI.fileToDataUrl(actualPath);
+	    return dataUrl;
+	  } catch (error) {
+	    console.error("Failed to convert file to data URL:", error);
+	    return filePath;
+	  }
+	}
+
 	const EXCLUDED_TAG_OPTIONS = {
 	  exclude: true
 	};
@@ -4418,7 +4444,7 @@
 	  }
 	  return color;
 	}
-	function sanitizeHTML(rawHTML) {
+	async function sanitizeHTML(rawHTML) {
 	  rawHTML = sliceFragment(rawHTML);
 	  const tmpl = document.createElement("template");
 	  tmpl.innerHTML = rawHTML;
@@ -4427,7 +4453,7 @@
 	    font: null,
 	    color: null
 	  };
-	  function traverse(node) {
+	  async function traverse(node) {
 	    if (node.nodeType !== 1 && // element
 	    node.nodeType !== 11) {
 	      return null;
@@ -4453,6 +4479,19 @@
 	      container = document.createElement(policy.replaceTag || nodeName);
 	      copyAllowedAttributes(node, container, policy.allowedAttrs);
 	      copyAllowedStyles(node.style, container.style, policy.allowedStyles);
+	      if (nodeName === "IMG" && node.nodeType === Node.ELEMENT_NODE) {
+	        const imgElement = node;
+	        const src = imgElement.getAttribute("src");
+	        if (src && isLocalFilePath(src)) {
+	          try {
+	            const dataUrl = await convertFileToDataUrl(src);
+	            container.setAttribute("src", dataUrl);
+	            console.log(`Converted image during sanitize: ${src} -> data URL`);
+	          } catch (error) {
+	            console.warn(`Failed to convert image during sanitize: ${src}`, error);
+	          }
+	        }
+	      }
 	    }
 	    if (policy.void) {
 	      return {
@@ -4495,7 +4534,7 @@
 	          };
 	        }
 	      } else {
-	        childResult = traverse(childNode);
+	        childResult = await traverse(childNode);
 	      }
 	      if (childResult !== null) {
 	        children.push(childResult);
@@ -4542,7 +4581,10 @@
 	    }
 	    return result2;
 	  }
-	  const result = traverse(tmpl.content);
+	  const result = await traverse(tmpl.content);
+	  if (!result) {
+	    throw new Error("Failed to traverse template content");
+	  }
 	  return result.node;
 	}
 	const isReddish = /* @__PURE__ */ (() => {
@@ -4836,7 +4878,7 @@
 	  #onCopy(e) {
 	    this.#callbacks.copy?.(this, e);
 	  }
-	  #onPaste(e) {
+	  async #onPaste(e) {
 	    const startTime = performance.now();
 	    const selection = document.getSelection();
 	    if (!selection || selection.rangeCount === 0) {
@@ -4853,7 +4895,7 @@
 	      isHTML = false;
 	      data = e.clipboardData?.getData("text/plain") ?? "";
 	    }
-	    this.setContent({
+	    await this.setContent({
 	      text: data,
 	      asHTML: isHTML,
 	      targetRange: range,
@@ -4910,7 +4952,7 @@
 	        return false;
 	      }
 	      const text = await (await foundItem.getType(foundType)).text();
-	      this.setContent({
+	      await this.setContent({
 	        text,
 	        asHTML: foundType === "text/html",
 	        targetRange: void 0,
@@ -4925,7 +4967,7 @@
 	      this.#editor.classList.remove("busy");
 	    }
 	  }
-	  setContent({
+	  async setContent({
 	    text,
 	    asHTML = true,
 	    targetRange = void 0,
@@ -4933,7 +4975,7 @@
 	  }) {
 	    let sanitized;
 	    if (asHTML) {
-	      sanitized = sanitizeHTML(text);
+	      sanitized = await sanitizeHTML(text);
 	    } else {
 	      sanitized = createParagraphsFromText(text);
 	    }
@@ -6958,8 +7000,10 @@
 	      }
 	      if (matchesShortcut(e, KEYBOARD_SHORTCUTS.CLEAR_ALL_CONTENT)) {
 	        e.preventDefault();
-	        leftEditor.setContent({ text: "", asHTML: false });
-	        rightEditor.setContent({ text: "", asHTML: false });
+	        (async () => {
+	          await leftEditor.setContent({ text: "", asHTML: false });
+	          await rightEditor.setContent({ text: "", asHTML: false });
+	        })();
 	        return;
 	      }
 	    };
@@ -6994,14 +7038,14 @@
 	  }, [diffController]);
 	  const loadDemoContent = async () => {
 	    {
-	      loadFallbackContent();
+	      await loadFallbackContent();
 	    }
 	  };
-	  const loadFallbackContent = () => {
-	    const leftContent = ``;
-	    const rightContent = ``;
-	    leftEditor.setContent({ text: leftContent, asHTML: false });
-	    rightEditor.setContent({ text: rightContent, asHTML: false });
+	  const loadFallbackContent = async () => {
+	    const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
+	    const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
+	    await leftEditor.setContent({ text: leftContent, asHTML: true });
+	    await rightEditor.setContent({ text: rightContent, asHTML: true });
 	  };
 	  React.useEffect(() => {
 	    const unsubscribe = [];

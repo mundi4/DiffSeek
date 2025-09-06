@@ -45,32 +45,34 @@ function App() {
 	const loadDemoContent = async () => {
 		// 개발 환경에서만 데모 콘텐츠 로드
 		if (import.meta.env.DEV) {
-			try {
-				const [leftModule, rightModule] = await Promise.all([
-					import('@/assets/leftDemoContent.html?raw'),
-					import('@/assets/rightDemoContent.html?raw')
-				]);
+			// try {
+			// 	const [leftModule, rightModule] = await Promise.all([
+			// 		import('@/assets/leftDemoContent.html?raw'),
+			// 		import('@/assets/rightDemoContent.html?raw')
+			// 	]);
 				
-				leftEditor.setContent({ text: leftModule.default, asHTML: true });
-				rightEditor.setContent({ text: rightModule.default, asHTML: true });
-			} catch (error) {
-				console.error('Failed to load demo content:', error);
-				// fallback to default content
-				loadFallbackContent();
-			}
+			// 	await leftEditor.setContent({ text: leftModule.default, asHTML: true });
+			// 	await rightEditor.setContent({ text: rightModule.default, asHTML: true });
+			// } catch (error) {
+			// 	console.error('Failed to load demo content:', error);
+			// 	// fallback to default content
+			// 	await loadFallbackContent();
+			// }
+
+			await loadFallbackContent();
 		} else {
 			// production에서는 빈 에디터 또는 기본 콘텐츠
-			loadFallbackContent();
+			await loadFallbackContent();
 		}
 	};
 
-	const loadFallbackContent = () => {
-		const leftContent = ``;
+	const loadFallbackContent = async () => {
+		const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
 
-		const rightContent = ``;
+		const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
 
-		leftEditor.setContent({ text: leftContent, asHTML: false });
-		rightEditor.setContent({ text: rightContent, asHTML: false });
+		await leftEditor.setContent({ text: leftContent, asHTML: true });
+		await rightEditor.setContent({ text: rightContent, asHTML: true });
 	};
 
 	useEffect(() => {

@@ -7,7 +7,7 @@
 	"homepage": "./",
 	"scripts": {
 		"dev": "vite",
-		"build": "tsc && vite build",
+		"build_DO_NOT_USE_ME": "tsc && vite build",
 		"build2": "node scripts/build.mjs && node scripts/make-html.mjs",
 		"lint": "eslint .",
 		"preview": "vite preview",

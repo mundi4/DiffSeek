@@ -1,0 +1,21 @@
+directories:
+  output: dist
+  buildResources: build
+appId: com.diffseek.app
+productName: DiffSeek
+files:
+  - filter:
+      - build/**/*
+      - dist/**/*
+      - electron/**/*
+      - package.json
+win:
+  target: portable
+  icon: public/favicon.ico
+mac:
+  target: dmg
+  icon: public/favicon.ico
+linux:
+  target: AppImage
+  icon: public/favicon.ico
+electronVersion: 38.0.0

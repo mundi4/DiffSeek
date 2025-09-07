@@ -44,7 +44,12 @@ async function zipEntries(outZipPath, entries) {
 
 	archive.pipe(output);
 	for (const { fsPath, nameInZip } of entries) {
-		archive.file(fsPath, { name: nameInZip });
+		const stat = await import('fs/promises').then(fs => fs.stat(fsPath));
+		if (stat.isDirectory()) {
+			archive.directory(fsPath, nameInZip);
+		} else {
+			archive.file(fsPath, { name: nameInZip });
+		}
 	}
 	await archive.finalize();
 	await done;
@@ -159,6 +164,16 @@ async function packageLib() {
 	await savePemPartsFromFile(distLibZip, partsDir, "vendor");
 }
 
+
+// 6) server 폴더 압축 → base64 → parts
+const serverZipPath = join(distDir, "server.zip");
+import { resolve } from "path";
+async function packageServer() {
+	// 루트의 server 폴더 전체를 압축
+	await zipEntries(serverZipPath, [{ fsPath: resolve("server"), nameInZip: "server" }]);
+	await savePemPartsFromFile(serverZipPath, partsDir, "server");
+}
+
 /** 전체 실행 */
 async function main() {
 	await cleanDist();
@@ -173,6 +188,9 @@ async function main() {
 	// 3) 패키징 (중복 제거된 공통 유틸 재사용)
 	await packageApp();
 	await packageLib();
+
+	// 4) server 폴더 압축 및 분할
+	await packageServer();
 
 	console.log("🎯 모든 작업 완료");
 }

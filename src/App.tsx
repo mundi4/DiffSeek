@@ -67,8 +67,8 @@ function App() {
 	};
 
 	const loadFallbackContent = async () => {
-		// 	const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
-		// 	const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
+		// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
+		// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
 		const leftContent = ``;
 		const rightContent = ``;
 		await leftEditor.setContent({ text: leftContent, asHTML: true });

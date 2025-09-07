@@ -98,5 +98,11 @@ const app = defineConfig({
 	},
 });
 
+
 await build(vendor);
 await build(app);
+
+// 3) server 폴더 복사
+import { cp } from "fs/promises";
+await cp(r("server"), r("dist/server"), { recursive: true });
+console.log("\uD83D\uDCE6 server \uD3F4\uB354 dist\uB85C \uBCF5\uC0AC \uC644\uB8CC");

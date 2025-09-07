@@ -278,7 +278,7 @@ function resolveDingbatFont(node: HTMLElement, prev: string | null): string | nu
 
 function resolveColor(node: HTMLElement, prev: string | null) {
 	let color: string | null = null;
-	
+
 	if ((node as HTMLElement).classList.contains("color-red")) {
 		color = "red";
 	} else {
@@ -369,7 +369,7 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 			container = document.createElement(policy.replaceTag || nodeName);
 			copyAllowedAttributes(node as HTMLElement, container as HTMLElement, policy.allowedAttrs);
 			copyAllowedStyles((node as HTMLElement).style, (container as HTMLElement).style, policy.allowedStyles);
-			
+
 			// IMG 태그인 경우 src 속성을 data URL로 변환
 			if (nodeName === 'IMG' && node.nodeType === Node.ELEMENT_NODE) {
 				const imgElement = node as HTMLElement;
@@ -381,7 +381,7 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 						console.log(`Converted image during sanitize: ${src} -> data URL`);
 					} catch (error) {
 						console.warn(`Failed to convert image during sanitize: ${src}`, error);
-						// 실패 시 원본 src 유지
+						(container as HTMLElement).setAttribute('src', src);
 					}
 				}
 			}
@@ -497,7 +497,7 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 	if (!result) {
 		throw new Error("Failed to traverse template content");
 	}
-	
+
 	return result.node;
 }
 

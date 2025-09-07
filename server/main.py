@@ -7,7 +7,7 @@ import base64
 import json
 
 PORT = 5000
-STATIC_DIR = os.path.abspath("../dist")
+STATIC_DIR = os.path.abspath("./")
 
 class CustomHandler(http.server.SimpleHTTPRequestHandler):
     def do_GET(self):

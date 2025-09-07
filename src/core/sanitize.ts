@@ -269,7 +269,7 @@ function normalizeFont(raw: string | null | undefined) {
 function resolveDingbatFont(node: HTMLElement, prev: string | null): string | null {
 	const el = node as HTMLElement;
 
-	let raw = el.style?.fontFamily || (node.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
+	const raw = el.style?.fontFamily || (node.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
 	const fam = normalizeFont(raw);
 
 	if (!fam || fam === "inherit") return prev;
@@ -282,8 +282,8 @@ function resolveColor(node: HTMLElement, prev: string | null) {
 	if ((node as HTMLElement).classList.contains("color-red")) {
 		color = "red";
 	} else {
-		let colorValue = (node as HTMLElement).style?.color || "inherit";
-		console.log("Resolvecolor:", node.nodeName, colorValue, node.textContent)
+		const colorValue = (node as HTMLElement).style?.color || "inherit";
+		//console.log("Resolvecolor:", node.nodeName, colorValue, node.textContent)
 		if (colorValue) {
 			if (colorValue === "inherit") {
 				// use parent color
@@ -293,7 +293,6 @@ function resolveColor(node: HTMLElement, prev: string | null) {
 				if (isReddish(colorValue)) {
 					color = "red";
 				} else {
-					console.log("colorValue", colorValue)
 					color = "default";
 				}
 			}

@@ -21,6 +21,9 @@ export const enum TokenFlags {
     HTML_SUP = 1 << 17, // 131072
     HTML_SUB = 1 << 18, // 262144
 
+    // SUP/SUB flags
+    HTML_SUPSUB = HTML_SUP | HTML_SUB, // 393216
+
     // Section Headings
     SECTION_HEADING_TYPE1 = 1 << 19, // 1.
     SECTION_HEADING_TYPE2 = 1 << 20, // 가.

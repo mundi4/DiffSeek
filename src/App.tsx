@@ -30,7 +30,8 @@ function App() {
 				await new Promise(resolve => setTimeout(resolve, 0));
 
 				// 데모 콘텐츠 로드 (async)
-				await loadDemoContent();
+				//await loadDemoContent();
+				await loadFallbackContent();
 
 				isInitialized.current = true;
 				console.log(APP_MESSAGES.INIT_SUCCESS);
@@ -69,8 +70,8 @@ function App() {
 	const loadFallbackContent = async () => {
 		// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
 		// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
-		const leftContent = ``;
-		const rightContent = ``;
+		const leftContent = `1. 개요`;
+		const rightContent = `<p><b>1.</b>&nbsp;개요</p>`;
 		await leftEditor.setContent({ text: leftContent, asHTML: true });
 		await rightEditor.setContent({ text: rightContent, asHTML: true });
 	};

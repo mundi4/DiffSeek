@@ -254,8 +254,8 @@ function copyAllowedAttributes(from: Element, to: Element, allowed?: Record<stri
 function copyAllowedStyles(from: CSSStyleDeclaration, to: CSSStyleDeclaration, allowed?: Record<string, boolean>) {
 	if (!allowed) return;
 	for (const k in allowed) {
-		const v = (from as any)[k];
-		if (v) (to as any)[k] = v;
+		const v = (from as CSSStyleDeclaration).getPropertyValue(k);
+		if (v) (to as CSSStyleDeclaration).setProperty(k, v);
 	}
 }
 
@@ -414,7 +414,7 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 		}
 
 		const children: TraversalResult[] = [];
-		let isTextless = TEXTLESS_ELEMENTS[nodeName];
+		const isTextless = TEXTLESS_ELEMENTS[nodeName];
 		for (const childNode of node.childNodes) {
 			let childResult: TraversalResult | null = null;
 			if (childNode.nodeType === 3) {
@@ -447,6 +447,7 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 			const childResult = children[i];
 
 			if (node === tmpl.content || nodeName === "TD") {
+				//
 			}
 
 			if (childResult.node.nodeType === 3) {

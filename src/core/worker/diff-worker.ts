@@ -18,7 +18,7 @@ export type DiffWorkerMessage =
 
 type WorkContext = {
 	reqId: number;
-	type: "diff" | "slice";
+	type: "diff";
 	cancel: boolean;
 	// leftText: string;
 	// rightText: string;
@@ -51,41 +51,8 @@ self.onmessage = (e) => {
 			return;
 		}
 		runDiff(ctx);
-	} else if (e.data.type === "slice") {
-		if (_currentCtx) {
-			self.postMessage({
-				reqId: e.data.reqId,
-				type: "slice",
-				accepted: false,
-			});
-			return;
-		}
-
-		const ctx: WorkContext = {
-			reqId: e.data.reqId,
-			type: "slice",
-			cancel: false,
-			leftTokens: tokenizeSimple(e.data.leftText),
-			rightTokens: tokenizeSimple(e.data.rightText),
-			start: 0,
-			finish: 0,
-			lastYield: 0,
-			options: e.data.options,
-			entries: [],
-			//states: {},
-		};
-		runDiff(ctx);
 	}
 };
-
-function tokenizeSimple(text: string): Token[] {
-	const len = text.length;
-	const result = new Array<Token>(len);
-	for (let i = 0; i < len; i++) {
-		result[i] = { text: text[i], flags: 0 };
-	}
-	return result;
-}
 
 async function runDiff(ctx: WorkContext) {
 	_currentCtx = ctx;
@@ -100,8 +67,6 @@ async function runDiff(ctx: WorkContext) {
 		let result: DiffEntry[];
 		if (ctx.options.algorithm === "histogram") {
 			result = await runHistogramDiff(ctx);
-		} else if (ctx.options.algorithm === "lcs") {
-			result = await runLcsDiff(ctx);
 		} else {
 			throw new Error("Unknown algorithm: " + ctx.options.algorithm);
 		}
@@ -141,195 +106,6 @@ async function runDiff(ctx: WorkContext) {
 
 // #endregion
 
-// =============================================================
-// LCS Algorithm
-// =============================================================
-
-async function runLcsDiff(ctx: WorkContext): Promise<DiffEntry[]> {
-	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
-	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
-	const rawResult = await computeDiff(lhsTokens, rhsTokens, !!ctx.options.greedyMatch, ctx);
-	// return postProcess(ctx, rawResult, lhsTokens, rhsTokens);
-	return rawResult;
-}
-
-async function computeLCS(leftTokens: Token[], rightTokens: Token[], ctx?: WorkContext) {
-	const m = leftTokens.length;
-	const n = rightTokens.length;
-
-	const dp = new Array(m + 1);
-	for (let i = 0; i <= m; i++) {
-		dp[i] = new Array(n + 1).fill(0);
-	}
-
-	// 텍스트가 길어지는 경우(토큰이 많은 경우) 끔찍하게 많은 반복을 수행하게된다.
-	for (let i = 1; i <= m; i++) {
-		const leftText = leftTokens[i - 1].text;
-		for (let j = 1; j <= n; j++) {
-			// 주기적으로 yield 해서 취소요청을 받아야함.
-			// performance.now()는 미친게 아닌가 싶을 정도로 무거운 함수이기 때문에 되도록 자제.
-			// await new Promise(...) 역시 자주 사용하면 안됨
-			// (i+j) % 0x4000 === 0 일 때만 사용하기로. 브라우저 js엔진의 비트연산 속도를 믿어본다 ㅋ
-			if (ctx && ((i + j) & 16383) === 0) {
-				const now = performance.now();
-				if (now - ctx.lastYield > 50) {
-					ctx.lastYield = now;
-					await new Promise((resolve) => setTimeout(resolve, 0));
-					if (ctx.cancel) {
-						throw new Error("cancelled");
-					}
-				}
-			}
-
-			if (leftText === rightTokens[j - 1].text) {
-				dp[i][j] = dp[i - 1][j - 1] + 1; // + consecutive[i][j];
-			} else {
-				dp[i][j] = Math.max(dp[i - 1][j], dp[i][j - 1]);
-			}
-		}
-	}
-
-	let i = m;
-	let j = n;
-	const lcsIndices = [];
-	while (i > 0 && j > 0) {
-		if (leftTokens[i - 1].text === rightTokens[j - 1].text) {
-			lcsIndices.push({
-				leftIndex: i - 1,
-				rightIndex: j - 1,
-			});
-			i--;
-			j--;
-		} else if (dp[i - 1][j] >= dp[i][j - 1]) {
-			i--;
-		} else {
-			j--;
-		}
-	}
-	lcsIndices.reverse();
-	return lcsIndices;
-}
-
-// 정들었던 diff 함수. 폐기처분 예정.
-async function computeDiff(lhsTokens: Token[], rhsTokens: Token[], greedyMatch = false, ctx: WorkContext): Promise<DiffEntry[]> {
-	const entries: DiffEntry[] = [];
-	const lcs = await computeLCS(lhsTokens as Token[], rhsTokens as Token[], ctx);
-	const lcsLength = lcs.length;
-	const leftTokensLength = lhsTokens.length;
-	const rightTokensLength = rhsTokens.length;
-
-	if (leftTokensLength === 0 && rightTokensLength === 0) {
-	} else if (leftTokensLength === 0) {
-		entries.push({
-			type: 2,
-			left: {
-				start: 0,
-				end: leftTokensLength,
-				// empty: true,
-			},
-			right: {
-				start: 0,
-				end: rightTokensLength,
-			},
-		});
-	} else if (rightTokensLength === 0) {
-		entries.push({
-			type: 1,
-			left: {
-				start: 0,
-				end: leftTokensLength,
-			},
-			right: {
-				start: 0,
-				end: rightTokensLength,
-				// empty: true,
-			},
-		});
-	} else {
-		let i = 0;
-		let j = 0;
-		let lcsIndex = 0;
-		let iteration = 0;
-
-		while (lcsIndex < lcsLength || i < leftTokensLength || j < rightTokensLength) {
-			if (ctx && (iteration & 1023) === 0) {
-				const now = performance.now();
-				if (now - ctx.lastYield > 100) {
-					ctx.lastYield = now;
-					await new Promise((resolve) => setTimeout(resolve, 0));
-					if (ctx.cancel) {
-						throw new Error("cancelled");
-					}
-				}
-			}
-			if (
-				lcsIndex < lcsLength &&
-				((greedyMatch &&
-					lhsTokens[i].text === lhsTokens[lcs[lcsIndex].leftIndex].text &&
-					rhsTokens[j].text === rhsTokens[lcs[lcsIndex].rightIndex].text) ||
-					(i === lcs[lcsIndex].leftIndex && j === lcs[lcsIndex].rightIndex))
-			) {
-				entries.push({
-					type: 0,
-					left: {
-						start: i,
-						end: i + 1,
-					},
-					right: {
-						start: j,
-						end: j + 1,
-					},
-				});
-				i++;
-				j++;
-				lcsIndex++;
-				continue;
-			}
-
-			const lcsEntry = lcs[lcsIndex];
-			while (
-				i < leftTokensLength && // 유효한 토큰 index
-				(!lcsEntry || // 공통 sequence가 없는 경우
-					(!greedyMatch && i < lcsEntry.leftIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
-					lhsTokens[i].text !== lhsTokens[lcsEntry.leftIndex].text) // or 텍스트가 같으면 바로 중단
-			) {
-				entries.push({
-					type: 1,
-					left: {
-						start: i,
-						end: i + 1,
-					},
-					right: {
-						start: j,
-						end: j,
-					},
-				});
-				i++;
-			}
-
-			while (
-				j < rightTokensLength && // 유효한 토큰 index
-				(!lcsEntry || // 공통 sequence가 없는 경우
-					(!greedyMatch && j < lcsEntry.rightIndex) || // 정확한 lcsIndex에만 매칭시키는 경우
-					rhsTokens[j].text !== rhsTokens[lcsEntry.rightIndex].text) // or 텍스트가 같으면 바로 중단
-			) {
-				entries.push({
-					type: 2,
-					left: {
-						start: i,
-						end: i,
-					},
-					right: {
-						start: j,
-						end: j + 1,
-					},
-				});
-				j++;
-			}
-		}
-	}
-	return entries;
-}
 
 // ============================================================
 // Histogram Algorithm
@@ -340,8 +116,8 @@ async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
 	// ctx.entries = [] as DiffEntry[];
 
-	let leftAnchors: number[] = [];
-	let rightAnchors: number[] = [];
+	const leftAnchors: number[] = [];
+	const rightAnchors: number[] = [];
 	for (let i = 0; i < lhsTokens.length; i++) {
 		if (lhsTokens[i].flags & TokenFlags.MANUAL_ANCHOR) {
 			leftAnchors.push(i);
@@ -443,10 +219,10 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	const SECTION_HEADING_BONUS = 1 / (diffOptions.sectionHeadingMultiplier || 1 / 0.75);
 	//const FULL_LINE_BONUS = 0.85; n그램을 사용시 여러단어가 매치되는 경우 오히려 마지막 단어가 다음 줄로 넘어가서 보너스를 못 받을 수가 있다
 
-	const useLengthBias = !!ctx.options.useLengthBias;
-	const maxGram = ctx.options.maxGram || 1;
-	const useMatchPrefix = ctx.options.ignoreWhitespace !== "normalize";
-	const onlyAtEdge = ctx.options.ignoreWhitespace === "onlyAtEdge";
+	const useLengthBias = !!diffOptions.useLengthBias;
+	const maxGram = diffOptions.maxGram || 1;
+	const compareSupSub = diffOptions.compareSupSub;
+	const useMatchPrefix = diffOptions.ignoreWhitespace !== "normalize";
 	const maxLen = useMatchPrefix ? Math.floor(maxGram * 1.5) : maxGram; //1=>1, 2=>3, 3=>4, 4=>6, 5=>7, 6=>9, 7=>10, 8=>12, 9=>13, 10=>15,...
 	const delimiter = useMatchPrefix ? "" : "\u0000";
 
@@ -459,6 +235,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if (lhsTokens[i + k].flags & NO_JOIN) {
 				// 	failed = true;
 				// 	break;
+				// }
+				// if ((lhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (lhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
+				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음	
 				// }
 				key += delimiter + lhsTokens[i + k].text;
 			}
@@ -476,6 +255,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if (rhsTokens[i + k].flags & NO_JOIN) {
 				// 	failed = true;
 				// 	break;
+				// }
+				// if ((rhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (rhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
+				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음
 				// }
 				key += delimiter + rhsTokens[i + k].text;
 			}
@@ -527,8 +309,8 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				const ltext = lhsTokens[li].text;
 				const rtext = rhsTokens[ri].text;
 
-				if (ltext === rtext) {
-					// if (lhsTokens[li].flags & rhsTokens[ri].flags & MANUAL_ANCHOR) {
+				if (ltext === rtext &&
+					(!compareSupSub || (lhsTokens[li].flags & TokenFlags.HTML_SUPSUB) === (rhsTokens[ri].flags & TokenFlags.HTML_SUPSUB))) {
 					// 	return {
 					// 		lhsIndex: li,
 					// 		lhsLength: 1,
@@ -545,7 +327,7 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				}
 
 				if (useMatchPrefix && ltext.length !== rtext.length && ltext[0] === rtext[0]) {
-					const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper, onlyAtEdge);
+					const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper, diffOptions);
 					if (match) {
 						const matchedGrams = Math.min(match[0], match[1]);
 						if (lhsLen + match[0] <= maxLen && rhsLen + match[1] <= maxLen && nGrams + matchedGrams <= maxGram) {
@@ -611,13 +393,10 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// }
 				score *= boundaryBonus;
 
-				// if (lhsTokens[i].flags & rhsTokens[j].flags & SECTION_HEADING_MASK) {
-				// 	// if ((lhsTokens[i].flags & SECTION_HEADING_MASK) !== 0) {
-				// 	// 	// LEVEL1은 무시. 문서 구조가 영구같은 경우가 많음.
-				// 	// } else {
-				// 	// }
-				// 	score *= SECTION_HEADING_BONUS;
-				// }
+				if (lhsTokens[i].flags & rhsTokens[j].flags & (TokenFlags.SECTION_HEADING_MASK & ~TokenFlags.SECTION_HEADING_TYPE1)) {
+					// SECTION_HEADING_TYPE1 1., 2., 3., ...은 무시. 문서 구조가 영구일 때가 많음.
+					score *= SECTION_HEADING_BONUS;
+				}
 
 				if (!best || score < best.score) {
 					best = {
@@ -662,6 +441,7 @@ async function diffCore(
 	// 사실 이걸 쓰면 리턴값이 필요 없는데...
 	// 함수 시그니처를 고치기 귀찮아서 일단 내비둠.
 	const entries: DiffEntry[] = ctx.entries;
+	const diffOptions = ctx.options;
 
 	const now = performance.now();
 	if (now - ctx.lastYield > 100) {
@@ -685,7 +465,8 @@ async function diffCore(
 		lhsUpper,
 		rhsLower,
 		rhsUpper,
-		ctx.options.tokenization === "word" ? ctx.options.ignoreWhitespace : "normalize",
+		diffOptions,
+		//ctx.options.tokenization === "word" ? ctx.options.ignoreWhitespace : "normalize",
 		consumeDirections
 	);
 
@@ -751,17 +532,19 @@ function consumeCommonEdges(
 	lhsUpper: number,
 	rhsLower: number,
 	rhsUpper: number,
-	whitespace: WhitespaceHandling = "onlyAtEdge",
+	diffOptions: DiffOptions,
 	consumeDirections: 0 | 1 | 2 | 3 = 3
 ): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: DiffEntry[], tail: DiffEntry[]] {
+	const whitespace = diffOptions.ignoreWhitespace;
+	const compareSupSub = diffOptions.compareSupSub;
 	const head: DiffEntry[] = [];
 	const tail: DiffEntry[] = [];
 	let matchedCount;
-
 	// Prefix
 	if (consumeDirections & 1) {
 		while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
-			if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text) {
+			if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text &&
+				(!compareSupSub || (lhsTokens[lhsLower].flags & TokenFlags.HTML_SUPSUB) === (rhsTokens[rhsLower].flags & TokenFlags.HTML_SUPSUB))) {
 				head.push({
 					type: 0,
 					left: { start: lhsLower, end: lhsLower + 1 },
@@ -773,7 +556,7 @@ function consumeCommonEdges(
 				whitespace !== "normalize" &&
 				lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
 				lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
-				(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))
+				(matchedCount = matchPrefixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, diffOptions))
 			) {
 				head.push({
 					type: 0,
@@ -797,7 +580,8 @@ function consumeCommonEdges(
 	// Suffix
 	if (consumeDirections & 2) {
 		while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
-			if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text) {
+			if (lhsTokens[lhsUpper - 1].text === rhsTokens[rhsUpper - 1].text &&
+				(!compareSupSub || (lhsTokens[lhsUpper - 1].flags & TokenFlags.HTML_SUPSUB) === (rhsTokens[rhsUpper - 1].flags & TokenFlags.HTML_SUPSUB))) {
 				tail.push({
 					type: 0,
 					left: { start: lhsUpper - 1, end: lhsUpper },
@@ -809,7 +593,7 @@ function consumeCommonEdges(
 				whitespace !== "normalize" &&
 				lhsTokens[lhsUpper - 1].text.length !== rhsTokens[rhsUpper - 1].text.length &&
 				lhsTokens[lhsUpper - 1].text.at(-1) === rhsTokens[rhsUpper - 1].text.at(-1) &&
-				(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, whitespace === "onlyAtEdge"))
+				(matchedCount = matchSuffixTokens(lhsTokens, lhsLower, lhsUpper, rhsTokens, rhsLower, rhsUpper, diffOptions))
 			) {
 				tail.push({
 					type: 0,
@@ -840,9 +624,13 @@ function matchPrefixTokens(
 	rightTokens: Token[],
 	rhsLower: number,
 	rhsUpper: number,
-	allowJoinOnlyAtLineBoundary: boolean
+	diffOptions: DiffOptions
+	//allowJoinOnlyAtLineBoundary: boolean
 ): false | [leftMatched: number, rightMatched: number] {
 	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
+
+	const compareSupSub = diffOptions.compareSupSub;
+	const allowJoinOnlyAtLineBoundary = diffOptions.ignoreWhitespace === "onlyAtEdge";
 
 	let i = lhsLower,
 		j = rhsLower;
@@ -859,6 +647,10 @@ function matchPrefixTokens(
 	// if (lhsToken.flags & NO_JOIN_NEXT || rhsToken.flags & NO_JOIN_NEXT) {
 	// 	// return false;
 	// }
+
+	if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+		return false;
+	}
 
 	while (true) {
 		while (ci < lhsLen && cj < rhsLen) {
@@ -881,6 +673,9 @@ function matchPrefixTokens(
 
 			lhsToken = leftTokens[i++];
 			if (!lhsToken) return false;
+			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+				return false;
+			}
 			if (
 				lhsToken.flags & TokenFlags.NO_JOIN_PREV ||
 				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -903,6 +698,9 @@ function matchPrefixTokens(
 
 			rhsToken = rightTokens[j++];
 			if (!rhsToken) return false;
+			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+				return false;
+			}
 			if (
 				rhsToken.flags & TokenFlags.NO_JOIN_PREV ||
 				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -924,9 +722,12 @@ function matchSuffixTokens(
 	rightTokens: Token[],
 	rhsLower: number,
 	rhsUpper: number,
-	allowJoinOnlyAtLineBoundary: boolean
+	diffOptions: DiffOptions
 ): false | [leftMatched: number, rightMatched: number] {
 	if (lhsLower >= lhsUpper || rhsLower >= rhsUpper) return false;
+
+	const allowJoinOnlyAtLineBoundary = diffOptions.ignoreWhitespace === "onlyAtEdge";
+	const compareSupSub = diffOptions.compareSupSub;
 
 	let i = lhsUpper - 1,
 		j = rhsUpper - 1;
@@ -941,6 +742,10 @@ function matchSuffixTokens(
 	// if (lhsToken.flags & NO_JOIN_PREV || rhsToken.flags & NO_JOIN_PREV) {
 	// 	return false;
 	// }
+
+	if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+		return false;
+	}
 
 	while (true) {
 		while (ci >= 0 && cj >= 0) {
@@ -961,6 +766,9 @@ function matchSuffixTokens(
 
 			lhsToken = leftTokens[i--];
 			if (!lhsToken) return false;
+			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+				return false;
+			}
 			if (
 				lhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
 				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -982,6 +790,9 @@ function matchSuffixTokens(
 
 			rhsToken = rightTokens[j--];
 			if (!rhsToken) return false;
+			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+				return false;
+			}
 			if (
 				rhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
 				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용

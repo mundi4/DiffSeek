@@ -49,6 +49,7 @@ declare type DiffOptions = {
 	lineStartMultiplier: number;
 	lineEndMultiplier: number;
 	uniqueMultiplier: number;
+	compareSupSub: boolean; // SUB, SUP까지 비교하는 옵션
 };
 
 

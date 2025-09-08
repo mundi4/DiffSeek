@@ -84,6 +84,11 @@ diff-marker.block {
 	min-height: calc(1em * var(--editor-line-height));
 }
 
+.editor * {
+	/* 그림 같은게 너무 크면 싫잖아 */
+	max-width: 100%;
+}
+
 .editor u {
 	text-underline-offset: var(--editor-underline-offset);
 }

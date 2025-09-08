@@ -183,7 +183,8 @@ export class TokenizeContext {
 			do {
 				const text = textNodeBuf[i].nodeValue!;
 				for (; j < text.length; j++) {
-					const cp = text.codePointAt(j)!;
+					let cp = text.codePointAt(j)!;
+					cp = normalizedCharMap[cp] ?? cp;
 					node = node!.next(cp);
 					if (!node) {
 						return null;
@@ -222,7 +223,7 @@ export class TokenizeContext {
 						shouldNormalize = true;
 					}
 
-					let char = text[charIndex];
+					const char = text[charIndex];
 
 					if (spaceChars[char]) {
 						// split here
@@ -272,7 +273,7 @@ export class TokenizeContext {
 								}
 								finalizeToken();
 								currentToken = {
-									text: match.word,
+									text: match.word.trimEnd(), // 좀 억지스러운데 가장 쉬운 방법...
 									flags: nextTokenFlags | match.flags,
 									range: {
 										startContainer,
@@ -346,7 +347,7 @@ export class TokenizeContext {
 				nextTokenFlags |= TokenFlags.BLOCK_START | TokenFlags.LINE_START;
 			}
 
-			const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD";
+			const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD" || nodeName === "SUP" || nodeName === "SUB";
 			if (isTokenBoundary && textNodeBuf.length > 0) {
 				doTokenizeText();
 			}

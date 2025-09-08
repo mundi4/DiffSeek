@@ -69,7 +69,7 @@ const _defaultRendererOptions: RendererOptions = {
 		diffExpandX: 2,
 		diffExpandY: 2,
 		diffLineExpandY: 0,
-		diffLineHeightMultiplier: 1.2,
+		diffLineHeightMultiplier: 1,
 	},
 };
 

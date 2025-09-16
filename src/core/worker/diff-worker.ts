@@ -393,10 +393,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// }
 				score *= boundaryBonus;
 
-				if (lhsTokens[i].flags & rhsTokens[j].flags & (TokenFlags.SECTION_HEADING_MASK & ~TokenFlags.SECTION_HEADING_TYPE1)) {
-					// SECTION_HEADING_TYPE1 1., 2., 3., ...은 무시. 문서 구조가 영구일 때가 많음.
-					score *= SECTION_HEADING_BONUS;
-				}
+				// 사용 안하는 것이 낫다
+				// 항번호만 바뀌는 경우(중간에 항 추가/삭제)에도 항 번호가 우선적으로 매치되어 버리기 때문.
+				// if (lhsTokens[i].flags & rhsTokens[j].flags & (TokenFlags.SECTION_HEADING_MASK & ~TokenFlags.SECTION_HEADING_TYPE1)) {
+				// 	// SECTION_HEADING_TYPE1 1., 2., 3., ...은 무시. 문서 구조가 영구일 때가 많음.
+				// 	score *= SECTION_HEADING_BONUS;
+				// }
 
 				if (!best || score < best.score) {
 					best = {

@@ -13,6 +13,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuRadio
 import { descMessage, errorMessage, messageContainer } from "./SidebarPanel.css";
 import clsx from "clsx";
 import { SideTagCopyButton } from "./SideTagButton";
+import { useDiffContext } from "@/hooks/useDiffContext";
 
 const diffOptions: QuickDiffOptions = {};
 export const MaxTextLength = 300;
@@ -23,6 +24,7 @@ const renderModeAtom = atomWithStorage<RenderMode>("inlineDiffRenderMode", "stac
 type InlineDiffViewProps = SidebarPanelRootProps & {}
 
 export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
+    const diffContext = useDiffContext();
     const fallbackSelection = useRef<EditorTextSelection | null>(null);
     let editorTextSelection = useAtomValue(editorTextSelectionAtom);
     if (!editorTextSelection) {
@@ -76,7 +78,7 @@ export function InlineDiffViewPanel({ ...props }: InlineDiffViewProps) {
             // 
             //quickDiffInstance.cancel();
         };
-    }, [leftRange, rightRange, diffOptions, quickDiffInstance]);
+    }, [leftRange, rightRange, quickDiffInstance, diffContext]);
 
     return (
         <SidebarPanel.Root ariaLabel="Inline Diff 패널" {...props}>

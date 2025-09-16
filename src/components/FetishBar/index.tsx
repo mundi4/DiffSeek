@@ -8,11 +8,8 @@ import { Toggle } from "../ui/toggle";
 import { syncModeAtom } from "@/states/atoms";
 import { useCallback } from "react";
 
-interface FetishBarProps {
-}
-
 // TODO overflow menu?
-export function FetishBar({ }: FetishBarProps) {
+export function FetishBar() {
     const [syncMode, setSyncMode] = useAtom(syncModeAtom);
     const [whitespaceHandling, setWhitespaceHandling] = useAtom(whitespaceHandlingAtom);
     return (

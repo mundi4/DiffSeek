@@ -7,6 +7,9 @@ import type { EditorName } from "./types";
  *
  * diff 입력과 결과를 한데 모아서 들고 있는 컨텍스트다. 사실 그냥 데이터 집합인데 편의 메서드를 한두개 넣음
  */
+
+let nextDiffContextId = 1;
+
 export class DiffContext {
 	leftTokens: readonly RichToken[];
 	rightTokens: readonly RichToken[];
@@ -18,6 +21,7 @@ export class DiffContext {
 	diffs: DiffItem[];
 	leftSectionHeadings: SectionHeading[];
 	rightSectionHeadings: SectionHeading[];
+	id: number = nextDiffContextId++;
 
 	constructor(
 		leftTokens: readonly RichToken[],

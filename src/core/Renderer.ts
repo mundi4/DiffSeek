@@ -1129,7 +1129,11 @@ class RenderRegion {
 			if (node === endNode) {
 				if (node.nodeType === 3 && endOffset >= 0) {
 					tempRange.setStart(endNode, 0);
-					emptyDiff ? tempRange.collapse(true) : tempRange.setEnd(endNode, endOffset);
+					if (emptyDiff) {
+						tempRange.collapse(true);
+					} else {
+						tempRange.setEnd(endNode, endOffset);
+					}
 					for (const rect of tempRange.getClientRects()) {
 						result.push({
 							x: rect.x + offsetLeft - expandX,

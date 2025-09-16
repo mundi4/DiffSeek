@@ -24,6 +24,7 @@ export function DiffControllerProvider({
             rightEditor,
             renderer,
         };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []); // 빈 의존성 배열로 한 번만 생성
 
     // diffOptions가 변경될 때마다 DiffController 옵션 업데이트

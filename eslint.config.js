@@ -15,9 +15,15 @@ export default tseslint.config([
 			globals: globals.browser,
 		},
 		rules: {
-			"@typescript-eslint/*": "off",
-			//    "no-var": "off",
-			//    "prefer-const": "off",
+  			"@typescript-eslint/*": "off",
+  			"@typescript-eslint/no-explicit-any": "off",
+			"@typescript-eslint/no-unused-vars": "off",
+			"no-unused-vars": "off",
+			"no-var": "off",
+			"no-unused-parameters": "off",
+			"no-unused-private-class-members": "off",
+			"prefer-const": "off",
+			"no-empty": "off",
 		},
 	},
 ]);

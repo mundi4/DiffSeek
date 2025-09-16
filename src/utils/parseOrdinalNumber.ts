@@ -1,7 +1,7 @@
 import { HANGUL_ORDER } from "@/core/constants/index";
 
 export function parseOrdinalNumber(ordinalText: string): number {
-	const norm = ordinalText.replace(/[\(\)\.]/g, "");
+	const norm = ordinalText.replace(/[().]/g, "");
 	if (/^\d+$/.test(norm)) {
 		return Number(norm);
 	}

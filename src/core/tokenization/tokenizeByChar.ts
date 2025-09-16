@@ -6,7 +6,7 @@ export type CharToken = {
 	count: number;
 };
 
-export function tokenizeByChar(text: string, _options: {}): CharToken[] {
+export function tokenizeByChar(text: string, _options: { _notused: boolean }): CharToken[] {
 	const tokens: CharToken[] = [];
 	let i = 0;
 	while (i < text.length) {

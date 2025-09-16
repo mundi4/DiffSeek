@@ -20,7 +20,7 @@ export const EditorShell = forwardRef<EditorShellHandle, EditorShellProps>(({ ed
         return () => {
             editor.unmount();
         };
-    }, [editor, containerRef.current]);
+    }, [editor]);
 
     useImperativeHandle(ref, () => ({
         getEditor: () => editor,

@@ -11,8 +11,41 @@ import { ResizablePanel } from './components/resizable/ResizablePanel';
 import { UI_CONSTANTS, APP_MESSAGES } from './constants/appConstants';
 import clsx from 'clsx';
 import { diffOptionsAtom } from './states/diffOptionsAtom'
+import type { Editor } from './core'
 
 const store = getDefaultStore();
+
+const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
+	// 개발 환경에서만 데모 콘텐츠 로드
+	if (import.meta.env.DEV) {
+		try {
+			const [leftModule, rightModule] = await Promise.all([
+				import('@/assets/leftDemoContent.html?raw'),
+				import('@/assets/rightDemoContent.html?raw')
+			]);
+			await leftEditor.setContent({ text: leftModule.default, asHTML: true });
+			await rightEditor.setContent({ text: rightModule.default, asHTML: true });
+		} catch (error) {
+			console.error('Failed to load demo content:', error);
+			// fallback to default content
+			await loadFallbackContent(leftEditor, rightEditor);
+		}
+
+
+	} else {
+		// production에서는 빈 에디터 또는 기본 콘텐츠
+		await loadFallbackContent(leftEditor, rightEditor);
+	}
+};
+
+const loadFallbackContent = async (leftEditor: Editor, rightEditor: Editor) => {
+	// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
+	// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
+	const leftContent = ``;
+	const rightContent = ``;
+	await leftEditor.setContent({ text: leftContent, asHTML: true });
+	await rightEditor.setContent({ text: rightContent, asHTML: true });
+};
 
 function App() {
 	const { diffController, leftEditor, rightEditor } = useDiffControllerContext();
@@ -31,7 +64,7 @@ function App() {
 				await new Promise(resolve => setTimeout(resolve, 0));
 
 				// 데모 콘텐츠 로드 (async)
-				await loadDemoContent();
+				await loadDemoContent(leftEditor, rightEditor);
 				//await loadFallbackContent();
 
 				isInitialized.current = true;
@@ -41,41 +74,27 @@ function App() {
 			}
 		};
 
-		initializeApp();
-	}, [diffController]);
-
-	const loadDemoContent = async () => {
-		// 개발 환경에서만 데모 콘텐츠 로드
-		if (import.meta.env.DEV) {
-			try {
-				const [leftModule, rightModule] = await Promise.all([
-					import('@/assets/leftDemoContent.html?raw'),
-					import('@/assets/rightDemoContent.html?raw')
-				]);
-
-				await leftEditor.setContent({ text: leftModule.default, asHTML: true });
-				await rightEditor.setContent({ text: rightModule.default, asHTML: true });
-			} catch (error) {
-				console.error('Failed to load demo content:', error);
-				// fallback to default content
-				await loadFallbackContent();
+		(window as any).DiffSeek = {
+			setContent: function (side: 'left' | 'right', text: string, asHTML = false) {
+				if (side === 'left') {
+					return leftEditor.setContent({ text, asHTML });
+				} else {
+					return rightEditor.setContent({ text, asHTML });
+				}
+			},
+			setOptions: function (options: Partial<DiffOptions>) {
+				if (!options || typeof options !== "object") return;
+				store.set(diffOptionsAtom, prev => ({
+					...prev,
+					...options,
+				}));
 			}
-
-
-		} else {
-			// production에서는 빈 에디터 또는 기본 콘텐츠
-			await loadFallbackContent();
 		}
-	};
 
-	const loadFallbackContent = async () => {
-		// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
-		// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
-		const leftContent = ``;
-		const rightContent = ``;
-		await leftEditor.setContent({ text: leftContent, asHTML: true });
-		await rightEditor.setContent({ text: rightContent, asHTML: true });
-	};
+		initializeApp();
+	}, [diffController, leftEditor, rightEditor]);
+
+
 
 	useEffect(() => {
 		const unsubscribe: (() => void)[] = [];
@@ -112,22 +131,6 @@ function App() {
 
 		}));
 
-		(window as any).DiffSeek = {
-			setContent: function (side: 'left' | 'right', text: string, asHTML = false) {
-				if (side === 'left') {
-					return leftEditor.setContent({ text, asHTML });
-				} else {
-					return rightEditor.setContent({ text, asHTML });
-				}
-			},
-			setOptions: function (options: Partial<DiffOptions>) {
-				if (!options || typeof options !== "object") return;
-				store.set(diffOptionsAtom, prev => ({
-					...prev,
-					...options,
-				}));
-			}
-		}
 
 		return () => {
 			for (const off of unsubscribe) off();

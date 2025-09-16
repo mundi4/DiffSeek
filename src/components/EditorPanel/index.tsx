@@ -1,4 +1,3 @@
-import type React from "react";
 import { EditorShell } from "../EditorShell";
 import { RendererShell } from "../RendererShell";
 import { editorPanelLayoutAtom, syncModeAtom } from "../../states/atoms";
@@ -7,11 +6,7 @@ import { useMemo } from "react";
 import * as styles from "./EditorPanel.css";
 import { useDiffControllerContext } from "@/hooks/useDiffController";
 
-type EditorPanelProps = React.HTMLAttributes<HTMLDivElement> & {
-    // Add any specific props here if needed
-}
-
-function EditorPanel({ }: EditorPanelProps) {
+function EditorPanel() {
     const { leftEditor, rightEditor, renderer } = useDiffControllerContext();
     const syncMode = useAtomValue(syncModeAtom);
     const layout = useAtomValue(editorPanelLayoutAtom);

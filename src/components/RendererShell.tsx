@@ -16,9 +16,7 @@ export function RendererShell({ renderer, className }: RendererShellProps) {
         return () => {
             renderer.unmount();
         };
-    }, [
-
-    ]);
+    }, [renderer]);
 
     return (
         <div className={clsx(styles.root, className)} ref={containerRef}></div>

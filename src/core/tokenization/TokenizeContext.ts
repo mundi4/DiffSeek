@@ -15,9 +15,28 @@ export type RichToken = {
 	range: LightRange | Range;
 	lineNum: number;
 	container: TextFlowContainer;
+	// for image tokens
+	data?: Uint8ClampedArray;
+	width?: number;
+	height?: number;
 };
 
 // const normalizeChars: { [ch: string]: string } = {};
+
+let ctx: OffscreenCanvasRenderingContext2D | null = null;
+
+const IMAGE_SIZE = 500;
+function getImageData(img: HTMLImageElement): ImageData {
+	if (!ctx) {
+		const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
+		ctx = canvas.getContext("2d");
+		if (!ctx) {
+			throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
+		}
+	}
+	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+}
 
 const spaceChars: Record<string, boolean> = {
 	" ": true,
@@ -51,6 +70,7 @@ export class TokenizeContext {
 	#cancelled: boolean;
 	#generator: Generator<void, { tokens: RichToken[]; containers: Map<HTMLElement, TextFlowContainer> }, IdleDeadline> | null = null;
 	#callbackId: number | null = null;
+	#imageDataCache: Map<string, ImageData> = new Map();
 
 	constructor(rootContent: HTMLElement, onDone: (tokens: RichToken[]) => void) {
 		this.#rootContent = rootContent;
@@ -118,6 +138,7 @@ export class TokenizeContext {
 		const root = this.#rootContent;
 		const textNodeBuf: Text[] = [];
 		const textNodeBufIndices: number[] = [];
+		const imageDataCache = this.#imageDataCache;
 		let tokenIndex = 0;
 		let currentToken: RichToken | null = null;
 		let nextTokenFlags = 0;
@@ -206,6 +227,7 @@ export class TokenizeContext {
 
 		function doTokenizeText() {
 			console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
+
 			let nodeIndex = 0;
 			let charIndex = 0;
 
@@ -379,16 +401,33 @@ export class TokenizeContext {
 						const range = document.createRange();
 						range.selectNode(child);
 
+						// 이것까지 넣어야하나... 눈으로 대충 보면 되지 않나 싶지만... 안과장님이 원하신다!!
+						// 처음에는 로컬웹서버를 돌려서 해당 서버로 경로를 보내고 서버가 로컬 파일을 읽어서 DATA URL로 반환하는 방식을 썼었지만 더 좋은 방법이 있다.
+						// 이미지 비교는 픽셀단위 비교이므로 성능상 문제가 될 수 있지만... 어차피 눈으로 보는 것보다는 빠를 것이라고 생각함.
+						// tolerance는 기본 99%로 해놨기 때문에 아주 사소한 차이는 무시된다. 문제가 생길 수 있을까??? i don't think so.
 						const src = (child as HTMLImageElement).src;
-						let tokenText;
-						if (src && src.startsWith("data:")) {
-							tokenText = quickHash53ToString(src);
-						} else {
-							// 워드에서 복붙할때 임시 경로에 그림파일이 들어가는 경우가 있는데 이후 다른 그림을 복붙할 때 같은 경로에 다른 그림파일이 저장될 수 있다.
-							// 그렇기 때문에 경로가 같더라도 같은 그림으로 취급하면 안됨.
-							// => 안전빵으로 무조건 다른 그림으로 취급.
-							tokenText = `(img${++imgSeen})`;
+						let tokenText = "";
+						let imageData: ImageData | undefined = undefined;
+						if (src) {
+							if (src && src.startsWith("data:")) {
+								// data url
+								tokenText = `$imgd:${quickHash53ToString(src)}`;
+							} else if (src.startsWith("http://") || src.startsWith("https://")) {
+								// 웹 url이 같으면 같은 이미지로 취급해도 되잖아???
+								tokenText = `$imgu:${quickHash53ToString(src)}`;
+							}
+
+							try {
+								imageData = imageDataCache.get(src);
+								if (!imageData) {
+									imageData = getImageData(child as HTMLImageElement);
+									imageDataCache.set(src, imageData);
+								}
+							} catch (e) {
+								console.warn("Failed to get image data!", e);
+							}
 						}
+						tokenText ||= `$imgx:${quickHash53ToString((++imgSeen).toString())}`;
 
 						currentToken = {
 							text: tokenText,
@@ -397,6 +436,12 @@ export class TokenizeContext {
 							container: currentContainer,
 							lineNum: lineNum,
 						};
+						if (imageData) {
+							currentToken.data = imageData.data;
+							currentToken.width = IMAGE_SIZE;
+							currentToken.height = IMAGE_SIZE;
+						}
+			
 						nextTokenFlags = 0;
 						finalizeToken();
 						continue;

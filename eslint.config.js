@@ -14,5 +14,10 @@ export default tseslint.config([
 			ecmaVersion: 2020,
 			globals: globals.browser,
 		},
+		rules: {
+			"@typescript-eslint/*": "off",
+			//    "no-var": "off",
+			//    "prefer-const": "off",
+		},
 	},
 ]);

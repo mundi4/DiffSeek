@@ -190,7 +190,7 @@ async function main() {
 	await packageLib();
 
 	// 4) server 폴더 압축 및 분할
-	await packageServer();
+	// await packageServer();
 
 	console.log("🎯 모든 작업 완료");
 }

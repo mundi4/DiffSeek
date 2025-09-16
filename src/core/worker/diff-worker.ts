@@ -1,7 +1,12 @@
 import { TokenFlags } from "../tokenization/TokenFlags";
+import pixelmatch from "pixelmatch";
+
+let imageCompareCache: Record<string, boolean> = {};
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
+
+
 
 export type DiffWorkerRequest = {
 	type: "diff";
@@ -45,6 +50,7 @@ self.onmessage = (e) => {
 			//states: {},
 		} as WorkContext;
 
+
 		if (_currentCtx) {
 			_currentCtx.cancel = true;
 			_nextCtx = ctx;
@@ -65,6 +71,7 @@ async function runDiff(ctx: WorkContext) {
 		});
 
 		let result: DiffEntry[];
+		imageCompareCache = {};
 		if (ctx.options.algorithm === "histogram") {
 			result = await runHistogramDiff(ctx);
 		} else {
@@ -228,8 +235,11 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 	const freq: Record<string, number> = {};
 	for (let n = 1; n <= maxLen; n++) {
-		for (let i = lhsLower; i <= lhsUpper - n; i++) {
+		OUTER: for (let i = lhsLower; i <= lhsUpper - n; i++) {
 			let key = lhsTokens[i].text;
+			if (lhsTokens[i].flags & TokenFlags.IMAGE) {
+				continue;
+			}
 			// if (!(lhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
 				// if (lhsTokens[i + k].flags & NO_JOIN) {
@@ -239,6 +249,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if ((lhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (lhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
 				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음	
 				// }
+				if (lhsTokens[i + k].flags & TokenFlags.IMAGE) {
+					continue OUTER;
+				}
 				key += delimiter + lhsTokens[i + k].text;
 			}
 			// } else {
@@ -248,8 +261,11 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 			freq[key] = (freq[key] || 0) + 1;
 			// }
 		}
-		for (let i = rhsLower; i <= rhsUpper - n; i++) {
+		OUTER: for (let i = rhsLower; i <= rhsUpper - n; i++) {
 			let key = rhsTokens[i].text;
+			if (rhsTokens[i].flags & TokenFlags.IMAGE) {
+				continue;
+			}
 			// if (!(rhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
 				// if (rhsTokens[i + k].flags & NO_JOIN) {
@@ -259,6 +275,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if ((rhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (rhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
 				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음
 				// }
+				if (rhsTokens[i + k].flags & TokenFlags.IMAGE) {
+					continue OUTER;
+				}
 				key += delimiter + rhsTokens[i + k].text;
 			}
 			// } else {
@@ -309,15 +328,21 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				const ltext = lhsTokens[li].text;
 				const rtext = rhsTokens[ri].text;
 
-				if (ltext === rtext &&
-					(!compareSupSub || (lhsTokens[li].flags & TokenFlags.HTML_SUPSUB) === (rhsTokens[ri].flags & TokenFlags.HTML_SUPSUB))) {
-					// 	return {
-					// 		lhsIndex: li,
-					// 		lhsLength: 1,
-					// 		rhsIndex: ri,
-					// 		rhsLength: 1,
-					// 	};
-					// }
+				let equal: boolean | null = null;
+				if ((lhsTokens[li].flags & rhsTokens[ri].flags & TokenFlags.IMAGE)) {
+					// 둘 다 이미지
+					equal = compareImageTokens(lhsTokens[li], rhsTokens[ri], ctx);
+					if (!equal) break;
+				} else
+					if ((lhsTokens[li].flags | rhsTokens[ri].flags) & TokenFlags.IMAGE) {
+						break;
+					} else if (compareSupSub && (lhsTokens[li].flags & TokenFlags.HTML_SUPSUB) !== (rhsTokens[ri].flags & TokenFlags.HTML_SUPSUB)) {
+						break;
+					} else if (ltext === rtext) {
+						equal = true;
+					}
+
+				if (equal) {
 					li++;
 					ri++;
 					lhsLen++;
@@ -326,7 +351,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 					continue;
 				}
 
-				if (useMatchPrefix && ltext.length !== rtext.length && ltext[0] === rtext[0]) {
+				if (useMatchPrefix &&
+					ltext.length !== rtext.length && ltext[0] === rtext[0]
+				) {
 					const match = matchPrefixTokens(lhsTokens, li, lhsUpper, rhsTokens, ri, rhsUpper, diffOptions);
 					if (match) {
 						const matchedGrams = Math.min(match[0], match[1]);
@@ -467,7 +494,7 @@ async function diffCore(
 		lhsUpper,
 		rhsLower,
 		rhsUpper,
-		diffOptions,
+		ctx,
 		//ctx.options.tokenization === "word" ? ctx.options.ignoreWhitespace : "normalize",
 		consumeDirections
 	);
@@ -534,9 +561,10 @@ function consumeCommonEdges(
 	lhsUpper: number,
 	rhsLower: number,
 	rhsUpper: number,
-	diffOptions: DiffOptions,
+	ctx: WorkContext,
 	consumeDirections: 0 | 1 | 2 | 3 = 3
 ): [lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number, head: DiffEntry[], tail: DiffEntry[]] {
+	const diffOptions = ctx.options;
 	const whitespace = diffOptions.ignoreWhitespace;
 	const compareSupSub = diffOptions.compareSupSub;
 	const head: DiffEntry[] = [];
@@ -545,6 +573,22 @@ function consumeCommonEdges(
 	// Prefix
 	if (consumeDirections & 1) {
 		while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+			if (lhsTokens[lhsLower].flags & TokenFlags.IMAGE || rhsTokens[rhsLower].flags & TokenFlags.IMAGE) {
+				if (lhsTokens[lhsLower].flags & rhsTokens[rhsLower].flags & TokenFlags.IMAGE) {
+					if (compareImageTokens(lhsTokens[lhsLower], rhsTokens[rhsLower], ctx)) {
+						head.push({
+							type: 0,
+							left: { start: lhsLower, end: lhsLower + 1 },
+							right: { start: rhsLower, end: rhsLower + 1 },
+						});
+						lhsLower++;
+						rhsLower++;
+						continue;
+					}
+				}
+				break;
+			}
+
 			if (lhsTokens[lhsLower].text === rhsTokens[rhsLower].text &&
 				(!compareSupSub || (lhsTokens[lhsLower].flags & TokenFlags.HTML_SUPSUB) === (rhsTokens[rhsLower].flags & TokenFlags.HTML_SUPSUB))) {
 				head.push({
@@ -678,6 +722,10 @@ function matchPrefixTokens(
 			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
 				return false;
 			}
+			if (lhsToken.flags & TokenFlags.IMAGE) {
+				// 한쪽은 텍스트가 안끝났고 다른 새로 시작하는 경우기 때문에 img가 나오는 경우 무조건 매치 실패
+				return false;
+			}
 			if (
 				lhsToken.flags & TokenFlags.NO_JOIN_PREV ||
 				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_START)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -701,6 +749,10 @@ function matchPrefixTokens(
 			rhsToken = rightTokens[j++];
 			if (!rhsToken) return false;
 			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+				return false;
+			}
+			if (rhsToken.flags & TokenFlags.IMAGE) {
+				// 한쪽은 텍스트가 안끝났고 다른 새로 시작하는 경우기 때문에 img가 나오는 경우 무조건 매치 실패
 				return false;
 			}
 			if (
@@ -771,6 +823,10 @@ function matchSuffixTokens(
 			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
 				return false;
 			}
+			if (lhsToken.flags & TokenFlags.IMAGE) {
+				// 한쪽은 텍스트가 안끝났고 다른 새로 시작하는 경우기 때문에 img가 나오는 경우 무조건 매치 실패
+				return false;
+			}
 			if (
 				lhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
 				(allowJoinOnlyAtLineBoundary && !(lhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -795,6 +851,10 @@ function matchSuffixTokens(
 			if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
 				return false;
 			}
+			if (rhsToken.flags & TokenFlags.IMAGE) {
+				// 한쪽은 텍스트가 안끝났고 다른 새로 시작하는 경우기 때문에 img가 나오는 경우 무조건 매치 실패
+				return false;
+			}
 			if (
 				rhsToken.flags & TokenFlags.NO_JOIN_NEXT ||
 				(allowJoinOnlyAtLineBoundary && !(rhsToken.flags & TokenFlags.LINE_END)) // 줄바꿈 경계에서만 이어붙이기 허용
@@ -817,3 +877,42 @@ type FindAnchorFunc = (
 	rhsUpper: number,
 	ctx: WorkContext
 ) => { lhsIndex: number; lhsLength: number; rhsIndex: number; rhsLength: number } | null;
+
+function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContext): boolean {
+	if (!(leftToken.flags & rightToken.flags & TokenFlags.IMAGE)) {
+		return false;
+	}
+
+	if (leftToken.text === rightToken.text) {
+		return true;
+	}
+
+	const diffOptions = ctx.options;
+	// if (!diffOptions.compareImage) {
+	// 	return false;
+	// }
+
+	const cacheKey = [leftToken.text, rightToken.text].sort().join("||");
+	if (imageCompareCache[cacheKey] !== undefined) {
+		return imageCompareCache[cacheKey];
+	}
+
+
+
+	let result: boolean | undefined = undefined;
+	if (!leftToken.data || !rightToken.data) {
+		result = false;
+	} else {
+		const width = leftToken.width!;
+		const height = leftToken.height!;
+		const leftArr = new Uint8ClampedArray(leftToken.data!);
+		const rightArr = new Uint8ClampedArray(rightToken.data!);
+		const diffCount = pixelmatch(leftArr, rightArr, void 0, width, height, { threshold: 0.1 });
+		const similarity = ((width * height - diffCount) / (width * height)) * 100;
+		result = similarity >= diffOptions.compareImageTolerance;
+	}
+
+	imageCompareCache[cacheKey] = result;
+	return result;
+}
+

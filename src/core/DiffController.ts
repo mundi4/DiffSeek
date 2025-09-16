@@ -8,6 +8,7 @@ import type { Editor, EditorCallbacks } from "@/core/Editor";
 import type { Renderer, RendererCallbacks } from "@/core/Renderer";
 import { EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
 import { EditorPairer } from "./EditorPairer";
+import { TokenFlags } from "./tokenization/TokenFlags";
 
 export type DiffResult = {
 	diffs: DiffEntry[];
@@ -88,7 +89,6 @@ export class DiffController {
 	};
 	#scrollingEditor: Editor | null = null;
 	#lastScrolledEditor: Editor | null = null;
-	// @ts-ignore
 	#focusedEditor: Editor | null = null;
 	#lastFocusedEditor: Editor | null = null;
 	#scrollTimeoutId: NodeJS.Timeout | null = null;
@@ -349,21 +349,13 @@ export class DiffController {
 		// });
 	}
 
-	#handleEditorContentChanged(_editor: Editor) {
+	#handleEditorContentChanged() {
 		this.computeDiff();
 	}
 
 	computeDiff() {
-		let leftTokens: Token[] | null = null;
-		let rightTokens: Token[] | null = null;
-
-		if (true || this.#editorContentsChanged.left) {
-			leftTokens = buildTokenArray(this.#leftEditor.tokens);
-		}
-		if (true || this.#editorContentsChanged.right) {
-			rightTokens = buildTokenArray(this.#rightEditor.tokens);
-		}
-
+		const leftTokens = buildTokenArray(this.#leftEditor.tokens);
+		const rightTokens = buildTokenArray(this.#rightEditor.tokens);
 		this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions);
 		this.#diffComputingEvent.emit({
 			leftTokenCount: this.#leftEditor.tokens.length,
@@ -655,6 +647,11 @@ function buildTokenArray(richTokens: readonly RichToken[]): Token[] {
 			text: richToken.text,
 			flags: richToken.flags,
 		};
+		if (richToken.flags & TokenFlags.IMAGE && richToken.width && richToken.height && richToken.data) {
+			result[i].width = richToken.width;
+			result[i].height = richToken.height;
+			result[i].data = richToken.data.buffer;
+		}
 	}
 	return result;
 }

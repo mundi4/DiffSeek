@@ -3,6 +3,9 @@ declare type Token = {
 	pos?: number;
 	len?: number;
 	flags: number;
+	width?: number;
+	height?: number;
+	data?: ArrayBufferLike;
 };
 
 type Rect = {
@@ -50,6 +53,8 @@ declare type DiffOptions = {
 	lineEndMultiplier: number;
 	uniqueMultiplier: number;
 	compareSupSub: boolean; // SUB, SUP까지 비교하는 옵션
+	compareImage: boolean; // 이미지 비교 여부
+	compareImageTolerance: number; // 이미지 비교 허용 오차 (0~100, 기본 99)
 };
 
 

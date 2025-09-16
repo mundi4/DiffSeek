@@ -10,6 +10,7 @@ import { ResizablePanelGroup } from './components/resizable/ResizablePanelGroup'
 import { ResizablePanel } from './components/resizable/ResizablePanel';
 import { UI_CONSTANTS, APP_MESSAGES } from './constants/appConstants';
 import clsx from 'clsx';
+import { diffOptionsAtom } from './states/diffOptionsAtom'
 
 const store = getDefaultStore();
 
@@ -110,6 +111,23 @@ function App() {
 		unsubscribe.push(store.sub(hoveredDiffIndexAtom, () => {
 
 		}));
+
+		(window as any).DiffSeek = {
+			setContent: function (side: 'left' | 'right', text: string, asHTML = false) {
+				if (side === 'left') {
+					return leftEditor.setContent({ text, asHTML });
+				} else {
+					return rightEditor.setContent({ text, asHTML });
+				}
+			},
+			setOptions: function (options: Partial<DiffOptions>) {
+				if (!options || typeof options !== "object") return;
+				store.set(diffOptionsAtom, prev => ({
+					...prev,
+					...options,
+				}));
+			}
+		}
 
 		return () => {
 			for (const off of unsubscribe) off();

@@ -1,0 +1,26 @@
+{
+	"manifest_version": 3,
+	"name": "DiffSeekExt",
+	"version": "0.1.0",
+	"description": "DiffSeek Chrome Extension Skeleton",
+	"action": {
+		"default_popup": "popup.html"
+	},
+	"permissions": ["tabs"],
+	"background": {
+		"service_worker": "background.js"
+	},
+	"content_scripts": [
+		{
+			"matches": ["file:///*", "http://manual.kbstar.com/*", "http://localhost:8000/*", "http://localhost:5173/*", "*://*/*diffseek.html"],
+			"js": ["content.js"],
+			"run_at": "document_idle"
+		}
+	],
+	"web_accessible_resources": [
+		{
+			"resources": ["manual_inject.js", "diffseek_inject.js"],
+			"matches": ["<all_urls>"]
+		}
+	]
+}

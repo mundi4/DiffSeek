@@ -165,13 +165,13 @@ async function packageLib() {
 }
 
 
-// 6) server 폴더 압축 → base64 → parts
-const serverZipPath = join(distDir, "server.zip");
+// 6) extension 폴더 압축 → base64 → parts
+const extensionZipPath = join(distDir, "extension.zip");
 import { resolve } from "path";
-async function packageServer() {
-	// 루트의 server 폴더 전체를 압축
-	await zipEntries(serverZipPath, [{ fsPath: resolve("server"), nameInZip: "server" }]);
-	await savePemPartsFromFile(serverZipPath, partsDir, "server");
+async function packageExtension() {
+	// 루트의 extension 폴더 전체를 압축
+	await zipEntries(extensionZipPath, [{ fsPath: resolve("extension"), nameInZip: "extension" }]);
+	await savePemPartsFromFile(extensionZipPath, partsDir, "extension");
 }
 
 /** 전체 실행 */
@@ -189,8 +189,10 @@ async function main() {
 	await packageApp();
 	await packageLib();
 
-	// 4) server 폴더 압축 및 분할
-	// await packageServer();
+	// 4) extension 폴더 압축 및 분할
+	await packageExtension();
+
+
 
 	console.log("🎯 모든 작업 완료");
 }

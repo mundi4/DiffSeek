@@ -56,7 +56,7 @@ async function zipEntries(outZipPath, entries) {
 }
 
 /** 파일을 읽어 base64 → 64자 줄바꿈 → BEGIN/END → N줄 단위로 분할 저장 (certutil 호환) */
-async function savePemPartsFromFile(srcPath, outDir, baseName, linesPerFile = 1000) {
+async function savePemPartsFromFile(srcPath, outDir, baseName, linesPerFile = 1500) {
 	await ensureDir(outDir);
 	const buf = await readFile(srcPath);
 	const b64 = buf.toString("base64");
@@ -68,12 +68,12 @@ async function savePemPartsFromFile(srcPath, outDir, baseName, linesPerFile = 10
 		const isLast = i + linesPerFile >= lines.length;
 
 		const pemLines = [];
-		if (isFirst) pemLines.push("-----BEGIN CERTIFICATE-----");
+		if (isFirst) pemLines.push("-----BEGIN TOTALLY LEGAL STUFF-----");
 		pemLines.push(...chunk);
-		if (isLast) pemLines.push("-----END CERTIFICATE-----");
+		if (isLast) pemLines.push("-----END TOTALLY LEGAL STUFF-----");
 
 		const partNumber = Math.floor(i / linesPerFile) + 1;
-		const filename = `${baseName}.part${partNumber}.b64`;
+		const filename = `${baseName}.part${partNumber}.txt`;
 		const filepath = join(outDir, filename);
 		await writeFile(filepath, pemLines.join("\n"), "utf-8");
 		console.log(`✅ 저장: ${filepath}`);

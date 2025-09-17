@@ -398,52 +398,21 @@ export class TokenizeContext {
 							doTokenizeText();
 						}
 
-						const range = document.createRange();
-						range.selectNode(child);
-
-						// 이것까지 넣어야하나... 눈으로 대충 보면 되지 않나 싶지만... 안과장님이 원하신다!!
-						// 처음에는 로컬웹서버를 돌려서 해당 서버로 경로를 보내고 서버가 로컬 파일을 읽어서 DATA URL로 반환하는 방식을 썼었지만 더 좋은 방법이 있다.
-						// 이미지 비교는 픽셀단위 비교이므로 성능상 문제가 될 수 있지만... 어차피 눈으로 보는 것보다는 빠를 것이라고 생각함.
-						// tolerance는 기본 99%로 해놨기 때문에 아주 사소한 차이는 무시된다. 문제가 생길 수 있을까??? i don't think so.
 						const src = (child as HTMLImageElement).src;
-						let tokenText = "";
-						let imageData: ImageData | undefined = undefined;
-						if (src) {
-							if (src && src.startsWith("data:")) {
-								// data url
-								tokenText = `$imgd:${quickHash53ToString(src)}`;
-							} else if (src.startsWith("http://") || src.startsWith("https://")) {
-								// 웹 url이 같으면 같은 이미지로 취급해도 되잖아???
-								tokenText = `$imgu:${quickHash53ToString(src)}`;
-							}
-
-							try {
-								imageData = imageDataCache.get(src);
-								if (!imageData) {
-									imageData = getImageData(child as HTMLImageElement);
-									imageDataCache.set(src, imageData);
-								}
-							} catch (e) {
-								console.warn("Failed to get image data!", e);
-							}
-						}
-						tokenText ||= `$imgx:${quickHash53ToString((++imgSeen).toString())}`;
-
-						currentToken = {
-							text: tokenText,
-							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
-							range,
-							container: currentContainer,
-							lineNum: lineNum,
-						};
-						if (imageData) {
-							currentToken.data = imageData.data;
-							currentToken.width = IMAGE_SIZE;
-							currentToken.height = IMAGE_SIZE;
+						if (src) { // src가 있는 경우에만 토큰으로 추가하자.
+							const range = document.createRange();
+							range.selectNode(child);
+							currentToken = {
+								text: src,
+								flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
+								range,
+								container: currentContainer,
+								lineNum: lineNum,
+							};
+							finalizeToken();
+							nextTokenFlags = 0;
 						}
 			
-						nextTokenFlags = 0;
-						finalizeToken();
 						continue;
 					}
 

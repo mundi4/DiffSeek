@@ -9,6 +9,7 @@ import type { Renderer, RendererCallbacks } from "@/core/Renderer";
 import { EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
 import { EditorPairer } from "./EditorPairer";
 import { TokenFlags } from "./tokenization/TokenFlags";
+import { dataURLToArrayBuffer } from "@/utils/dataURLToArrayBuffer";
 
 export type DiffResult = {
 	diffs: DiffEntry[];
@@ -37,6 +38,7 @@ export type DiffResult = {
 // }
 
 const SCROLL_TIMEOUT = 100;
+const IMAGE_SIZE = 500;
 
 export type DiffInitEvent = {
 	leftEditorChanged: boolean;
@@ -100,6 +102,7 @@ export class DiffController {
 		right: new Set(),
 	};
 	#lastTextSelectionRange: Range | null = null;
+	#cancelComputeDiff: (() => void) | null = null;
 
 	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions) {
 		this.#leftEditor = leftEditor;
@@ -353,9 +356,111 @@ export class DiffController {
 		this.computeDiff();
 	}
 
+	async *computeDiffGenerator(ctx: {
+		cancelled: boolean;
+		leftRichTokens: readonly RichToken[];
+		rightRichTokens: readonly RichToken[];
+		leftTokens: Token[];
+		rightTokens: Token[];
+	}, idleDeadline: IdleDeadline) {
+
+		const { leftRichTokens, rightRichTokens, leftTokens, rightTokens } = ctx;
+
+		async function* prepareTokens(richTokens: readonly RichToken[], result: Token[]) {
+			for (let i = 0; i < richTokens.length; i++) {
+				if (ctx.cancelled) {
+					return;
+				}
+
+				if ((i & 0x1f) === 0 && idleDeadline.timeRemaining() < 1) {
+					idleDeadline = yield;
+					if (ctx.cancelled) {
+						return;
+					}
+				}
+
+				const richToken = richTokens[i];
+
+				result[i] = {
+					text: richToken.text,
+					flags: richToken.flags,
+				};
+				// if (richToken.flags & TokenFlags.IMAGE) {
+				// 	try {
+				// 		const imageData = await loadImage(richToken.text, ctx);
+				// 		if (ctx.cancelled) {
+				// 			return;
+				// 		}
+				// 		result[i].width = IMAGE_SIZE;
+				// 		result[i].height = IMAGE_SIZE;
+				// 		result[i].data = imageData!.data.buffer;
+				// 	} catch (e) {
+				// 		console.warn("Error loading image:", e);
+				// 		continue;
+				// 	}
+				// }
+			}
+		}
+
+		yield* prepareTokens(leftRichTokens, leftTokens);
+		yield* prepareTokens(rightRichTokens, rightTokens);
+		return;
+	}
+
+	computeDiff2() {
+		if (this.#cancelComputeDiff) {
+			this.#cancelComputeDiff();
+			this.#cancelComputeDiff = null;
+		}
+		let requestId: number | null = null;
+		const ctx = {
+			cancelled: false,
+			leftRichTokens: this.#leftEditor.tokens,
+			rightRichTokens: this.#rightEditor.tokens,
+			leftTokens: [] as Token[],
+			rightTokens: [] as Token[],
+		};
+
+		let generator: AsyncGenerator<void, void, IdleDeadline> | null = null;
+		const step = async (deadline: IdleDeadline) => {
+			if (!generator) {
+				generator = this.computeDiffGenerator(ctx, deadline);
+			}
+
+			const { done } = await generator.next(deadline);
+			if (ctx.cancelled) {
+				return;
+			}
+
+			if (done) {
+				this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions);
+				this.#diffComputingEvent.emit({
+					leftTokenCount: ctx.leftTokens.length,
+					rightTokenCount: ctx.rightTokens.length,
+				});
+
+				this.#editorContentsChanged.left = false;
+				this.#editorContentsChanged.right = false;
+
+			} else {
+				requestId = requestIdleCallback(step, { timeout: 1000 });
+			}
+		}
+
+		requestId = requestIdleCallback(step, { timeout: 1000 });
+		this.#cancelComputeDiff = () => {
+			ctx.cancelled = true;
+			if (requestId) {
+				cancelIdleCallback(requestId);
+				requestId = null;
+			}
+		};
+	}
+
 	computeDiff() {
 		const leftTokens = buildTokenArray(this.#leftEditor.tokens);
 		const rightTokens = buildTokenArray(this.#rightEditor.tokens);
+
 		this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions);
 		this.#diffComputingEvent.emit({
 			leftTokenCount: this.#leftEditor.tokens.length,
@@ -654,4 +759,36 @@ function buildTokenArray(richTokens: readonly RichToken[]): Token[] {
 		}
 	}
 	return result;
+}
+
+
+let ctx: OffscreenCanvasRenderingContext2D | null = null;
+
+async function loadImage(url: string, cancellable: { cancelled: boolean }) {
+	const img = new Image();
+	img.crossOrigin = "anonymous";
+	if (url.startsWith("data:")) {
+		img.src = url;
+	} else {
+		img.src = `http://localhost:5000/api/fetch?url=${encodeURIComponent(url)}`;
+	}
+
+	await new Promise<void>((resolve, reject) => {
+		img.onload = () => resolve();
+		img.onerror = reject;
+	});
+	if (cancellable.cancelled) {
+		return null;
+	}
+
+	if (!ctx) {
+		const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
+		ctx = canvas.getContext("2d");
+		if (!ctx) {
+			throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
+		}
+	}
+
+	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 }

@@ -1,3 +1,5 @@
+
+
 // DiffSeekExt: manual.kbstar.com 전용 inject script
 console.log("DiffSeekExt: manual.kbstar.com inject loaded");
 

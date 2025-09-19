@@ -115,83 +115,83 @@ async function runDiff(ctx: WorkContext) {
 
 // #endregion
 
-const IMAGE_SIZE = 500;
-let canvasCtx: OffscreenCanvasRenderingContext2D | null = null;
+// const IMAGE_SIZE = 500;
+// let canvasCtx: OffscreenCanvasRenderingContext2D | null = null;
 
-function decodeDataURL(url: string): Uint8Array {
-	const match = url.match(/^data:([^;]+);base64,(.*)$/);
-	if (!match) throw new Error("Only base64-encoded data URLs are supported");
+// function decodeDataURL(url: string): Uint8Array {
+// 	const match = url.match(/^data:([^;]+);base64,(.*)$/);
+// 	if (!match) throw new Error("Only base64-encoded data URLs are supported");
 
-	const data = match[2];
-	const binary = atob(data.trim());
-	const bytes = new Uint8Array(binary.length);
-	for (let i = 0; i < binary.length; i++) {
-		bytes[i] = binary.charCodeAt(i);
-	}
-	return bytes;
-}
+// 	const data = match[2];
+// 	const binary = atob(data.trim());
+// 	const bytes = new Uint8Array(binary.length);
+// 	for (let i = 0; i < binary.length; i++) {
+// 		bytes[i] = binary.charCodeAt(i);
+// 	}
+// 	return bytes;
+// }
 
-async function loadImage(token: Token, ctx: WorkContext): Promise<void> {
-	if (ctx.cancel) {
-		return;
-	}
+// async function loadImage(token: Token, ctx: WorkContext): Promise<void> {
+// 	if (ctx.cancel) {
+// 		return;
+// 	}
 
-	const url = token.text;
-	if (!url) {
-		return;
-	}
+// 	const url = token.text;
+// 	if (!url) {
+// 		return;
+// 	}
 
-	try {
-		let bitmap: ImageBitmap;
-		if (url.startsWith("data:")) {
-			// dataURL → base64 decode → Blob → createImageBitmap
-			const [meta] = url.split(",");
-			const mimeMatch = /^data:(.*?);base64/.exec(meta);
-			if (!mimeMatch) return;
-			const mime = mimeMatch[1];
+// 	try {
+// 		let bitmap: ImageBitmap;
+// 		if (url.startsWith("data:")) {
+// 			// dataURL → base64 decode → Blob → createImageBitmap
+// 			const [meta] = url.split(",");
+// 			const mimeMatch = /^data:(.*?);base64/.exec(meta);
+// 			if (!mimeMatch) return;
+// 			const mime = mimeMatch[1];
 
-			const bytes = decodeDataURL(url);
-			const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mime });
-			if (ctx.cancel) return;
-			bitmap = await createImageBitmap(blob);
-			// data url은 text비교가 가능하므로(물론 url이 같은 경우에만) token.text를 바꾸지 않음.
-			// 다른 경우에는 복잡한 비교를 수행해야 함.
-		} else {
-			const response = await fetch(`http://localhost:5000/api/fetch?url=${encodeURIComponent(url)}`);
-			if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-			const blob = await response.blob();
-			bitmap = await createImageBitmap(blob);
-			if (url.startsWith("http://") || url.startsWith("https://")) {
-				// 웹 url인 경우는 동일 url이면 동일 이미지로 판단할 수 있게 text를 바꾸지 않음.
-				// 물론 다른 경우에는 복잡한 비교를 수행해야 함.
-			} else {
-				// 웹 url이 아닌 경우는 경로가 같아도 같은 그림으로 판단하면 안된다.
-				// 워드 복붙 => 하드에 임시 파일 생성. 이때 새로운 임시 파일이 이전 복붙 때 사용된 경로에 덮어쓰여질 수 있음.
-				token.text = `$img${ctx.nextImageId++}`;
-			}
-		}
+// 			const bytes = decodeDataURL(url);
+// 			const blob = new Blob([bytes.buffer as ArrayBuffer], { type: mime });
+// 			if (ctx.cancel) return;
+// 			bitmap = await createImageBitmap(blob);
+// 			// data url은 text비교가 가능하므로(물론 url이 같은 경우에만) token.text를 바꾸지 않음.
+// 			// 다른 경우에는 복잡한 비교를 수행해야 함.
+// 		} else {
+// 			const response = await fetch(`http://localhost:5000/api/fetch?url=${encodeURIComponent(url)}`);
+// 			if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+// 			const blob = await response.blob();
+// 			bitmap = await createImageBitmap(blob);
+// 			if (url.startsWith("http://") || url.startsWith("https://")) {
+// 				// 웹 url인 경우는 동일 url이면 동일 이미지로 판단할 수 있게 text를 바꾸지 않음.
+// 				// 물론 다른 경우에는 복잡한 비교를 수행해야 함.
+// 			} else {
+// 				// 웹 url이 아닌 경우는 경로가 같아도 같은 그림으로 판단하면 안된다.
+// 				// 워드 복붙 => 하드에 임시 파일 생성. 이때 새로운 임시 파일이 이전 복붙 때 사용된 경로에 덮어쓰여질 수 있음.
+// 				token.text = `$img${ctx.nextImageId++}`;
+// 			}
+// 		}
 
-		if (ctx.cancel) {
-			return;
-		}
+// 		if (ctx.cancel) {
+// 			return;
+// 		}
 
-		if (!canvasCtx) {
-			const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
-			canvasCtx = canvas.getContext("2d");
-			if (!canvasCtx) {
-				throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
-			}
-		}
+// 		if (!canvasCtx) {
+// 			const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
+// 			canvasCtx = canvas.getContext("2d");
+// 			if (!canvasCtx) {
+// 				throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
+// 			}
+// 		}
 
-		canvasCtx.drawImage(bitmap, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-		const imageData = canvasCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-		token.width = IMAGE_SIZE;
-		token.height = IMAGE_SIZE;
-		token.data = imageData.data.buffer;
-	} catch (e) {
-		console.warn("Failed to load image:", url.slice(0, 30) + "...", e);
-	}
-}
+// 		canvasCtx.drawImage(bitmap, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+// 		const imageData = canvasCtx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+// 		token.width = IMAGE_SIZE;
+// 		token.height = IMAGE_SIZE;
+// 		token.data = imageData.data.buffer;
+// 	} catch (e) {
+// 		console.warn("Failed to load image:", url.slice(0, 30) + "...", e);
+// 	}
+// }
 
 // ============================================================
 // Histogram Algorithm
@@ -224,20 +224,21 @@ async function checkServerAvailability(force = false): Promise<boolean> {
 async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	// TODO 서버 상태 체크는 메인쓰레드에서 주기적으로 하는게 낫지 싶다.
 	let compareImage = ctx.options.compareImage;
-	let shouldShowServerUnavailableMessage = false;
-	if (compareImage) {
-		if (!await checkServerAvailability()) {
 
-			ctx.options.compareImage = compareImage = false;
-			shouldShowServerUnavailableMessage = true;
-		}
-		if (ctx.cancel) throw new Error("cancelled");
-	}
+	// let shouldShowServerUnavailableMessage = false;
+	// if (compareImage) {
+	// 	if (!await checkServerAvailability()) {
+
+	// 		ctx.options.compareImage = compareImage = false;
+	// 		shouldShowServerUnavailableMessage = true;
+	// 	}
+	// 	if (ctx.cancel) throw new Error("cancelled");
+	// }
 
 	// 내가 왜 이미지 로드를 워커 쓰레드까지 끌고 왔는지 모르겠다.
 	// 메인쓰레드에서 처리하면 확실한 피드백을 줄 수 있는데...
 	// 여기서는 피드백을 주려면 postMessage까지 써야한다...
-	const limitedLoader = compareImage ? createLimitedLoader(loadImage, 5, ctx) : null;
+	// const limitedLoader = compareImage ? createLimitedLoader(loadImage, 5, ctx) : null;
 
 	const lhsTokens = ctx.leftTokens; // tokenize(ctx.leftText, ctx.options.tokenization);
 	const rhsTokens = ctx.rightTokens; // tokenize(ctx.rightText, ctx.options.tokenization);
@@ -251,13 +252,13 @@ async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
 			leftAnchors.push(i);
 		}
-		if (token.flags & TokenFlags.IMAGE) {
-			if (shouldShowServerUnavailableMessage) {
-				console.warn("Image proxy server is not available. Pixel comparison is disabled.");
-				shouldShowServerUnavailableMessage = false;
-			}
-			limitedLoader?.enqueue(token);
-		}
+		// if (token.flags & TokenFlags.IMAGE) {
+		// 	if (shouldShowServerUnavailableMessage) {
+		// 		console.warn("Image proxy server is not available. Pixel comparison is disabled.");
+		// 		shouldShowServerUnavailableMessage = false;
+		// 	}
+		// 	limitedLoader?.enqueue(token);
+		// }
 	}
 
 	// TODO 왼쪽 토큰에 MANUAL ANCHOR나 이미지가 존재하지 않는다면 다음 루프는 그냥 생략해도 된다.
@@ -266,17 +267,17 @@ async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
 			rightAnchors.push(i);
 		}
-		if (token.flags & TokenFlags.IMAGE) {
-			if (shouldShowServerUnavailableMessage) {
-				console.warn("Image proxy server is not available. Pixel comparison is disabled.");
-				shouldShowServerUnavailableMessage = false;
-			}
-			limitedLoader?.enqueue(token);
-		}
+		// if (token.flags & TokenFlags.IMAGE) {
+		// 	if (shouldShowServerUnavailableMessage) {
+		// 		console.warn("Image proxy server is not available. Pixel comparison is disabled.");
+		// 		shouldShowServerUnavailableMessage = false;
+		// 	}
+		// 	limitedLoader?.enqueue(token);
+		// }
 	}
 
-	await limitedLoader?.waitAll();
-	if (ctx.cancel) throw new Error("cancelled");
+	// await limitedLoader?.waitAll();
+	//if (ctx.cancel) throw new Error("cancelled");
 
 	const matches: { lhsIndex: number; rhsIndex: number }[] = [];
 	if (rightAnchors.length > 0) {
@@ -1032,7 +1033,7 @@ function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContex
 		return false;
 	}
 
-	const cacheKey = [leftToken.text, rightToken.text].sort().join("||");
+	const cacheKey = [leftToken.text, rightToken.text].sort().join("<>");
 	if (imageCompareCache[cacheKey] !== undefined) {
 		return imageCompareCache[cacheKey];
 	}
@@ -1049,6 +1050,7 @@ function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContex
 			threshold: 0.1,
 		});
 		const similarity = ((width * height - diffCount) / (width * height)) * 100;
+		console.log(`Image Comparison: ${cacheKey} => [${similarity.toFixed(2)}%]`);
 		result = similarity >= diffOptions.compareImageTolerance;
 	}
 

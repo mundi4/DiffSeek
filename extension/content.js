@@ -1,3 +1,6 @@
+//import { chrome } from "process";
+//import { createRPC } from "./rpc.js";
+
 // DiffSeekExt content script
 console.log("DiffSeekExt content script loaded.");
 
@@ -51,8 +54,12 @@ if (location.href === "http://manual.kbstar.com/" || location.href.startsWith("h
 	});
 }
 
-// diffseek_inject.js를 inject 및 메시지 브릿지 (localhost:5173 또는 diffseek.html)
+// ----------------------------------------
+// diffseek content script
+// ----------------------------------------
 if (/localhost:5173/.test(location.href) || /diffseek\.html$/i.test(location.href)) {
+	console.log("DiffSeekExt: diffseek content script active");
+
 	(function injectScript() {
 		if (document.getElementById("diffseek-inject-script")) return;
 		const script = document.createElement("script");
@@ -63,6 +70,18 @@ if (/localhost:5173/.test(location.href) || /diffseek\.html$/i.test(location.hre
 		};
 		(document.head || document.documentElement).appendChild(script);
 	})();
+
+	const port = chrome.runtime.connect({ name: "diffseek" });
+	const rpc = createRPC(port);
+	rpc.handle({});
+
+	const windowRPC = createWindowRPC({ source: "content", timeout: 3000 });
+	windowRPC.handle({
+		fetchImageData: async (url) => {
+			const result = await rpc.call("fetchImageData", [url]);
+			return { result, transfer: result && result.data ? [result.data] : [] };
+		},
+	});
 
 	// 확장 메시지를 inject로 전달
 	chrome.runtime.onMessage.addListener(function (request, sender, sendResponse) {

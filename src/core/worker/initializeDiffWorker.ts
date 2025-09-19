@@ -38,7 +38,7 @@ export function initializeDiffWorker(onComplete: OnDiffCompleteCallback) {
 	// 에디터의 내용이 변경되면 거의 즉시 diff 요청을 보내게 되는데 양쪽의 에디터가 동시에 변경되는 일은 극히 드물기 때문에
 	// 한쪽만 변경되었을 경우에도 양쪽의 토큰을 모두 보내는 건 비효율적이다.
 	return {
-		run: (leftTokens: Token[], rightTokens: Token[], options: DiffOptions) => {
+		run: (leftTokens: Token[], rightTokens: Token[], options: DiffOptions, transfer?: Transferable[]) => {
 			const request: DiffWorkerRequest = {
 				type: "diff",
 				reqId: ++currentReqId,
@@ -47,7 +47,7 @@ export function initializeDiffWorker(onComplete: OnDiffCompleteCallback) {
 				options,
 			};
 
-			worker!.postMessage(request);
+			worker!.postMessage(request, { transfer });
 		},
 		terminate: () => {
 			if (worker) {

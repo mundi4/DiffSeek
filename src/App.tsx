@@ -14,8 +14,9 @@ import { diffOptionsAtom } from './states/diffOptionsAtom'
 import type { Editor } from './core'
 
 const store = getDefaultStore();
-
+console.log(" window.extensionEnabled", window.extensionEnabled)
 const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
+	console.log("Loading fallback content...", window.extensionEnabled);
 	// 개발 환경에서만 데모 콘텐츠 로드
 	if (import.meta.env.DEV) {
 		try {
@@ -30,8 +31,6 @@ const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
 			// fallback to default content
 			await loadFallbackContent(leftEditor, rightEditor);
 		}
-
-
 	} else {
 		// production에서는 빈 에디터 또는 기본 콘텐츠
 		await loadFallbackContent(leftEditor, rightEditor);
@@ -39,11 +38,11 @@ const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
 };
 
 const loadFallbackContent = async (leftEditor: Editor, rightEditor: Editor) => {
+	
 	// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
 	// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
-	const leftContent = `  <img src="http://localhost:5051/img1.jpg" style="width: 300px;" />
-  <img src="http://localhost:5051/4a.png" />`;
-	const rightContent = `<img src="http://localhost:5051/img1_clone.jpg" style="width: 150px;" /><img src="http://localhost:5051/4b.png" />`;
+	const leftContent = "";//`<img src="http://localhost:5051/img1.jpg" style="width: 300px;" /><img src="http://localhost:5051/4a.png" />`;
+	const rightContent = "";//`<img src="http://localhost:5051/img1_clone.jpg" style="width: 150px;" /><img src="http://localhost:5051/4b.png" />`;
 	await leftEditor.setContent({ text: leftContent, asHTML: true });
 	await rightEditor.setContent({ text: rightContent, asHTML: true });
 };
@@ -75,21 +74,23 @@ function App() {
 			}
 		};
 
-		(window as any).DiffSeek = {
-			setContent: function (side: 'left' | 'right', text: string, asHTML = false) {
-				if (side === 'left') {
-					return leftEditor.setContent({ text, asHTML });
-				} else {
-					return rightEditor.setContent({ text, asHTML });
-				}
-			},
-			setOptions: function (options: Partial<DiffOptions>) {
-				if (!options || typeof options !== "object") return;
-				store.set(diffOptionsAtom, prev => ({
-					...prev,
-					...options,
-				}));
+		(window as any).DiffSeek = (window as any).DiffSeek || {};
+		(window as any).DiffSeek.setContent = (side: 'left' | 'right', text: string, asHTML = false) => {
+			if (side === 'left') {
+				return leftEditor.setContent({ text, asHTML });
+			} else {
+				return rightEditor.setContent({ text, asHTML });
 			}
+		};
+		(window as any).DiffSeek.setOptions = (options: Partial<DiffOptions>) => {
+			if (!options || typeof options !== "object") return;
+			store.set(diffOptionsAtom, prev => ({
+				...prev,
+				...options,
+			}));
+		};
+		(window as any).DiffSeek.setExtensionEnabled = (enable: boolean = true) => {
+			window.extensionEnabled = enable;
 		}
 
 		initializeApp();

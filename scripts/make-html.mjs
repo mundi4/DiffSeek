@@ -164,7 +164,6 @@ async function packageLib() {
 	await savePemPartsFromFile(distLibZip, partsDir, "vendor");
 }
 
-
 // 6) extension 폴더 압축 → base64 → parts
 const extensionZipPath = join(distDir, "extension.zip");
 import { resolve } from "path";

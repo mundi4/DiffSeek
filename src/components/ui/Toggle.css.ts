@@ -60,9 +60,9 @@ export const toggle = recipe({
 			/** 새로 추가된 xs (24px 컨트롤) */
 			xs: {
 				height: vars.size.control.xs, // 24px
-				minWidth: vars.size.control.xs,
+				minWidth: vars.size.control.xxs,
 				paddingInline: vars.spacing.xs, // 4px
-				gap: vars.spacing.xs, // 4px (아이콘/텍스트 간격도 축소)
+				gap: vars.spacing.xxs, // 4px (아이콘/텍스트 간격도 축소)
 			},
 			sm: {
 				height: vars.size.control.md, // 32px

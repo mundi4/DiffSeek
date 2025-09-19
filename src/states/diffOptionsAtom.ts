@@ -16,7 +16,7 @@ export const diffOptionsAtom = atom<DiffOptions>({
 	uniqueMultiplier: 1 / 0.6667,
 	compareSupSub: true, // 매뉴얼 등재 시 윗첨자 적용을 놓쳐서 창피한 일이 자주 생김...
 	compareImage: true,
-	compareImageTolerance: 96, // 이미지 픽셀 비교시에 어느정도나 일치해야 같은 이미지라고 판단할 지... %
+	compareImageTolerance: 95, // 이미지 픽셀 비교시에 어느정도나 일치해야 같은 이미지라고 판단할 지... %
 });
 
 export const whitespaceHandlingAtom = atom<WhitespaceHandling, [WhitespaceHandling], void>(
@@ -26,6 +26,28 @@ export const whitespaceHandlingAtom = atom<WhitespaceHandling, [WhitespaceHandli
 		set(diffOptionsAtom, {
 			...currentOptions,
 			ignoreWhitespace: value as WhitespaceHandling,
+		});
+	}
+);
+
+export const compareImageAtom = atom<boolean, [boolean], void>(
+	(get) => get(diffOptionsAtom).compareImage,
+	(get, set, value) => {
+		const currentOptions = get(diffOptionsAtom);
+		set(diffOptionsAtom, {
+			...currentOptions,
+			compareImage: value,
+		});
+	}
+);
+
+export const compareImageToleranceAtom = atom<number, [number], void>(
+	(get) => get(diffOptionsAtom).compareImageTolerance,
+	(get, set, value) => {
+		const currentOptions = get(diffOptionsAtom);
+		set(diffOptionsAtom, {
+			...currentOptions,
+			compareImageTolerance: value,
 		});
 	}
 );

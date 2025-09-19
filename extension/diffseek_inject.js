@@ -1,5 +1,10 @@
-// DiffSeekExt: diffseek_inject.js
 console.log("DiffSeekExt: diffseek_inject.js loaded");
+window.extensionEnabled = true;
+
+if (window.DiffSeek) {
+	console.log("DiffSeekExt: window.DiffSeek available, enabling extension features");
+	window.DiffSeek.setExtensionEnabled(true);
+}
 
 window.addEventListener("message", function (event) {
 	if (!event.data || event.source !== window) return;
@@ -13,4 +18,6 @@ window.addEventListener("message", function (event) {
 			console.log("[DiffSeekExt] window.DiffSeek.setContent not available");
 		}
 	}
+
 });
+

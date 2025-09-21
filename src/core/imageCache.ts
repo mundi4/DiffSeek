@@ -14,9 +14,9 @@ export type ImageLoadResult = {
     promise?: Promise<void>;
 }
 
-const hashMap = new Map<string, ImageLoadResult>();
+const globalHashMap = new Map<string, ImageLoadResult>();
 
-async function scaleAndExtract(source: string | HTMLImageElement, width: number, height: number, cancellable: { cancelled: boolean }) {
+async function scaleAndExtract(source: string | HTMLImageElement, width: number, height: number, cancellable: AbortSignal) {
     let img: HTMLImageElement;
     if (typeof source === "string") {
         img = new Image();
@@ -33,9 +33,7 @@ async function scaleAndExtract(source: string | HTMLImageElement, width: number,
         });
     }
 
-    if (cancellable.cancelled) {
-        throw new Error("Cancelled");
-    }
+    cancellable.throwIfAborted();
 
     const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
     const ctx = canvas.getContext("2d");
@@ -48,7 +46,7 @@ async function scaleAndExtract(source: string | HTMLImageElement, width: number,
 }
 
 
-async function doLoad(result: ImageLoadResult, img: HTMLImageElement, src: string, cancellable: { cancelled: boolean }) {
+async function doLoad(result: ImageLoadResult, img: HTMLImageElement, src: string, cancellable: AbortSignal) {
     const srcIsDataUrl = src.startsWith("data:");
 
     if (!result.hash || !result.dataUrl) {
@@ -58,16 +56,14 @@ async function doLoad(result: ImageLoadResult, img: HTMLImageElement, src: strin
             dataUrl = src;
         } else {
             dataUrl = await fetchImageDataUsingExtension(src);
-            if (cancellable.cancelled) {
-                return;
-            }
+            cancellable.throwIfAborted();
         }
 
         const hash = quickHash53(dataUrl);
         // if (cancellable.cancelled) {
         //     return;
         // }
-        
+
         result.hash = hash;
         result.dataUrl = dataUrl;
     }
@@ -84,11 +80,11 @@ async function doLoad(result: ImageLoadResult, img: HTMLImageElement, src: strin
     result.height = imageData.height;
 
     // 성공한 경우에만 저장
-    hashMap.set(result.hash, result);
+    globalHashMap.set(result.hash, result);
 }
 
 
-function load(img: HTMLImageElement, cancellable: { cancelled: boolean }, srcCache: Record<string, ImageLoadResult>): ImageLoadResult {
+function load(img: HTMLImageElement, cancellable: AbortSignal, srcCache: Record<string, ImageLoadResult>): ImageLoadResult {
     // srcCache는 session, context 단위임.
 
     const src = img.src;
@@ -100,7 +96,7 @@ function load(img: HTMLImageElement, cancellable: { cancelled: boolean }, srcCac
     }
 
     let hash = img.dataset.hash;
-    result = hash ? hashMap.get(hash) : undefined;
+    result = hash ? globalHashMap.get(hash) : undefined;
     if (result) {
         return result;
     }
@@ -110,7 +106,11 @@ function load(img: HTMLImageElement, cancellable: { cancelled: boolean }, srcCac
     };
 
     if (!result.promise || !result.data || !result.hash) {
-        result.promise = doLoad(result, img, src, cancellable);
+        result.promise = doLoad(result, img, src, cancellable).catch((err) => {
+            if (err !== "cancelled") {
+                console.warn("Image load failed:", err, src.slice(0, 40));
+            }
+        });
     }
 
     srcCache[src] = result;
@@ -118,9 +118,9 @@ function load(img: HTMLImageElement, cancellable: { cancelled: boolean }, srcCac
 }
 
 export function clearImageCache(using: Set<string>) {
-    for (const key of hashMap.keys()) {
+    for (const key of globalHashMap.keys()) {
         if (!using.has(key)) {
-            hashMap.delete(key);
+            globalHashMap.delete(key);
         }
     }
 }
@@ -128,7 +128,7 @@ export function clearImageCache(using: Set<string>) {
 export function createImageLoader() {
     const srcCache: Record<string, ImageLoadResult> = {};
     return {
-        load: (img: HTMLImageElement, cancellable: { cancelled: boolean }) => load(img, cancellable, srcCache),
+        load: (img: HTMLImageElement, cancellable: AbortSignal) => load(img, cancellable, srcCache),
         clear: (using: Set<string>) => clearImageCache(using),
     }
 }

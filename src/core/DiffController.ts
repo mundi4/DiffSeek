@@ -12,6 +12,7 @@ import { TokenFlags } from "./tokenization/TokenFlags";
 import { createRangeFromTokenRange } from "./utils/tokenRangeUtils";
 import type { DiffWorkerResult } from "./worker/diff-worker";
 import { clearImageCache, dumpImageCache, type ImageLoadResult } from "./imageCache";
+import { nextIdle } from "@/utils/nextIdle";
 
 
 // const defaultDiffOptions: DiffOptions = {
@@ -99,7 +100,7 @@ export class DiffController {
 		right: new Set(),
 	};
 	#lastTextSelectionRange: Range | null = null;
-	#cancelComputeDiff: (() => void) | null = null;
+	// #cancelComputeDiff: (() => void) | null = null;
 
 	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions) {
 		this.#leftEditor = leftEditor;
@@ -370,36 +371,33 @@ export class DiffController {
 		this.computeDiff();
 	}
 
-	async *computeDiffGenerator(ctx: {
-		cancelled: boolean;
-		leftRichTokens: readonly RichToken[];
-		rightRichTokens: readonly RichToken[];
-		leftImageMap: Map<RichToken, ImageLoadResult>;
-		rightImageMap: Map<RichToken, ImageLoadResult>;
-		leftTokens: Token[];
-		rightTokens: Token[];
-		transfer: Transferable[];
-		promises?: Promise<any>[];
-	}, idleDeadline: IdleDeadline) {
+	#computeDiffAbortController: AbortController | null = null;
 
-		const { leftRichTokens, rightRichTokens, leftImageMap, rightImageMap, leftTokens, rightTokens, transfer, promises } = ctx;
+	async computeDiff() {
+		this.#computeDiffAbortController?.abort("cancelled");
+		this.#computeDiffAbortController = new AbortController();
 
+		const leftRichTokens = this.#leftEditor.tokens;
+		const rightRichTokens = this.#rightEditor.tokens;
+		const leftImageMap = this.#leftEditor.imageMap;
+		const rightImageMap = this.#rightEditor.imageMap;
+		const leftTokens = [] as Token[];
+		const rightTokens = [] as Token[];
+		const transfer = [] as Transferable[];
+		const signal = this.#computeDiffAbortController.signal;
 		const imageHashesSeen = new Set<string>();
-		async function* prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
+
+		let idleDeadline = await nextIdle();
+		async function prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
 			for (let i = 0; i < richTokens.length; i++) {
-				if (ctx.cancelled) {
-					return;
-				}
+				signal.throwIfAborted();
 
 				if ((i & 0x1f) === 0 && idleDeadline.timeRemaining() < 1) {
-					idleDeadline = yield;
-					if (ctx.cancelled) {
-						return;
-					}
+					idleDeadline = await nextIdle();
+					signal.throwIfAborted();
 				}
 
 				const richToken = richTokens[i];
-
 				result[i] = {
 					text: richToken.text,
 					flags: richToken.flags,
@@ -422,89 +420,167 @@ export class DiffController {
 			}
 		}
 
-		yield* prepareTokens(leftRichTokens, leftImageMap, leftTokens);
-		if (ctx.cancelled) {
-			return;
-		}
+		try {
+			await prepareTokens(leftRichTokens, leftImageMap, leftTokens);
+			signal.throwIfAborted();
 
-		yield* prepareTokens(rightRichTokens, rightImageMap, rightTokens);
-		if (ctx.cancelled) {
-			return;
+			await prepareTokens(rightRichTokens, rightImageMap, rightTokens);
+			signal.throwIfAborted();
+
+			this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, transfer);
+			this.#diffComputingEvent.emit({
+				leftTokenCount: leftTokens.length,
+				rightTokenCount: rightTokens.length,
+			});
+
+			this.#editorContentsChanged.left = false;
+			this.#editorContentsChanged.right = false;
+		} catch (err) {
+			if (err !== "cancelled") {
+				console.error("Diff computation error:", err);
+			}
 		}
 
 		clearImageCache(imageHashesSeen);
-		return;
-	}
-
-	computeDiff() {
-		if (this.#cancelComputeDiff) {
-			this.#cancelComputeDiff();
-			this.#cancelComputeDiff = null;
-		}
-		let requestId: number | null = null;
-		const ctx = {
-			cancelled: false,
-			leftRichTokens: this.#leftEditor.tokens,
-			rightRichTokens: this.#rightEditor.tokens,
-			leftImageMap: this.#leftEditor.imageMap,
-			rightImageMap: this.#rightEditor.imageMap,
-			leftTokens: [] as Token[],
-			rightTokens: [] as Token[],
-			transfer: [] as Transferable[],
-			promises: [] as Promise<any>[],
-		};
-
-		let generator: AsyncGenerator<void, void, IdleDeadline> | null = null;
-		const step = async (deadline: IdleDeadline) => {
-			if (!generator) {
-				generator = this.computeDiffGenerator(ctx, deadline);
-			}
-
-			const { done } = await generator.next(deadline);
-			if (ctx.cancelled) {
-				return;
-			}
-
-			if (done) {
-				this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions, ctx.transfer);
-				this.#diffComputingEvent.emit({
-					leftTokenCount: ctx.leftTokens.length,
-					rightTokenCount: ctx.rightTokens.length,
-				});
-
-				this.#editorContentsChanged.left = false;
-				this.#editorContentsChanged.right = false;
-
-			} else {
-				requestId = requestIdleCallback(step, { timeout: 1000 });
-			}
-		}
-
-		requestId = requestIdleCallback(step, { timeout: 1000 });
-		this.#cancelComputeDiff = () => {
-			ctx.cancelled = true;
-			if (requestId) {
-				cancelIdleCallback(requestId);
-				requestId = null;
-			}
-		};
-
 		dumpImageCache();
 	}
 
-	computeDiff2() {
-		const leftTokens = buildTokenArray(this.#leftEditor.tokens);
-		const rightTokens = buildTokenArray(this.#rightEditor.tokens);
+	// async *computeDiffGenerator(ctx: {
+	// 	cancelled: boolean;
+	// 	leftRichTokens: readonly RichToken[];
+	// 	rightRichTokens: readonly RichToken[];
+	// 	leftImageMap: Map<RichToken, ImageLoadResult>;
+	// 	rightImageMap: Map<RichToken, ImageLoadResult>;
+	// 	leftTokens: Token[];
+	// 	rightTokens: Token[];
+	// 	transfer: Transferable[];
+	// 	promises?: Promise<any>[];
+	// }, idleDeadline: IdleDeadline) {
 
-		this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, []);
-		this.#diffComputingEvent.emit({
-			leftTokenCount: this.#leftEditor.tokens.length,
-			rightTokenCount: this.#rightEditor.tokens.length,
-		});
+	// 	const { leftRichTokens, rightRichTokens, leftImageMap, rightImageMap, leftTokens, rightTokens, transfer, promises } = ctx;
 
-		this.#editorContentsChanged.left = false;
-		this.#editorContentsChanged.right = false;
-	}
+	// 	const imageHashesSeen = new Set<string>();
+	// 	async function* prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
+	// 		for (let i = 0; i < richTokens.length; i++) {
+	// 			if (ctx.cancelled) {
+	// 				return;
+	// 			}
+
+	// 			if ((i & 0x1f) === 0 && idleDeadline.timeRemaining() < 1) {
+	// 				idleDeadline = yield;
+	// 				if (ctx.cancelled) {
+	// 					return;
+	// 				}
+	// 			}
+
+	// 			const richToken = richTokens[i];
+
+	// 			result[i] = {
+	// 				text: richToken.text,
+	// 				flags: richToken.flags,
+	// 			};
+
+	// 			if (richToken.flags & TokenFlags.IMAGE) {
+	// 				const props = imageMap.get(richToken);
+	// 				if (props && props.hash && props.data) {
+	// 					if (!imageHashesSeen.has(props.hash)) {
+	// 						imageHashesSeen.add(props.hash);
+	// 						if (props.data.buffer.byteLength > 0) {
+	// 							result[i].width = props.width;
+	// 							result[i].height = props.height;
+	// 							result[i].data = props.data.buffer;
+	// 							transfer.push(props.data.buffer);
+	// 						}
+	// 					}
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+
+	// 	yield* prepareTokens(leftRichTokens, leftImageMap, leftTokens);
+	// 	if (ctx.cancelled) {
+	// 		return;
+	// 	}
+
+	// 	yield* prepareTokens(rightRichTokens, rightImageMap, rightTokens);
+	// 	if (ctx.cancelled) {
+	// 		return;
+	// 	}
+
+	// 	clearImageCache(imageHashesSeen);
+	// 	return;
+	// }
+
+	// computeDiff3() {
+	// 	// if (this.#cancelComputeDiff) {
+	// 	// 	this.#cancelComputeDiff();
+	// 	// 	this.#cancelComputeDiff = null;
+	// 	// }
+	// 	this.#computeDiffAbortController?.abort("cancelled");
+	// 	let requestId: number | null = null;
+	// 	const ctx = {
+	// 		cancelled: false,
+	// 		leftRichTokens: this.#leftEditor.tokens,
+	// 		rightRichTokens: this.#rightEditor.tokens,
+	// 		leftImageMap: this.#leftEditor.imageMap,
+	// 		rightImageMap: this.#rightEditor.imageMap,
+	// 		leftTokens: [] as Token[],
+	// 		rightTokens: [] as Token[],
+	// 		transfer: [] as Transferable[],
+	// 		promises: [] as Promise<any>[],
+	// 	};
+
+	// 	let generator: AsyncGenerator<void, void, IdleDeadline> | null = null;
+	// 	const step = async (deadline: IdleDeadline) => {
+	// 		if (!generator) {
+	// 			generator = this.computeDiffGenerator(ctx, deadline);
+	// 		}
+
+	// 		const { done } = await generator.next(deadline);
+	// 		if (ctx.cancelled) {
+	// 			return;
+	// 		}
+
+	// 		if (done) {
+	// 			this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions, ctx.transfer);
+	// 			this.#diffComputingEvent.emit({
+	// 				leftTokenCount: ctx.leftTokens.length,
+	// 				rightTokenCount: ctx.rightTokens.length,
+	// 			});
+
+	// 			this.#editorContentsChanged.left = false;
+	// 			this.#editorContentsChanged.right = false;
+
+	// 		} else {
+	// 			requestId = requestIdleCallback(step, { timeout: 1000 });
+	// 		}
+	// 	}
+
+	// 	requestId = requestIdleCallback(step, { timeout: 1000 });
+	// 	// this.#cancelComputeDiff = () => {
+	// 	// 	ctx.cancelled = true;
+	// 	// 	if (requestId) {
+	// 	// 		cancelIdleCallback(requestId);
+	// 	// 		requestId = null;
+	// 	// 	}
+	// 	// };
+
+	// 	dumpImageCache();
+	// }
+
+	// computeDiff2() {
+	// 	const leftTokens = buildTokenArray(this.#leftEditor.tokens);
+	// 	const rightTokens = buildTokenArray(this.#rightEditor.tokens);
+
+	// 	this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, []);
+	// 	this.#diffComputingEvent.emit({
+	// 		leftTokenCount: this.#leftEditor.tokens.length,
+	// 		rightTokenCount: this.#rightEditor.tokens.length,
+	// 	});
+
+	// 	this.#editorContentsChanged.left = false;
+	// 	this.#editorContentsChanged.right = false;
+	// }
 
 	#handleEditorScroll(editor: Editor, skipEndCheck = false) {
 		if (this.#preventScrollEvent) {

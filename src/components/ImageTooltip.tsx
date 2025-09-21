@@ -36,12 +36,12 @@ export function ImageTooltipLayer() {
     useEffect(() => {
         let rafId: number;
         const update = () => {
-            if (target) {
+            if (target && target.isConnected) {
                 setRect(target.getBoundingClientRect());
                 rafId = requestAnimationFrame(update);
             }
         };
-        if (target) {
+        if (target && target.isConnected) {
             update();
         }
         return () => {
@@ -49,7 +49,7 @@ export function ImageTooltipLayer() {
         };
     }, [target]);
 
-    if (!target || !rect || !diffContext) return null;
+    if (!target || !target.isConnected || !rect || !diffContext) return null;
 
     const tokenIndex = Number(target.dataset.tokenIndex);
     const side = (target.closest(".editor") as HTMLElement)!.dataset.editorName;

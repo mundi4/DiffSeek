@@ -1,5 +1,4 @@
 import type { EditorName } from "@/core/types";
-import { TokenizeContext, type RichToken, type TokenizeResult } from "@/core/tokenization/TokenizeContext";
 import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/core/constants/index";
 import { sanitizeHTML } from "@/core/sanitize";
 import { createParagraphsFromText } from "@/utils/createParagraphsFromText";
@@ -8,6 +7,7 @@ import type { EditorContext } from "@/core/EditorContext";
 import { mountHelper } from "@/utils/mountHelper";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./utils/tokenRangeUtils";
 import type { ImageLoadResult } from "./imageCache";
+import { tokenize, type RichToken, type TokenizeResult } from "./tokenization/TokenizeContext";
 
 export type EditorCallbacks = {
 	contentChanging: (editor: Editor) => void;
@@ -51,11 +51,11 @@ export class Editor implements EditorContext {
 	#mutationObserver: MutationObserver;
 	#tokens: RichToken[] = [];
 	#imageMap: Map<RichToken, ImageLoadResult> = new Map();
-	#tokenizeContext: TokenizeContext | null = null;
 	#callbacks: Partial<EditorCallbacks> = {};
 	#readonly: boolean = false;
 	#mountHelper: ReturnType<typeof mountHelper>;
 	#resizeObserver = new ResizeObserver(() => this.#onResize());
+	#tokenizeAbortController: AbortController | null = null;
 
 	constructor(editorName: EditorName) {
 		this.#editorName = editorName;
@@ -235,7 +235,12 @@ export class Editor implements EditorContext {
 
 	#handleContentChangedInternal() {
 		this.#callbacks.contentChanging?.(this);
-		this.#tokenize();
+		this.#tokenize()
+			.catch((err) => {
+				if (err !== "cancelled") {
+					console.error("Tokenization error:", err);
+				}
+			});
 	}
 
 	#onMutation(_mutations: MutationRecord[]) {
@@ -258,42 +263,18 @@ export class Editor implements EditorContext {
 		this.#mutationObserver.disconnect();
 	}
 
-	#tokenize() {
-		if (this.#tokenizeContext) {
-			this.#tokenizeContext.cancel();
+	async #tokenize() {
+		this.#tokenizeAbortController?.abort("cancelled");
+		this.#tokenizeAbortController = new AbortController();
+
+		try {
+			const { tokens, imageMap } = await tokenize(this.#editor, this.#tokenizeAbortController.signal);
+			this.#tokens = tokens;
+			this.#imageMap = imageMap;
+			this.#callbacks.contentChanged?.(this);
+		} finally {
+			this.#tokenizeAbortController = null;
 		}
-
-		this.#tokenizeContext = new TokenizeContext(this.#editor, this.#onTokenizeDone.bind(this));
-
-		this.#tokenizeContext.start();
-	}
-
-	#onTokenizeDone({ tokens, imageMap }: TokenizeResult) {
-		const current = this.#tokenizeContext;
-		this.#tokens = tokens;
-		this.#imageMap = imageMap;
-
-		const awaitables: Promise<any>[] = [];
-
-		for (const [_, props] of imageMap.entries()) {
-			// const img = props.elem;
-			// awaitables.push(props.ensureLoaded().then(({ dataUrl }) => {
-			// 	if (img.complete && img.naturalWidth === 0 && dataUrl && img.src !== dataUrl) {
-			// 		img.src = dataUrl;
-			// 		return new Promise<void>((resolve, reject) => {
-			// 			img.onload = () => resolve();
-			// 			img.onerror = reject;
-			// 		});
-			// 	}
-			// }));
-		}
-
-		Promise.allSettled(awaitables).then(() => {
-			if (this.#tokenizeContext === current) {
-				this.#tokenizeContext = null;
-				this.#callbacks.contentChanged?.(this);
-			}
-		});
 	}
 
 	#onCopy(e: ClipboardEvent) {

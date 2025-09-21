@@ -7,6 +7,7 @@ import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
 import { Toggle } from "../ui/toggle";
 import { syncModeAtom } from "@/states/atoms";
 import { useCallback } from "react";
+import { DiffOptionsDrawer } from "../DiffOptionsDrawer";
 
 // TODO overflow menu?
 export function FetishBar() {
@@ -21,15 +22,15 @@ export function FetishBar() {
         } as any}>
             <div className={clsx(styles.buttons)}>
                 <Toggle pressed={syncMode} onPressedChange={setSyncMode} size="xs"><BookOpen /></Toggle>
-                <Toggle pressed={compareImage &&window.extensionEnabled} onPressedChange={setCompareImage} size="xs"
+                <Toggle pressed={compareImage && window.extensionEnabled} onPressedChange={setCompareImage} size="xs"
                     disabled={!window.extensionEnabled}
                 ><Images /></Toggle>
             </div>
 
             <div className={clsx(styles.rightButtons)}>
-                <ModeSelector value={whitespaceHandling} onChange={(v) => setWhitespaceHandling(v)} />
+                {/* <ModeSelector value={whitespaceHandling} onChange={(v) => setWhitespaceHandling(v)} /> */}
                 {/* <Toggle size="sm" variant="outline" pressed={syncMode} onPressedChange={setSyncMode}><BookOpen size={14} /></Toggle> */}
-
+                <DiffOptionsDrawer />
             </div>
         </div>
     );

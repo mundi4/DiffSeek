@@ -1,6 +1,7 @@
 import { getSectionHeadingTrail } from "@/utils/getSectionTrail";
 import type { RichToken } from "./tokenization/TokenizeContext";
 import type { EditorName } from "./types";
+import type { ImageLoadResult } from "./imageCache";
 
 /**
  * DiffContext
@@ -22,6 +23,9 @@ export class DiffContext {
 	leftSectionHeadings: SectionHeading[];
 	rightSectionHeadings: SectionHeading[];
 	id: number = nextDiffContextId++;
+	leftImageMap: Map<RichToken, ImageLoadResult>;
+	rightImageMap: Map<RichToken, ImageLoadResult>;
+	imageComparisons: Record<string, { similarity: number }>;
 
 	constructor(
 		leftTokens: readonly RichToken[],
@@ -33,7 +37,10 @@ export class DiffContext {
 		rightEntries: DiffEntry[],
 		diffs: DiffItem[],
 		leftSectionHeadings: SectionHeading[] = [],
-		rightSectionHeadings: SectionHeading[] = []
+		rightSectionHeadings: SectionHeading[] = [],
+		leftImageMap: Map<RichToken, ImageLoadResult>,
+		rightImageMap: Map<RichToken, ImageLoadResult>,
+		imageComparisons: Record<string, { similarity: number }>
 	) {
 		this.leftTokens = leftTokens;
 		this.rightTokens = rightTokens;
@@ -45,6 +52,9 @@ export class DiffContext {
 		this.diffs = diffs;
 		this.leftSectionHeadings = leftSectionHeadings;
 		this.rightSectionHeadings = rightSectionHeadings;
+		this.leftImageMap = leftImageMap;
+		this.rightImageMap = rightImageMap;
+		this.imageComparisons = imageComparisons;
 	}
 
 	/**
@@ -92,7 +102,6 @@ export class DiffContext {
 		if (this.entries.length === 0) {
 			return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
 		}
-
 
 		const thisEntries = this[`${side}Entries`] as DiffEntry[];
 		const n = thisEntries.length;
@@ -161,7 +170,6 @@ export class DiffContext {
 	}
 
 	zresolveMatchingSpanPair(side: EditorName, sourceSpan: Span): { left: Span; right: Span } {
-		console.log("resolveMatchingSpanPair:", side, sourceSpan);
 		const thisEntries = this[`${side}Entries`] as DiffEntry[];
 		const entriesLen = thisEntries.length;
 
@@ -171,7 +179,6 @@ export class DiffContext {
 
 		const expand = (fromSide: EditorName, span: Span): Span => {
 			const entries = this[`${fromSide}Entries`] as DiffEntry[];
-			console.log("expanding", entries, span);
 			let realStart = span.start;
 			let realEnd = span.end;
 			if (span.start === span.end) {
@@ -197,43 +204,24 @@ export class DiffContext {
 		};
 
 		const expanded = expand(side, sourceSpan);
-		console.log("expanded:", expanded);
 		const otherSide = side === "left" ? "right" : "left";
 		const thisFirstEntry = thisEntries[expanded.start];
 		const thisLastEntry = thisEntries[Math.max(expanded.end - 1, expanded.start)];
 
-		console.log(
-			"ret:",
-			side === "left"
-				? {
-						left: expanded,
-						right: {
-							start: thisFirstEntry[otherSide].start,
-							end: thisLastEntry[otherSide].end,
-						},
-				  }
-				: {
-						left: {
-							start: thisFirstEntry[otherSide].start,
-							end: thisLastEntry[otherSide].end,
-						},
-						right: expanded,
-				  }
-		);
 		return side === "left"
 			? {
-					left: expanded,
-					right: {
-						start: thisFirstEntry[otherSide].start,
-						end: thisLastEntry[otherSide].end,
-					},
-			  }
+				left: expanded,
+				right: {
+					start: thisFirstEntry[otherSide].start,
+					end: thisLastEntry[otherSide].end,
+				},
+			}
 			: {
-					left: {
-						start: thisFirstEntry[otherSide].start,
-						end: thisLastEntry[otherSide].end,
-					},
-					right: expanded,
-			  };
+				left: {
+					start: thisFirstEntry[otherSide].start,
+					end: thisLastEntry[otherSide].end,
+				},
+				right: expanded,
+			};
 	}
 }

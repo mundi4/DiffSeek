@@ -66,10 +66,10 @@ export default defineConfig({
 			identifiers: "debug",
 		}),
 		//		tailwindcss(),
-		visualizer({
-			filename: "build/report.html",
-			open: true,
-		}),
+		// visualizer({
+		// 	filename: "build/report.html",
+		// 	open: true,
+		// }),
 	],
 	server: {
 		host: "localhost",

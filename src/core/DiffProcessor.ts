@@ -9,6 +9,8 @@ import { parseOrdinalNumber } from "@/utils/parseOrdinalNumber";
 import type { Editor } from "./Editor";
 import type { EditorName } from "./types";
 import { TokenFlags } from "./tokenization/TokenFlags";
+import type { DiffWorkerResult } from "./worker/diff-worker";
+import type { ImageLoadResult } from "./imageCache";
 
 // 1회용
 export class DiffProcessor {
@@ -27,17 +29,22 @@ export class DiffProcessor {
 	#rightEntries: DiffEntry[] | null = null;
 	#leftSectionHeadings: SectionHeading[] | null = null;
 	#rightSectionHeadings: SectionHeading[] | null = null;
-
-	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, rawEntries: DiffEntry[], diffOptions: DiffOptions) {
+	#leftImageMap: Map<RichToken, ImageLoadResult>;
+	#rightImageMap: Map<RichToken, ImageLoadResult>;
+	#imageComparisons: Record<string, { similarity: number }>;
+	
+	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, diffworkerResult: DiffWorkerResult) {
 		// this.#ctx = ctx;
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
 		this.#editorPairer = editorPairer;
-		this.#rawEntries = rawEntries;
-		this.#diffOptions = diffOptions;
-
+		this.#rawEntries = diffworkerResult.diffs;
+		this.#diffOptions = diffworkerResult.options;
+		this.#imageComparisons = diffworkerResult.imageComparisons;
 		this.#leftTokens = leftEditor.tokens;
 		this.#rightTokens = rightEditor.tokens;
+		this.#leftImageMap = leftEditor.imageMap;
+		this.#rightImageMap = rightEditor.imageMap;
 	}
 
 	cancel() {
@@ -76,7 +83,10 @@ export class DiffProcessor {
 					this.#rightEntries!,
 					this.#diffs,
 					this.#leftSectionHeadings!,
-					this.#rightSectionHeadings!
+					this.#rightSectionHeadings!,
+					this.#leftImageMap,
+					this.#rightImageMap,
+					this.#imageComparisons
 				);
 
 				onComplete?.(diffContext);
@@ -102,7 +112,6 @@ export class DiffProcessor {
 		const entries = this.#entries!;
 
 		this.#editorPairer.beginUpdate();
-
 		this.#leftSectionHeadings = this.#buildSectionHeadingTree(this.#leftEditor, this.#leftTokens);
 		this.#rightSectionHeadings = this.#buildSectionHeadingTree(this.#rightEditor, this.#rightTokens);
 
@@ -120,6 +129,12 @@ export class DiffProcessor {
 			}
 		}
 
+		// if (import.meta.env.DEV) {
+		// 	console.debug("=== Section Headings (Left) ===");
+		// 	console.debug(this.#leftSectionHeadings);
+		// 	console.debug("=== Section Headings (Right) ===");
+		// 	console.debug(this.#rightSectionHeadings);
+		// }
 		this.#editorPairer.endUpdate();
 	}
 
@@ -341,7 +356,7 @@ export class DiffProcessor {
 
 	#buildSectionHeadingTree(editor: Editor, tokens: readonly RichToken[]): SectionHeading[] {
 		const rootHeadings: SectionHeading[] = [];
-		const stack: SectionHeading[] = [];
+		const sectionHeadingStack: SectionHeading[] = [];
 
 		for (let i = 0; i < tokens.length; i++) {
 			const token = tokens[i];
@@ -371,15 +386,15 @@ export class DiffProcessor {
 				endTokenIndex: Number.MAX_SAFE_INTEGER, // temp
 			};
 
-			while (stack.length > 0 && heading.level <= stack[stack.length - 1].level) {
-				const closed = stack.pop()!;
+			while (sectionHeadingStack.length > 0 && heading.level <= sectionHeadingStack[sectionHeadingStack.length - 1].level) {
+				const closed = sectionHeadingStack.pop()!;
 				closed.endTokenIndex = heading.startTokenIndex;
 			}
 
-			if (stack.length === 0) {
+			if (sectionHeadingStack.length === 0) {
 				rootHeadings.push(heading);
 			} else {
-				const parent = stack[stack.length - 1];
+				const parent = sectionHeadingStack[sectionHeadingStack.length - 1];
 				heading.parent = parent;
 				if (!parent.firstChild) {
 					parent.firstChild = heading;
@@ -390,11 +405,11 @@ export class DiffProcessor {
 				}
 			}
 
-			stack.push(heading);
+			sectionHeadingStack.push(heading);
 		}
 
 		// 아직 닫히지 않은 것들은 문서 끝까지 범위로 간주
-		for (const remaining of stack) {
+		for (const remaining of sectionHeadingStack) {
 			remaining.endTokenIndex = tokens.length;
 		}
 

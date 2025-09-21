@@ -1,4 +1,4 @@
-export function quickHash53ToString(str: string) {
+export function quickHash53(str: string): string {
 	let hash = 0n;
 	const PRIME = 131n;
 	for (let i = 0; i < str.length; i++) {

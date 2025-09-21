@@ -1,11 +1,13 @@
 import type { EditorName } from "@/core/types";
-import { TokenizeContext, type RichToken } from "@/core/tokenization/TokenizeContext";
+import { TokenizeContext, type RichToken, type TokenizeResult } from "@/core/tokenization/TokenizeContext";
 import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/core/constants/index";
 import { sanitizeHTML } from "@/core/sanitize";
 import { createParagraphsFromText } from "@/utils/createParagraphsFromText";
 import { findAdjacentTextNode } from "@/utils/findAdjacentTextNode";
 import type { EditorContext } from "@/core/EditorContext";
 import { mountHelper } from "@/utils/mountHelper";
+import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./utils/tokenRangeUtils";
+import type { ImageLoadResult } from "./imageCache";
 
 export type EditorCallbacks = {
 	contentChanging: (editor: Editor) => void;
@@ -48,6 +50,7 @@ export class Editor implements EditorContext {
 	// #wrapper: HTMLElement; // = document.createElement("div");
 	#mutationObserver: MutationObserver;
 	#tokens: RichToken[] = [];
+	#imageMap: Map<RichToken, ImageLoadResult> = new Map();
 	#tokenizeContext: TokenizeContext | null = null;
 	#callbacks: Partial<EditorCallbacks> = {};
 	#readonly: boolean = false;
@@ -61,6 +64,7 @@ export class Editor implements EditorContext {
 		this.#editor.spellcheck = false;
 		this.#editor.id = `diffseek-editor-${editorName}`;
 		this.#editor.classList.add("editor", `editor-${editorName}`);
+		this.#editor.dataset.editorName = editorName;
 		this.#editor.appendChild(INITIAL_EDITOR_HTML.cloneNode(true));
 
 		this.#heightBoost.classList.add("editor-maybe-170cm-wasnt-enough");
@@ -152,6 +156,10 @@ export class Editor implements EditorContext {
 		return this.#tokens;
 	}
 
+	get imageMap(): Map<RichToken, ImageLoadResult> {
+		return this.#imageMap;
+	}
+
 	get container() {
 		return this.#wrapper;
 	}
@@ -178,6 +186,10 @@ export class Editor implements EditorContext {
 		if (this.#wrapper) {
 			this.#wrapper.scrollLeft = value;
 		}
+	}
+
+	get editorElement(): HTMLElement {
+		return this.#editor;
 	}
 
 	#onResize() {
@@ -251,18 +263,37 @@ export class Editor implements EditorContext {
 			this.#tokenizeContext.cancel();
 		}
 
-		this.#tokenizeContext = new TokenizeContext(this.#editor, (tokens) => {
-			console.debug(this.#editorName, "Tokenization done", tokens);
-			this.#tokens = tokens;
-			this.#onTokenizeDone();
-		});
+		this.#tokenizeContext = new TokenizeContext(this.#editor, this.#onTokenizeDone.bind(this));
 
 		this.#tokenizeContext.start();
 	}
 
-	#onTokenizeDone() {
-		this.#tokenizeContext = null;
-		this.#callbacks.contentChanged?.(this);
+	#onTokenizeDone({ tokens, imageMap }: TokenizeResult) {
+		const current = this.#tokenizeContext;
+		this.#tokens = tokens;
+		this.#imageMap = imageMap;
+
+		const awaitables: Promise<any>[] = [];
+
+		for (const [_, props] of imageMap.entries()) {
+			// const img = props.elem;
+			// awaitables.push(props.ensureLoaded().then(({ dataUrl }) => {
+			// 	if (img.complete && img.naturalWidth === 0 && dataUrl && img.src !== dataUrl) {
+			// 		img.src = dataUrl;
+			// 		return new Promise<void>((resolve, reject) => {
+			// 			img.onload = () => resolve();
+			// 			img.onerror = reject;
+			// 		});
+			// 	}
+			// }));
+		}
+
+		Promise.allSettled(awaitables).then(() => {
+			if (this.#tokenizeContext === current) {
+				this.#tokenizeContext = null;
+				this.#callbacks.contentChanged?.(this);
+			}
+		});
 	}
 
 	#onCopy(e: ClipboardEvent) {
@@ -472,7 +503,7 @@ export class Editor implements EditorContext {
 			}
 		}
 
-		const tr = document.createRange();
+		const tokenRange = document.createRange();
 
 		// collapsed
 		if (r.collapsed) {
@@ -484,9 +515,8 @@ export class Editor implements EditorContext {
 				while (lo <= hi) {
 					const mid = (lo + hi) >> 1;
 					const t = tokens[mid].range;
-					tr.setStart(t.startContainer, t.startOffset);
-					tr.setEnd(t.endContainer, t.endOffset);
-					const cmp = tr.compareBoundaryPoints(Range.START_TO_END, r);
+					SetStartEndFromTokenRange(tokenRange, t);
+					const cmp = tokenRange.compareBoundaryPoints(Range.START_TO_END, r);
 					if (cmp > 0) {
 						i = mid;
 						hi = mid - 1;
@@ -501,9 +531,8 @@ export class Editor implements EditorContext {
 			// token.start <= caret 이면 { i, i+1 }, 아니면 { i, i }
 			// END_TO_START: this.start ? other.end
 			const t = tokens[i].range;
-			tr.setStart(t.startContainer, t.startOffset);
-			tr.setEnd(t.endContainer, t.endOffset);
-			const cmpStart = tr.compareBoundaryPoints(Range.END_TO_START, r);
+			SetStartEndFromTokenRange(tokenRange, t);
+			const cmpStart = tokenRange.compareBoundaryPoints(Range.END_TO_START, r);
 			return cmpStart <= 0 ? { start: i, end: i + 1 } : { start: i, end: i };
 		}
 
@@ -516,9 +545,8 @@ export class Editor implements EditorContext {
 			while (lo <= hi) {
 				const mid = (lo + hi) >> 1;
 				const t = tokens[mid].range;
-				tr.setStart(t.startContainer, t.startOffset);
-				tr.setEnd(t.endContainer, t.endOffset);
-				const cmp = tr.compareBoundaryPoints(Range.START_TO_END, r); // token.end ? r.start
+				SetStartEndFromTokenRange(tokenRange, t);
+				const cmp = tokenRange.compareBoundaryPoints(Range.START_TO_END, r); // token.end ? r.start
 				if (cmp > 0) {
 					start = mid;
 					hi = mid - 1;
@@ -537,9 +565,8 @@ export class Editor implements EditorContext {
 			while (lo <= hi) {
 				const mid = (lo + hi) >> 1;
 				const t = tokens[mid].range;
-				tr.setStart(t.startContainer, t.startOffset);
-				tr.setEnd(t.endContainer, t.endOffset);
-				const cmp = tr.compareBoundaryPoints(Range.END_TO_START, r); // token.start ? r.end
+				SetStartEndFromTokenRange(tokenRange, t);
+				const cmp = tokenRange.compareBoundaryPoints(Range.END_TO_START, r); // token.start ? r.end
 				if (cmp >= 0) {
 					end = mid;
 					hi = mid - 1;
@@ -550,116 +577,43 @@ export class Editor implements EditorContext {
 		}
 
 		if (end <= start) return null;
-	
+
 		return { start, end };
-
-		// let low = 0;
-		// let high = this.#tokens.length - 1;
-		// let startIndex = -1;
-		// let endIndex = -1;
-
-		// // collapsed, 즉 범위 없이 텍스트커서만 있는 경우 커서가 토큰의 맨앞이나 맨뒤에 있어도 해당 토큰이 선택된 것으로 간주함.
-		// // 단 collapsed가 아닌 경우 범위 밖 토큰들이 같이 선택되면 안됨!
-		// const collapsed = range.collapsed;
-
-		// // range의 끝부분이 텍스트노드 A의 끝부분에 있고 비교대상 토큰의 시작부분은 인접한 다음 텍스트노드 B의 시작점(0)에 있는 경우
-		// // (즉 A|B. => A,B는 붙어있는 별개의 텍스트노드이고 커서는 그 사이에 위치)
-		// // range는 텍스트노드 B까지 오버랩 중이라고 판단하고 싶다!
-		// // 텍스트노드 사이에 커서가 있으면 경계가 intersecting되지 않는다고 판단하기 때문에 B의 시작점을 range의 end를 확장시켜줘야함.
-		// // 단순히 A|B인 경우는 쉽지만 A|<span><em>B</em></span> 이렇게 거지 같은 경우 span과 em을 뚫고 들어가야한다...
-		// if (range.endContainer.nodeType === 3 && range.endOffset === range.endContainer.nodeValue!.length) {
-		// 	let adjText = findAdjacentTextNode(range.endContainer, true);
-		// 	if (adjText) {
-		// 		range = range.cloneRange();
-		// 		range.setEnd(adjText, 0);
-		// 	}
-		// }
-
-		// try {
-		// 	// console.debug(editorName, "findTokenOverlapIndices", { range, text: range.toString() });
-		// 	const tokenRange = document.createRange();
-		// 	while (low <= high) {
-		// 		const mid = (low + high) >> 1;
-		// 		const token = this.#tokens[mid].range;
-		// 		tokenRange.setStart(token.startContainer, token.startOffset);
-		// 		tokenRange.setEnd(token.endContainer, token.endOffset);
-
-		// 		let c = range.compareBoundaryPoints(Range.END_TO_START, tokenRange);
-		// 		if (c < 0 || (collapsed && c === 0)) {
-		// 			// 토큰의 끝점이 range의 시작점보다 뒤에 있다. 이 토큰을 포함해서 왼쪽토큰들이 첫 토큰 후보.
-		// 			// 단, range의 끝점도 토큰의 시작점 이후에 있어야 intersecting이라고 볼 수 있음.
-		// 			// 단단, startIndex가 이미 -1이 아니라면 startIndex의 토큰보다 왼쪽의 토큰이므로 비교하지 않아도 됨(무조건 통과)
-		// 			if (startIndex !== -1 || (c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange)) > 0 || (collapsed && c === 0)) {
-		// 				startIndex = mid;
-		// 			}
-		// 			high = mid - 1; // 왼쪽으로
-		// 		} else {
-		// 			low = mid + 1; // 오른쪽으로
-		// 		}
-		// 	}
-
-		// 	// console.debug("after 1st loop", "findTokenOverlapIndices",  startIndex);
-
-		// 	if (startIndex !== -1) {
-		// 		tokenRange.setStart(this.#tokens[startIndex].range.startContainer, this.#tokens[startIndex].range.startOffset);
-		// 		low = endIndex = startIndex;
-		// 		high = this.#tokens.length - 1;
-		// 		while (low <= high) {
-		// 			const mid = (low + high) >> 1;
-		// 			const token = this.#tokens[mid].range;
-		// 			tokenRange.setStart(token.startContainer, token.startOffset);
-		// 			tokenRange.setEnd(token.endContainer, token.endOffset);
-		// 			const c = range.compareBoundaryPoints(Range.START_TO_END, tokenRange);
-		// 			if (c > 0) {
-		// 				endIndex = mid + 1;
-		// 				low = mid + 1; // 오른쪽으로
-		// 			} else {
-		// 				high = mid - 1; // 왼쪽으로
-		// 			}
-		// 		}
-		// 	}
-		// } catch {
-		// 	// range가 DOM에서 삭제된 경우 에러남.
-		// 	return null;
-		// }
-
-		// return endIndex >= 0 ? { start: startIndex, end: endIndex } : null;
 	}
 
-	getTokenRange(index: number, end: number = index + 1) {
-		// count 대신 end로 바꿔서 구현해야함.
-		const range = document.createRange();
+	getTokenRange(index: number, end: number = index + 1): Range {
 		const count = end - index;
 		if (count === 1 && index >= 0 && index < this.#tokens.length) {
 			const token = this.#tokens[index];
-			range.setStart(token.range.startContainer, token.range.startOffset);
-			range.setEnd(token.range.endContainer, token.range.endOffset);
-		} else if (count > 0) {
+			return createRangeFromTokenRange(token.range);
+		}
+
+		const range = document.createRange();
+		if (count > 0) {
 			const startToken = this.#tokens[index];
 			const endToken = this.#tokens[index + count - 1];
 			if (startToken) {
-				range.setStart(startToken.range.startContainer, startToken.range.startOffset);
+				setStartFromTokenRange(range, startToken.range);
 			} else {
 				range.setStart(this.#editor, 0);
 			}
 			if (endToken) {
-				range.setEnd(endToken.range.endContainer, endToken.range.endOffset);
+				setEndFromTokenRange(range, endToken.range);
 			} else {
 				range.setEnd(this.#editor, this.#editor.childNodes.length);
 			}
 		} else {
-			// count === 0
-
 			const prevToken = this.#tokens[index - 1];
 			if (prevToken) {
-				range.setStart(prevToken.range.endContainer, prevToken.range.endOffset);
+				setStartAfterToken(range, prevToken.range);
 			} else {
 				range.setStart(this.#editor, 0);
 			}
 
 			const nextToken = this.#tokens[index];
 			if (nextToken) {
-				range.setEnd(nextToken.range.startContainer, nextToken.range.startOffset);
+				setEndBeforeToken(range, nextToken.range);
+				// setEndFromTokenRange(range, nextToken.range);
 			} else {
 				range.setEnd(this.#editor, this.#editor.childNodes.length);
 			}

@@ -2,6 +2,7 @@
 	--editor-font-size: 14px;
 	--editor-line-height: 1.5;
 	--editor-padding: 4px;
+	--editor-td-padding: 4px;
 	--editor-td-border-color: #666666;
 	--editor-underline-offset: 0.2em;
 	--bg-normal: #ffffff;
@@ -20,13 +21,13 @@ diff-marker.block {
 	display: block;
 }
 
-.sync-mode .anchor::before {
+.sync-mode .anchor.padded::before {
 	content: "";
 	display: block;
 	height: var(--anchor-adjust, 0px);
 }
 
-.sync-mode .striped::before {
+.sync-mode .striped.padded::before {
 	background: transparent repeating-linear-gradient(135deg, hsl(0 0% 88% / 0.95) 0px, hsl(0 0% 88% / 0.95) 3px, transparent 3px, transparent 6px);
 	opacity: 0.75;
 }
@@ -58,6 +59,10 @@ diff-marker.block {
 	outline: none;
 	z-index: 30;
 	background-color: transparent;
+}
+
+.sync-mode .editor {
+	min-height: unset;
 }
 
 .editor, .color-default {

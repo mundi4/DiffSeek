@@ -38,12 +38,20 @@ declare type DiffAlgorithm = "lcs" | "histogram";
 declare type TokenizationMode = "char" | "word" | "line";
 
 declare type WhitespaceHandling = "ignore" | "normalize" | "onlyAtEdge";
+
 declare type DiffOptions = {
-	algorithm: DiffAlgorithm;
-	tokenization: TokenizationMode;
-	ignoreWhitespace: WhitespaceHandling;
-	greedyMatch?: boolean;
-	useLengthBias?: boolean;
+	algorithm: DiffAlgorithm; // not used
+	tokenization: TokenizationMode; // not used
+	greedyMatch?: boolean; // not used
+	
+	ignoreWhitespace: WhitespaceHandling; // being used!!!
+	// 일반적으로 많이 사용할 옵션들
+	compareSupSub: boolean; // SUB, SUP까지 비교하는 옵션
+	compareImage: boolean; // 이미지 비교 여부
+	compareImageTolerance: number; // 이미지 비교 허용 오차 (0~100, 기본 99)
+	// 아래 값들은 histogram 알고리즘 앵커에 스코어를 매길 때... 매우 고급 
+	// 옵션.
+	useLengthBias?: boolean; 
 	maxGram: number;
 	lengthBiasFactor: number;
 	sectionHeadingMultiplier: number;
@@ -52,20 +60,7 @@ declare type DiffOptions = {
 	lineStartMultiplier: number;
 	lineEndMultiplier: number;
 	uniqueMultiplier: number;
-	compareSupSub: boolean; // SUB, SUP까지 비교하는 옵션
-	compareImage: boolean; // 이미지 비교 여부
-	compareImageTolerance: number; // 이미지 비교 허용 오차 (0~100, 기본 99)
-};
 
-
-declare type DiffResponse = {
-	type: "diff";
-	reqId: number;
-	diffs: DiffEntry[];
-	// anchors: Anchor[];
-	// leftTokenCount: number;
-	// rightTokenCount: number;
-	processTime: number;
 };
 
 declare type TokenMatchEntry = {

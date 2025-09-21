@@ -12,7 +12,7 @@ type LOCAL_METHODS = {
 };
 
 type REMOTE_METHODS = {
-    fetchImageData: (url: string) => Promise<{ data: string; contentType: string }>;
+    fetchImageData: (url: string) => Promise<string>;
 };
 
 const rpc = createWindowRPC<LOCAL_METHODS, REMOTE_METHODS>({ source: "diffseek", timeout: 3000 });
@@ -23,7 +23,7 @@ rpc.handle({
     },
 });
 
-export async function fetchImageData(url: string) {
+export async function fetchImageDataUsingExtension(url: string): Promise<string> {
     const result = await rpc.call("fetchImageData", [url]);
     return result;
 }

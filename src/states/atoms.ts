@@ -32,3 +32,5 @@ export const editorTextSelectionAtom = atom(
 );
 
 export const editorSelectionFallbackAtom = atom((get) => get(baseEditorSelectionAtom) ?? lastKnownSelection);
+
+export const settingsPanelOpenAtom = atom<boolean>(false);

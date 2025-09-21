@@ -100,7 +100,7 @@ const ELEMENT_POLICIES: Record<string, ElementOptions> = {
 	SMALL: DefaultElementOptions,
 	DEL: DefaultElementOptions,
 	INS: DefaultElementOptions,
-	IMG: { void: true, allowedAttrs: { src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
+	IMG: { void: true, allowedAttrs: { ["data-hash"]: true, src: true, width: true, height: true }, allowedStyles: { width: true, height: true } },
 	FONT: { replaceTag: "SPAN", allowedStyles: COMMON_ALLOWED_STYLES },
 	SPAN: DefaultElementOptions,
 	LABEL: DefaultElementOptions,
@@ -217,7 +217,7 @@ const _EMPTY_LINE = (() => {
 })();
 
 function appendEmptyLine(parent: ParentNode) {
-	parent.appendChild(_EMPTY_LINE.cloneNode(true));
+	//parent.appendChild(_EMPTY_LINE.cloneNode(true));
 }
 
 function getElementPolicy(node: Node): ElementOptions {
@@ -311,15 +311,17 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 	const tmpl = document.createElement("template");
 	tmpl.innerHTML = rawHTML;
 
-	type _States = {
+	type TraversalState = {
 		font: string | null;
 		color: string | null;
+		preformatted: boolean;
 	};
 
-	const statesStack: _States[] = [];
-	let states: _States = {
+	const statesStack: TraversalState[] = [];
+	let states: TraversalState = {
 		font: null,
 		color: null,
+		preformatted: false,
 	};
 
 	type TraversalResult = {
@@ -380,6 +382,9 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 
 		statesStack.push(states);
 		states = { ...states };
+		if (nodeName === "PRE" || nodeName === "CODE") {
+			states.preformatted = true;
+		}
 
 		const result = {
 			node: container,
@@ -403,16 +408,25 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 			if (childNode.nodeType === 3) {
 				if (!isTextless) {
 					let text = childNode.nodeValue!;
+
+					if (!states.preformatted) {
+						// 텍스트에 \n이 들어가있으면 토큰화 단계에서 골아파진다.
+						text = text.replace(/[\s\r\n]+/g, " ");
+					}
+
+					// 딩뱃 폰트를 사용 중인 텍스트
 					if (states.font) {
 						text = transformText(text, states.font);
 					}
 
-					childResult = {
-						node: document.createTextNode(text),
-						hasText: false,
-						hasNonEmptyText: false,
-						caretReachable: false,
-					};
+					if (text.length > 0) {
+						childResult = {
+							node: document.createTextNode(text),
+							hasText: false,
+							hasNonEmptyText: false,
+							caretReachable: false,
+						};
+					}
 				}
 			} else {
 				childResult = await traverse(childNode);
@@ -529,7 +543,7 @@ const isReddish = (() => {
 		// fallback
 		if (!ctx) {
 			const canvas = new OffscreenCanvas(1, 1);
-			ctx = canvas.getContext("2d")!;
+			ctx = canvas.getContext("2d", { willReadFrequently: true })!;
 		}
 
 		try {

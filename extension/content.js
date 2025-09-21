@@ -79,7 +79,7 @@ if (/localhost:5173/.test(location.href) || /diffseek\.html$/i.test(location.hre
 	windowRPC.handle({
 		fetchImageData: async (url) => {
 			const result = await rpc.call("fetchImageData", [url]);
-			return { result, transfer: result && result.data ? [result.data] : [] };
+			return result;
 		},
 	});
 

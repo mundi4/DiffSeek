@@ -56,10 +56,14 @@ export class EditorPairer {
 	#chunkCancellationToken: number | null = null;
 	#elapsedTotal: number = 0;
 	#unusedAnchors: Set<HTMLElement> = new Set();
+	#leftEditorElement: HTMLElement;
+	#rightEditorElement: HTMLElement;
 
 	constructor(leftEditor: Editor, rightEditor: Editor) {
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
+		this.#leftEditorElement = leftEditor.editorElement;
+		this.#rightEditorElement = rightEditor.editorElement;
 	}
 
 	cancelAnchorAligning() {
@@ -90,9 +94,9 @@ export class EditorPairer {
 				const { leftEl, rightEl } = anchorPair;
 				if (!this.#anchorMap.has(leftEl)) {
 					if (leftEl.nodeName === ANCHOR_TAG_NAME) {
-						leftEl.remove(); // remove unused anchor elements
+						leftEl.remove(); // remove unused anchor elements we created manually
 					} else {
-						leftEl.classList.remove("anchor");
+						leftEl.classList.remove(ANCHOR_CLASS_NAME);
 						leftEl.style.removeProperty("--anchor-adjust");
 						delete leftEl.dataset.anchorIndex;
 						this.#unusedAnchors.add(leftEl);
@@ -100,9 +104,9 @@ export class EditorPairer {
 				}
 				if (!this.#anchorMap.has(rightEl)) {
 					if (rightEl.nodeName === ANCHOR_TAG_NAME) {
-						rightEl.remove(); // remove unused anchor elements
+						rightEl.remove(); // remove unused anchor elements we created manually
 					} else {
-						rightEl.classList.remove("anchor");
+						rightEl.classList.remove(ANCHOR_CLASS_NAME);
 						rightEl.style.removeProperty("--anchor-adjust");
 						delete rightEl.dataset.anchorIndex;
 						this.#unusedAnchors.add(rightEl);
@@ -120,10 +124,11 @@ export class EditorPairer {
 		this.#oldAnchorPairs = null;
 		this.#oldDiffMarkers = null;
 
-		// if (import.meta.env.DEV) {
-		// 	console.log("anchorPairs", this.#anchorPairs);
-		// 	console.log("diffMarkers", this.#diffMarkers);
-		// }
+
+		if (import.meta.env.DEV) {
+			// console.log("anchorPairs", this.#anchorPairs);
+			// console.log("diffMarkers", this.#diffMarkers);
+		}
 	}
 
 	#createDiffMarker(container: HTMLElement, offset: number, diffIndex: number): HTMLElement {
@@ -264,20 +269,76 @@ export class EditorPairer {
 		return range;
 	}
 
+	ensureAnchorElement2(refElem: Element, insertMethod: "afterend" | "prepend"): HTMLElement {
+		let anchorEl = insertMethod === "afterend"
+			? (refElem as HTMLElement).nextElementSibling
+			: (refElem as HTMLElement).firstElementChild;
+
+		if (!anchorEl || anchorEl.nodeName !== ANCHOR_TAG_NAME || !anchorEl.classList.contains(ANCHOR_CLASS_NAME)) {
+			anchorEl = document.createElement(ANCHOR_TAG_NAME);
+			anchorEl.className = ANCHOR_CLASS_NAME;
+			if (insertMethod === "afterend") {
+				refElem.insertAdjacentElement("afterend", anchorEl);
+			} else {
+				refElem.insertBefore(anchorEl, refElem.firstElementChild);
+			}
+		}
+		return anchorEl as HTMLElement;
+	}
+
+	getAnchorElement(lineBreakerEl: Element): HTMLElement | null {
+		let insertMethod: "afterend" | "prepend";
+		if (lineBreakerEl === this.#leftEditorElement ||
+			lineBreakerEl === this.#rightEditorElement ||
+			lineBreakerEl.nodeName === "TD" || lineBreakerEl.nodeName === "TH") {
+			insertMethod = "prepend";
+		} else if (BLOCK_ELEMENTS[lineBreakerEl.nodeName]) {
+			return lineBreakerEl as HTMLElement;
+		} else {
+			insertMethod = "afterend";
+		}
+
+		let anchorEl: HTMLElement | null = null;
+		if (insertMethod === "afterend") {
+			anchorEl = lineBreakerEl.nextElementSibling as HTMLElement;
+		} else {
+			anchorEl = lineBreakerEl.firstElementChild as HTMLElement;
+		}
+
+		if (anchorEl && anchorEl.nodeName === ANCHOR_TAG_NAME) {
+			if (this.#anchorMap.has(anchorEl)) {
+				// 이미 사용 중.
+				return null;
+			}
+		} else {
+			anchorEl = document.createElement(ANCHOR_TAG_NAME);
+			if (insertMethod === "afterend") {
+				lineBreakerEl.insertAdjacentElement("afterend", anchorEl);
+			} else {
+				lineBreakerEl.insertBefore(anchorEl, lineBreakerEl.firstElementChild);
+			}
+		}
+
+		return anchorEl as HTMLElement;
+	}
+
 	addAnchorPair(leftTokenIndex: number, leftEl: HTMLElement | null, rightTokenIndex: number, rightEl: HTMLElement | null, diffIndex: number | null) {
 		//console.warn("EditorPairer: addAnchorPair2", leftTokenIndex, rightTokenIndex, diffIndex)
-		if (!leftEl) {
-			let anchorRange = this.getAnchorInsertableRange("left", leftTokenIndex);
-			leftEl = this.getOrInsertAnchor(anchorRange.startContainer, anchorRange.startOffset, anchorRange.endContainer, anchorRange.endOffset);
+
+		const leftToken = this.#leftEditor.tokens[leftTokenIndex];
+		const rightToken = this.#rightEditor.tokens[rightTokenIndex];
+
+		if (!leftEl && leftToken.lineBreakerElement) {
+			leftEl = this.getAnchorElement(leftToken.lineBreakerElement);
 		}
-		if (!rightEl) {
-			let anchorRange = this.getAnchorInsertableRange("right", rightTokenIndex);
-			rightEl = this.getOrInsertAnchor(anchorRange.startContainer, anchorRange.startOffset, anchorRange.endContainer, anchorRange.endOffset);
+		if (!rightEl && rightToken.lineBreakerElement) {
+			rightEl = this.getAnchorElement(rightToken.lineBreakerElement);
 		}
+
 		if (leftEl && rightEl) {
 			const anchorIndex = this.#anchorPairs.length;
-			leftEl.classList.add("anchor");
-			rightEl.classList.add("anchor");
+			leftEl.classList.add(ANCHOR_CLASS_NAME);
+			rightEl.classList.add(ANCHOR_CLASS_NAME);
 			rightEl.dataset.anchorIndex = leftEl.dataset.anchorIndex = anchorIndex.toString();
 			if (diffIndex !== null) {
 				leftEl.dataset.diffIndex = rightEl.dataset.diffIndex = diffIndex.toString();
@@ -522,24 +583,25 @@ export class EditorPairer {
 			let rightY;
 			leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
 			rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-
 			let delta = Math.round(leftY - rightY);
 			// console.log("chunk", i, "pair", { ...pair }, leftY, "rightY", rightY, "delta", delta);
 
-			if (Math.abs(delta) > 1000) {
-				console.warn("AnchorManager.processChunk: large delta detected", { pair, leftY, rightY, delta, leftScrollTop, rightScrollTop });
-			}
+			// if (Math.abs(delta) > 1000) {
+			// 	console.warn("AnchorManager.processChunk: large delta detected", { pair, leftY, rightY, delta, leftScrollTop, rightScrollTop });
+			// }
 
 			// delta가 significant함
 			if (delta < -EditorPairer.MIN_DELTA || delta > EditorPairer.MIN_DELTA) {
 				// 패딩이 이미 적용되어 있다면 초기화
 				// pair의 delta값은 항상 앵커의 --anchor-adjust 값과 같게 유지된다고 가정함. 다른 부분에서도 이부분을 확실하게 체크할 것.
 				if (pair.delta > 0) {
+					rightEl.classList.remove("padded");
 					rightEl.style.removeProperty("--anchor-adjust");
 					void rightEl.offsetHeight; // force reflow
 					rightEditorTop = rightEditor.getBoundingClientRect().y;
 					rightScrollTop = rightEditor.scrollTop;
 				} else if (pair.delta < 0) {
+					leftEl.classList.remove("padded");
 					leftEl.style.removeProperty("--anchor-adjust");
 					void leftEl.offsetHeight; // force reflow
 					leftEditorTop = leftEditor.getBoundingClientRect().y;
@@ -605,7 +667,9 @@ export class EditorPairer {
 		if (reset) {
 			for (const pair of pairs) {
 				pair.delta = 0;
+				pair.leftEl.classList.remove("padded");
 				pair.leftEl.style.removeProperty("--anchor-adjust");
+				pair.rightEl.classList.remove("padded");
 				pair.rightEl.style.removeProperty("--anchor-adjust");
 			}
 		}
@@ -646,6 +710,7 @@ export class EditorPairer {
 				theEl = pair.leftEl;
 			}
 			theEl.style.setProperty("--anchor-adjust", `${delta}px`);
+			theEl.classList.add("padded");
 			if (theEl.nodeName !== DIFF_TAG_NAME) {
 				theEl.classList.toggle("striped", delta >= EditorPairer.MIN_STRIPED_DELTA);
 			}

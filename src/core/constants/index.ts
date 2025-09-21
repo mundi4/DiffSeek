@@ -112,7 +112,8 @@ export const BLOCK_ELEMENTS: Record<string, boolean> = {
     TABLE: true,
     CAPTION: true,
     TR: true,
-    //TD: true,
+    TD: true,
+    TH: true,
     "#document-fragment": true,
 };
 

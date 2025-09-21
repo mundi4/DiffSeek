@@ -1,25 +1,43 @@
 import { type TrieNode } from "./trie";
 import { normalizedCharMap } from "./normalizedCharMap";
-import { quickHash53ToString } from "@/utils/quickHash53ToString";
 import { wildcardTrieNode } from "./wildcards";
 import { sectionHeadingStartChars, SectionHeadingTrieNode } from "./section-headings";
 import { TokenFlags } from "./TokenFlags";
 import { BLOCK_ELEMENTS, DIFF_TAG_NAME, MANUAL_ANCHOR_ELEMENT_NAME, TEXT_FLOW_CONTAINERS } from "../constants";
-import { fetchImageData } from "../ext-helper";
+import { findBlockParent } from "@/utils/findBlockParent";
+import { createImageLoader, type ImageLoadResult } from "../imageCache";
 
 export const MANUAL_ANCHOR1 = "🔗@";
 export const MANUAL_ANCHOR2 = "🔗#";
 
+export const enum TokenRangeType {
+	TEXT = 1,
+	ELEMENT = 2,
+}
+
+export type TokenRange =
+	| {
+		type: TokenRangeType.TEXT;
+		node: Text;
+		offset: number;
+		endNode: Text;
+		endOffset: number;
+	}
+	| {
+		type: TokenRangeType.ELEMENT;
+		node: Element;
+	};
+
 export type RichToken = {
 	text: string;
 	flags: number;
-	range: LightRange | Range;
-	lineNum: number;
-	container: TextFlowContainer;
+	range: TokenRange;
+	//container: TextFlowContainer;
 	// for image tokens
 	data?: Uint8ClampedArray;
 	width?: number;
 	height?: number;
+	lineBreakerElement?: HTMLElement;
 };
 
 // const normalizeChars: { [ch: string]: string } = {};
@@ -49,7 +67,7 @@ const spaceChars: Record<string, boolean> = {
 	"\v": true, // 볼일이 없을것...
 };
 
-function normalize(text: string): string {
+function normalizeCharacters(text: string): string {
 	let result = "";
 	for (const char of text) {
 		const charCode = char.codePointAt(0)!;
@@ -65,22 +83,38 @@ function normalize(text: string): string {
 
 let imgSeen = 0;
 
+export type TokenizeResult = {
+	tokens: RichToken[],
+	imageMap: Map<RichToken, ImageLoadResult>,
+};
+
+export type ImageProps = {
+	elem: HTMLImageElement;
+	hasFixedSize: boolean;
+	hash?: string;
+	dataUrl?: string;
+	ensureLoaded: () => Promise<{ hash: string, dataUrl: string }>;
+	// lastLoadedSrc: string;
+	// _promise?: Promise<{ hash: string, dataUrl: string }>;
+}
+
 export class TokenizeContext {
 	#rootContent: HTMLElement;
-	#onDone: (tokens: RichToken[]) => void;
-	#cancelled: boolean;
-	#generator: AsyncGenerator<void, { tokens: RichToken[]; containers: Map<HTMLElement, TextFlowContainer> }, IdleDeadline> | null = null;
+	#onDone: (result: TokenizeResult) => void;
+	#cancellable = { cancelled: false };
+	// #cancelled: boolean;
+	#generator: AsyncGenerator<void, TokenizeResult, IdleDeadline> | null = null;
 	#callbackId: number | null = null;
-	#imageDataCache: Map<string, ImageData> = new Map();
+	#imageMap: Map<RichToken, ImageLoadResult> = new Map();
+	#imageDataCache: Map<string, { dataUrl: string }> = new Map(); // 
 
-	constructor(rootContent: HTMLElement, onDone: (tokens: RichToken[]) => void) {
+	constructor(rootContent: HTMLElement, onDone: (result: TokenizeResult) => void) {
 		this.#rootContent = rootContent;
 		this.#onDone = onDone;
-		this.#cancelled = false;
 	}
 
 	start() {
-		if (this.#cancelled) {
+		if (this.#cancellable.cancelled) {
 			throw new Error("Cannot start a cancelled context");
 		}
 
@@ -92,15 +126,25 @@ export class TokenizeContext {
 	}
 
 	cancel() {
-		this.#cancelled = true;
+		this.#cancellable.cancelled = true;
 		if (this.#callbackId !== null) {
 			cancelIdleCallback(this.#callbackId);
 			this.#callbackId = null;
 		}
 	}
 
+	get cancelled() {
+		return this.#cancellable.cancelled;
+	}
+
+	set cancelled(value: boolean) {
+		if (value) {
+			this.cancel();
+		}
+	}
+
 	async #step(idleDeadline: IdleDeadline): Promise<void> {
-		if (this.#cancelled) {
+		if (this.#cancellable.cancelled) {
 			return;
 		}
 
@@ -110,12 +154,12 @@ export class TokenizeContext {
 		}
 
 		const { done, value } = await this.#generator.next(idleDeadline);
-		if (this.#cancelled) {
+		if (this.#cancellable.cancelled) {
 			return;
 		}
 
 		if (done) {
-			this.#onDone(value.tokens);
+			this.#onDone(value);
 		} else {
 			this.#queueNextStep();
 		}
@@ -125,517 +169,52 @@ export class TokenizeContext {
 		this.#callbackId = requestIdleCallback(async (IdleDeadline) => await this.#step(IdleDeadline), { timeout: 500 });
 	}
 
-	// *#generate(idleDeadline: IdleDeadline): Generator<void, { tokens: RichToken[]; containers: Map<HTMLElement, TextFlowContainer> }, IdleDeadline> {
-	// 	type _BlockInfo = {
-	// 		element: HTMLElement;
-	// 		container: TextFlowContainer;
-	// 		startTokenIndex: number; // 시작 토큰 인덱스
-	// 		tokenCount: number; // 토큰 개수
-	// 		depth: number;
-	// 	};
-
-	// 	const tokens: RichToken[] = [];
-	// 	const containers: Map<HTMLElement, TextFlowContainer> = new Map();
-	// 	const root = this.#rootContent;
-	// 	const textNodeBuf: Text[] = [];
-	// 	const textNodeBufIndices: number[] = [];
-	// 	const imageDataCache = this.#imageDataCache;
-	// 	let tokenIndex = 0;
-	// 	let currentToken: RichToken | null = null;
-	// 	let nextTokenFlags = 0;
-	// 	let recursionCount = 0;
-	// 	let lineNum = 1;
-	// 	let shouldNormalize = false;
-
-	// 	const blockStack: _BlockInfo[] = [];
-	// 	let currentBlock: _BlockInfo | null = null;
-
-	// 	const containerStack: TextFlowContainer[] = [];
-	// 	let currentContainer: TextFlowContainer = {
-	// 		element: root as HTMLElement,
-	// 		parent: null,
-	// 		depth: 0,
-	// 		startTokenIndex: 0,
-	// 		tokenCount: 0,
-	// 	};
-
-	// 	function processToken(textNode: Text, startOffset: number, endOffset: number, flags: number = 0) {
-	// 		let text = textNode.nodeValue!.slice(startOffset, endOffset);
-	// 		if (shouldNormalize) {
-	// 			text = normalize(text);
-	// 			shouldNormalize = false;
-	// 		}
-	// 		if (currentToken) {
-	// 			currentToken.text += text;
-	// 			(currentToken.range as LightRange).endContainer = textNode;
-	// 			(currentToken.range as LightRange).endOffset = endOffset;
-	// 		} else {
-	// 			currentToken = {
-	// 				text: text,
-	// 				flags: nextTokenFlags | flags,
-	// 				range: {
-	// 					startContainer: textNode,
-	// 					startOffset: startOffset,
-	// 					endContainer: textNode,
-	// 					endOffset: endOffset,
-	// 				},
-	// 				container: currentContainer,
-	// 				lineNum: lineNum,
-	// 			};
-	// 			nextTokenFlags = 0;
-	// 		}
-	// 	}
-
-	// 	function finalizeToken(flags: number = 0) {
-	// 		if (currentToken) {
-	// 			currentToken.flags |= flags;
-	// 			tokens[tokenIndex] = currentToken;
-	// 			if (tokenIndex > 0 && currentToken.flags & TokenFlags.LINE_END) {
-	// 				tokens[tokenIndex - 1].flags |= TokenFlags.LINE_END;
-	// 			}
-	// 			tokenIndex++;
-	// 			currentToken = null;
-	// 		}
-	// 	}
-
-	// 	function findInTrie(trie: TrieNode, bufferIndex: number, charIndex: number) {
-	// 		let node: TrieNode | null = trie;
-	// 		let i = bufferIndex;
-	// 		let j = charIndex;
-	// 		do {
-	// 			const text = textNodeBuf[i].nodeValue!;
-	// 			for (; j < text.length; j++) {
-	// 				let cp = text.codePointAt(j)!;
-	// 				cp = normalizedCharMap[cp] ?? cp;
-	// 				node = node!.next(cp);
-	// 				if (!node) {
-	// 					return null;
-	// 				}
-	// 				if (node.word) {
-	// 					return { bufferIndex: i, charIndex: j + (cp > 0xFFFF ? 2 : 1), word: node.word, flags: node.flags };
-	// 				}
-	// 				// Handle 4-byte unicode characters
-	// 				if (cp > 0xFFFF) {
-	// 					j++; // Skip the next surrogate pair
-	// 				}
-	// 			}
-
-	// 			i++;
-	// 			j = 0;
-	// 		} while (i < textNodeBuf.length);
-	// 		return null;
-	// 	}
-
-	// 	function doTokenizeText() {
-	// 		console.assert(textNodeBuf.length > 0, "textNodes should not be empty at this point");
-
-	// 		let nodeIndex = 0;
-	// 		let charIndex = 0;
-
-	// 		OUTER: do {
-	// 			const textNode = textNodeBuf[nodeIndex];
-	// 			const text = textNode.nodeValue!;
-	// 			const textLen = text.length;
-
-	// 			let currentStart = -1;
-
-	// 			while (charIndex < textLen) {
-	// 				// Handle 4-byte characters properly
-	// 				const cp = text.codePointAt(charIndex)!;
-	// 				if (normalizedCharMap[cp] !== undefined) {
-	// 					shouldNormalize = true;
-	// 				}
-
-	// 				const char = text[charIndex];
-
-	// 				if (spaceChars[char]) {
-	// 					// split here
-	// 					if (currentStart !== -1) {
-	// 						processToken(textNode, currentStart, charIndex);
-	// 						currentStart = -1;
-	// 					}
-	// 					finalizeToken();
-	// 				} else {
-	// 					if (char === "(") {
-	// 						const match = findInTrie(wildcardTrieNode, nodeIndex, charIndex + 1);
-	// 						if (match) {
-	// 							const startContainer = textNode;
-	// 							const startOffset = charIndex;
-	// 							if (currentStart !== -1) {
-	// 								processToken(textNode, currentStart, charIndex);
-	// 								currentStart = -1;
-	// 							}
-	// 							finalizeToken();
-	// 							currentToken = {
-	// 								text: match.word,
-	// 								flags: nextTokenFlags | match.flags,
-	// 								range: {
-	// 									startContainer,
-	// 									startOffset,
-	// 									endContainer: textNodeBuf[match.bufferIndex],
-	// 									endOffset: match.charIndex,
-	// 								},
-	// 								container: currentContainer,
-	// 								lineNum: lineNum,
-	// 							};
-	// 							nextTokenFlags = 0;
-	// 							finalizeToken();
-	// 							nodeIndex = match.bufferIndex;
-	// 							charIndex = match.charIndex;
-	// 							continue OUTER;
-	// 						}
-	// 					}
-	// 					if (sectionHeadingStartChars[char] && nextTokenFlags & TokenFlags.LINE_START && !currentToken && currentStart === -1) {
-	// 						const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
-	// 						if (match) {
-	// 							const startContainer = textNode;
-	// 							const startOffset = charIndex;
-	// 							if (currentStart !== -1) {
-	// 								processToken(textNode, currentStart, charIndex);
-	// 								currentStart = -1;
-	// 							}
-	// 							finalizeToken();
-	// 							currentToken = {
-	// 								text: match.word.trimEnd(), // 좀 억지스러운데 가장 쉬운 방법...
-	// 								flags: nextTokenFlags | match.flags,
-	// 								range: {
-	// 									startContainer,
-	// 									startOffset,
-	// 									endContainer: textNodeBuf[match.bufferIndex],
-	// 									endOffset: match.charIndex,
-	// 								},
-	// 								container: currentContainer,
-	// 								lineNum: lineNum,
-	// 							};
-	// 							nextTokenFlags = 0;
-	// 							finalizeToken();
-	// 							nodeIndex = match.bufferIndex;
-	// 							charIndex = match.charIndex;
-	// 							continue OUTER;
-	// 						}
-	// 					}
-
-	// 					if (currentStart === -1) {
-	// 						currentStart = charIndex;
-	// 					}
-	// 				}
-	// 				// Properly advance through characters, including 4-byte unicode characters
-	// 				charIndex++;
-	// 				if (cp > 0xffff) {
-	// 					charIndex++; // Skip the second surrogate pair for 4-byte characters
-	// 				}
-	// 			}
-	// 			if (currentStart !== -1) {
-	// 				processToken(textNode, currentStart, textLen);
-	// 				currentStart = -1;
-	// 			}
-	// 			nodeIndex++;
-	// 			charIndex = 0;
-	// 		} while (nodeIndex < textNodeBuf.length);
-
-	// 		finalizeToken();
-
-	// 		textNodeBuf.length = 0;
-	// 		textNodeBufIndices.length = 0;
-	// 	}
-
-	// 	function* traverse(node: Node): Generator<void> {
-	// 		const nodeName = node.nodeName;
-	// 		const isTextFlowContainer = TEXT_FLOW_CONTAINERS[nodeName] || node === root;
-	// 		const isBlockElement = BLOCK_ELEMENTS[nodeName];
-
-	// 		if (isTextFlowContainer) {
-	// 			containerStack.push(currentContainer);
-	// 			currentContainer = {
-	// 				element: node as HTMLElement,
-	// 				parent: currentContainer,
-	// 				depth: currentContainer.depth + 1,
-	// 				startTokenIndex: tokenIndex,
-	// 				tokenCount: 0,
-	// 			};
-	// 			nextTokenFlags |= TokenFlags.CONTAINER_START | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-	// 		}
-
-	// 		if (isBlockElement) {
-	// 			if (currentBlock) {
-	// 				blockStack.push(currentBlock);
-	// 			}
-	// 			currentBlock = {
-	// 				element: node as HTMLElement,
-	// 				container: currentContainer,
-	// 				depth: (currentBlock?.depth ?? -1) + 1,
-	// 				startTokenIndex: tokenIndex,
-	// 				tokenCount: 0,
-	// 			};
-	// 			nextTokenFlags |= TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-	// 		}
-
-	// 		const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD" || nodeName === "SUP" || nodeName === "SUB";
-	// 		if (isTokenBoundary && textNodeBuf.length > 0) {
-	// 			doTokenizeText();
-	// 		}
-
-	// 		const childNodes = node.childNodes;
-	// 		const tokenStartIndex = tokenIndex;
-
-	// 		for (let i = 0; i < childNodes.length; i++) {
-	// 			if ((++recursionCount & 31) === 0 && idleDeadline.timeRemaining() < 2) {
-	// 				idleDeadline = yield;
-	// 			}
-
-	// 			const child = childNodes[i];
-	// 			if (child.nodeType === 3) {
-	// 				textNodeBuf.push(child as Text);
-	// 				textNodeBufIndices.push(i);
-	// 			} else if (child.nodeType === 1) {
-	// 				const childNodeName = child.nodeName;
-
-	// 				if (childNodeName === DIFF_TAG_NAME) {
-	// 					continue;
-	// 				}
-
-	// 				if (childNodeName === "IMG") {
-	// 					if (textNodeBuf.length > 0) {
-	// 						doTokenizeText();
-	// 					}
-
-	// 					let src = (child as HTMLImageElement).src;
-	// 					if (!src) {
-	// 						continue;
-	// 					}
-
-	// 					let dataUrl: string | undefined = undefined;
-	// 					if (src.startsWith("data:")) {
-	// 						dataUrl = src;
-	// 					}
-	// 					if (!dataUrl) {
-	// 						dataUrl = (child as HTMLImageElement).dataset.dataUrl;
-	// 					}
-
-	// 					if (!dataUrl) {
-	// 						//a = await fetchImageData(src)
-
-	// 					}
-	// 					(child as HTMLImageElement).dataset.src = src;
-
-	// 					if (!src.startsWith("data:")) {
-
-	// 					}
-	// 					if (src) { // src가 있는 경우에만 토큰으로 추가하자.
-	// 						const range = document.createRange();
-	// 						range.selectNode(child);
-	// 						currentToken = {
-	// 							text: src,
-	// 							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
-	// 							range,
-	// 							container: currentContainer,
-	// 							lineNum: lineNum,
-	// 						};
-	// 						finalizeToken();
-	// 						nextTokenFlags = 0;
-	// 					}
-
-	// 					continue;
-	// 				}
-
-	// 				if (childNodeName === MANUAL_ANCHOR_ELEMENT_NAME && (child as HTMLAnchorElement).classList.contains("manual-anchor")) {
-	// 					if (textNodeBuf.length > 0) {
-	// 						doTokenizeText();
-	// 					}
-	// 					nextTokenFlags |= TokenFlags.LINE_START;
-	// 					lineNum++;
-
-	// 					if (textNodeBuf.length > 0) {
-	// 						doTokenizeText();
-	// 					}
-	// 					const range = document.createRange();
-	// 					range.selectNode(child);
-	// 					currentToken = {
-	// 						text: (child as HTMLAnchorElement).dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
-	// 						flags:
-	// 							TokenFlags.MANUAL_ANCHOR |
-	// 							TokenFlags.NO_JOIN_PREV |
-	// 							TokenFlags.NO_JOIN_NEXT |
-	// 							nextTokenFlags |
-	// 							TokenFlags.LINE_START |
-	// 							TokenFlags.LINE_END,
-	// 						range,
-	// 						container: currentContainer,
-	// 						lineNum: lineNum,
-	// 					};
-	// 					nextTokenFlags = 0;
-	// 					// console.log("manual anchor found", currentToken.text, currentToken.range);
-	// 					finalizeToken();
-	// 					continue;
-	// 				}
-
-	// 				if (childNodeName === "BR" || childNodeName === "HR") {
-	// 					if (textNodeBuf.length > 0) {
-	// 						doTokenizeText();
-	// 					}
-	// 					nextTokenFlags |= TokenFlags.LINE_START;
-	// 					lineNum++;
-	// 					continue;
-	// 				}
-
-	// 				yield* traverse(child);
-	// 			}
-	// 		}
-
-	// 		if (isTokenBoundary && textNodeBuf.length > 0) {
-	// 			doTokenizeText();
-	// 		}
-
-	// 		const tokenEndIndex = tokenIndex;
-	// 		const tokenCount = tokenEndIndex - tokenStartIndex;
-	// 		if (tokenCount > 0) {
-	// 			const firstToken = tokens[tokenStartIndex];
-	// 			const lastToken = tokens[tokenIndex - 1];
-
-	// 			if (nodeName === "SUP" || nodeName === "SUB") {
-	// 				// SUP + SUP는 조인이 가능해야 하므로 NO_JOIN_PREV, NO_JOIN_NEXT 플래그를 주지 않음
-	// 				// 예: <sup>주</sup><sup>1)</sup> 이런 거지같은 상황이 나올 수도 있다.
-	// 				const commonFlags = nodeName === "SUP" ? TokenFlags.HTML_SUP : TokenFlags.HTML_SUB;
-	// 				for (let i = tokenStartIndex; i < tokenIndex; i++) {
-	// 					tokens[i].flags |= commonFlags;
-	// 				}
-	// 			} else if (nodeName === "TD" || nodeName === "TH") {
-	// 				if (firstToken) {
-	// 					firstToken.flags |=
-	// 						TokenFlags.TABLECELL_START | TokenFlags.NO_JOIN_PREV | TokenFlags.CONTAINER_START | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-	// 				}
-	// 				if (lastToken) {
-	// 					lastToken.flags |=
-	// 						TokenFlags.TABLECELL_END | TokenFlags.NO_JOIN_NEXT | TokenFlags.CONTAINER_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
-	// 				}
-	// 				if (tokenCount > 0) {
-	// 					lineNum++;
-	// 				}
-	// 			} else if (nodeName === "TR") {
-	// 				if (firstToken) {
-	// 					firstToken.flags |= TokenFlags.TABLEROW_START;
-	// 				}
-	// 				if (lastToken) {
-	// 					lastToken.flags |= TokenFlags.TABLEROW_END;
-	// 				}
-	// 			} else if (nodeName === "TABLE") {
-	// 				if (firstToken) {
-	// 					firstToken.flags |= TokenFlags.TABLE_START;
-	// 				}
-	// 				if (lastToken) {
-	// 					lastToken.flags |= TokenFlags.TABLE_END;
-	// 				}
-	// 			}
-
-	// 			if (BLOCK_ELEMENTS[nodeName]) {
-	// 				if (firstToken) {
-	// 					firstToken.flags |= nextTokenFlags | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-	// 				}
-	// 				if (lastToken) {
-	// 					lastToken.flags |= TokenFlags.BLOCK_END | TokenFlags.LINE_END;
-	// 				}
-	// 				nextTokenFlags |= TokenFlags.LINE_START;
-	// 				if (tokenCount > 0) {
-	// 					lineNum++;
-	// 				}
-	// 			}
-
-	// 			if (node === root) {
-	// 				firstToken.flags |= nextTokenFlags | TokenFlags.BLOCK_START | TokenFlags.CONTAINER_START | TokenFlags.LINE_START;
-	// 				lastToken.flags |= TokenFlags.BLOCK_END | TokenFlags.CONTAINER_END | TokenFlags.LINE_END;
-	// 			}
-	// 		}
-
-	// 		if (isBlockElement) {
-	// 			if (tokenCount > 0) {
-	// 				currentBlock!.tokenCount = tokenEndIndex - currentBlock!.startTokenIndex;
-	// 				tokens[tokens.length - 1].flags |= TokenFlags.BLOCK_END | TokenFlags.LINE_END;
-	// 			}
-	// 			currentBlock = blockStack.pop() || null;
-	// 		}
-
-	// 		if (isTextFlowContainer) {
-	// 			if (tokenCount > 0) {
-	// 				currentContainer.tokenCount = tokenEndIndex - currentContainer.startTokenIndex;
-	// 				tokens[tokens.length - 1].flags |= TokenFlags.CONTAINER_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
-	// 				containers.set(node as HTMLElement, currentContainer);
-	// 			}
-	// 			currentContainer = containerStack.pop()!;
-	// 		}
-	// 	}
-
-	// 	yield* traverse(root);
-
-	// 	tokens.length = tokenIndex;
-	// 	for (let i = 1; i < tokens.length; i++) {
-	// 		if (tokens[i].flags & TokenFlags.LINE_START) {
-	// 			tokens[i - 1].flags |= TokenFlags.LINE_END;
-	// 		}
-	// 	}
-
-	// 	return { tokens, containers };
-	// }
-
-	async *#generateAsync(idleDeadline: IdleDeadline): AsyncGenerator<void, { tokens: RichToken[]; containers: Map<HTMLElement, TextFlowContainer> }, IdleDeadline> {
-		// 기존 generator 코드에서 비동기 작업이 필요한 부분에 await 추가
-		// 예시: 이미지 처리 등에서 await 사용 가능
-		// 아래는 기존 코드와 동일하게 동작하지만, 필요시 await 사용 가능
-
-		type _BlockInfo = {
-			element: HTMLElement;
-			container: TextFlowContainer;
-			startTokenIndex: number;
-			tokenCount: number;
-			depth: number;
-		};
-
+	async *#generateAsync(idleDeadline: IdleDeadline): AsyncGenerator<void, TokenizeResult, IdleDeadline> {
 		const tokens: RichToken[] = [];
-		const containers: Map<HTMLElement, TextFlowContainer> = new Map();
 		const root = this.#rootContent;
 		const textNodeBuf: Text[] = [];
 		const textNodeBufIndices: number[] = [];
+		const imageMap = this.#imageMap;
 		const imageDataCache = this.#imageDataCache;
+		const loadImagePromises = new Map<string, Promise<{ hash: string, dataUrl: string }>>();
+		const imageLoader = createImageLoader();
+		const cancellable: { cancelled: boolean } = this.#cancellable;
+
 		let tokenIndex = 0;
 		let currentToken: RichToken | null = null;
 		let nextTokenFlags = 0;
 		let recursionCount = 0;
 		let lineNum = 1;
 		let shouldNormalize = false;
-
-		const blockStack: _BlockInfo[] = [];
-		let currentBlock: _BlockInfo | null = null;
-
-		const containerStack: TextFlowContainer[] = [];
-		let currentContainer: TextFlowContainer = {
-			element: root as HTMLElement,
-			parent: null,
-			depth: 0,
-			startTokenIndex: 0,
-			tokenCount: 0,
-		};
+		let lastLineBreakElem: HTMLElement | null = null;
 
 		function processToken(textNode: Text, startOffset: number, endOffset: number, flags: number = 0) {
+			if (import.meta.env.DEV) {
+				console.assert(currentToken === null || currentToken.range.type === TokenRangeType.TEXT, "currentToken should be null or text type here");
+			}
+
 			let text = textNode.nodeValue!.slice(startOffset, endOffset);
 			if (shouldNormalize) {
-				text = normalize(text);
+				text = normalizeCharacters(text);
 				shouldNormalize = false;
 			}
+
 			if (currentToken) {
 				currentToken.text += text;
-				(currentToken.range as LightRange).endContainer = textNode;
-				(currentToken.range as LightRange).endOffset = endOffset;
+				(currentToken.range as Extract<TokenRange, { type: TokenRangeType.TEXT }>).endNode = textNode;
+				(currentToken.range as Extract<TokenRange, { type: TokenRangeType.TEXT }>).endOffset = endOffset;
 			} else {
 				currentToken = {
 					text: text,
 					flags: nextTokenFlags | flags,
 					range: {
-						startContainer: textNode,
-						startOffset: startOffset,
-						endContainer: textNode,
+						type: TokenRangeType.TEXT,
+						node: textNode,
+						offset: startOffset,
+						endNode: textNode,
 						endOffset: endOffset,
 					},
-					container: currentContainer,
-					lineNum: lineNum,
+					//container: currentContainer,
 				};
 				nextTokenFlags = 0;
 			}
@@ -649,6 +228,15 @@ export class TokenizeContext {
 					tokens[tokenIndex - 1].flags |= TokenFlags.LINE_END;
 				}
 				tokenIndex++;
+
+				flags = currentToken.flags;
+				if (flags & TokenFlags.LINE_START) {
+					if (lastLineBreakElem) {
+						currentToken.lineBreakerElement = lastLineBreakElem;
+						lastLineBreakElem = null;
+					}
+				}
+
 				currentToken = null;
 			}
 		}
@@ -658,7 +246,7 @@ export class TokenizeContext {
 			let i = bufferIndex;
 			let j = charIndex;
 			do {
-				const text = textNodeBuf[i].nodeValue!;
+				let text = textNodeBuf[i].nodeValue!;
 				for (; j < text.length; j++) {
 					let cp = text.codePointAt(j)!;
 					cp = normalizedCharMap[cp] ?? cp;
@@ -693,16 +281,13 @@ export class TokenizeContext {
 				const textLen = text.length;
 
 				let currentStart = -1;
-
 				while (charIndex < textLen) {
-					// Handle 4-byte characters properly
 					const cp = text.codePointAt(charIndex)!;
 					if (normalizedCharMap[cp] !== undefined) {
 						shouldNormalize = true;
 					}
 
 					const char = text[charIndex];
-
 					if (spaceChars[char]) {
 						// split here
 						if (currentStart !== -1) {
@@ -714,7 +299,7 @@ export class TokenizeContext {
 						if (char === "(") {
 							const match = findInTrie(wildcardTrieNode, nodeIndex, charIndex + 1);
 							if (match) {
-								const startContainer = textNode;
+								const startNode = textNode;
 								const startOffset = charIndex;
 								if (currentStart !== -1) {
 									processToken(textNode, currentStart, charIndex);
@@ -725,13 +310,13 @@ export class TokenizeContext {
 									text: match.word,
 									flags: nextTokenFlags | match.flags,
 									range: {
-										startContainer,
-										startOffset,
-										endContainer: textNodeBuf[match.bufferIndex],
+										type: TokenRangeType.TEXT,
+										node: startNode,
+										offset: startOffset,
+										endNode: textNodeBuf[match.bufferIndex],
 										endOffset: match.charIndex,
 									},
-									container: currentContainer,
-									lineNum: lineNum,
+									//container: currentContainer,
 								};
 								nextTokenFlags = 0;
 								finalizeToken();
@@ -740,10 +325,15 @@ export class TokenizeContext {
 								continue OUTER;
 							}
 						}
-						if (sectionHeadingStartChars[char] && nextTokenFlags & TokenFlags.LINE_START && !currentToken && currentStart === -1) {
+
+						if (
+							nextTokenFlags & TokenFlags.LINE_START &&
+							sectionHeadingStartChars[char] &&
+							!currentToken && currentStart === -1
+						) {
 							const match = findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
 							if (match) {
-								const startContainer = textNode;
+								const startNode = textNode;
 								const startOffset = charIndex;
 								if (currentStart !== -1) {
 									processToken(textNode, currentStart, charIndex);
@@ -754,13 +344,13 @@ export class TokenizeContext {
 									text: match.word.trimEnd(), // 좀 억지스러운데 가장 쉬운 방법...
 									flags: nextTokenFlags | match.flags,
 									range: {
-										startContainer,
-										startOffset,
-										endContainer: textNodeBuf[match.bufferIndex],
+										type: TokenRangeType.TEXT,
+										node: startNode,
+										offset: startOffset,
+										endNode: textNodeBuf[match.bufferIndex],
 										endOffset: match.charIndex,
 									},
-									container: currentContainer,
-									lineNum: lineNum,
+									//container: currentContainer,
 								};
 								nextTokenFlags = 0;
 								finalizeToken();
@@ -774,6 +364,7 @@ export class TokenizeContext {
 							currentStart = charIndex;
 						}
 					}
+
 					// Properly advance through characters, including 4-byte unicode characters
 					charIndex++;
 					if (cp > 0xffff) {
@@ -794,40 +385,78 @@ export class TokenizeContext {
 			textNodeBufIndices.length = 0;
 		}
 
+		function handleImage(elem: HTMLImageElement) {
+			const text = `$img:${++imgSeen}`;
+			const token = currentToken = {
+				text,
+				flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
+				range: {
+					type: TokenRangeType.ELEMENT,
+					node: elem,
+				},
+			};
+			finalizeToken();
+			nextTokenFlags = 0;
+
+			elem.dataset.tokenIndex = String(tokens.length - 1);
+			const props = imageLoader.load(elem, cancellable);
+			imageMap.set(token, props);
+			return { token, props };
+
+
+
+			// const hasFixedSize = isImageSizeFixed(elem);
+			// let lastLoadedSrc: string | undefined;
+			// let promise: Promise<{ hash: string; dataUrl: string }> | undefined;
+			// const props: ImageProps = {
+			// 	elem,
+			// 	hasFixedSize,
+			// 	hash: undefined,
+			// 	dataUrl: undefined,
+			// 	ensureLoaded: () => {
+			// 		if (lastLoadedSrc !== elem.src) {
+			// 			lastLoadedSrc = elem.src;
+			// 			props.hash = props.dataUrl = undefined;
+			// 			delete elem.dataset.hash;
+			// 			delete elem.dataset.dataurl;
+
+			// 			promise = (async () => {
+			// 				const { hash, dataUrl } = await loadImageDataBySrc(elem.src);
+			// 				console.log("image loaded", { src: elem.getAttribute("src"), srcUrl: elem.src, hash, dataUrl });
+			// 				props.hash = hash;
+			// 				props.dataUrl = dataUrl;
+			// 				token.text = `$img:${hash}`;
+			// 				elem.dataset.hash = hash;
+			// 				return { hash, dataUrl };
+			// 			})();
+			// 		}
+			// 		return promise!;
+			// 	},
+			// };
+			// props.ensureLoaded(); // do not wait
+
+
+
+
+		}
+
 		async function* traverse(node: Node, idleDeadline: IdleDeadline): AsyncGenerator<void, void, IdleDeadline> {
 			const nodeName = node.nodeName;
 			const isTextFlowContainer = TEXT_FLOW_CONTAINERS[nodeName] || node === root;
 			const isBlockElement = BLOCK_ELEMENTS[nodeName];
 
-			if (isTextFlowContainer) {
-				containerStack.push(currentContainer);
-				currentContainer = {
-					element: node as HTMLElement,
-					parent: currentContainer,
-					depth: currentContainer.depth + 1,
-					startTokenIndex: tokenIndex,
-					tokenCount: 0,
-				};
-				nextTokenFlags |= TokenFlags.CONTAINER_START | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-			}
-
-			if (isBlockElement) {
-				if (currentBlock) {
-					blockStack.push(currentBlock);
-				}
-				currentBlock = {
-					element: node as HTMLElement,
-					container: currentContainer,
-					depth: (currentBlock?.depth ?? -1) + 1,
-					startTokenIndex: tokenIndex,
-					tokenCount: 0,
-				};
-				nextTokenFlags |= TokenFlags.BLOCK_START | TokenFlags.LINE_START;
-			}
-
 			const isTokenBoundary = isTextFlowContainer || isBlockElement || nodeName === "TD" || nodeName === "SUP" || nodeName === "SUB";
 			if (isTokenBoundary && textNodeBuf.length > 0) {
 				doTokenizeText();
+			}
+
+			if (isBlockElement) {
+				// 블럭요소 안에 토큰이 하나도 없을 수도 있다. 그런 경우 nextTokenFlags는 소비되지 않기 때문에 블럭이 끝난 이후에도 남아있게 된다.
+				// 블럭요소가 끝날 때 nextTokenFlags를 리셋해주는 방법도 사용할 수 없다. 블럭 안에 블럭이 있을 수 있기 때문에.
+				// 블럭요소를 stack으로 관리해도 되지만 지금은 그냥 TokenFlags.BLOCK_START를 쓰지 않고 TokenFlags.LINE_START만 쓴다.
+				// TokenFlags.LINE_START는 블럭이 끝난 이후에도 유효한 값이다. 블럭요소 직후에는 당연히 새로운 줄이 시작되니까.
+				nextTokenFlags |= TokenFlags.LINE_START;
+				lastLineBreakElem = null;
 			}
 
 			const childNodes = node.childNodes;
@@ -853,69 +482,12 @@ export class TokenizeContext {
 						if (textNodeBuf.length > 0) {
 							doTokenizeText();
 						}
-
-						let src = (child as HTMLImageElement).src;
-						if (!src) {
-							// continue;
-						}
-
-						let text: string;
-						if (src) {
-							let hash: string | undefined = (child as HTMLImageElement).dataset.hash;
-							let isDataUrl = src.startsWith("data:");
-							if (!isDataUrl) {
-								if (window.extensionEnabled) {
-									try {
-										const { data: dataUrl } = await fetchImageData(src);
-										if (dataUrl) {
-											// console.log("fetched data url:", dataUrl?.slice(0, 30) + "...");
-										}
-										isDataUrl = true;
-										(child as HTMLImageElement).src = src = dataUrl;
-										(child as HTMLImageElement).crossOrigin = "anonymous";
-									} catch (e) {
-										console.warn("Failed to fetch image data:", e);
-									}
-								} else {
-									console.debug("Extension not enabled, skipping fetchImageData");
-								}
-							}
-
-							if (isDataUrl) {
-								hash = (child as HTMLImageElement).dataset.hash;
-								if (!hash) {
-									hash = quickHash53ToString(src);
-									(child as HTMLImageElement).dataset.hash = hash;
-								}
-							} else if (src.startsWith("http://") || src.startsWith("https://")) {
-								hash = quickHash53ToString(src);
-							} else {
-								hash = undefined;
-							}
-
-							text = `img:${hash || (++imgSeen)}`;
-							(child as HTMLImageElement).title = text;
-						} else {
-							text = `img:${++imgSeen}`;
-						}
-
-						const range = document.createRange();
-						range.selectNode(child);
-						currentToken = {
-							text,
-							flags: TokenFlags.IMAGE | TokenFlags.NO_JOIN_PREV | TokenFlags.NO_JOIN_NEXT | nextTokenFlags,
-							range,
-							container: currentContainer,
-							lineNum: lineNum,
-						};
-						// console.log(currentToken)
-						finalizeToken();
-						nextTokenFlags = 0;
-
+						//const { token, props } = 
+						handleImage(child as HTMLImageElement);
 						continue;
 					}
 
-					if (childNodeName === MANUAL_ANCHOR_ELEMENT_NAME && (child as HTMLAnchorElement).classList.contains("manual-anchor")) {
+					if (isManualAnchorElement(child as Element)) {
 						if (textNodeBuf.length > 0) {
 							doTokenizeText();
 						}
@@ -925,8 +497,7 @@ export class TokenizeContext {
 						if (textNodeBuf.length > 0) {
 							doTokenizeText();
 						}
-						const range = document.createRange();
-						range.selectNode(child);
+
 						currentToken = {
 							text: (child as HTMLAnchorElement).dataset.manualAnchor === "B" ? MANUAL_ANCHOR2 : MANUAL_ANCHOR1,
 							flags:
@@ -936,12 +507,15 @@ export class TokenizeContext {
 								nextTokenFlags |
 								TokenFlags.LINE_START |
 								TokenFlags.LINE_END,
-							range,
-							container: currentContainer,
-							lineNum: lineNum,
+							range: {
+								type: TokenRangeType.ELEMENT,
+								node: child as Element,
+							},
+							// container: currentContainer,
 						};
 						nextTokenFlags = 0;
 						finalizeToken();
+						lastLineBreakElem = child as HTMLElement;
 						continue;
 					}
 
@@ -950,6 +524,7 @@ export class TokenizeContext {
 							doTokenizeText();
 						}
 						nextTokenFlags |= TokenFlags.LINE_START;
+						lastLineBreakElem = child as HTMLElement;
 						lineNum++;
 						continue;
 					}
@@ -971,30 +546,22 @@ export class TokenizeContext {
 			const tokenEndIndex = tokenIndex;
 			const tokenCount = tokenEndIndex - tokenStartIndex;
 			if (tokenCount > 0) {
-				const firstToken = tokens[tokenStartIndex];
-				const lastToken = tokens[tokenIndex - 1];
-
-				// ...existing flag 처리 코드...
-			}
-
-			if (isBlockElement) {
-				if (tokenCount > 0) {
-					currentBlock!.tokenCount = tokenEndIndex - currentBlock!.startTokenIndex;
-					tokens[tokens.length - 1].flags |= TokenFlags.BLOCK_END | TokenFlags.LINE_END;
+				if (node.nodeName === "TABLE") {
+					tokens[tokenStartIndex].flags |= TokenFlags.TABLE_START | TokenFlags.TABLECELL_START | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
+					tokens[tokenEndIndex - 1].flags |= TokenFlags.TABLE_END | TokenFlags.TABLECELL_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
+				} else if (node.nodeName === "TD" || node.nodeName === "TH") {
+					tokens[tokenStartIndex].flags |= TokenFlags.TABLECELL_START | TokenFlags.BLOCK_START | TokenFlags.LINE_START;
+					tokens[tokenEndIndex - 1].flags |= TokenFlags.TABLECELL_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
+				} else if (isBlockElement) {
+					tokens[tokenStartIndex].flags |= TokenFlags.BLOCK_START | TokenFlags.LINE_START;
+					tokens[tokenEndIndex - 1].flags |= TokenFlags.BLOCK_END | TokenFlags.LINE_END;
 				}
-				currentBlock = blockStack.pop() || null;
-			}
-
-			if (isTextFlowContainer) {
-				if (tokenCount > 0) {
-					currentContainer.tokenCount = tokenEndIndex - currentContainer.startTokenIndex;
-					tokens[tokens.length - 1].flags |= TokenFlags.CONTAINER_END | TokenFlags.BLOCK_END | TokenFlags.LINE_END;
-					containers.set(node as HTMLElement, currentContainer);
+				if (node.nodeName === "SUP" || node.nodeName === "SUB") {
+					for (let j = tokenStartIndex; j < tokenEndIndex; j++) {
+						tokens[j].flags |= node.nodeName === "SUP" ? TokenFlags.HTML_SUP : TokenFlags.HTML_SUB;
+					}
 				}
-				currentContainer = containerStack.pop()!;
 			}
-
-
 		}
 
 		const gen = traverse(root, idleDeadline);
@@ -1005,12 +572,61 @@ export class TokenizeContext {
 		}
 
 		tokens.length = tokenIndex;
-		for (let i = 1; i < tokens.length; i++) {
-			if (tokens[i].flags & TokenFlags.LINE_START) {
+
+		for (let i = 0; i < tokens.length; i++) {
+			const token = tokens[i];
+			if (token.flags & TokenFlags.LINE_START && i > 0) {
 				tokens[i - 1].flags |= TokenFlags.LINE_END;
+			}
+
+			const startNode = (token.range.type === TokenRangeType.TEXT ? token.range.node.parentNode : token.range.node) as Element;
+			const flags = token.flags;
+			if (i === 0 && token.lineBreakerElement) {
+				console.log(0, 'lineBreakerElement already set', token.lineBreakerElement, startNode);
+			}
+
+			if (!token.lineBreakerElement) {
+				if (flags & TokenFlags.BLOCK_START) {
+					// ::before 가능
+					token.lineBreakerElement = findBlockParent(startNode, root) || undefined;
+				} else if (flags & TokenFlags.TABLECELL_START) {
+					// ::before 불가
+					token.lineBreakerElement = startNode.closest("TD, TH") as HTMLElement;
+				} else if (flags & TokenFlags.TABLE_START) {
+					// ::before 가능
+					token.lineBreakerElement = startNode.closest("TABLE") as HTMLElement;
+				}
 			}
 		}
 
-		return { tokens, containers };
+		const awaitables: Promise<any>[] = [];
+		let settledCount = 0;
+		let totalCount = 0;
+		for (const [richToken, props] of imageMap) {
+			if (props.hash) {
+				richToken.text = `$img:${props.hash}`;
+			} else {
+				totalCount++;
+				props.promise!.then(() => {
+					if (props.hash) {
+						richToken.text = `$img:${props.hash}`;
+					}
+				}).finally(() => {
+					settledCount++;
+				});
+			}
+		}
+
+		while (settledCount < totalCount) {
+			idleDeadline = yield;
+		}
+
+		//await Promise.allSettled(awaitables);
+
+		return { tokens, imageMap };
 	}
+}
+
+function isManualAnchorElement(elem: Element): boolean {
+	return elem.nodeName === MANUAL_ANCHOR_ELEMENT_NAME && (elem as HTMLAnchorElement).classList.contains("manual-anchor");
 }

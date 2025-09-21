@@ -573,6 +573,7 @@ class RenderRegion {
 	highlightedDiffIndex: number | null = null;
 	#scrollTop: number = 0;
 	#scrollLeft: number = 0;
+	#geometryInvalidator: () => void;
 
 	constructor(name: "left" | "right", renderer: Renderer, viewport: RenderViewport, ctx: CanvasRenderingContext2D, highlightCtx: CanvasRenderingContext2D) {
 		this.#name = name;
@@ -580,6 +581,9 @@ class RenderRegion {
 		this.#ctx = ctx;
 		this.#highlightCtx = highlightCtx;
 		this.#viewport = viewport;
+		this.#geometryInvalidator = () => {
+			this.#renderer.invalidateGeometries(this.#name);
+		}
 	}
 
 	updateLayout(): RenderFlags {
@@ -670,7 +674,7 @@ class RenderRegion {
 		return false;
 	}
 
-	ensureGeometries() {}
+	ensureGeometries() { }
 
 	setSelectionHighlight(range: Range | null) {
 		const current = this.#selectionHighlight;
@@ -1075,7 +1079,6 @@ class RenderRegion {
 	#extractRectsFromRange(range: Range, offsetLeft: number, offsetTop: number, expandX = 0, expandY = 0, emptyDiff = false): Rect[] {
 		const result: Rect[] = [];
 		const tempRange = document.createRange();
-
 		let startNode: Node | null;
 
 		if (range.startContainer.nodeType === 3) {
@@ -1195,6 +1198,12 @@ class RenderRegion {
 						width: rect.width + expandX * 2,
 						height: rect.height + expandY * 2,
 					});
+				}
+
+				// 짜증나는 부분. 이건 순전히 new bizplatform 때문.
+				if (!(node as HTMLImageElement).complete) {
+					(node as HTMLImageElement).addEventListener("load", this.#geometryInvalidator, { once: true });
+					(node as HTMLImageElement).addEventListener("error", this.#geometryInvalidator, { once: true });
 				}
 			}
 		} while (walker.nextNode());

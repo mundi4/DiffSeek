@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { useSetAtom } from 'jotai';
-import { editorPanelLayoutAtom } from '../states/atoms';
+import { editorPanelLayoutAtom, settingsPanelOpenAtom } from '../states/atoms';
 import { useDiffControllerContext } from './useDiffController';
 import { KEYBOARD_SHORTCUTS } from '../constants/appConstants';
 
@@ -10,12 +10,12 @@ import { KEYBOARD_SHORTCUTS } from '../constants/appConstants';
 function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
     const parts = shortcut.split('+');
     const key = parts[parts.length - 1];
-    
+
     const hasCtrl = parts.includes('Ctrl');
     const hasAlt = parts.includes('Alt');
     const hasShift = parts.includes('Shift');
     const hasMeta = parts.includes('Meta') || parts.includes('Cmd');
-    
+
     return (
         event.key === key &&
         event.ctrlKey === hasCtrl &&
@@ -31,7 +31,7 @@ function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
 export function useKeyboardShortcuts() {
     const { diffController, leftEditor, rightEditor } = useDiffControllerContext();
     const setEditorLayout = useSetAtom(editorPanelLayoutAtom);
-
+    const setSettingsPanelOpen = useSetAtom(settingsPanelOpenAtom);
     useEffect(() => {
         const handleKeyDown = (e: KeyboardEvent) => {
             // F2: Toggle sync mode
@@ -47,6 +47,12 @@ export function useKeyboardShortcuts() {
                 setEditorLayout(current => current === 'horizontal' ? 'vertical' : 'horizontal');
                 diffController.alignEditors();
                 diffController.renderer.invalidateAll();
+                return;
+            }
+
+            if (matchesShortcut(e, KEYBOARD_SHORTCUTS.TOGGLE_SETTINGS)) {
+                e.preventDefault();
+                setSettingsPanelOpen(v => !v);
                 return;
             }
 
@@ -79,9 +85,9 @@ export function useKeyboardShortcuts() {
         };
 
         window.addEventListener("keydown", handleKeyDown);
-        
+
         return () => {
             window.removeEventListener("keydown", handleKeyDown);
         };
-    }, [diffController, leftEditor, rightEditor, setEditorLayout]);
+    }, [diffController, leftEditor, rightEditor, setEditorLayout, setSettingsPanelOpen]);
 }

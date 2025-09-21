@@ -1,4 +1,4 @@
-function createRPC(port, { timeout: timeout = 3000 } = {}) {
+function createRPC(port, { timeout: timeout = 10_000 } = {}) {
 	let id = 1;
 	const pending = new Map();
 
@@ -12,7 +12,6 @@ function createRPC(port, { timeout: timeout = 3000 } = {}) {
 		}
 	});
 
-	// transfer 관련 코드 제거
 	function call(method, params, timeoutOverride = timeout) {
 		return new Promise((resolve, reject) => {
 			const reqId = id++;
@@ -77,55 +76,30 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 	}
 });
 
-// function decodeDataURL(url) {
-// 	const match = url.match(/^data:([^;]+);base64,(.*)$/);
-// 	if (!match) throw new Error("Only base64-encoded data URLs are supported");
-
-// 	const data = match[2];
-// 	const binary = atob(data.trim());
-// 	const bytes = new Uint8Array(binary.length);
-// 	for (let i = 0; i < binary.length; i++) {
-// 		bytes[i] = binary.charCodeAt(i);
-// 	}
-// 	return bytes;
-// }
-
 chrome.runtime.onConnect.addListener((port) => {
 	if (port.name === "diffseek") {
-		console.log("DiffSeekExt: diffseek port connected");
 		const rpc = createRPC(port);
 		rpc.handle({
 			fetchImageData: async (url) => {
-				return fetchImageData(url);
+				return await fetchImageData(url);
 			},
 		});
 	}
 });
 
-// // returns { mimeType, data }
-// async function fetchImageData(url) {
-// 	const response = await fetch(url);
-// 	if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
-// 	const blob = await response.blob();
-// 	const arrayBuffer = await blob.arrayBuffer();
-// 	return {
-// 		contentType: blob.type,
-// 		data: new Uint32Array(arrayBuffer),
-// 	};
-// }
-
+/*
+이미지 파일을 읽어서 data url로 돌려준다.
+위험할 수 있다. 파일을 가리지 않는다. 크기도 가리지 않는다. c:\동영상\토익_XXX-313.mp4 같은 것도 읽어버릴 수 있다.
+*/
 async function fetchImageData(url) {
-	const response = await fetch(url);
+	const response = await fetch(url, { credentials: "include" });
 	if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
 	const blob = await response.blob();
 	const reader = new FileReader();
 
 	return new Promise((resolve, reject) => {
 		reader.onloadend = () => {
-			resolve({
-				contentType: blob.type,
-				data: reader.result,
-			});
+			resolve(reader.result);
 		};
 		reader.onerror = reject;
 		reader.readAsDataURL(blob);

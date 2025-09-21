@@ -1,6 +1,6 @@
 import { DiffProcessor } from "./DiffProcessor";
-import { initializeDiffWorker } from "@/core/worker/initializeDiffWorker";
-import type { RichToken } from "@/core/tokenization/TokenizeContext";
+import { initializeDiffWorker, } from "@/core/worker/initializeDiffWorker";
+import type { RichToken, TokenRange, TokenRangeType } from "@/core/tokenization/TokenizeContext";
 import { createEvent } from "../utils/createEvent";
 import type { DiffContext } from "./DiffContext";
 import type { EditorName } from "./types";
@@ -9,12 +9,10 @@ import type { Renderer, RendererCallbacks } from "@/core/Renderer";
 import { EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
 import { EditorPairer } from "./EditorPairer";
 import { TokenFlags } from "./tokenization/TokenFlags";
+import { createRangeFromTokenRange } from "./utils/tokenRangeUtils";
+import type { DiffWorkerResult } from "./worker/diff-worker";
+import { clearImageCache, dumpImageCache, type ImageLoadResult } from "./imageCache";
 
-export type DiffResult = {
-	diffs: DiffEntry[];
-	options: DiffOptions;
-	processTime: number;
-};
 
 // const defaultDiffOptions: DiffOptions = {
 // 	algorithm: "histogram",
@@ -103,7 +101,6 @@ export class DiffController {
 	#lastTextSelectionRange: Range | null = null;
 	#cancelComputeDiff: (() => void) | null = null;
 
-
 	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions) {
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
@@ -117,7 +114,7 @@ export class DiffController {
 		this.#setupEventListeners();
 		this.#diffWorker = initializeDiffWorker(this.#onDiffCompleted.bind(this));
 
-		this.#diffWorker.run([], [], this.#diffOptions);
+		this.#diffWorker.run([], [], this.#diffOptions, []);
 		renderer.guideLineEnabled = this.#syncMode;
 
 		const editorCallbacks: Partial<EditorCallbacks> = {
@@ -322,11 +319,15 @@ export class DiffController {
 		}
 	}
 
-	#onDiffCompleted(result: DiffResult) {
+	#onDiffCompleted(result: DiffWorkerResult) {
 		if (this.#postProcessor) {
 			this.#postProcessor.cancel();
 		}
-		this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result.diffs, result.options);
+
+		// if (import.meta.env.DEV) {
+		// 	console.debug("DiffWorker completed:", result);
+		// }
+		this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result);
 		this.#postProcessor.process(this.#handleDiffContextReady);
 	}
 
@@ -353,6 +354,19 @@ export class DiffController {
 	}
 
 	#handleEditorContentChanged() {
+		this.diffContext = null;
+		this.#postProcessor?.cancel();
+		this.#editorPairer.cancelAnchorAligning();
+
+		if (this.#alignEditorsRequestId) {
+			cancelAnimationFrame(this.#alignEditorsRequestId);
+			this.#alignEditorsRequestId = null;
+		}
+		if (this.#invalidateGeometriesRequestId) {
+			cancelAnimationFrame(this.#invalidateGeometriesRequestId);
+			this.#invalidateGeometriesRequestId = null;
+		}
+
 		this.computeDiff();
 	}
 
@@ -360,15 +374,18 @@ export class DiffController {
 		cancelled: boolean;
 		leftRichTokens: readonly RichToken[];
 		rightRichTokens: readonly RichToken[];
+		leftImageMap: Map<RichToken, ImageLoadResult>;
+		rightImageMap: Map<RichToken, ImageLoadResult>;
 		leftTokens: Token[];
 		rightTokens: Token[];
 		transfer: Transferable[];
 		promises?: Promise<any>[];
 	}, idleDeadline: IdleDeadline) {
 
-		const { leftRichTokens, rightRichTokens, leftTokens, rightTokens, transfer, promises } = ctx;
+		const { leftRichTokens, rightRichTokens, leftImageMap, rightImageMap, leftTokens, rightTokens, transfer, promises } = ctx;
 
-		async function* prepareTokens(richTokens: readonly RichToken[], result: Token[]) {
+		const imageHashesSeen = new Set<string>();
+		async function* prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
 			for (let i = 0; i < richTokens.length; i++) {
 				if (ctx.cancelled) {
 					return;
@@ -389,88 +406,33 @@ export class DiffController {
 				};
 
 				if (richToken.flags & TokenFlags.IMAGE) {
-					let img = richToken.range.startContainer.childNodes[richToken.range.startOffset] as HTMLImageElement;
-					if (img.nodeName !== "IMG") {
-						const walker = document.createTreeWalker(
-							(richToken.range as Range).commonAncestorContainer!,
-							NodeFilter.SHOW_ELEMENT);
-						walker.currentNode = richToken.range.startContainer.childNodes[richToken.range.startOffset];
-						while (walker.nextNode()) {
-							if (walker.currentNode.nodeName === "IMG") {
-								img = walker.currentNode as HTMLImageElement;
-								break;
+					const props = imageMap.get(richToken);
+					if (props && props.hash && props.data) {
+						if (!imageHashesSeen.has(props.hash)) {
+							imageHashesSeen.add(props.hash);
+							if (props.data.buffer.byteLength > 0) {
+								result[i].width = props.width;
+								result[i].height = props.height;
+								result[i].data = props.data.buffer;
+								transfer.push(props.data.buffer);
 							}
 						}
-						// console.log("found?:", img);
-					}
-					const imageUrl = img.src;
-					// console.log("loading image:", richToken, img, imageUrl?.slice(0, 10), "t?", typeof richToken.range);
-					if (imageUrl.startsWith("data:")) {
-						try {
-							promises?.push(extractImageData(img)
-								.then((imageData) => {
-									result[i].width = IMAGE_SIZE;
-									result[i].height = IMAGE_SIZE;
-									result[i].data = imageData!.data.buffer;
-									transfer.push(imageData!.data.buffer);
-								}).catch(() => { }));
-
-
-
-
-							// const imageData = await loadImage(richToken.text, ctx);
-							// if (ctx.cancelled) {
-							// 	return;
-							// }
-						} catch (e) {
-							console.warn("Error loading image:", e);
-							continue;
-						}
-						// } else {
-
-						// 	try {
-						// 		if (ctx.cancelled) return;
-						// 		const fetchResult = await fetchImageData(richToken.text);
-						// 		const { data: dataUrl } = fetchResult;
-
-						// 		img.src = dataUrl;
-						// 		img.crossOrigin = "anonymous";
-						// 		promises?.push(extractImageData(img)
-						// 			.then((imageData) => {
-						// 				result[i].width = IMAGE_SIZE;
-						// 				result[i].height = IMAGE_SIZE;
-						// 				result[i].data = imageData!.data.buffer;
-						// 				transfer.push(imageData!.data.buffer);
-						// 			}).catch(() => { }));
-
-
-
-
-						// 		// const imageData = await loadImage(richToken.text, ctx);
-						// 		// if (ctx.cancelled) {
-						// 		// 	return;
-						// 		// }
-						// 	} catch (e) {
-						// 		console.warn("Error loading image:", e);
-						// 		continue;
-						// 	}
 					}
 				}
 			}
 		}
 
-		yield* prepareTokens(leftRichTokens, leftTokens);
-		yield* prepareTokens(rightRichTokens, rightTokens);
+		yield* prepareTokens(leftRichTokens, leftImageMap, leftTokens);
 		if (ctx.cancelled) {
 			return;
 		}
-		if (promises && promises.length > 0) {
-			await Promise.all(promises);
-			promises.length = 0;
-			if (ctx.cancelled) {
-				return;
-			}
+
+		yield* prepareTokens(rightRichTokens, rightImageMap, rightTokens);
+		if (ctx.cancelled) {
+			return;
 		}
+
+		clearImageCache(imageHashesSeen);
 		return;
 	}
 
@@ -484,6 +446,8 @@ export class DiffController {
 			cancelled: false,
 			leftRichTokens: this.#leftEditor.tokens,
 			rightRichTokens: this.#rightEditor.tokens,
+			leftImageMap: this.#leftEditor.imageMap,
+			rightImageMap: this.#rightEditor.imageMap,
 			leftTokens: [] as Token[],
 			rightTokens: [] as Token[],
 			transfer: [] as Transferable[],
@@ -502,7 +466,7 @@ export class DiffController {
 			}
 
 			if (done) {
-				this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions);
+				this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions, ctx.transfer);
 				this.#diffComputingEvent.emit({
 					leftTokenCount: ctx.leftTokens.length,
 					rightTokenCount: ctx.rightTokens.length,
@@ -524,13 +488,15 @@ export class DiffController {
 				requestId = null;
 			}
 		};
+
+		dumpImageCache();
 	}
 
 	computeDiff2() {
 		const leftTokens = buildTokenArray(this.#leftEditor.tokens);
 		const rightTokens = buildTokenArray(this.#rightEditor.tokens);
 
-		this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions);
+		this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, []);
 		this.#diffComputingEvent.emit({
 			leftTokenCount: this.#leftEditor.tokens.length,
 			rightTokenCount: this.#rightEditor.tokens.length,
@@ -723,7 +689,6 @@ export class DiffController {
 		}
 
 		const selection = this.getEditorSelectionRange();
-
 		if (selection) {
 			const editor = selection.editor === "left" ? this.#leftEditor : this.#rightEditor;
 			let sourceSpan = editor.getTokenSpanForRange(selection.range);
@@ -784,20 +749,7 @@ export class DiffController {
 			return;
 		}
 
-		let raw = token.range;
-		let range: Range;
-		if (raw instanceof Range) {
-			range = raw;
-		} else {
-			range = document.createRange();
-			range.setStart(raw.startContainer, raw.startOffset);
-			range.setEnd(raw.endContainer, raw.endOffset);
-		}
-
-		if (!range.startContainer.isConnected || !range.endContainer.isConnected) {
-			return;
-		}
-
+		let range = createRangeFromTokenRange(token.range);
 		const rect = range.getBoundingClientRect();
 		if (rect.y === 0 && rect.x === 0 && rect.height === 0 && rect.width === 0) {
 			return 0;
@@ -847,6 +799,7 @@ async function extractImageData(img: HTMLImageElement) {
 	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 }
 
+
 // async function setImageSourceAndExtractData(img: HTMLImageElement, dataUrl: string) {
 // 	img.crossOrigin = "anonymous";
 // 	img.src = dataUrl;
@@ -861,33 +814,25 @@ async function extractImageData(img: HTMLImageElement) {
 
 // }
 
-// async function loadImage(url: string, cancellable: { cancelled: boolean }) {
-// 	const img = new Image();
-// 	img.crossOrigin = "anonymous";
-// 	if (url.startsWith("data:")) {
-// 		img.src = url;
-// 	} else {
-// 		img.src = `http://localhost:5000/api/fetch?url=${encodeURIComponent(url)}`;
-// 	}
+async function loadImage(dataUrl: string, cancellable: { cancelled: boolean }) {
+	const img = new Image();
+	img.crossOrigin = "anonymous";
+	img.src = dataUrl;
 
-// 	await new Promise<void>((resolve, reject) => {
-// 		img.onload = () => resolve();
-// 		img.onerror = reject;
-// 	});
-// 	if (cancellable.cancelled) {
-// 		return null;
-// 	}
+	await new Promise<void>((resolve, reject) => {
+		img.onload = () => resolve();
+		img.onerror = reject;
+	});
+	if (cancellable.cancelled) {
+		return null;
+	}
 
-// 	if (!ctx) {
-// 		const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
-// 		ctx = canvas.getContext("2d");
-// 		if (!ctx) {
-// 			throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
-// 		}
-// 	} else {
-// 		ctx.clearRect(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-// 	}
+	const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
+	const ctx = canvas.getContext("2d");
+	if (!ctx) {
+		throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
+	}
 
-// 	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-// 	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-// }
+	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
+	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
+}

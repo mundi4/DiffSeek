@@ -1,12 +1,12 @@
 import { TokenFlags } from "../tokenization/TokenFlags";
 import pixelmatch from "pixelmatch";
 
-let imageCompareCache: Record<string, boolean> = {};
-
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
 
-
+const imageCache = new Map<string, { data: ArrayBufferLike, width: number, height: number }>();
+const imageCompareCache = new Map<string, Map<string, { similarity: number | undefined }>>();
+let lastItemCompareTolerance = 0;
 
 export type DiffWorkerRequest = {
 	type: "diff";
@@ -16,10 +16,20 @@ export type DiffWorkerRequest = {
 	options: DiffOptions;
 };
 
-export type DiffWorkerMessage =
-	| { type: "diff"; reqId: number; diffs: DiffEntry[]; options: DiffOptions; processTime: number }
-	| { type: "error"; reqId: number; error: string };
+export type DiffWorkerResult = {
+	diffs: DiffEntry[];
+	options: DiffOptions;
+	processTime: number;
+	imageComparisons: Record<string, { similarity: number; }>;
+};
 
+export function makeImageKey(a: string, b: string): string {
+	return [a, b].sort().join("|");
+}
+
+export type DiffWorkerResponse =
+	| { type: "diff"; reqId: number; } & DiffWorkerResult
+	| { type: "error"; reqId: number; error: string };
 
 type WorkContext = {
 	reqId: number;
@@ -35,6 +45,7 @@ type WorkContext = {
 	options: DiffOptions;
 	entries: DiffEntry[];
 	nextImageId: number;
+	imageComparisons: Record<string, { similarity: number | undefined; }>;
 	//states: Record<string, any>;
 };
 
@@ -49,6 +60,7 @@ self.onmessage = (e) => {
 			lastYield: 0,
 			entries: [],
 			nextImageId: 1,
+			imageComparisons: {},
 			//states: {},
 		} as WorkContext;
 
@@ -62,55 +74,121 @@ self.onmessage = (e) => {
 	}
 };
 
+const imageHashesSeen = new Set<string>();
+function cacheImageTokens(tokens: Token[]) {
+	for (const token of tokens) {
+		if (token.flags & TokenFlags.IMAGE) {
+			if (token.data) {
+				imageCache.set(token.text, { data: token.data, width: token.width!, height: token.height! });
+			} else {
+				const cached = imageCache.get(token.text);
+				if (cached) {
+					token.width = cached.width;
+					token.height = cached.height;
+					token.data = cached.data;
+				} else {
+					console.warn("No cached image data for", token.text);
+				}
+			}
+			imageHashesSeen.add(token.text);
+		}
+	}
+}
+
 async function runDiff(ctx: WorkContext) {
 	_currentCtx = ctx;
-	try {
-		ctx.lastYield = ctx.start = performance.now();
-		self.postMessage({
-			reqId: ctx.reqId,
-			type: "start",
-			start: ctx.start,
-		});
+	let lastRunFinishedSuccessfully = false;
+	while (ctx) {
+		try {
+			imageHashesSeen.clear();
+			if (lastItemCompareTolerance !== ctx.options.compareImageTolerance) {
+				imageCompareCache.clear();
+			}
 
-		let result: DiffEntry[];
-		imageCompareCache = {};
-		if (ctx.options.algorithm === "histogram") {
-			result = await runHistogramDiff(ctx);
-		} else {
-			throw new Error("Unknown algorithm: " + ctx.options.algorithm);
-		}
-		ctx.finish = performance.now();
-		_currentCtx = null;
-
-		if (ctx.type === "diff") {
+			ctx.lastYield = ctx.start = performance.now();
 			self.postMessage({
 				reqId: ctx.reqId,
-				type: ctx.type,
-				processTime: ctx.finish - ctx.start,
-				diffs: result,
-				options: ctx.options,
-			} as DiffResponse);
-		} else if (ctx.type === "slice") {
-			self.postMessage({
-				reqId: ctx.reqId,
-				type: ctx.type,
-				accepted: true,
-				processTime: ctx.finish - ctx.start,
-				diffs: result,
-				options: ctx.options,
+				type: "start",
+				start: ctx.start,
 			});
+
+
+			cacheImageTokens(ctx.leftTokens);
+			cacheImageTokens(ctx.rightTokens);
+
+			let result: DiffEntry[];
+			if (ctx.options.algorithm === "histogram") {
+				result = await runHistogramDiff(ctx);
+			} else {
+				throw new Error("Unknown algorithm: " + ctx.options.algorithm);
+			}
+			ctx.finish = performance.now();
+			lastRunFinishedSuccessfully = true;
+
+			_currentCtx = null;
+
+			if (ctx.type === "diff") {
+				self.postMessage({
+					reqId: ctx.reqId,
+					type: ctx.type,
+					processTime: ctx.finish - ctx.start,
+					diffs: result,
+					options: ctx.options,
+					imageComparisons: ctx.imageComparisons,
+				} as DiffWorkerResult);
+			} else if (ctx.type === "slice") {
+				self.postMessage({
+					reqId: ctx.reqId,
+					type: ctx.type,
+					accepted: true,
+					processTime: ctx.finish - ctx.start,
+					diffs: result,
+					options: ctx.options,
+				});
+			}
+		} catch (e) {
+			if (e instanceof Error && e.message === "cancelled") {
+				// console.debug("Diff canceled");
+			} else {
+				console.error(e);
+			}
 		}
-	} catch (e) {
-		if (e instanceof Error && e.message === "cancelled") {
-			// console.debug("Diff canceled");
-		} else {
-			console.error(e);
+
+		[ctx, _nextCtx] = [_nextCtx!, null];
+	}
+
+	// clear unused images from cache
+	if (lastRunFinishedSuccessfully) {
+		for (const key of imageCache.keys()) {
+			if (!imageHashesSeen.has(key)) {
+				imageCache.delete(key);
+			}
 		}
+
+		let size = 0;
+		for (const key of imageCompareCache.keys()) {
+			if (!imageHashesSeen.has(key)) {
+				imageCompareCache.delete(key);
+			} else {
+				for (const k2 of imageCompareCache.get(key)!.keys()) {
+					if (!imageHashesSeen.has(k2)) {
+						imageCompareCache.get(key)!.delete(k2);
+					} else {
+						size++;
+					}
+				}
+			}
+		}
+
+		// console.log("image cache size:", imageCache.size, "image compare cache size:", size);
+		// console.log(imageCache);
+		// console.log(imageCompareCache)
+
 	}
-	[ctx, _nextCtx] = [_nextCtx!, null];
-	if (ctx) {
-		return await runDiff(ctx);
-	}
+
+
+
+
 }
 
 // #endregion
@@ -197,29 +275,6 @@ async function runDiff(ctx: WorkContext) {
 // Histogram Algorithm
 // 일단 지금은 이놈이 디폴트
 // ============================================================
-const SERVER_PING_INTERVAL = 30_000; // 30 seconds
-let lastPingTime = 0;
-let lastPingSuccess = false;
-
-async function checkServerAvailability(force = false): Promise<boolean> {
-	const now = Date.now();
-	if (now - lastPingTime < SERVER_PING_INTERVAL && !force) {
-		return lastPingSuccess;
-	}
-
-	let result = false;
-	try {
-		const pingResp = await fetch("http://localhost:5000/api/ping");
-		if (pingResp.ok) {
-			result = true;
-		}
-	} catch {
-		result = false;
-	}
-	lastPingSuccess = result;
-	lastPingTime = now;
-	return result;
-}
 
 async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 	// TODO 서버 상태 체크는 메인쓰레드에서 주기적으로 하는게 낫지 싶다.
@@ -252,28 +307,16 @@ async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
 			leftAnchors.push(i);
 		}
-		// if (token.flags & TokenFlags.IMAGE) {
-		// 	if (shouldShowServerUnavailableMessage) {
-		// 		console.warn("Image proxy server is not available. Pixel comparison is disabled.");
-		// 		shouldShowServerUnavailableMessage = false;
-		// 	}
-		// 	limitedLoader?.enqueue(token);
-		// }
 	}
 
 	// TODO 왼쪽 토큰에 MANUAL ANCHOR나 이미지가 존재하지 않는다면 다음 루프는 그냥 생략해도 된다.
-	for (let i = 0; i < rhsTokens.length; i++) {
-		const token = rhsTokens[i];
-		if (token.flags & TokenFlags.MANUAL_ANCHOR) {
-			rightAnchors.push(i);
+	if (leftAnchors.length > 0) {
+		for (let i = 0; i < rhsTokens.length; i++) {
+			const token = rhsTokens[i];
+			if (token.flags & TokenFlags.MANUAL_ANCHOR) {
+				rightAnchors.push(i);
+			}
 		}
-		// if (token.flags & TokenFlags.IMAGE) {
-		// 	if (shouldShowServerUnavailableMessage) {
-		// 		console.warn("Image proxy server is not available. Pixel comparison is disabled.");
-		// 		shouldShowServerUnavailableMessage = false;
-		// 	}
-		// 	limitedLoader?.enqueue(token);
-		// }
 	}
 
 	// await limitedLoader?.waitAll();
@@ -286,7 +329,6 @@ async function runHistogramDiff(ctx: WorkContext): Promise<DiffEntry[]> {
 			const leftTokenIndex = leftAnchors[l];
 			for (let r = rightPos; r < rightAnchors.length; r++) {
 				const rightTokenIndex = rightAnchors[r];
-
 				if (lhsTokens[leftTokenIndex].text === rhsTokens[rightTokenIndex].text) {
 					matches.push({ lhsIndex: leftTokenIndex, rhsIndex: rightTokenIndex });
 					rightPos = r + 1;
@@ -376,11 +418,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 	const freq: Record<string, number> = {};
 	for (let n = 1; n <= maxLen; n++) {
-		OUTER: for (let i = lhsLower; i <= lhsUpper - n; i++) {
+		//OUTER: 
+		for (let i = lhsLower; i <= lhsUpper - n; i++) {
 			let key = lhsTokens[i].text;
-			if (lhsTokens[i].flags & TokenFlags.IMAGE) {
-				continue;
-			}
+			// if (lhsTokens[i].flags & TokenFlags.IMAGE) {
+			// 	continue;
+			// }
 			// if (!(lhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
 				// if (lhsTokens[i + k].flags & NO_JOIN) {
@@ -390,9 +433,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if ((lhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (lhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
 				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음	
 				// }
-				if (lhsTokens[i + k].flags & TokenFlags.IMAGE) {
-					continue OUTER;
-				}
+				// if (lhsTokens[i + k].flags & TokenFlags.IMAGE) {
+				// 	continue OUTER;
+				// }
 				key += delimiter + lhsTokens[i + k].text;
 			}
 			// } else {
@@ -402,11 +445,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 			freq[key] = (freq[key] || 0) + 1;
 			// }
 		}
-		OUTER: for (let i = rhsLower; i <= rhsUpper - n; i++) {
+		// OUTER:
+		for (let i = rhsLower; i <= rhsUpper - n; i++) {
 			let key = rhsTokens[i].text;
-			if (rhsTokens[i].flags & TokenFlags.IMAGE) {
-				continue;
-			}
+			// if (rhsTokens[i].flags & TokenFlags.IMAGE) {
+			// 	continue;
+			// }
 			// if (!(rhsTokens[i].flags & NO_JOIN)) {
 			for (let k = 1; k < n; k++) {
 				// if (rhsTokens[i + k].flags & NO_JOIN) {
@@ -416,9 +460,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				// if ((rhsTokens[i + k - 1].flags & TokenFlags.HTML_SUPSUB) !== (rhsTokens[i + k].flags & TokenFlags.HTML_SUPSUB)) {
 				// 	continue OUTER; // SUP/SUB가 중간에 바뀌면 N-그램으로 묶지 않음
 				// }
-				if (rhsTokens[i + k].flags & TokenFlags.IMAGE) {
-					continue OUTER;
-				}
+				// if (rhsTokens[i + k].flags & TokenFlags.IMAGE) {
+				// 	continue OUTER;
+				// }
 				key += delimiter + rhsTokens[i + k].text;
 			}
 			// } else {
@@ -441,23 +485,6 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 	for (let i = lhsLower; i < lhsUpper; i++) {
 		const ltext1 = lhsTokens[i].text;
-
-		// 특수 케이스
-		// 강제로 문서의 특정 지점끼리 매칭시킴. 문서 구조가 항상 내 맘 같은 것이 아니야. ㅠ
-		// if (lhsTokens[i].flags & MANUAL_ANCHOR) {
-		// 	for (let j = rhsLower; j < rhsUpper; j++) {
-		// 		if (rhsTokens[j].text === ltext1) {
-		// 			console.log("manual anchor", ltext1, i, j);
-		// 			return {
-		// 				lhsIndex: i,
-		// 				lhsLength: 1,
-		// 				rhsIndex: j,
-		// 				rhsLength: 1,
-		// 			};
-		// 		}
-		// 	}
-		// }
-
 		for (let j = rhsLower; j < rhsUpper; j++) {
 			let li = i,
 				ri = j;
@@ -471,10 +498,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 				let equal: boolean | null = null;
 				if ((lhsTokens[li].flags & rhsTokens[ri].flags & TokenFlags.IMAGE)) {
-					// 둘 다 이미지
-					equal = compareImageTokens(lhsTokens[li], rhsTokens[ri], ctx);
-					if (!equal) break;
-				} else
+					if (compareImageTokens(lhsTokens[li], rhsTokens[ri], ctx)) {
+						equal = true;
+					} else {
+						break;
+					}
+				} else {
 					if ((lhsTokens[li].flags | rhsTokens[ri].flags) & TokenFlags.IMAGE) {
 						break;
 					} else if (compareSupSub && (lhsTokens[li].flags & TokenFlags.HTML_SUPSUB) !== (rhsTokens[ri].flags & TokenFlags.HTML_SUPSUB)) {
@@ -482,6 +511,7 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 					} else if (ltext === rtext) {
 						equal = true;
 					}
+				}
 
 				if (equal) {
 					li++;
@@ -515,15 +545,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 			if (lhsLen > 0 && rhsLen > 0) {
 				let frequency: number;
 				let len: number;
-				// let anchorText: string;
 				if (lhsLen === 1) {
-					// anchorText = ltext1;
 					frequency = freq[ltext1] || 1;
 					len = ltext1.length;
-					// score = freq[ltext1] || 1;
-					// if (useLengthBias) {
-					// 	score += 1 / (ltext1.length + 1);
-					// }
 				} else {
 					let key = lhsTokens[i].text;
 					len = key.length;
@@ -532,30 +556,27 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 						key += delimiter + text;
 						len += text.length;
 					}
-					// anchorText = key;
 					frequency = freq[key] || 1;
-					// score = (freq[key] || 1) / ((lhsLen + 1) * (len + 1));
-					// score = (freq[key] || 1) / (lhsLen * len + 1);
-					// score = (freq[key] || 1) / (len + 1);
 				}
 
-				let score = 0;
-				score = useLengthBias ? frequency / (1 + Math.log(len + 1) * LENGTH_BIAS_FACTOR) : frequency;
+				let score = frequency;
+				if (useLengthBias) {
+					score = frequency / (1 + Math.log(len + 1) * LENGTH_BIAS_FACTOR);
+				}
 				if (frequency === 1) {
 					score *= UNIQUE_BONUS;
 				}
 
 				let boundaryBonus = 1;
-
 				// if (boundaryBonus > CONTAINER_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & CONTAINER_START) {
 				// 	boundaryBonus = CONTAINER_START_BONUS;
 				// }
 				// if (boundaryBonus > CONTAINER_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & CONTAINER_END) {
 				// 	boundaryBonus = CONTAINER_END_BONUS;
 				// }
-				// if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & LINE_START) {
-				// 	boundaryBonus = LINE_START_BONUS;
-				// }
+				if (boundaryBonus > LINE_START_BONUS && lhsTokens[i].flags & rhsTokens[j].flags & TokenFlags.LINE_START) {
+					boundaryBonus = LINE_START_BONUS;
+				}
 				// if (boundaryBonus > LINE_END_BONUS && lhsTokens[i + lhsLen - 1].flags & rhsTokens[j + rhsLen - 1].flags & LINE_END) {
 				// 	boundaryBonus = LINE_END_BONUS;
 				// }
@@ -563,7 +584,8 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 				// 사용 안하는 것이 낫다
 				// 항번호만 바뀌는 경우(중간에 항 추가/삭제)에도 항 번호가 우선적으로 매치되어 버리기 때문.
-				// if (lhsTokens[i].flags & rhsTokens[j].flags & (TokenFlags.SECTION_HEADING_MASK & ~TokenFlags.SECTION_HEADING_TYPE1)) {
+				// if (nGrams > 2 // 항 번호 이후에 최소 2개 이상의 토큰이 더 매치되면 그래도 해볼만 하지 않을까...?
+				// 	 && lhsTokens[i].flags & rhsTokens[j].flags & (TokenFlags.SECTION_HEADING_MASK & ~TokenFlags.SECTION_HEADING_TYPE1)) {
 				// 	// SECTION_HEADING_TYPE1 1., 2., 3., ...은 무시. 문서 구조가 영구일 때가 많음.
 				// 	score *= SECTION_HEADING_BONUS;
 				// }
@@ -727,6 +749,7 @@ function consumeCommonEdges(
 						continue;
 					}
 				}
+				// 그림vs그림 비교결과가 false이거나 그림vs텍스트인 경우.
 				break;
 			}
 
@@ -739,7 +762,10 @@ function consumeCommonEdges(
 				});
 				lhsLower++;
 				rhsLower++;
-			} else if (
+				continue;
+			}
+
+			if (
 				whitespace !== "normalize" &&
 				lhsTokens[lhsLower].text.length !== rhsTokens[rhsLower].text.length &&
 				lhsTokens[lhsLower].text[0] === rhsTokens[rhsLower].text[0] &&
@@ -758,9 +784,10 @@ function consumeCommonEdges(
 				});
 				lhsLower += matchedCount[0];
 				rhsLower += matchedCount[1];
-			} else {
-				break;
+				continue;
 			}
+
+			break;
 		}
 	}
 
@@ -836,6 +863,9 @@ function matchPrefixTokens(
 	// }
 
 	if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
+		return false;
+	}
+	if (lhsToken.flags & TokenFlags.IMAGE || rhsToken.flags & TokenFlags.IMAGE) {
 		return false;
 	}
 
@@ -941,6 +971,9 @@ function matchSuffixTokens(
 	if (compareSupSub && ((lhsToken.flags & TokenFlags.HTML_SUPSUB) !== (rhsToken.flags & TokenFlags.HTML_SUPSUB))) {
 		return false;
 	}
+	if (lhsToken.flags & TokenFlags.IMAGE || rhsToken.flags & TokenFlags.IMAGE) {
+		return false;
+	}
 
 	while (true) {
 		while (ci >= 0 && cj >= 0) {
@@ -1024,38 +1057,50 @@ function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContex
 		return false;
 	}
 
+	const { compareImage, compareImageTolerance } = ctx.options;
+	//console.log("compareImage, compareImageTolerance:", compareImage, compareImageTolerance)
+	if (!compareImage) {
+		return leftToken.text === rightToken.text;
+	}
+
+	const cacheKey = makeImageKey(leftToken.text, rightToken.text);
+	const cache = ctx.imageComparisons;
+	let result: { similarity: number | undefined } | undefined = cache[cacheKey] ?? undefined;
+	if (result) {
+		return (result.similarity ?? 0) * 100 >= compareImageTolerance;
+	}
+
+	result = imageCompareCache.get(leftToken.text)?.get(rightToken.text) ?? undefined;
+	if (result) {
+		cache[cacheKey] = result;
+		return (result.similarity ?? 0) * 100 >= compareImageTolerance;
+	}
+
+	// console.log("compare", leftToken, rightToken, cacheKey, result);
 	if (leftToken.text === rightToken.text) {
-		return true;
-	}
-
-	const diffOptions = ctx.options;
-	if (!diffOptions.compareImage) {
-		return false;
-	}
-
-	const cacheKey = [leftToken.text, rightToken.text].sort().join("<>");
-	if (imageCompareCache[cacheKey] !== undefined) {
-		return imageCompareCache[cacheKey];
-	}
-
-	let result: boolean | undefined = undefined;
-	if (!leftToken.data || !rightToken.data) {
-		result = false;
+		result = { similarity: 1 };
+	} else if (!leftToken.data || !rightToken.data) {
+		//console.log("no data");
+		result = { similarity: undefined };
 	} else {
-		const width = leftToken.width!;
-		const height = leftToken.height!;
+		const { width, height } = leftToken;
 		const leftArr = new Uint8ClampedArray(leftToken.data!);
 		const rightArr = new Uint8ClampedArray(rightToken.data!);
-		const diffCount = pixelmatch(leftArr, rightArr, void 0, width, height, {
-			threshold: 0.1,
-		});
-		const similarity = ((width * height - diffCount) / (width * height)) * 100;
-		console.log(`Image Comparison: ${cacheKey} => [${similarity.toFixed(2)}%]`);
-		result = similarity >= diffOptions.compareImageTolerance;
+		const diffCount = pixelmatch(leftArr, rightArr, void 0, width!, height!, { threshold: 0.1 });
+		result = { similarity: (width! * height! - diffCount) / (width! * height!) };
 	}
 
-	imageCompareCache[cacheKey] = result;
-	return result;
+	cache[cacheKey] = result;
+
+	if (!imageCompareCache.has(leftToken.text)) {
+		imageCompareCache.set(leftToken.text, new Map());
+	}
+	if (!imageCompareCache.get(rightToken.text)) {
+		imageCompareCache.set(rightToken.text, new Map());
+	}
+	imageCompareCache.get(leftToken.text)!.set(rightToken.text, result);
+	imageCompareCache.get(rightToken.text)!.set(leftToken.text, result);
+	return (result.similarity ?? 0) * 100 >= compareImageTolerance;
 }
 
 function createLimitedLoader<T>(
@@ -1122,5 +1167,3 @@ function createLimitedLoader<T>(
 
 	return { enqueue, waitAll };
 }
-
-

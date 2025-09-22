@@ -27,6 +27,7 @@ async function scaleAndExtract(source: string | HTMLImageElement, width: number,
     }
 
     if (!img.complete) {
+        // console.log("Waiting for image to load...", img.src.slice(0, 20));
         await new Promise<void>((resolve, reject) => {
             img.onload = () => resolve();
             img.onerror = reject;

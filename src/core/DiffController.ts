@@ -320,7 +320,17 @@ export class DiffController {
 		}
 	}
 
-	#onDiffCompleted(result: DiffWorkerResult) {
+	async #onDiffCompleted(result: DiffWorkerResult) {
+		// if (this.#postProcessor) {
+		// 	this.#postProcessor.cancel();
+		// }
+
+		// // if (import.meta.env.DEV) {
+		// // 	console.debug("DiffWorker completed:", result);
+		// // }
+		// this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result);
+		// this.#postProcessor.process(this.#handleDiffContextReady);
+
 		if (this.#postProcessor) {
 			this.#postProcessor.cancel();
 		}
@@ -328,8 +338,29 @@ export class DiffController {
 		// if (import.meta.env.DEV) {
 		// 	console.debug("DiffWorker completed:", result);
 		// }
+
 		this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result);
-		this.#postProcessor.process(this.#handleDiffContextReady);
+		try {
+			const diffContext = this.diffContext = await this.#postProcessor.process2();
+			this.#diffWorkflowDone.emit(diffContext);
+			this.#renderer.setDiffs(diffContext.diffs);
+			this.#handleSelectionChange();
+			if (this.#syncMode) {
+				if (this.#alignEditorsRequestId) {
+					cancelAnimationFrame(this.#alignEditorsRequestId);
+					this.#alignEditorsRequestId = null;
+				}
+				this.#alignEditorsRequestId = requestAnimationFrame(() => {
+					this.alignEditors(true);
+				});
+			}
+		} catch (err) {
+			if (err === "cancelled") {
+				// console.debug("Diff processing was cancelled");
+			} else {
+				console.error("Error occurred during diff processing:", err);
+			}
+		}
 	}
 
 	#handleEditorContentChanging() {

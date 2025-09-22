@@ -2,7 +2,6 @@ function createWindowRPC({ target = window, timeout: defaultTimeout = 3000, sour
 	let id = 1;
 	const pending = new Map();
 
-	// transferList 추가
 	function call(method, params, timeout = defaultTimeout, transferList) {
 		return new Promise((resolve, reject) => {
 			const reqId = id++;
@@ -11,6 +10,7 @@ function createWindowRPC({ target = window, timeout: defaultTimeout = 3000, sour
 				reject(new Error("RPC timeout"));
 			}, timeout);
 			pending.set(reqId, { resolve, reject, timer });
+			
 			if (transferList) {
 				target.postMessage({ rpcRequest: true, id: reqId, method, params, source }, "*", transferList);
 			} else {
@@ -36,6 +36,7 @@ function createWindowRPC({ target = window, timeout: defaultTimeout = 3000, sour
 			} else if (msg && msg.rpcResponse && pending.has(msg.id)) {
 				const { resolve, reject, timer } = pending.get(msg.id);
 				clearTimeout(timer);
+				console.log("response received", msg);
 				pending.delete(msg.id);
 				if (msg.error) reject(msg.error);
 				else resolve(msg.result);

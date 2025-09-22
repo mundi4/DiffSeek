@@ -87,6 +87,9 @@ function cacheImageTokens(tokens: Token[]) {
 					token.height = cached.height;
 					token.data = cached.data;
 				} else {
+					// 메인쓰레드에서 이미지를 로드하지 못했거나 기타 그런저런 이유인 경우 => 딱히 해 볼 수 있는 방법이 없음
+					// 혹은 똑같은 이미지 데이터를 한번만 transfer방식으로 보내려고 조잡하게 짠 코드에 버그가 있어서 worker에서 해당 이미지를 가지고 있지 않고
+					// 메인쓰레드에서도 원본 데이터를 잃어버린 경우...?
 					console.warn("No cached image data for", token.text);
 				}
 			}
@@ -112,7 +115,6 @@ async function runDiff(ctx: WorkContext) {
 				start: ctx.start,
 			});
 
-
 			cacheImageTokens(ctx.leftTokens);
 			cacheImageTokens(ctx.rightTokens);
 
@@ -126,7 +128,6 @@ async function runDiff(ctx: WorkContext) {
 			lastRunFinishedSuccessfully = true;
 
 			_currentCtx = null;
-
 			if (ctx.type === "diff") {
 				self.postMessage({
 					reqId: ctx.reqId,
@@ -542,19 +543,20 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 				break;
 			}
 
+			const IMAGE_TOKEN_LENGTH = 3;
 			if (lhsLen > 0 && rhsLen > 0) {
 				let frequency: number;
 				let len: number;
 				if (lhsLen === 1) {
 					frequency = freq[ltext1] || 1;
-					len = ltext1.length;
+					len = (lhsTokens[i].flags & TokenFlags.IMAGE) ? IMAGE_TOKEN_LENGTH : ltext1.length;
 				} else {
 					let key = lhsTokens[i].text;
-					len = key.length;
+					len = (lhsTokens[i].flags & TokenFlags.IMAGE) ? IMAGE_TOKEN_LENGTH : key.length;
 					for (let k = 1; k < lhsLen; k++) {
 						const text = lhsTokens[i + k].text;
 						key += delimiter + text;
-						len += text.length;
+						len += (lhsTokens[i + k].flags & TokenFlags.IMAGE) ? IMAGE_TOKEN_LENGTH : text.length;
 					}
 					frequency = freq[key] || 1;
 				}

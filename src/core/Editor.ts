@@ -233,14 +233,21 @@ export class Editor implements EditorContext {
 		}
 	}
 
-	#handleContentChangedInternal() {
+	async #handleContentChangedInternal() {
 		this.#callbacks.contentChanging?.(this);
-		this.#tokenize()
-			.catch((err) => {
-				if (err !== "cancelled") {
-					console.error("Tokenization error:", err);
-				}
-			});
+		try {
+			await this.#tokenize();
+			//console.debug(this.#editorName, "tokenize done", this.#tokens);
+			this.#callbacks.contentChanged?.(this);
+
+
+		} catch (err) {
+			if (err === "cancelled") {
+				// console.debug(this.#editorName, "Tokenization cancelled");
+			} else {
+				console.error(this.#editorName, "Tokenization error:", err);
+			}
+		}
 	}
 
 	#onMutation(_mutations: MutationRecord[]) {
@@ -266,12 +273,11 @@ export class Editor implements EditorContext {
 	async #tokenize() {
 		this.#tokenizeAbortController?.abort("cancelled");
 		this.#tokenizeAbortController = new AbortController();
-
 		try {
 			const { tokens, imageMap } = await tokenize(this.#editor, this.#tokenizeAbortController.signal);
+
 			this.#tokens = tokens;
 			this.#imageMap = imageMap;
-			this.#callbacks.contentChanged?.(this);
 		} finally {
 			this.#tokenizeAbortController = null;
 		}

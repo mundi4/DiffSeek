@@ -14,6 +14,7 @@ import { descMessage, errorMessage, messageContainer } from "./SidebarPanel.css"
 import clsx from "clsx";
 import { SideTagCopyButton } from "./SideTagButton";
 import { useDiffContext } from "@/hooks/useDiffContext";
+import { useDiffControllerContext } from "@/hooks/useDiffController";
 
 const diffOptions: QuickDiffOptions = {};
 export const MaxTextLength = 300;

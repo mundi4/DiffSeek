@@ -21,7 +21,7 @@ type DiffControllerContextType = {
 // const renderer = new Renderer(leftEditor, rightEditor);
 // const diffController = new DiffController(leftEditor, rightEditor, renderer, diffOptions);
 
-export const DiffControllerContext = createContext<DiffControllerContextType|null>(null);
+export const DiffControllerContext = createContext<DiffControllerContextType | null>(null);
 
 export function useDiffControllerContext() {
     const context = useContext(DiffControllerContext);

@@ -12,7 +12,6 @@ import { UI_CONSTANTS, APP_MESSAGES } from './constants/appConstants';
 import clsx from 'clsx';
 import { diffOptionsAtom } from './states/diffOptionsAtom'
 import type { Editor } from './core'
-import { TokenFlags } from './core/tokenization/TokenFlags'
 import { ImageTooltipLayer } from './components/ImageTooltip'
 
 const store = getDefaultStore();
@@ -38,11 +37,10 @@ const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
 };
 
 const loadFallbackContent = async (leftEditor: Editor, rightEditor: Editor) => {
-	
 	// const leftContent = `<p><img src="file:///D:/KINGrinderK6_Settings.png" /></p>`;
 	// const rightContent = `<p><img src="file:///D:/KINGrinderK6_Settings2.png" /></p>`;
-	const leftContent = `<img src="http://localhost:5051/img1.jpg" style="width: 300px;" /><img src="http://localhost:5051/4a.png" />`;
-	const rightContent = `<img src="http://localhost:5051/img1_clone.jpg" style="width: 150px;" /><img src="http://localhost:5051/4b.png" />`;
+	const leftContent = ''//`<img src="http://localhost:5051/img1.jpg" style="width: 300px;" /><img src="http://localhost:5051/4a.png" />`;
+	const rightContent = ''//`<img src="http://localhost:5051/img1_clone.jpg" style="width: 150px;" /><img src="http://localhost:5051/4b.png" />`;
 	await leftEditor.setContent({ text: leftContent, asHTML: true });
 	await rightEditor.setContent({ text: rightContent, asHTML: true });
 };
@@ -89,7 +87,7 @@ function App() {
 				...options,
 			}));
 		};
-		
+
 		(window as any).DiffSeek.dumpTokens = (options: Partial<DiffOptions>) => {
 			const arr = [leftEditor.tokens, rightEditor.tokens];
 			for (let i = 0; i < arr.length; i++) {

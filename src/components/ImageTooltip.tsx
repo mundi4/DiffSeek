@@ -37,7 +37,19 @@ export function ImageTooltipLayer() {
         let rafId: number;
         const update = () => {
             if (target && target.isConnected) {
-                setRect(target.getBoundingClientRect());
+                const newRect = target.getBoundingClientRect();
+                setRect((prev) => {
+                    if (
+                        prev &&
+                        prev.top === newRect.top &&
+                        prev.left === newRect.left &&
+                        prev.width === newRect.width &&
+                        prev.height === newRect.height
+                    ) {
+                        return prev; // 동일하면 리렌더 안 함
+                    }
+                    return newRect;
+                });
                 rafId = requestAnimationFrame(update);
             }
         };
@@ -49,15 +61,28 @@ export function ImageTooltipLayer() {
         };
     }, [target]);
 
-    if (!target || !target.isConnected || !rect || !diffContext) return null;
+    if (!target || !target.isConnected || !rect || !diffContext) {
+        // console.warn("Invalid state:", { target, rect, diffContext });
+        return null;
+    }
 
     const tokenIndex = Number(target.dataset.tokenIndex);
     const side = (target.closest(".editor") as HTMLElement)!.dataset.editorName;
     const sideEntries = side === "left" ? diffContext.leftEntries : diffContext.rightEntries;
     const entry = sideEntries[tokenIndex];
-    if (!entry) return null;
-    if (entry.left.end - entry.left.start !== 1) return null;
-    if (entry.right.end - entry.right.start !== 1) return null;
+    if (!entry) {
+        // console.warn("No entry found for token index:", tokenIndex);
+        return null;
+    }
+
+    if (entry.left.end - entry.left.start !== 1) {
+        // console.warn("Left entry is not a single token:", entry);
+        return null;
+    }
+    if (entry.right.end - entry.right.start !== 1) {
+        // console.warn("Right entry is not a single token:", entry);
+        return null;
+    }
 
     const thisToken = diffContext[side === "left" ? "leftTokens" : "rightTokens"][tokenIndex];
     const otherSide = side === "left" ? entry.right : entry.left;

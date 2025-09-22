@@ -66,11 +66,13 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal): Promise<
 
 	let deadline = await nextIdle({ timeout: 500, abortSignal: signal });
 	await state.traverse(root, deadline);
+	if (state.textNodeBuf.length) state.flushTextBuf();
 
 	state.finalizeLineBreaks();
 	await state.awaitImages();
 
 	signal.throwIfAborted();
+
 	return { tokens: state.tokens, imageMap: state.imageMap };
 }
 
@@ -224,6 +226,8 @@ class TokenizerState {
 	// Buffer flushing
 	// ----------------------------
 	flushTextBuf() {
+		if (!this.textNodeBuf.length) return;
+
 		let nodeIndex = 0;
 		let charIndex = 0;
 
@@ -240,9 +244,11 @@ class TokenizerState {
 
 				const char = text[charIndex];
 				if (spaceChars[char]) {
-					if (currentStart !== -1) this.processToken(textNode, currentStart, charIndex);
+					if (currentStart !== -1) {
+						this.processToken(textNode, currentStart, charIndex);
+						currentStart = -1;
+					}
 					this.finalizeToken();
-					currentStart = -1;
 				} else if ((trieMatch = this.handleWildcard(nodeIndex, charIndex, textNode, currentStart))) {
 					nodeIndex = trieMatch.nextNodeIndex;
 					charIndex = trieMatch.nextCharIndex;
@@ -252,7 +258,9 @@ class TokenizerState {
 					charIndex = trieMatch.nextCharIndex;
 					continue OUTER;
 				} else {
-					if (currentStart === -1) currentStart = charIndex;
+					if (currentStart === -1) {
+						currentStart = charIndex;
+					}
 				}
 
 				charIndex++;
@@ -261,6 +269,7 @@ class TokenizerState {
 
 			if (currentStart !== -1) {
 				this.processToken(textNode, currentStart, textLen);
+				currentStart = -1;
 			}
 			nodeIndex++;
 			charIndex = 0;
@@ -309,7 +318,9 @@ class TokenizerState {
 		const nodeName = node.nodeName;
 		const isBlockElement = BLOCK_ELEMENTS[nodeName];
 
-		if (isBlockElement) {
+		if (isBlockElement || nodeName === "SUP" || nodeName === "SUB") {
+			// if (this.currentToken) this.finalizeToken();
+			if (this.textNodeBuf.length) this.flushTextBuf();
 			this.nextTokenFlags |= TokenFlags.LINE_START;
 			this.lastLineBreakElem = null;
 		}
@@ -318,7 +329,7 @@ class TokenizerState {
 		const tokenStart = this.tokenIndex;
 
 		for (let i = 0; i < childNodes.length; i++) {
-			if ((++this.recursionCount & 31) === 0 && deadline.timeRemaining() < 2) {
+			if ((++this.recursionCount & 31) === 0 && deadline.timeRemaining() < 1) {
 				deadline = await nextIdle({ timeout: 500, abortSignal: this.signal });
 			}
 
@@ -337,6 +348,7 @@ class TokenizerState {
 				if (isManualAnchorElement(child as Element)) {
 					if (this.textNodeBuf.length) this.flushTextBuf();
 					this.handleManualAnchor(child as Element);
+					this.nextTokenFlags |= TokenFlags.LINE_START;
 					continue;
 				}
 				if (childName === "BR" || childName === "HR") {
@@ -351,7 +363,14 @@ class TokenizerState {
 			}
 		}
 
-		if (this.textNodeBuf.length) this.flushTextBuf();
+		
+		if (isBlockElement || nodeName === "SUP" || nodeName === "SUB") {
+			// if (this.currentToken) this.finalizeToken();
+			if (this.textNodeBuf.length) this.flushTextBuf();
+			this.nextTokenFlags |= TokenFlags.LINE_START;
+			this.lastLineBreakElem = null;
+		}
+		
 		this.applyNodeBoundaryFlags(nodeName, tokenStart, this.tokenIndex);
 	}
 
@@ -415,6 +434,7 @@ class TokenizerState {
 				);
 			}
 		}
+		this.signal.throwIfAborted();
 		if (pending.length) await Promise.allSettled(pending);
 	}
 }

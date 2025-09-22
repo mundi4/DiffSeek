@@ -3,25 +3,24 @@
 	"name": "DiffSeekExt",
 	"version": "0.1.0",
 	"description": "DiffSeek Chrome Extension",
-	"action": {
-		"default_popup": "popup.html"
-	},
+	"action": { "default_popup": "popup.html" },
 	"permissions": ["tabs"],
-	"background": {
-		"service_worker": "background.js"
-	},
+	"background": { "service_worker": "background.js" },
 	"content_scripts": [
 		{
-			"matches": ["file:///*","http://localhost:5051/*", "http://manual.kbstar.com/*", "http://localhost:8000/*", "http://localhost:5173/*", "*://*/*diffseek.html"],
+			"matches": [
+				"http://10.38.135.76:8080/*",
+				"file:///*",
+				"http://localhost:5051/*",
+				"http://manual.kbstar.com/*",
+				"http://localhost:8000/*",
+				"http://localhost:5173/*",
+				"*://*/*diffseek.html"
+			],
 			"js": ["rpc.js", "rpc-window.js", "content.js"],
 			"run_at": "document_start",
 			"type": "module"
 		}
 	],
-	"web_accessible_resources": [
-		{
-			"resources": ["manual_inject.js", "diffseek_inject.js"],
-			"matches": ["<all_urls>"]
-		}
-	]
+	"web_accessible_resources": [{ "resources": ["manual_inject.js", "diffseek_inject.js"], "matches": ["<all_urls>"] }]
 }

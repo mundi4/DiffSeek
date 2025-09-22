@@ -11,6 +11,7 @@ import type { EditorName } from "./types";
 import { TokenFlags } from "./tokenization/TokenFlags";
 import type { DiffWorkerResult } from "./worker/diff-worker";
 import type { ImageLoadResult } from "./imageCache";
+import { nextIdle } from "@/utils/nextIdle";
 
 // 1회용
 export class DiffProcessor {
@@ -32,7 +33,9 @@ export class DiffProcessor {
 	#leftImageMap: Map<RichToken, ImageLoadResult>;
 	#rightImageMap: Map<RichToken, ImageLoadResult>;
 	#imageComparisons: Record<string, { similarity: number }>;
-	
+	#abortController: AbortController = new AbortController();
+	#started = false;
+
 	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, diffworkerResult: DiffWorkerResult) {
 		// this.#ctx = ctx;
 		this.#leftEditor = leftEditor;
@@ -48,6 +51,7 @@ export class DiffProcessor {
 	}
 
 	cancel() {
+		this.#abortController.abort("cancelled");
 		this.#cancelled = true;
 		if (this.#ricCancelId) {
 			cancelIdleCallback(this.#ricCancelId);
@@ -100,6 +104,57 @@ export class DiffProcessor {
 		this.#ricCancelId = requestIdleCallback(step, {
 			timeout: COMPUTE_DIFF_TIMEOUT,
 		});
+	}
+
+	async process2() {
+		if (this.#started) throw new Error("DiffProcessor can only be started once.");
+		this.#started = true;
+
+		const abortSignal = this.#abortController.signal;
+		abortSignal.throwIfAborted();
+
+		let idleDeadline = await nextIdle({ abortSignal });
+
+		this.#buildDiffEntries();
+
+		const entries = this.#entries!;
+		this.#editorPairer.beginUpdate();
+		this.#leftSectionHeadings = this.#buildSectionHeadingTree(this.#leftEditor, this.#leftTokens);
+		this.#rightSectionHeadings = this.#buildSectionHeadingTree(this.#rightEditor, this.#rightTokens);
+
+		for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
+			if ((entryIndex & 0x1f) === 0) {
+				if (idleDeadline.timeRemaining() < 3) {
+					idleDeadline = await nextIdle({ abortSignal });
+				}
+			}
+
+			if (entries[entryIndex].type === 0) {
+				this.#handleCommonEntry(entryIndex);
+			} else {
+				this.#handleDiffEntry(entryIndex);
+			}
+		}
+
+		this.#editorPairer.endUpdate();
+
+		const diffContext = new DiffContext(
+			this.#leftTokens,
+			this.#rightTokens,
+			this.#diffOptions,
+			this.#rawEntries,
+			this.#entries!,
+			this.#leftEntries!,
+			this.#rightEntries!,
+			this.#diffs,
+			this.#leftSectionHeadings!,
+			this.#rightSectionHeadings!,
+			this.#leftImageMap,
+			this.#rightImageMap,
+			this.#imageComparisons
+		);
+
+		return diffContext;
 	}
 
 	*#processGenerator(idleDeadline: IdleDeadline): Generator<void, void, IdleDeadline> {
@@ -301,6 +356,7 @@ export class DiffProcessor {
 		const entries: DiffEntry[] = [];
 		const leftEntries: DiffEntry[] = new Array(this.#leftTokens.length);
 		const rightEntries: DiffEntry[] = new Array(this.#rightTokens.length);
+
 
 		const rawEntries = this.#rawEntries;
 		let currentDiff: DiffEntry | null = null;

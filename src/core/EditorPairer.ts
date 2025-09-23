@@ -162,6 +162,9 @@ export class EditorPairer {
 		let offset: number = range.startOffset;
 		const endContainer: Node = range.endContainer;
 		let endOffset: number = range.endOffset;
+		if (container === endContainer && container.nodeType === 3) {
+			return null;
+		}
 
 		if (container.nodeType === 3) {
 			offset = Array.prototype.indexOf.call(container.parentNode!.childNodes, container) + 1;
@@ -240,22 +243,6 @@ export class EditorPairer {
 		}
 
 		return null;
-	}
-
-	zzinsertDiffMarker(container: HTMLElement, offset: number) {
-		let markerEl = container.childNodes[offset] as HTMLElement;
-		if (markerEl && markerEl.nodeName === DIFF_TAG_NAME) {
-			console.warn("Existing diff marker found at offset", offset, "in", container, markerEl);
-			//throw new Error("Diff marker already exists at the specified offset");
-			return null;
-		} else {
-		}
-		const insertBefore = markerEl;
-		markerEl = document.createElement(DIFF_TAG_NAME);
-		markerEl.contentEditable = "false";
-		container.insertBefore(markerEl, insertBefore);
-		this.#diffMarkers.add(markerEl);
-		return markerEl;
 	}
 
 	getAnchorInsertableRange(side: EditorName, tokenIndex: number) {

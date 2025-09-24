@@ -18,8 +18,8 @@ export class DiffProcessor {
 	#leftEditor: Editor;
 	#rightEditor: Editor;
 	#editorPairer: EditorPairer;
-	#cancelled = false;
-	#ricCancelId: number | null = null;
+	// #cancelled = false;
+	// #ricCancelId: number | null = null;
 	#leftTokens: readonly RichToken[];
 	#rightTokens: readonly RichToken[];
 	#diffOptions: DiffOptions;
@@ -32,12 +32,15 @@ export class DiffProcessor {
 	#rightSectionHeadings: SectionHeading[] | null = null;
 	#leftImageMap: Map<RichToken, ImageLoadResult>;
 	#rightImageMap: Map<RichToken, ImageLoadResult>;
-	#imageComparisons: Record<string, { similarity: number }>;
-	#abortController: AbortController = new AbortController();
+	#imageComparisons: Record<string, { similarity: number | undefined }>;
 	#started = false;
+	// #idleDeadline: IdleDeadline = null!;
+	#abortSignal: AbortSignal;
 
-	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, diffworkerResult: DiffWorkerResult) {
+
+	constructor(leftEditor: Editor, rightEditor: Editor, editorPairer: EditorPairer, diffworkerResult: DiffWorkerResult, abortSignal: AbortSignal) {
 		// this.#ctx = ctx;
+
 		this.#leftEditor = leftEditor;
 		this.#rightEditor = rightEditor;
 		this.#editorPairer = editorPairer;
@@ -48,69 +51,14 @@ export class DiffProcessor {
 		this.#rightTokens = rightEditor.tokens;
 		this.#leftImageMap = leftEditor.imageMap;
 		this.#rightImageMap = rightEditor.imageMap;
-	}
-
-	cancel() {
-		this.#abortController.abort("cancelled");
-		this.#cancelled = true;
-		if (this.#ricCancelId) {
-			cancelIdleCallback(this.#ricCancelId);
-			this.#ricCancelId = null;
-		}
-	}
-
-	process(onComplete?: (diffContext: DiffContext) => void) {
-		let generator: Generator<void, void, IdleDeadline> | null = null;
-		// const generator = this.#diffFinalizer(diffContext, idleDeadline);
-		const step = (idleDeadline: IdleDeadline) => {
-			if (this.#cancelled) {
-				return;
-			}
-
-			if (generator === null) {
-				generator = this.#processGenerator(idleDeadline);
-			}
-
-			const { done } = generator.next(idleDeadline);
-			if (this.#cancelled) {
-				return;
-			}
-
-			if (done) {
-				const diffContext = new DiffContext(
-					this.#leftTokens,
-					this.#rightTokens,
-					this.#diffOptions,
-					this.#rawEntries,
-					this.#entries!,
-					this.#leftEntries!,
-					this.#rightEntries!,
-					this.#diffs,
-					this.#leftSectionHeadings!,
-					this.#rightSectionHeadings!,
-					this.#leftImageMap,
-					this.#rightImageMap,
-					this.#imageComparisons
-				);
-
-				onComplete?.(diffContext);
-			} else {
-				this.#ricCancelId = requestIdleCallback(step, {
-					timeout: COMPUTE_DIFF_TIMEOUT,
-				});
-			}
-		};
-
-		this.#ricCancelId = requestIdleCallback(step, {
-			timeout: COMPUTE_DIFF_TIMEOUT,
-		});
+		this.#abortSignal = abortSignal;
 	}
 
 	async process2() {
 		if (this.#started) throw new Error("DiffProcessor can only be started once.");
 		this.#started = true;
 
-		const abortSignal = this.#abortController.signal;
+		const abortSignal = this.#abortSignal;
 		abortSignal.throwIfAborted();
 
 		let idleDeadline = await nextIdle({ abortSignal });
@@ -155,42 +103,6 @@ export class DiffProcessor {
 		);
 
 		return diffContext;
-	}
-
-	*#processGenerator(idleDeadline: IdleDeadline): Generator<void, void, IdleDeadline> {
-		this.#buildDiffEntries();
-
-		if (idleDeadline.timeRemaining() <= 0) {
-			idleDeadline = yield;
-		}
-
-		const entries = this.#entries!;
-
-		this.#editorPairer.beginUpdate();
-		this.#leftSectionHeadings = this.#buildSectionHeadingTree(this.#leftEditor, this.#leftTokens);
-		this.#rightSectionHeadings = this.#buildSectionHeadingTree(this.#rightEditor, this.#rightTokens);
-
-		for (let entryIndex = 0; entryIndex < entries.length; entryIndex++) {
-			if ((entryIndex & 0x1f) === 0) {
-				if (idleDeadline.timeRemaining() < 3) {
-					idleDeadline = yield;
-				}
-			}
-
-			if (entries[entryIndex].type === 0) {
-				this.#handleCommonEntry(entryIndex);
-			} else {
-				this.#handleDiffEntry(entryIndex);
-			}
-		}
-
-		// if (import.meta.env.DEV) {
-		// 	console.debug("=== Section Headings (Left) ===");
-		// 	console.debug(this.#leftSectionHeadings);
-		// 	console.debug("=== Section Headings (Right) ===");
-		// 	console.debug(this.#rightSectionHeadings);
-		// }
-		this.#editorPairer.endUpdate();
 	}
 
 	#handleCommonEntry(entryIndex: number) {

@@ -1,3 +1,5 @@
+import { ABORT_REASON_CANCELLED } from "@/core/constants";
+
 // runGently.ts
 export interface GentlyCtx {
     cancelled: boolean;
@@ -17,7 +19,7 @@ export function runGently<T extends GentlyCtx>(
 
     function step(nextVal?: any): Promise<void> {
         if (ctx.cancelled) {
-            return Promise.reject(new Error("cancelled"));
+            return Promise.reject(ABORT_REASON_CANCELLED);
         }
 
         const { value, done } = gen.next(nextVal);

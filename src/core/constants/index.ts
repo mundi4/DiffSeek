@@ -127,3 +127,5 @@ export const MANUAL_ANCHOR_ELEMENT_NAME = "HR";
 export const DIFF_TAG_NAME = "DIFF-MARKER";
 export const DIFF_CLASS_NAME = "diff";
 export const MANUAL_ANCHOR_CLASS_NAME = "manual-anchor";
+
+export const ABORT_REASON_CANCELLED = "cancelled";

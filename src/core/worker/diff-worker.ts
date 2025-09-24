@@ -1,11 +1,15 @@
+import { ABORT_REASON_CANCELLED } from "../constants";
 import { TokenFlags } from "../tokenization/TokenFlags";
 import pixelmatch from "pixelmatch";
 
 let _nextCtx: WorkContext | null = null;
 let _currentCtx: WorkContext | null = null;
+let _abortController: AbortController | null = null;
 
 const imageCache = new Map<string, { data: ArrayBufferLike, width: number, height: number }>();
 const imageCompareCache = new Map<string, Map<string, { similarity: number | undefined }>>();
+const imageHashesSeen = new Set<string>();
+
 let lastItemCompareTolerance = 0;
 
 export type DiffWorkerRequest = {
@@ -14,13 +18,16 @@ export type DiffWorkerRequest = {
 	leftTokens: Token[];
 	rightTokens: Token[];
 	options: DiffOptions;
+} | {
+	type: "cancel";
+	reqId?: number;
 };
 
 export type DiffWorkerResult = {
 	diffs: DiffEntry[];
 	options: DiffOptions;
 	processTime: number;
-	imageComparisons: Record<string, { similarity: number; }>;
+	imageComparisons: Record<string, { similarity: number | undefined; }>;
 };
 
 export function makeImageKey(a: string, b: string): string {
@@ -28,15 +35,15 @@ export function makeImageKey(a: string, b: string): string {
 }
 
 export type DiffWorkerResponse =
-	| { type: "diff"; reqId: number; } & DiffWorkerResult
-	| { type: "error"; reqId: number; error: string };
+	| { type: "done"; reqId: number; } & DiffWorkerResult
+	| { type: "error"; reqId: number; error: string }
+	| { type: "cancelled"; reqId: number; }
+	| { type: "start"; reqId: number; start: number; }
+	| { type: "progress"; reqId: number; progress: number; };
 
 type WorkContext = {
 	reqId: number;
 	type: "diff";
-	cancel: boolean;
-	// leftText: string;
-	// rightText: string;
 	leftTokens: Token[];
 	rightTokens: Token[];
 	start: number;
@@ -46,12 +53,30 @@ type WorkContext = {
 	entries: DiffEntry[];
 	nextImageId: number;
 	imageComparisons: Record<string, { similarity: number | undefined; }>;
+	abortSignal: AbortSignal;
 	//states: Record<string, any>;
 };
 
+// setTimeout은 0을 주더라도 브라우저에서 4ms정도의 강제 딜레이를 발생시킨다.
+// 하지만 이 방법을 안쓰면 취소 자체가 불가능하다. 열심히 작업을 하는 동안에는 onmessage가 처리되지 않기 때문.
+const MIN_YIELD_INTERVAL = 100;
+
+let _lastYield = 0;
+async function throwIfAborted(ctx: WorkContext, skipYield = false) {
+	if (!skipYield) {
+		const now = performance.now();
+		if (now - _lastYield > MIN_YIELD_INTERVAL) {
+			_lastYield = now;
+			await new Promise((resolve) => setTimeout(resolve, 0));
+		}
+	}
+	ctx.abortSignal.throwIfAborted();
+}
+
 self.onmessage = (e) => {
-	if (e.data.type === "diff") {
-		const request = e.data as DiffWorkerRequest;
+
+	const request = e.data as DiffWorkerRequest;
+	if (request.type === "diff") {
 		const ctx: WorkContext = {
 			...request,
 			cancel: false,
@@ -61,20 +86,171 @@ self.onmessage = (e) => {
 			entries: [],
 			nextImageId: 1,
 			imageComparisons: {},
+			abortSignal: null!,
 			//states: {},
 		} as WorkContext;
 
-
 		if (_currentCtx) {
-			_currentCtx.cancel = true;
+			// 기존 작업을 취소
+			_abortController!.abort(ABORT_REASON_CANCELLED);
 			_nextCtx = ctx;
-			return;
+		} else {
+			// start right away!
+			runDiff(ctx);
 		}
-		runDiff(ctx);
+	} else if (request.type === "cancel") {
+		if (request.reqId === undefined) {
+			console.log(">>>> cancelling all ctx");
+			_abortController?.abort(ABORT_REASON_CANCELLED);
+			_nextCtx = null;
+		} else if (_currentCtx && _currentCtx.reqId === request.reqId) {
+			console.log(">>>> cancelling current ctx", request.reqId);
+			_abortController?.abort(ABORT_REASON_CANCELLED);
+		} else if (_nextCtx && _nextCtx.reqId === request.reqId) {
+			console.log(">>>> cancelling next ctx", request.reqId);
+			_nextCtx = null;
+		} else {
+			console.log(">>>> no ctx to cancel", request.reqId);
+		}
+		return;
 	}
+
 };
 
-const imageHashesSeen = new Set<string>();
+
+async function runDiff(ctx: WorkContext) {
+	do {
+		_currentCtx = ctx;
+		_abortController = new AbortController();
+		ctx.abortSignal = _abortController.signal;
+
+		
+		try {
+			console.log(">>>>> Starting diff worker", ctx.reqId);
+			if (lastItemCompareTolerance !== ctx.options.compareImageTolerance) {
+				imageCompareCache.clear();
+				lastItemCompareTolerance = ctx.options.compareImageTolerance;
+			}
+
+			ctx.lastYield = ctx.start = performance.now();
+			self.postMessage({
+				reqId: ctx.reqId,
+				type: "start",
+				start: ctx.start,
+			} satisfies DiffWorkerResponse);
+
+			cacheImageTokens(ctx.leftTokens);
+			cacheImageTokens(ctx.rightTokens);
+
+			let result: DiffEntry[];
+			if (ctx.options.algorithm === "histogram") {
+				result = await runHistogramDiff(ctx);
+			} else {
+				throw new Error("Unknown algorithm: " + ctx.options.algorithm);
+			}
+			ctx.finish = performance.now();
+
+			if (ctx.type === "diff") {
+				self.postMessage({
+					reqId: ctx.reqId,
+					type: "done",
+					processTime: ctx.finish - ctx.start,
+					diffs: result,
+					options: ctx.options,
+					imageComparisons: ctx.imageComparisons,
+				} satisfies DiffWorkerResponse);
+			}
+		} catch (e) {
+			console.log("caught error in diff worker:", e);
+			if (e === ABORT_REASON_CANCELLED) {
+				console.debug("diff worker: cancelled", ctx.reqId);
+				self.postMessage({
+					reqId: ctx.reqId,
+					type: "cancelled",
+				} satisfies DiffWorkerResponse);
+			} else {
+				console.error(e);
+				self.postMessage({
+					reqId: ctx.reqId,
+					type: "error",
+					error: e instanceof Error ? e.message : String(e),
+				} satisfies DiffWorkerResponse);
+			}
+		} finally {
+			_currentCtx = null;
+			_abortController = null;
+
+
+		}
+
+		[ctx, _nextCtx] = [_nextCtx!, null];
+	} while (ctx);
+
+	for (const key of imageCache.keys()) {
+		if (!imageHashesSeen.has(key)) {
+			imageCache.delete(key);
+		}
+	}
+	for (const key of imageCompareCache.keys()) {
+		if (!imageHashesSeen.has(key)) {
+			imageCompareCache.delete(key);
+		} else {
+			for (const k2 of imageCompareCache.get(key)!.keys()) {
+				if (!imageHashesSeen.has(k2)) {
+					imageCompareCache.get(key)!.delete(k2);
+				}
+			}
+
+			if (imageCompareCache.get(key)!.size === 0) {
+				imageCompareCache.delete(key);
+			}
+		}
+	}
+	
+	imageHashesSeen.clear();
+
+	// let lastRunFinishedSuccessfully = false;
+	// while (ctx) {
+
+
+	// 	[ctx, _nextCtx] = [_nextCtx!, null];
+	// }
+
+	// // clear unused images from cache
+	// if (lastRunFinishedSuccessfully) {
+	// 	for (const key of imageCache.keys()) {
+	// 		if (!imageHashesSeen.has(key)) {
+	// 			imageCache.delete(key);
+	// 		}
+	// 	}
+
+	// 	let size = 0;
+	// 	for (const key of imageCompareCache.keys()) {
+	// 		if (!imageHashesSeen.has(key)) {
+	// 			imageCompareCache.delete(key);
+	// 		} else {
+	// 			for (const k2 of imageCompareCache.get(key)!.keys()) {
+	// 				if (!imageHashesSeen.has(k2)) {
+	// 					imageCompareCache.get(key)!.delete(k2);
+	// 				} else {
+	// 					size++;
+	// 				}
+	// 			}
+	// 		}
+	// 	}
+
+	// 	// console.log("image cache size:", imageCache.size, "image compare cache size:", size);
+	// 	// console.log(imageCache);
+	// 	// console.log(imageCompareCache)
+
+	// }
+
+
+
+
+}
+
+
 function cacheImageTokens(tokens: Token[]) {
 	for (const token of tokens) {
 		if (token.flags & TokenFlags.IMAGE) {
@@ -98,99 +274,6 @@ function cacheImageTokens(tokens: Token[]) {
 	}
 }
 
-async function runDiff(ctx: WorkContext) {
-	_currentCtx = ctx;
-	let lastRunFinishedSuccessfully = false;
-	while (ctx) {
-		try {
-			imageHashesSeen.clear();
-			if (lastItemCompareTolerance !== ctx.options.compareImageTolerance) {
-				imageCompareCache.clear();
-			}
-
-			ctx.lastYield = ctx.start = performance.now();
-			self.postMessage({
-				reqId: ctx.reqId,
-				type: "start",
-				start: ctx.start,
-			});
-
-			cacheImageTokens(ctx.leftTokens);
-			cacheImageTokens(ctx.rightTokens);
-
-			let result: DiffEntry[];
-			if (ctx.options.algorithm === "histogram") {
-				result = await runHistogramDiff(ctx);
-			} else {
-				throw new Error("Unknown algorithm: " + ctx.options.algorithm);
-			}
-			ctx.finish = performance.now();
-			lastRunFinishedSuccessfully = true;
-
-			_currentCtx = null;
-			if (ctx.type === "diff") {
-				self.postMessage({
-					reqId: ctx.reqId,
-					type: ctx.type,
-					processTime: ctx.finish - ctx.start,
-					diffs: result,
-					options: ctx.options,
-					imageComparisons: ctx.imageComparisons,
-				} as DiffWorkerResult);
-			} else if (ctx.type === "slice") {
-				self.postMessage({
-					reqId: ctx.reqId,
-					type: ctx.type,
-					accepted: true,
-					processTime: ctx.finish - ctx.start,
-					diffs: result,
-					options: ctx.options,
-				});
-			}
-		} catch (e) {
-			if (e instanceof Error && e.message === "cancelled") {
-				// console.debug("Diff canceled");
-			} else {
-				console.error(e);
-			}
-		}
-
-		[ctx, _nextCtx] = [_nextCtx!, null];
-	}
-
-	// clear unused images from cache
-	if (lastRunFinishedSuccessfully) {
-		for (const key of imageCache.keys()) {
-			if (!imageHashesSeen.has(key)) {
-				imageCache.delete(key);
-			}
-		}
-
-		let size = 0;
-		for (const key of imageCompareCache.keys()) {
-			if (!imageHashesSeen.has(key)) {
-				imageCompareCache.delete(key);
-			} else {
-				for (const k2 of imageCompareCache.get(key)!.keys()) {
-					if (!imageHashesSeen.has(k2)) {
-						imageCompareCache.get(key)!.delete(k2);
-					} else {
-						size++;
-					}
-				}
-			}
-		}
-
-		// console.log("image cache size:", imageCache.size, "image compare cache size:", size);
-		// console.log(imageCache);
-		// console.log(imageCompareCache)
-
-	}
-
-
-
-
-}
 
 // #endregion
 
@@ -419,8 +502,12 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 
 	const freq: Record<string, number> = {};
 	for (let n = 1; n <= maxLen; n++) {
+
 		//OUTER: 
 		for (let i = lhsLower; i <= lhsUpper - n; i++) {
+			if ((i & 0x1f) === 0) {
+				throwIfAborted(ctx);
+			}
 			let key = lhsTokens[i].text;
 			// if (lhsTokens[i].flags & TokenFlags.IMAGE) {
 			// 	continue;
@@ -448,6 +535,9 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 		}
 		// OUTER:
 		for (let i = rhsLower; i <= rhsUpper - n; i++) {
+			if ((i & 0x1f) === 0) {
+				throwIfAborted(ctx);
+			}
 			let key = rhsTokens[i].text;
 			// if (rhsTokens[i].flags & TokenFlags.IMAGE) {
 			// 	continue;
@@ -487,6 +577,10 @@ const findBestHistogramAnchor: FindAnchorFunc = function (
 	for (let i = lhsLower; i < lhsUpper; i++) {
 		const ltext1 = lhsTokens[i].text;
 		for (let j = rhsLower; j < rhsUpper; j++) {
+			if ((j & 0x1f) === 0) {
+				throwIfAborted(ctx);
+			}
+
 			let li = i,
 				ri = j;
 			let lhsLen = 0,
@@ -637,12 +731,7 @@ async function diffCore(
 	const entries: DiffEntry[] = ctx.entries;
 	const diffOptions = ctx.options;
 
-	const now = performance.now();
-	if (now - ctx.lastYield > 100) {
-		ctx.lastYield = now;
-		await new Promise((resolve) => setTimeout(resolve, 0));
-		if (ctx.cancel) throw new Error("cancelled");
-	}
+	await throwIfAborted(ctx);
 
 	// TODO
 	// 공통 부분을 스킵하는건데 문제는 여기에서 HEAD, TAIL을 스킵하고
@@ -1105,67 +1194,15 @@ function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContex
 	return (result.similarity ?? 0) * 100 >= compareImageTolerance;
 }
 
-function createLimitedLoader<T>(
-	worker: (item: T, ctx: WorkContext) => Promise<void>,
-	limit: number,
-	ctx: WorkContext
-) {
-	let active = 0;
-	const queue: {
-		item: T;
-		resolve: () => void;
-		reject: (err: any) => void;
-	}[] = [];
-	const pending: Promise<void>[] = [];
 
-	async function run(
-		item: T,
-		resolve: () => void,
-		reject: (err: any) => void
-	) {
-		if (ctx.cancel) {
-			// 이미 취소 상태면 이 작업은 바로 스킵
-			resolve();
-			return;
-		}
-		active++;
-		try {
-			await worker(item, ctx);
-			resolve();
-		} catch (err) {
-			reject(err);
-		} finally {
-			active--;
-			if (!ctx.cancel && queue.length > 0) {
-				const next = queue.shift()!;
-				run(next.item, next.resolve, next.reject);
-			}
-		}
-	}
-
-	function enqueue(item: T): Promise<void> {
-		const p = new Promise<void>((resolve, reject) => {
-			if (ctx.cancel) {
-				resolve();
-				return;
-			}
-			if (active < limit) {
-				run(item, resolve, reject);
-			} else {
-				queue.push({ item, resolve, reject });
-			}
-		});
-		pending.push(p);
-		p.finally(() => {
-			const i = pending.indexOf(p);
-			if (i >= 0) pending.splice(i, 1);
-		});
-		return p;
-	}
-
-	async function waitAll() {
-		await Promise.all(pending);
-	}
-
-	return { enqueue, waitAll };
+const sss = performance.now();
+let eee: number = 0;
+const func = (i: number) => {
+	//eee = i & 0x1f;
+	eee = performance.now();
 }
+for (let i = 0; i < 10_000; i++) {
+	func(i);
+}
+eee = performance.now();
+console.log(eee - sss)

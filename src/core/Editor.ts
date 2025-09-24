@@ -1,5 +1,5 @@
 import type { EditorName } from "@/core/types";
-import { BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/core/constants/index";
+import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, LINE_HEIGHT, TEXT_FLOW_CONTAINERS } from "@/core/constants/index";
 import { sanitizeHTML } from "@/core/sanitize";
 import { createParagraphsFromText } from "@/utils/createParagraphsFromText";
 import { findAdjacentTextNode } from "@/utils/findAdjacentTextNode";
@@ -242,7 +242,7 @@ export class Editor implements EditorContext {
 
 
 		} catch (err) {
-			if (err === "cancelled") {
+			if (err === ABORT_REASON_CANCELLED) {
 				// console.debug(this.#editorName, "Tokenization cancelled");
 			} else {
 				console.error(this.#editorName, "Tokenization error:", err);
@@ -271,6 +271,7 @@ export class Editor implements EditorContext {
 	}
 
 	async #tokenize() {
+		this.#tokens = [];
 		this.#tokenizeAbortController?.abort("cancelled");
 		this.#tokenizeAbortController = new AbortController();
 		try {

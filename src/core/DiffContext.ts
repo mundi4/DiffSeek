@@ -25,7 +25,7 @@ export class DiffContext {
 	id: number = nextDiffContextId++;
 	leftImageMap: Map<RichToken, ImageLoadResult>;
 	rightImageMap: Map<RichToken, ImageLoadResult>;
-	imageComparisons: Record<string, { similarity: number }>;
+	imageComparisons: Record<string, { similarity: number | undefined }>;
 
 	constructor(
 		leftTokens: readonly RichToken[],
@@ -40,7 +40,7 @@ export class DiffContext {
 		rightSectionHeadings: SectionHeading[] = [],
 		leftImageMap: Map<RichToken, ImageLoadResult>,
 		rightImageMap: Map<RichToken, ImageLoadResult>,
-		imageComparisons: Record<string, { similarity: number }>
+		imageComparisons: Record<string, { similarity: number | undefined }>,
 	) {
 		this.leftTokens = leftTokens;
 		this.rightTokens = rightTokens;

@@ -48,7 +48,8 @@ export function DiffControllerProvider({
     // diffOptions가 변경될 때마다 DiffController 옵션 업데이트
     useEffect(() => {
         contextValue.diffController.updateDiffOptions(diffOptions);
-        contextValue.diffController.computeDiff();
+        contextValue.diffController.cancelDiffWorkflow();
+        contextValue.diffController.startDiffWorkflow();
     }, [diffOptions, contextValue.diffController]);
 
     return (

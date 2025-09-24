@@ -1,39 +1,17 @@
 import { DiffProcessor } from "./DiffProcessor";
 import { initializeDiffWorker, } from "@/core/worker/initializeDiffWorker";
-import type { RichToken, TokenRange, TokenRangeType } from "@/core/tokenization/TokenizeContext";
+import type { RichToken } from "@/core/tokenization/TokenizeContext";
 import { createEvent } from "../utils/createEvent";
 import type { DiffContext } from "./DiffContext";
 import type { EditorName } from "./types";
 import type { Editor, EditorCallbacks } from "@/core/Editor";
 import type { Renderer, RendererCallbacks } from "@/core/Renderer";
-import { EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
+import { ABORT_REASON_CANCELLED, EDITOR_SCROLL_MARGIN } from "@/core/constants/index";
 import { EditorPairer } from "./EditorPairer";
 import { TokenFlags } from "./tokenization/TokenFlags";
 import { createRangeFromTokenRange } from "./utils/tokenRangeUtils";
-import type { DiffWorkerResult } from "./worker/diff-worker";
-import { clearImageCache, dumpImageCache, type ImageLoadResult } from "./imageCache";
+import { clearImageCache,  type ImageLoadResult } from "./imageCache";
 import { nextIdle } from "@/utils/nextIdle";
-
-
-// const defaultDiffOptions: DiffOptions = {
-// 	algorithm: "histogram",
-// 	tokenization: "word",
-// 	ignoreWhitespace: "ignore",
-// 	greedyMatch: false,
-// 	useLengthBias: true,
-// 	maxGram: 4,
-// 	lengthBiasFactor: 0.7,
-// 	containerStartMultiplier: 1 / 0.85,
-// 	containerEndMultiplier: 1 / 0.9,
-// 	sectionHeadingMultiplier: 1 / 0.75,
-// 	lineStartMultiplier: 1 / 0.9,
-// 	lineEndMultiplier: 1 / 0.95,
-// 	uniqueMultiplier: 1 / 0.6667,
-// };
-
-// export function getDefaultDiffOptions(): DiffOptions {
-// 	return structuredClone(defaultDiffOptions);
-// }
 
 const SCROLL_TIMEOUT = 100;
 const IMAGE_SIZE = 500;
@@ -63,13 +41,11 @@ export type EditorTextSelection = {
 };
 
 export class DiffController {
-	#diffWorker;
+	#diffWorker2 = initializeDiffWorker();
 	#leftEditor: Editor;
 	#rightEditor: Editor;
 	#renderer: Renderer;
 	#editorPairer: EditorPairer;
-	// #editorPairer: EditorPairer;
-	#postProcessor: DiffProcessor | null = null;
 	#diffOptions;
 	diffContext: DiffContext | null = null;
 	#syncMode = false;
@@ -100,6 +76,7 @@ export class DiffController {
 		right: new Set(),
 	};
 	#lastTextSelectionRange: Range | null = null;
+	#abortController: AbortController | null = null;
 	// #cancelComputeDiff: (() => void) | null = null;
 
 	constructor(leftEditor: Editor, rightEditor: Editor, renderer: Renderer, diffOptions: DiffOptions) {
@@ -113,9 +90,6 @@ export class DiffController {
 		// this.#setupEditorCallbacks(rightEditor);
 		// this.#setupRendererCallbacks(renderer);
 		this.#setupEventListeners();
-		this.#diffWorker = initializeDiffWorker(this.#onDiffCompleted.bind(this));
-
-		this.#diffWorker.run([], [], this.#diffOptions, []);
 		renderer.guideLineEnabled = this.#syncMode;
 
 		const editorCallbacks: Partial<EditorCallbacks> = {
@@ -320,31 +294,42 @@ export class DiffController {
 		}
 	}
 
-	async #onDiffCompleted(result: DiffWorkerResult) {
-		// if (this.#postProcessor) {
-		// 	this.#postProcessor.cancel();
-		// }
+	#handleEditorContentChanging() {
+		this.cancelDiffWorkflow();
+		this.diffContext = null;
 
-		// // if (import.meta.env.DEV) {
-		// // 	console.debug("DiffWorker completed:", result);
-		// // }
-		// this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result);
-		// this.#postProcessor.process(this.#handleDiffContextReady);
-
-		if (this.#postProcessor) {
-			this.#postProcessor.cancel();
+		if (this.#alignEditorsRequestId) {
+			cancelAnimationFrame(this.#alignEditorsRequestId);
+			this.#alignEditorsRequestId = null;
 		}
+		if (this.#invalidateGeometriesRequestId) {
+			cancelAnimationFrame(this.#invalidateGeometriesRequestId);
+			this.#invalidateGeometriesRequestId = null;
+		}
+	}
 
-		// if (import.meta.env.DEV) {
-		// 	console.debug("DiffWorker completed:", result);
-		// }
-
-		this.#postProcessor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, result);
+	async startDiffWorkflow() {
+		if (this.#abortController) {
+			throw new Error("Diff workflow is already running. Should cancel it first.");
+		}
+		
+		this.diffContext = null;
+		this.#abortController = new AbortController();
+		const signal = this.#abortController.signal;
+		let step = "computing diff";
 		try {
-			const diffContext = this.diffContext = await this.#postProcessor.process2();
-			this.#diffWorkflowDone.emit(diffContext);
-			this.#renderer.setDiffs(diffContext.diffs);
+			const diffResult = await this.runDiff(signal);
+
+			step = "post-processing diff";
+			const processor = new DiffProcessor(this.#leftEditor, this.#rightEditor, this.#editorPairer, diffResult, signal);
+			this.diffContext = await processor.process2();
+			this.#diffWorkflowDone.emit(this.diffContext);
+
+			step = "finalizing and updating UI";
+			// TODO 이 이후는 분리를 해야된다. DIFF WORKFLOW는 process까지만임.
 			this.#handleSelectionChange();
+			this.#renderer.setDiffs(this.diffContext.diffs);
+
 			if (this.#syncMode) {
 				if (this.#alignEditorsRequestId) {
 					cancelAnimationFrame(this.#alignEditorsRequestId);
@@ -354,78 +339,37 @@ export class DiffController {
 					this.alignEditors(true);
 				});
 			}
-		} catch (err) {
-			if (err === "cancelled") {
-				// console.debug("Diff processing was cancelled");
+		} catch (e) {
+			if (e === ABORT_REASON_CANCELLED) {
+				console.debug("Diff workflow was cancelled", step);
+				// cancelled 
 			} else {
-				console.error("Error occurred during diff processing:", err);
+				console.error("Error during diff workflow:", e);
 			}
+		} finally {
+			this.#abortController = null;
 		}
+
 	}
 
-	#handleEditorContentChanging() {
-		this.diffContext = null;
-		this.#postProcessor?.cancel();
-		this.#editorPairer.cancelAnchorAligning();
-
-		if (this.#alignEditorsRequestId) {
-			cancelAnimationFrame(this.#alignEditorsRequestId);
-			this.#alignEditorsRequestId = null;
-		}
-		if (this.#invalidateGeometriesRequestId) {
-			cancelAnimationFrame(this.#invalidateGeometriesRequestId);
-			this.#invalidateGeometriesRequestId = null;
-		}
-		this.#diffWorkflowStartEvent.emit({});
-
-		// this.#editorContentsChanged[editor] = true;
-		// this.#diffInitEvent.emit({
-		// 	leftEditorChanged: this.#editorContentsChanged.left,
-		// 	rightEditorChanged: this.#editorContentsChanged.right,
-		// });
+	cancelDiffWorkflow() {
+		this.#abortController?.abort(ABORT_REASON_CANCELLED);
+		this.#abortController = null;
 	}
 
-	#handleEditorContentChanged() {
-		this.diffContext = null;
-		this.#postProcessor?.cancel();
-		this.#editorPairer.cancelAnchorAligning();
-
-		if (this.#alignEditorsRequestId) {
-			cancelAnimationFrame(this.#alignEditorsRequestId);
-			this.#alignEditorsRequestId = null;
-		}
-		if (this.#invalidateGeometriesRequestId) {
-			cancelAnimationFrame(this.#invalidateGeometriesRequestId);
-			this.#invalidateGeometriesRequestId = null;
-		}
-
-		this.computeDiff();
-	}
-
-	#computeDiffAbortController: AbortController | null = null;
-
-	async computeDiff() {
-		this.#computeDiffAbortController?.abort("cancelled");
-		this.#computeDiffAbortController = new AbortController();
-
-		const leftRichTokens = this.#leftEditor.tokens;
-		const rightRichTokens = this.#rightEditor.tokens;
-		const leftImageMap = this.#leftEditor.imageMap;
-		const rightImageMap = this.#rightEditor.imageMap;
-		const leftTokens = [] as Token[];
-		const rightTokens = [] as Token[];
-		const transfer = [] as Transferable[];
-		const signal = this.#computeDiffAbortController.signal;
+	async runDiff(abortSignal: AbortSignal) {
 		const imageHashesSeen = new Set<string>();
+		const transfer: Transferable[] = [];
+		let idleDeadline = await nextIdle({ abortSignal });
 
-		let idleDeadline = await nextIdle();
-		async function prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
+		const prepareTokens = async (
+			richTokens: readonly RichToken[],
+			imageMap: Map<RichToken, ImageLoadResult>
+		) => {
+			const result: Token[] = new Array(richTokens.length);
 			for (let i = 0; i < richTokens.length; i++) {
-				signal.throwIfAborted();
-
 				if ((i & 0x1f) === 0 && idleDeadline.timeRemaining() < 1) {
-					idleDeadline = await nextIdle();
-					signal.throwIfAborted();
+					idleDeadline = await nextIdle({ abortSignal });
 				}
 
 				const richToken = richTokens[i];
@@ -449,169 +393,41 @@ export class DiffController {
 					}
 				}
 			}
+
+			return result;
 		}
 
-		try {
-			await prepareTokens(leftRichTokens, leftImageMap, leftTokens);
-			signal.throwIfAborted();
+		const leftTokens = await prepareTokens(this.#leftEditor.tokens, this.#leftEditor.imageMap);
+		abortSignal.throwIfAborted();
+		const rightTokens = await prepareTokens(this.#rightEditor.tokens, this.#rightEditor.imageMap);
+		abortSignal.throwIfAborted();
 
-			await prepareTokens(rightRichTokens, rightImageMap, rightTokens);
-			signal.throwIfAborted();
-
-			this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, transfer);
-			this.#diffComputingEvent.emit({
-				leftTokenCount: leftTokens.length,
-				rightTokenCount: rightTokens.length,
-			});
-
-			this.#editorContentsChanged.left = false;
-			this.#editorContentsChanged.right = false;
-		} catch (err) {
-			if (err !== "cancelled") {
-				console.error("Diff computation error:", err);
-			}
-		}
+		const diffResult = await this.#diffWorker2.run({
+			leftTokens,
+			rightTokens,
+			options: this.#diffOptions,
+			abortSignal: abortSignal,
+			transfer,
+		});
 
 		clearImageCache(imageHashesSeen);
-		dumpImageCache();
+
+		return diffResult;
 	}
 
-	// async *computeDiffGenerator(ctx: {
-	// 	cancelled: boolean;
-	// 	leftRichTokens: readonly RichToken[];
-	// 	rightRichTokens: readonly RichToken[];
-	// 	leftImageMap: Map<RichToken, ImageLoadResult>;
-	// 	rightImageMap: Map<RichToken, ImageLoadResult>;
-	// 	leftTokens: Token[];
-	// 	rightTokens: Token[];
-	// 	transfer: Transferable[];
-	// 	promises?: Promise<any>[];
-	// }, idleDeadline: IdleDeadline) {
+	#handleEditorContentChanged() {
+		// left changing
+		// left tokenizing
+		// right changing
+		// right tokenizing
+		// left tokenized
+		// startDiffFlow
+		// right tokenized
+		// startDiffFlow ==> cancelDiffWorkflow()은 무조건 필요!
+		this.cancelDiffWorkflow(); //
+		this.startDiffWorkflow();
+	}
 
-	// 	const { leftRichTokens, rightRichTokens, leftImageMap, rightImageMap, leftTokens, rightTokens, transfer, promises } = ctx;
-
-	// 	const imageHashesSeen = new Set<string>();
-	// 	async function* prepareTokens(richTokens: readonly RichToken[], imageMap: Map<RichToken, ImageLoadResult>, result: Token[]) {
-	// 		for (let i = 0; i < richTokens.length; i++) {
-	// 			if (ctx.cancelled) {
-	// 				return;
-	// 			}
-
-	// 			if ((i & 0x1f) === 0 && idleDeadline.timeRemaining() < 1) {
-	// 				idleDeadline = yield;
-	// 				if (ctx.cancelled) {
-	// 					return;
-	// 				}
-	// 			}
-
-	// 			const richToken = richTokens[i];
-
-	// 			result[i] = {
-	// 				text: richToken.text,
-	// 				flags: richToken.flags,
-	// 			};
-
-	// 			if (richToken.flags & TokenFlags.IMAGE) {
-	// 				const props = imageMap.get(richToken);
-	// 				if (props && props.hash && props.data) {
-	// 					if (!imageHashesSeen.has(props.hash)) {
-	// 						imageHashesSeen.add(props.hash);
-	// 						if (props.data.buffer.byteLength > 0) {
-	// 							result[i].width = props.width;
-	// 							result[i].height = props.height;
-	// 							result[i].data = props.data.buffer;
-	// 							transfer.push(props.data.buffer);
-	// 						}
-	// 					}
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-
-	// 	yield* prepareTokens(leftRichTokens, leftImageMap, leftTokens);
-	// 	if (ctx.cancelled) {
-	// 		return;
-	// 	}
-
-	// 	yield* prepareTokens(rightRichTokens, rightImageMap, rightTokens);
-	// 	if (ctx.cancelled) {
-	// 		return;
-	// 	}
-
-	// 	clearImageCache(imageHashesSeen);
-	// 	return;
-	// }
-
-	// computeDiff3() {
-	// 	// if (this.#cancelComputeDiff) {
-	// 	// 	this.#cancelComputeDiff();
-	// 	// 	this.#cancelComputeDiff = null;
-	// 	// }
-	// 	this.#computeDiffAbortController?.abort("cancelled");
-	// 	let requestId: number | null = null;
-	// 	const ctx = {
-	// 		cancelled: false,
-	// 		leftRichTokens: this.#leftEditor.tokens,
-	// 		rightRichTokens: this.#rightEditor.tokens,
-	// 		leftImageMap: this.#leftEditor.imageMap,
-	// 		rightImageMap: this.#rightEditor.imageMap,
-	// 		leftTokens: [] as Token[],
-	// 		rightTokens: [] as Token[],
-	// 		transfer: [] as Transferable[],
-	// 		promises: [] as Promise<any>[],
-	// 	};
-
-	// 	let generator: AsyncGenerator<void, void, IdleDeadline> | null = null;
-	// 	const step = async (deadline: IdleDeadline) => {
-	// 		if (!generator) {
-	// 			generator = this.computeDiffGenerator(ctx, deadline);
-	// 		}
-
-	// 		const { done } = await generator.next(deadline);
-	// 		if (ctx.cancelled) {
-	// 			return;
-	// 		}
-
-	// 		if (done) {
-	// 			this.#diffWorker.run(ctx.leftTokens, ctx.rightTokens, this.#diffOptions, ctx.transfer);
-	// 			this.#diffComputingEvent.emit({
-	// 				leftTokenCount: ctx.leftTokens.length,
-	// 				rightTokenCount: ctx.rightTokens.length,
-	// 			});
-
-	// 			this.#editorContentsChanged.left = false;
-	// 			this.#editorContentsChanged.right = false;
-
-	// 		} else {
-	// 			requestId = requestIdleCallback(step, { timeout: 1000 });
-	// 		}
-	// 	}
-
-	// 	requestId = requestIdleCallback(step, { timeout: 1000 });
-	// 	// this.#cancelComputeDiff = () => {
-	// 	// 	ctx.cancelled = true;
-	// 	// 	if (requestId) {
-	// 	// 		cancelIdleCallback(requestId);
-	// 	// 		requestId = null;
-	// 	// 	}
-	// 	// };
-
-	// 	dumpImageCache();
-	// }
-
-	// computeDiff2() {
-	// 	const leftTokens = buildTokenArray(this.#leftEditor.tokens);
-	// 	const rightTokens = buildTokenArray(this.#rightEditor.tokens);
-
-	// 	this.#diffWorker.run(leftTokens, rightTokens, this.#diffOptions, []);
-	// 	this.#diffComputingEvent.emit({
-	// 		leftTokenCount: this.#leftEditor.tokens.length,
-	// 		rightTokenCount: this.#rightEditor.tokens.length,
-	// 	});
-
-	// 	this.#editorContentsChanged.left = false;
-	// 	this.#editorContentsChanged.right = false;
-	// }
 
 	#handleEditorScroll(editor: Editor, skipEndCheck = false) {
 		if (this.#preventScrollEvent) {
@@ -672,24 +488,19 @@ export class DiffController {
 	}
 
 	#handleEditorCopy(_editor: Editor, _e: ClipboardEvent) {
-		// console.log("📋 Copied something in", editor.name);
 	}
 
 	#handleEditorMouseMove(_editor: Editor, e: MouseEvent) {
-		// console.log("🖱️ Mouse moved in", editor.name, "at", e.clientX, e.clientY);
 		this.#renderer.updateMousePosition(e.clientX, e.clientY);
 	}
 
 	#handleEditorMouseLeave(_editor: Editor, _e: MouseEvent) {
-		// console.log("👋 Mouse left", editor.name, "at", e.clientX, e.clientY);
 	}
 
 	#handleRendererPrepare(_time: number) {
-		// console.log("🔧 Preparing renderer at", time);
 	}
 
 	#handleRendererDraw(_time: number) {
-		// console.log("🎨 Renderer is rendering at", time);
 	}
 
 	#handleRendererDiffVisibilityChanged(changes: Record<EditorName, VisibilityChangeEntry[]>) {
@@ -887,59 +698,4 @@ function buildTokenArray(richTokens: readonly RichToken[]): Token[] {
 		}
 	}
 	return result;
-}
-
-
-async function extractImageData(img: HTMLImageElement) {
-	if (!img.complete) {
-		await new Promise<void>((resolve, reject) => {
-			img.onload = () => resolve();
-			img.onerror = reject;
-		});
-	}
-	const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
-	const ctx = canvas.getContext("2d");
-	if (!ctx) {
-		throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
-	}
-	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
-}
-
-
-// async function setImageSourceAndExtractData(img: HTMLImageElement, dataUrl: string) {
-// 	img.crossOrigin = "anonymous";
-// 	img.src = dataUrl;
-
-// 	await new Promise<void>((resolve, reject) => {
-// 		img.onload = () => resolve();
-// 		img.onerror = reject;
-// 	});
-// 	return extractImageData(img);
-
-
-
-// }
-
-async function loadImage(dataUrl: string, cancellable: { cancelled: boolean }) {
-	const img = new Image();
-	img.crossOrigin = "anonymous";
-	img.src = dataUrl;
-
-	await new Promise<void>((resolve, reject) => {
-		img.onload = () => resolve();
-		img.onerror = reject;
-	});
-	if (cancellable.cancelled) {
-		return null;
-	}
-
-	const canvas = new OffscreenCanvas(IMAGE_SIZE, IMAGE_SIZE);
-	const ctx = canvas.getContext("2d");
-	if (!ctx) {
-		throw new Error("Failed to create OffscreenCanvasRenderingContext2D");
-	}
-
-	ctx.drawImage(img, 0, 0, IMAGE_SIZE, IMAGE_SIZE);
-	return ctx.getImageData(0, 0, IMAGE_SIZE, IMAGE_SIZE);
 }

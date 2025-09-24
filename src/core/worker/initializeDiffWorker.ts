@@ -1,57 +1,110 @@
+import { ABORT_REASON_CANCELLED } from "../constants";
 import type { DiffWorkerResponse, DiffWorkerRequest, DiffWorkerResult } from "./diff-worker";
 import DiffWorker from "./diff-worker?worker&inline";
 
-export type OnDiffCompleteCallback = (result: DiffWorkerResult) => void;
+export type DiffWorkerArgs = {
+	leftTokens: Token[];
+	rightTokens: Token[];
+	options: DiffOptions;
+	transfer?: Transferable[];
+	abortSignal?: AbortSignal;
+	onProgress?: (progress: number) => void;
+}
 
-export type DiffWorkerAPI = ReturnType<typeof initializeDiffWorker>;
+export function initializeDiffWorker() {
 
-export function initializeDiffWorker(onComplete: OnDiffCompleteCallback) {
+	type _Ctx = {
+		onProgress?: (progress: number) => void;
+		resolve: (result: DiffWorkerResult) => void;
+		reject: (err: any) => void;
+	}
+
 	let worker = new DiffWorker();
 	let currentReqId = 0;
+	let currentCtx: _Ctx | null = null;
 
 	worker.onmessage = (e: MessageEvent<DiffWorkerResponse>) => {
 		const data = e.data;
-		if (data.type === "diff") {
-			if (data.reqId !== currentReqId) {
-				// we are only interested in the latest request!
-				return;
+		if (data.type === "done" && data.reqId === currentReqId) {
+			console.log("worker done", data.reqId);
+			if (currentCtx) {
+				currentCtx.resolve({
+					diffs: data.diffs,
+					options: data.options,
+					processTime: data.processTime,
+					imageComparisons: data.imageComparisons,
+				});
+				currentCtx = null;
 			}
-			const result: DiffWorkerResult = {
-				diffs: data.diffs,
-				options: data.options,
-				processTime: data.processTime,
-				imageComparisons: data.imageComparisons,
-			};
-			onComplete(result);
-		} else if (data.type === "error") {
+		} else if (data.type === "progress" && data.reqId === currentReqId) {
+			currentCtx?.onProgress?.(data.progress);
+		} else if (data.type === "cancelled" && data.reqId === currentReqId) {
+			currentCtx?.reject(ABORT_REASON_CANCELLED);
+			currentCtx = null;
+		} else if (data.type === "error" && data.reqId === currentReqId) {
 			console.error(`Error in diff worker (reqId: ${data.reqId}):`, data.error);
+			currentCtx?.reject(data.error);
+			currentCtx = null;
 		}
 	};
 
-	// 왜 토큰배열이 nullable인가?
-	// worker에서는 마지막 요청의 토큰 배열을 보관함. 왜 그렇게 만들었냐고?
-	// 에디터의 내용이 변경되면 거의 즉시 diff 요청을 보내게 되는데 양쪽의 에디터가 동시에 변경되는 일은 극히 드물기 때문에
-	// 한쪽만 변경되었을 경우에도 양쪽의 토큰을 모두 보내는 건 비효율적이다.
 	return {
-		run: (leftTokens: Token[], rightTokens: Token[], options: DiffOptions, transfer: Transferable[]) => {
+		run: async (
+			{ leftTokens,
+				rightTokens,
+				options,
+				transfer,
+				abortSignal,
+				onProgress }: DiffWorkerArgs
+		): Promise<DiffWorkerResult> => {
+			// 이전 요청 취소
+			if (currentCtx) {
+				currentCtx.reject(ABORT_REASON_CANCELLED);
+				currentCtx = null;
+			}
+
+			const reqId = ++currentReqId;
 			const request: DiffWorkerRequest = {
 				type: "diff",
-				reqId: ++currentReqId,
+				reqId,
 				leftTokens,
 				rightTokens,
 				options,
 			};
 
-			// for (let i = 0; i < transfer.length; i++) {
-			// 	console.log("transferable", i, transfer[i]);
-			// }
+			if (abortSignal) {
+				abortSignal.addEventListener("abort", () => {
+					if (currentCtx) {
+						console.log("posting cancel to worker", reqId);
+						worker.postMessage({
+							type: "cancel",
+							reqId: reqId,
+						} satisfies DiffWorkerRequest);
+						currentCtx.reject(ABORT_REASON_CANCELLED);
+						currentCtx = null;
+					}
+				}, { once: true });
+			}
 
-			worker!.postMessage(request, transfer);
+			return new Promise<DiffWorkerResult>((resolve, reject) => {
+				currentCtx = {
+					onProgress,
+					resolve,
+					reject,
+				}
+				worker.postMessage(request, {
+					transfer
+				});
+			});
 		},
 		terminate: () => {
 			if (worker) {
 				worker.terminate();
 				worker = null!;
+			}
+			if (currentCtx) {
+				currentCtx.reject(new Error("Worker terminated"));
+				currentCtx = null;
 			}
 		},
 	};

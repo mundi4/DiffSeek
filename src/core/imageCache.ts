@@ -1,6 +1,7 @@
 
 import { quickHash53 } from "@/utils/quickHash53ToString";
 import { fetchImageDataUsingExtension } from "./ext-helper";
+import { ABORT_REASON_CANCELLED } from "./constants";
 
 const IMAGE_SIZE = 400;
 
@@ -108,7 +109,7 @@ function load(img: HTMLImageElement, cancellable: AbortSignal, srcCache: Record<
 
     if (!result.promise || !result.data || !result.hash) {
         result.promise = doLoad(result, img, src, cancellable).catch((err) => {
-            if (err !== "cancelled") {
+            if (err !== ABORT_REASON_CANCELLED) {
                 console.warn("Image load failed:", err, src.slice(0, 40));
             }
         });

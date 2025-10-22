@@ -17,7 +17,7 @@ function matchesShortcut(event: KeyboardEvent, shortcut: string): boolean {
     const hasMeta = parts.includes('Meta') || parts.includes('Cmd');
 
     return (
-        event.key === key &&
+        event.key.toLowerCase() === key.toLowerCase() &&
         event.ctrlKey === hasCtrl &&
         event.altKey === hasAlt &&
         event.shiftKey === hasShift &&

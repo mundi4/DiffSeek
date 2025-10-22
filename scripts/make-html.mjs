@@ -44,7 +44,7 @@ async function zipEntries(outZipPath, entries) {
 
 	archive.pipe(output);
 	for (const { fsPath, nameInZip } of entries) {
-		const stat = await import('fs/promises').then(fs => fs.stat(fsPath));
+		const stat = await import("fs/promises").then((fs) => fs.stat(fsPath));
 		if (stat.isDirectory()) {
 			archive.directory(fsPath, nameInZip);
 		} else {
@@ -118,11 +118,24 @@ async function createHTML() {
 	const js = await readFile(appJsPath, "utf-8");
 	const css = await readFile(appCssPath, "utf-8");
 	const html = `<!DOCTYPE html>
-<html lang="en">
+<!--
+  Diffseek
+  ㅂㄹ지원부 ㅅㅈㅅ - expiration date: 2026
+  GitHub: https://github.com/mundi4/diffseek
+  이메일: mundi4@gmail.com
+-->
+<html lang="ko">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Diffseek</title>
+	<link rel="icon" href="data:image/svg+xml;utf8,
+  <svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'>
+    <rect width='64' height='64' rx='12' fill='%23101010'/>
+    <rect x='8' y='12' width='20' height='40' rx='4' fill='%230078ff'/>
+    <rect x='36' y='12' width='20' height='40' rx='4' fill='%23ff3d7f'/>
+    <rect x='31' y='12' width='2' height='40' fill='%23ffffff'/>
+  </svg>" />
     <script src="vendor.js"></script>
 	<style>
 ${css}
@@ -190,8 +203,6 @@ async function main() {
 
 	// 4) extension 폴더 압축 및 분할
 	await packageExtension();
-
-
 
 	console.log("🎯 모든 작업 완료");
 }

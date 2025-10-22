@@ -305,9 +305,76 @@ function resolveColor(node: HTMLElement, prev: string | null) {
 	return color;
 }
 
+function sanitizeWordVMLImages(rawHtml: string): string {
+	if (!rawHtml) return rawHtml;
+
+	let html = rawHtml;
+
+	// 1) 우선순위: !vml 백업 <img>만 꺼내고 주석 제거
+	html = html.replace(
+		/<!--\s*\[if\s*!vml\s*\]-->([\s\S]*?)<!--\s*\[endif\]\s*-->/gi,
+		(_m, inner) => String(inner ?? "")
+	);
+
+	// 2) gte vml 블록: 있으면 <v:imagedata src="...">에서 src를 뽑아 <img>로 대체
+	html = html.replace(
+		/<!--\s*\[if\s+gte\s+vml\s+1\]\s*>([\s\S]*?)<!\s*\[endif\]\s*-->/gi,
+		(_m, inner) => {
+			const match = /<v:imagedata\b[^>]*\bsrc="([^"]+)"[^>]*>/i.exec(inner);
+			if (!match) return ""; // 이미지 못 찾으면 통째로 제거
+			const src = normalizeFileSrc(match[1]);
+			return `<img src="${src}" />`;
+		}
+	);
+
+	// 3) 혹시 남은 VML 태그들 정리(예: 주석 밖으로 기어나온 잔재)
+	html = html.replace(/<\/?v:[^>]+>/gi, "");
+
+	// 4) Windows 경로를 가진 <img src="C:\..."> 정규화
+	html = html.replace(
+		/(<img\b[^>]*\bsrc=")([A-Za-z]:\\[^"]+)(")/gi,
+		(_m, pre, p, post) => `${pre}${normalizeFileSrc(p)}${post}`
+	);
+
+	return html.trim();
+
+	function normalizeFileSrc(src: string): string {
+		// 이미 file:/// 이면 패스
+		if (/^file:\/\//i.test(src)) return src;
+		// Windows 경로 C:\... -> file:///C:/...
+		if (/^[A-Za-z]:\\/.test(src)) {
+			const fixed = src.replace(/\\/g, "/");
+			return `file:///${fixed}`;
+		}
+		// 상대/절대 http(s) 그대로
+		return src;
+	}
+}
+
+// function stripVMLFromWordHTML(rawHtml: string): string {
+// 	if (!rawHtml) return rawHtml;
+
+// 	// 1. Remove VML blocks: <!--[if gte vml 1]> ... <![endif]-->
+// 	const noVml = rawHtml.replace(
+// 		/<!--\[if\s+gte\s+vml\s+1\]>[\s\S]*?<!\[endif\]-->/gi,
+// 		""
+// 	);
+
+// 	// 2. Unwrap fallback <img> blocks: <!--[if !vml]--> ... <!--[endif]-->
+// 	const unwrapped = noVml.replace(
+// 		/<!--\[if\s*!vml\]-->([\s\S]*?)<!--\[endif\]-->/gi,
+// 		"$1"
+// 	);
+
+// 	// 3. Trim stray whitespace
+// 	return unwrapped.trim();
+// }
+
 export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
 	rawHTML = sliceFragment(rawHTML);
+	rawHTML = sanitizeWordVMLImages(rawHTML);
+
 	if (import.meta.env.DEV) {
 		//console.debug("rawHTML", rawHTML);
 	}

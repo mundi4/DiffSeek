@@ -1,6 +1,5 @@
 import { useAtom } from "jotai";
-import { BookOpen, EqualApproximately, Images, Space, WrapText } from 'lucide-react';
-import { compareImageAtom, whitespaceHandlingAtom } from '@/states/diffOptionsAtom';
+import { BookOpen, EqualApproximately, Space, WrapText } from 'lucide-react';
 import * as styles from './FetishBar.css';
 import clsx from "clsx";
 import { ToggleGroup, ToggleGroupItem } from "../ui/toggle-group";
@@ -12,8 +11,6 @@ import { DiffOptionsDrawer } from "../DiffOptionsDrawer";
 // TODO overflow menu?
 export function FetishBar() {
     const [syncMode, setSyncMode] = useAtom(syncModeAtom);
-    const [compareImage, setCompareImage] = useAtom(compareImageAtom);
-    const [whitespaceHandling, setWhitespaceHandling] = useAtom(whitespaceHandlingAtom);
     return (
         <div className={clsx(styles.root)} style={{
             // "--accent": "var(--primary)",
@@ -22,9 +19,9 @@ export function FetishBar() {
         } as any}>
             <div className={clsx(styles.buttons)}>
                 <Toggle pressed={syncMode} onPressedChange={setSyncMode} size="xs"><BookOpen /></Toggle>
-                <Toggle pressed={compareImage && window.extensionEnabled} onPressedChange={setCompareImage} size="xs"
+                {/* <Toggle pressed={compareImage && window.extensionEnabled} onPressedChange={setCompareImage} size="xs"
                     disabled={!window.extensionEnabled}
-                ><Images /></Toggle>
+                ><Images /></Toggle> */}
             </div>
 
             <div className={clsx(styles.rightButtons)}>

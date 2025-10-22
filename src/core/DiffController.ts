@@ -10,7 +10,7 @@ import { ABORT_REASON_CANCELLED, EDITOR_SCROLL_MARGIN } from "@/core/constants/i
 import { EditorPairer } from "./EditorPairer";
 import { TokenFlags } from "./tokenization/TokenFlags";
 import { createRangeFromTokenRange } from "./utils/tokenRangeUtils";
-import { clearImageCache,  type ImageLoadResult } from "./imageCache";
+import { clearImageCache, type ImageLoadResult } from "./imageCache";
 import { nextIdle } from "@/utils/nextIdle";
 
 const SCROLL_TIMEOUT = 100;
@@ -312,7 +312,7 @@ export class DiffController {
 		if (this.#abortController) {
 			throw new Error("Diff workflow is already running. Should cancel it first.");
 		}
-		
+
 		this.diffContext = null;
 		this.#abortController = new AbortController();
 		const signal = this.#abortController.signal;
@@ -341,7 +341,7 @@ export class DiffController {
 			}
 		} catch (e) {
 			if (e === ABORT_REASON_CANCELLED) {
-				console.debug("Diff workflow was cancelled", step);
+				//console.debug("Diff workflow was cancelled", step);
 				// cancelled 
 			} else {
 				console.error("Error during diff workflow:", e);

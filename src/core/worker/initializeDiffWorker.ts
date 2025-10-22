@@ -26,7 +26,7 @@ export function initializeDiffWorker() {
 	worker.onmessage = (e: MessageEvent<DiffWorkerResponse>) => {
 		const data = e.data;
 		if (data.type === "done" && data.reqId === currentReqId) {
-			console.log("worker done", data.reqId);
+			// console.log("worker done", data.reqId);
 			if (currentCtx) {
 				currentCtx.resolve({
 					diffs: data.diffs,

@@ -6,61 +6,61 @@ import { vanillaExtractPlugin } from "@vanilla-extract/vite-plugin";
 import { visualizer } from "rollup-plugin-visualizer";
 import type { IncomingMessage, ServerResponse } from "http";
 
-function guessMimeByExt(p: string) {
-	const ext = path.extname(p).toLowerCase()
-	if (ext === '.png') return 'image/png'
-	if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
-	if (ext === '.gif') return 'image/gif'
-	if (ext === '.webp') return 'image/webp'
-	if (ext === '.bmp') return 'image/bmp'
-	if (ext === '.svg') return 'image/svg+xml'
-	if (ext === '.tif' || ext === '.tiff') return 'image/tiff'
-	return 'application/octet-stream'
-}
+// function guessMimeByExt(p: string) {
+// 	const ext = path.extname(p).toLowerCase()
+// 	if (ext === '.png') return 'image/png'
+// 	if (ext === '.jpg' || ext === '.jpeg') return 'image/jpeg'
+// 	if (ext === '.gif') return 'image/gif'
+// 	if (ext === '.webp') return 'image/webp'
+// 	if (ext === '.bmp') return 'image/bmp'
+// 	if (ext === '.svg') return 'image/svg+xml'
+// 	if (ext === '.tif' || ext === '.tiff') return 'image/tiff'
+// 	return 'application/octet-stream'
+// }
 
-function handler(req: IncomingMessage, res: ServerResponse): void {
-	try {
-		const url = new URL(req.url ?? '/', 'http://localhost')
-		const filePath = url.searchParams.get('path') ?? ''
+// function handler(req: IncomingMessage, res: ServerResponse): void {
+// 	try {
+// 		const url = new URL(req.url ?? '/', 'http://localhost')
+// 		const filePath = url.searchParams.get('path') ?? ''
 
-		if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
-			const out = JSON.stringify({ error: 'File not found' })
-			res.statusCode = 404
-			res.setHeader('Content-Type', 'application/json')
-			res.setHeader('Content-Length', Buffer.byteLength(out).toString())
-			res.end(out)
-			return
-		}
+// 		if (!filePath || !fs.existsSync(filePath) || !fs.statSync(filePath).isFile()) {
+// 			const out = JSON.stringify({ error: 'File not found' })
+// 			res.statusCode = 404
+// 			res.setHeader('Content-Type', 'application/json')
+// 			res.setHeader('Content-Length', Buffer.byteLength(out).toString())
+// 			res.end(out)
+// 			return
+// 		}
 
-		const mime = guessMimeByExt(filePath)
-		const buf = fs.readFileSync(filePath)
-		const b64 = buf.toString('base64')
-		const data_url = `data:${mime};base64,${b64}`
+// 		const mime = guessMimeByExt(filePath)
+// 		const buf = fs.readFileSync(filePath)
+// 		const b64 = buf.toString('base64')
+// 		const data_url = `data:${mime};base64,${b64}`
 
-		const out = JSON.stringify({ data_url })
-		res.statusCode = 200
-		res.setHeader('Content-Type', 'application/json')
-		res.setHeader('Content-Length', Buffer.byteLength(out).toString())
-		res.end(out)
-	} catch (e: unknown) {
-		const msg = e instanceof Error ? e.message : 'internal error'
-		const out = JSON.stringify({ error: msg })
-		res.statusCode = 500
-		res.setHeader('Content-Type', 'application/json')
-		res.setHeader('Content-Length', Buffer.byteLength(out).toString())
-		res.end(out)
-	}
-}
+// 		const out = JSON.stringify({ data_url })
+// 		res.statusCode = 200
+// 		res.setHeader('Content-Type', 'application/json')
+// 		res.setHeader('Content-Length', Buffer.byteLength(out).toString())
+// 		res.end(out)
+// 	} catch (e: unknown) {
+// 		const msg = e instanceof Error ? e.message : 'internal error'
+// 		const out = JSON.stringify({ error: msg })
+// 		res.statusCode = 500
+// 		res.setHeader('Content-Type', 'application/json')
+// 		res.setHeader('Content-Length', Buffer.byteLength(out).toString())
+// 		res.end(out)
+// 	}
+// }
 
-const convertImgPlugin: Plugin = {
-	name: 'dev-convertimg-endpoint',
-	configureServer(server) {
-		server.middlewares.use('/convertimg', (req, res) => handler(req, res))
-	},
-}
+// const convertImgPlugin: Plugin = {
+// 	name: 'dev-convertimg-endpoint',
+// 	configureServer(server) {
+// 		server.middlewares.use('/convertimg', (req, res) => handler(req, res))
+// 	},
+// }
 export default defineConfig({
 	plugins: [
-		convertImgPlugin,
+		// convertImgPlugin,
 		react(),
 		vanillaExtractPlugin({
 			identifiers: "debug",

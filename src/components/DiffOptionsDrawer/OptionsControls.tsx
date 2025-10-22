@@ -9,8 +9,9 @@ import { useState } from "react";
 
 export function OptionsControls() {
     const [options, setOptions] = useAtom(diffOptionsAtom);
+    const [hideWelcome, setHideWelcome] = useState(localStorage.getItem('hideWelcome') === 'true');
 
-    // tolerance (오차 기반)
+
     const [toleranceValue, setToleranceValue] = useState(
         100 - options.compareImageTolerance
     );
@@ -43,17 +44,6 @@ export function OptionsControls() {
                         </label>
                         <label>
                             <RadioGroup.Item
-                                value="normalize"
-                                className={cstyles.radioItem}
-                            >
-                                <RadioGroup.Indicator
-                                    className={cstyles.radioIndicator}
-                                />
-                            </RadioGroup.Item>{" "}
-                            정규화 <span className={cstyles.descriptionText}>하나 이상의 공백을 하나로 취급</span>
-                        </label>
-                        <label>
-                            <RadioGroup.Item
                                 value="onlyAtEdge"
                                 className={cstyles.radioItem}
                             >
@@ -62,6 +52,17 @@ export function OptionsControls() {
                                 />
                             </RadioGroup.Item>{" "}
                             줄바꿈 경계 <span className={cstyles.descriptionText}>줄의 시작과 끝에서 공백 무시</span>
+                        </label>
+                        <label>
+                            <RadioGroup.Item
+                                value="normalize"
+                                className={cstyles.radioItem}
+                            >
+                                <RadioGroup.Indicator
+                                    className={cstyles.radioIndicator}
+                                />
+                            </RadioGroup.Item>{" "}
+                            정규화 <span className={cstyles.descriptionText}>하나 이상의 공백을 하나로 취급(공백 무시 안함!)</span>
                         </label>
                     </RadioGroup.Root>
                 </div>
@@ -76,6 +77,21 @@ export function OptionsControls() {
                         onCheckedChange={(v) =>
                             setOptions({ ...options, compareSupSub: v })
                         }
+                    >
+                        <Switch.Thumb className={cstyles.switchThumb} />
+                    </Switch.Root>
+                </div>
+
+                <div className={cstyles.optionCard}>
+                    <label className={cstyles.optionLabel}>시작할 때 뼈가 되고 살이 되는 도움말 보기</label>
+                    <Switch.Root
+                        className={cstyles.switchRoot}
+                        checked={!hideWelcome}
+                        onCheckedChange={(v) => {
+                            //setOptions({ ...options, compareSupSub: v })
+                            setHideWelcome(!v)
+                            localStorage.setItem('hideWelcome', String(!v));
+                        }}
                     >
                         <Switch.Thumb className={cstyles.switchThumb} />
                     </Switch.Root>
@@ -121,7 +137,7 @@ export function OptionsControls() {
             </div>
 
 
-        </section>
+        </section >
     );
 }
 

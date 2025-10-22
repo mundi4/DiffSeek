@@ -100,17 +100,17 @@ self.onmessage = (e) => {
 		}
 	} else if (request.type === "cancel") {
 		if (request.reqId === undefined) {
-			console.log(">>>> cancelling all ctx");
+			// console.log(">>>> cancelling all ctx");
 			_abortController?.abort(ABORT_REASON_CANCELLED);
 			_nextCtx = null;
 		} else if (_currentCtx && _currentCtx.reqId === request.reqId) {
-			console.log(">>>> cancelling current ctx", request.reqId);
+			// console.log(">>>> cancelling current ctx", request.reqId);
 			_abortController?.abort(ABORT_REASON_CANCELLED);
 		} else if (_nextCtx && _nextCtx.reqId === request.reqId) {
-			console.log(">>>> cancelling next ctx", request.reqId);
+			// console.log(">>>> cancelling next ctx", request.reqId);
 			_nextCtx = null;
 		} else {
-			console.log(">>>> no ctx to cancel", request.reqId);
+			// console.log(">>>> no ctx to cancel", request.reqId);
 		}
 		return;
 	}
@@ -124,9 +124,9 @@ async function runDiff(ctx: WorkContext) {
 		_abortController = new AbortController();
 		ctx.abortSignal = _abortController.signal;
 
-		
+
 		try {
-			console.log(">>>>> Starting diff worker", ctx.reqId);
+			// console.log(">>>>> Starting diff worker", ctx.reqId);
 			if (lastItemCompareTolerance !== ctx.options.compareImageTolerance) {
 				imageCompareCache.clear();
 				lastItemCompareTolerance = ctx.options.compareImageTolerance;
@@ -206,7 +206,7 @@ async function runDiff(ctx: WorkContext) {
 			}
 		}
 	}
-	
+
 	imageHashesSeen.clear();
 
 	// let lastRunFinishedSuccessfully = false;
@@ -1193,16 +1193,3 @@ function compareImageTokens(leftToken: Token, rightToken: Token, ctx: WorkContex
 	imageCompareCache.get(rightToken.text)!.set(leftToken.text, result);
 	return (result.similarity ?? 0) * 100 >= compareImageTolerance;
 }
-
-
-const sss = performance.now();
-let eee: number = 0;
-const func = (i: number) => {
-	//eee = i & 0x1f;
-	eee = performance.now();
-}
-for (let i = 0; i < 10_000; i++) {
-	func(i);
-}
-eee = performance.now();
-console.log(eee - sss)

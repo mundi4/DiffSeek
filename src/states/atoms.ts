@@ -1,9 +1,6 @@
 import { atom } from "jotai";
-import { atomWithStorage } from "jotai/utils";
 import type { EditorName } from "../core/types";
 import type { EditorTextSelection } from "@/core/DiffController";
-
-export const diffItemsAtom = atom<DiffItem[]>([]);
 
 export const syncModeAtom = atom<boolean>(false);
 
@@ -14,11 +11,7 @@ export const visibleDiffsAtom = atom<Record<EditorName, ReadonlySet<number>>>({
 
 export const hoveredDiffIndexAtom = atom<number | null>(null);
 
-export const editorPanelLayoutAtom = atomWithStorage<"horizontal" | "vertical">("editorPanelLayout", "horizontal");
-
-export const magnifierEnabledAtom = atomWithStorage<boolean>("magnifierEnabled", true);
-
-export const appSidebarCollapsedAtom = atom(false);
+export const editorPanelLayoutAtom = atom<"horizontal" | "vertical">("horizontal");
 
 let lastKnownSelection: EditorTextSelection | null = null;
 const baseEditorSelectionAtom = atom<EditorTextSelection | null>(null);

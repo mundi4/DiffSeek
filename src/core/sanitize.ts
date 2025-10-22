@@ -183,6 +183,11 @@ const DINGBAT_TRANSFORM: Record<string, CharMap> = {
 		"\xA1": "■",
 		"\xF8": "※",
 	},
+	["wingdings 3"]: {
+		"\x33": "→", "\x34": "←", "\x35": "↑", "\x36": "↓",
+		"\x39": "↔", "\x3A": "↕",
+		"\x41": "▶", "\x42": "◀", "\x43": "▲", "\x44": "▼",
+	},
 	symbol: {
 		"\xAB": "↔",
 		"\xAC": "←",

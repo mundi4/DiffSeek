@@ -5,7 +5,7 @@ import {
     type HTMLAttributes,
 } from "react";
 import React from "react";
-import { useResizablePanelRegistry } from "../resizable/ResizablePanelGroup";
+import { useResizablePanelRegistry } from "./context";
 import type { PanelPolicy } from "./types";
 import * as styles from "./ResizablePanelGroup.css.ts";
 import clsx from "clsx";

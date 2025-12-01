@@ -172,7 +172,7 @@ function App() {
 		}
 
 		initializeApp();
-	}, [diffController, leftEditor, rightEditor]);
+	}, [diffController, leftEditor, rightEditor, hideWelcome]);
 
 
 

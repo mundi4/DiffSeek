@@ -11,23 +11,15 @@ import {
     isValidElement,
     type ReactNode,
     cloneElement,
-    createContext,
-    useContext,
     type MutableRefObject,
 } from "react";
 import type { RegistryAPI } from "./types";
 import * as styles from "./ResizablePanelGroup.css";
 import clsx from "clsx";
-
-/** Group-wide context (for children that need direction info, etc.) */
-export const ResizablePanelGroupContext = createContext<{ direction: "vertical" | "horizontal" }>({
-    direction: "vertical",
-});
-
-export const ResizablePanelRegistryContext = createContext<RegistryAPI | null>(null);
-export function useResizablePanelRegistry() {
-    return useContext(ResizablePanelRegistryContext);
-}
+import {
+    ResizablePanelGroupContext,
+    ResizablePanelRegistryContext,
+} from "./context";
 
 export type ResizablePanelGroupProps = HTMLAttributes<HTMLDivElement> & {
     direction?: "vertical" | "horizontal";           // default 'vertical'

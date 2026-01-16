@@ -5,7 +5,7 @@
 export function getDefaultDiffOptions(): DiffOptions {
 	return {
 		algorithm: "histogram",
-		tokenization: "word",
+		tokenization: "word", // Legacy field, not used but kept for backward compatibility
 		ignoreWhitespace: "ignore",
 		greedyMatch: false,
 		useLengthBias: true,

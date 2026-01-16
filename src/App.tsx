@@ -16,25 +16,25 @@ import { ImageTooltipLayer } from './components/ImageTooltip'
 
 const store = getDefaultStore();
 const loadDemoContent = async (leftEditor: Editor, rightEditor: Editor) => {
-	await loadFallbackContent(leftEditor, rightEditor);
+	// await loadFallbackContent(leftEditor, rightEditor);
 	// 개발 환경에서만 데모 콘텐츠 로드
-	// if (import.meta.env.DEV) {
-	// 	try {
-	// 		const [leftModule, rightModule] = await Promise.all([
-	// 			import('@/assets/leftDemoContent.html?raw'),
-	// 			import('@/assets/rightDemoContent.html?raw')
-	// 		]);
-	// 		await leftEditor.setContent({ text: leftModule.default, asHTML: true });
-	// 		await rightEditor.setContent({ text: rightModule.default, asHTML: true });
-	// 	} catch (error) {
-	// 		console.error('Failed to load demo content:', error);
-	// 		// fallback to default content
-	// 		await loadFallbackContent(leftEditor, rightEditor);
-	// 	}
-	// } else {
-	// 	// production에서는 빈 에디터 또는 기본 콘텐츠
-	// 	await loadFallbackContent(leftEditor, rightEditor);
-	// }
+	if (import.meta.env.DEV) {
+		try {
+			const [leftModule, rightModule] = await Promise.all([
+				import('@/assets/leftDemoContent.html?raw'),
+				import('@/assets/rightDemoContent.html?raw')
+			]);
+			await leftEditor.setContent({ text: leftModule.default, asHTML: true });
+			await rightEditor.setContent({ text: rightModule.default, asHTML: true });
+		} catch (error) {
+			console.error('Failed to load demo content:', error);
+			// fallback to default content
+			await loadFallbackContent(leftEditor, rightEditor);
+		}
+	} else {
+		// production에서는 빈 에디터 또는 기본 콘텐츠
+		await loadFallbackContent(leftEditor, rightEditor);
+	}
 };
 
 const loadFallbackContent = async (leftEditor: Editor, rightEditor: Editor) => {

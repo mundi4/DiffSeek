@@ -1,4 +1,5 @@
 import { TEXTLESS_ELEMENTS } from "./constants";
+import { sanitizeWordVMLPairs } from "./sanitizeWordVMLPairs";
 
 type ElementOptions = {
 	allowedAttrs?: Record<string, boolean>;
@@ -304,80 +305,129 @@ function resolveColor(node: HTMLElement, prev: string | null) {
 	}
 	return color;
 }
-
-function sanitizeWordVMLImages(rawHtml: string): string {
+/**
+ * 안전한 워드 VML 정리 + 텍스트박스 복구
+ * - 문서 전체를 건드리는 전역 문법 수선 절대 없음
+ * - 블록 단위로만 치환/정리 (매칭된 블록 내부에서만 '>' 경계 같은 걸 정리)
+ * - v:textbox 우선 추출, 그다음 !vml fallback, 그다음 <v:imagedata>
+ */
+export function sanitizeWordVMLImages(rawHtml: string): string {
 	if (!rawHtml) return rawHtml;
-
 	let html = rawHtml;
 
-	// 1) 우선순위: !vml 백업 <img>만 꺼내고 주석 제거
+	// (A) gte vml 1 + optional !vml fallback 세트: 블록 단위로 처리 (안전)
 	html = html.replace(
-		/<!--\s*\[if\s*!vml\s*\]-->([\s\S]*?)<!--\s*\[endif\]\s*-->/gi,
-		(_m, inner) => String(inner ?? "")
-	);
+		new RegExp(
+			String.raw`(?:<!--\s*\[if\s*gte\s+vml\s+1\]\s*>|<!\s*\[if\s*gte\s+vml\s+1\]\s*>)([\s\S]*?)<!\s*\[endif\]\s*(?:-->)?\s*` +
+			String.raw`(?:(?:<!--\s*\[if\s*!vml\]\s*>|<!\s*\[if\s*!vml\]\s*>)([\s\S]*?)<!\s*\[endif\]\s*(?:-->)?)?`,
+			"gi"
+		),
+		(_m, vmlInner: string, vmlFallback?: string) => {
+			// --- 모든 처리는 이 콜백 내부에서만 이뤄진다 (문서 전역 변경 금지) ---
+			// 1) v:textbox 내부 텍스트 우선 추출
+			const text = extractTextboxText(vmlInner);
+			if (text) {
+				return `<div data-origin="word-textbox">${escapeHTML(text)}</div>`;
+			}
 
-	// 2) gte vml 블록: 있으면 <v:imagedata src="...">에서 src를 뽑아 <img>로 대체
-	html = html.replace(
-		/<!--\s*\[if\s+gte\s+vml\s+1\]\s*>([\s\S]*?)<!\s*\[endif\]\s*-->/gi,
-		(_m, inner) => {
-			const match = /<v:imagedata\b[^>]*\bsrc="([^"]+)"[^>]*>/i.exec(inner);
-			if (!match) return ""; // 이미지 못 찾으면 통째로 제거
-			const src = normalizeFileSrc(match[1]);
-			return `<img src="${src}" />`;
+			// 2) !vml fallback(주로 data: URL 등)이 있으면 그 내용을 사용 (trimmed, 내부 정리)
+			if (vmlFallback && vmlFallback.trim()) {
+				return safeTrimBlock(vmlFallback);
+			}
+
+			// 3) 그 외엔 v:imagedata src -> <img>
+			const img = /<v:imagedata\b[^>]*\bsrc="([^"]+)"[^>]*>/i.exec(vmlInner);
+			if (img) {
+				return `<img src="${normalizeFileSrc(img[1])}" />`;
+			}
+
+			// 4) 아무 것도 없으면 빈문자열(제거)
+			return "";
 		}
 	);
 
-	// 3) 혹시 남은 VML 태그들 정리(예: 주석 밖으로 기어나온 잔재)
-	html = html.replace(/<\/?v:[^>]+>/gi, "");
+	// (B) 남은 !vml 블록만 언랩. 단, 블록 내부가 '닫는 태그 잔해'만 있으면 버림.
+	html = html.replace(
+		/(?:<!--\s*\[if\s*!vml\]\s*>|<!\s*\[if\s*!vml\]\s*>)([\s\S]*?)<!\s*\[endif\]\s*(?:-->)?/gi,
+		(_m, inner: string) => {
+			const trimmed = inner.trim();
+			// 만약 블록 내부가 단순히 닫는 태그(</td> 등) 같은 '잔해'면 제거
+			if (/^<\/(td|tr|table|div|span|p)[^>]*>$/i.test(trimmed)) return "";
+			// 아니면 블록 내부 내용(이미지 등)을 그대로 돌려주되, 내부에서만 안전정리
+			return safeTrimBlock(trimmed);
+		}
+	);
 
-	// 4) Windows 경로를 가진 <img src="C:\..."> 정규화
+	// (C) file: 경로 정규화 — 제한적 패턴만 변경 (이미지 src의 Windows 경로만 대상)
 	html = html.replace(
 		/(<img\b[^>]*\bsrc=")([A-Za-z]:\\[^"]+)(")/gi,
 		(_m, pre, p, post) => `${pre}${normalizeFileSrc(p)}${post}`
 	);
 
-	return html.trim();
+	// (D) VML / Word 네임스페이스 잔재 제거 — 태그 레벨로만 제거 (속성은 건드리지 않음)
+	html = html
+		.replace(/<\/?v:[^>]+>/gi, "")
+		.replace(/<\/?w:[^>]+>/gi, "")
+		.replace(/<\/?o:[^>]+>/gi, "")
+		.replace(/<o:p>\s*<\/o:p>/gi, ""); // 완전 빈 o:p만 제거
+
+	return html;
+
+	// ----------------- helpers -----------------
+
+	// v:textbox 내부에서 텍스트만 안전하게 추출. 실패하면 null 반환.
+	function extractTextboxText(vmlInner: string): string | null {
+		const tb = /<v:textbox\b[^>]*>([\s\S]*?)<\/v:textbox>/i.exec(vmlInner);
+		if (!tb) return null;
+		let inner = tb[1];
+
+		// 내부의 조건부 주석/오피스 잔재는 제거
+		inner = inner.replace(/(?:<!--\s*\[if[\s\S]*?\]\s*>|<!\s*\[if[\s\S]*?\]\s*>)[\s\S]*?<!\s*\[endif\]\s*(?:-->)?/gi, "");
+		inner = inner.replace(/<\/?[vwo]:[^>]+>/gi, "");
+		inner = inner.replace(/<o:p>\s*<\/o:p>/gi, "");
+
+		// 태그 제거 후 공백 정리 — 이건 textbox 내부에서만 적용
+		const text = inner.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+		return text || null;
+	}
+
+	// 블록 내부 문자열에만 안전하게 '경계 정리' 수행 (전역 변경 절대 없음)
+	function safeTrimBlock(block: string): string {
+		// 1) trim whitespace
+		let s = block.trim();
+		// 2) 중복 '>>' 같은 건 블록 내부에서만 정리
+		s = s.replace(/>\s*>/g, ">");
+		// 3) 불필요한 인접 '><'는 정상적인 태그 연결을 위한 최소 정리
+		s = s.replace(/>\s+</g, "><");
+		return s;
+	}
 
 	function normalizeFileSrc(src: string): string {
-		// 이미 file:/// 이면 패스
 		if (/^file:\/\//i.test(src)) return src;
-		// Windows 경로 C:\... -> file:///C:/...
-		if (/^[A-Za-z]:\\/.test(src)) {
-			const fixed = src.replace(/\\/g, "/");
-			return `file:///${fixed}`;
-		}
-		// 상대/절대 http(s) 그대로
+		if (/^[A-Za-z]:\\/.test(src)) return `file:///${src.replace(/\\/g, "/")}`;
 		return src;
+	}
+
+	function escapeHTML(s: string): string {
+		return s.replace(/[&<>"']/g, c =>
+			({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!)
+		);
 	}
 }
 
-// function stripVMLFromWordHTML(rawHtml: string): string {
-// 	if (!rawHtml) return rawHtml;
-
-// 	// 1. Remove VML blocks: <!--[if gte vml 1]> ... <![endif]-->
-// 	const noVml = rawHtml.replace(
-// 		/<!--\[if\s+gte\s+vml\s+1\]>[\s\S]*?<!\[endif\]-->/gi,
-// 		""
-// 	);
-
-// 	// 2. Unwrap fallback <img> blocks: <!--[if !vml]--> ... <!--[endif]-->
-// 	const unwrapped = noVml.replace(
-// 		/<!--\[if\s*!vml\]-->([\s\S]*?)<!--\[endif\]-->/gi,
-// 		"$1"
-// 	);
-
-// 	// 3. Trim stray whitespace
-// 	return unwrapped.trim();
-// }
 
 export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
 	rawHTML = sliceFragment(rawHTML);
-	rawHTML = sanitizeWordVMLImages(rawHTML);
-
 	if (import.meta.env.DEV) {
-		//console.debug("rawHTML", rawHTML);
+		console.debug("rawHTML", rawHTML);
 	}
+
+	rawHTML = sanitizeWordVMLPairs(rawHTML);
+
+	// 이거 하지마. 쉽지 않아.
+	//rawHTML = sanitizeWordVMLImages(rawHTML);
+
 	// console.debug("rawHTML", rawHTML); // 회사에서 급할 때... ㅋ
 
 	const tmpl = document.createElement("template");
@@ -454,6 +504,9 @@ export async function sanitizeHTML(rawHTML: string): Promise<Node> {
 
 		statesStack.push(states);
 		states = { ...states };
+		if (nodeName === "DIV" && (node as HTMLElement).dataset.origin === "word-textbox") {
+			(container as HTMLElement).classList.add("word-textbox");
+		}
 		if (nodeName === "PRE" || nodeName === "CODE") {
 			states.preformatted = true;
 		}

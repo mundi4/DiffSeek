@@ -65,7 +65,8 @@ diff-marker.block {
 	min-height: unset;
 }
 
-.editor, .color-default {
+.editor,
+.color-default {
 	color: var(--text-normal);
 }
 
@@ -135,4 +136,12 @@ diff-marker.block {
 
 .renderer canvas.highlight-layer {
 	z-index: 50;
+}
+
+.editor .word-textbox {
+	display: inline-block;
+	border: 2px dashed #0000ff;
+	padding: 5px;
+	font-family: 굴림;
+	color: #666;
 }

@@ -15,6 +15,42 @@ import { nextIdle } from "@/utils/nextIdle";
 export const MANUAL_ANCHOR1 = "🔗@";
 export const MANUAL_ANCHOR2 = "🔗#";
 
+const segmenter = new Intl.Segmenter("ko", { granularity: "word" });
+
+type GlobalPos = { nodeIndex: number; offset: number };
+
+type TextBufIndex = {
+	fullText: string;
+	starts: number[];
+};
+
+function buildTextBufIndex(buf: Text[]): TextBufIndex {
+	let fullText = "";
+	const starts: number[] = new Array(buf.length);
+
+	for (let i = 0; i < buf.length; i++) {
+		starts[i] = fullText.length;
+		fullText += buf[i].nodeValue ?? "";
+	}
+	return { fullText, starts };
+}
+
+function globalToLocal(starts: number[], globalIndex: number): GlobalPos {
+	let lo = 0;
+	let hi = starts.length - 1;
+	while (lo <= hi) {
+		const mid = (lo + hi) >>> 1;
+		if (starts[mid] <= globalIndex) lo = mid + 1;
+		else hi = mid - 1;
+	}
+	const nodeIndex = Math.max(0, hi);
+	return { nodeIndex, offset: globalIndex - starts[nodeIndex] };
+}
+
+function localToGlobal(starts: number[], nodeIndex: number, offset: number): number {
+	return starts[nodeIndex] + offset;
+}
+
 const spaceChars: Record<string, boolean> = {
 	" ": true,
 	"\t": true,
@@ -75,7 +111,6 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal): Promise<
 
 	return { tokens: state.tokens, imageMap: state.imageMap };
 }
-
 
 /**
  * 내부 상태와 토큰화 로직
@@ -221,59 +256,175 @@ class TokenizerState {
 		return null;
 	}
 
-
 	// ----------------------------
 	// Buffer flushing
 	// ----------------------------
 	flushTextBuf() {
 		if (!this.textNodeBuf.length) return;
 
+		const { fullText, starts } = buildTextBufIndex(this.textNodeBuf);
+
+		const commitRange = (gStart: number, gEnd: number) => {
+			if (gEnd <= gStart) return;
+
+			const a = globalToLocal(starts, gStart);
+			const b = globalToLocal(starts, gEnd);
+
+			const startNode = this.textNodeBuf[a.nodeIndex];
+			const endNode = this.textNodeBuf[b.nodeIndex];
+
+			for (let i = a.nodeIndex; i <= b.nodeIndex; i++) {
+				const t = this.textNodeBuf[i].nodeValue ?? "";
+				const from = i === a.nodeIndex ? a.offset : 0;
+				const to = i === b.nodeIndex ? b.offset : t.length;
+				for (let j = from; j < to; j++) {
+					const cp = t.codePointAt(j)!;
+					if (normalizedCharMap[cp] !== undefined) {
+						this.shouldNormalize = true;
+						i = b.nodeIndex + 1;
+						break;
+					}
+					if (cp > 0xffff) j++;
+				}
+			}
+
+			if (a.nodeIndex === b.nodeIndex) {
+				this.processToken(startNode, a.offset, b.offset);
+				return;
+			}
+
+			{
+				const t0 = startNode.nodeValue ?? "";
+				this.processToken(startNode, a.offset, t0.length);
+			}
+			for (let i = a.nodeIndex + 1; i < b.nodeIndex; i++) {
+				const tn = this.textNodeBuf[i];
+				const t = tn.nodeValue ?? "";
+				if (t.length) this.processToken(tn, 0, t.length);
+			}
+			{
+				const tN = endNode.nodeValue ?? "";
+				if (b.offset > 0) this.processToken(endNode, 0, b.offset);
+			}
+		};
+
+		const commitTrieToken = (match: {
+			word: string;
+			flags: number;
+			gStart: number;
+			gEnd: number;
+		}) => {
+			this.finalizeToken();
+			const a = globalToLocal(starts, match.gStart);
+			const b = globalToLocal(starts, match.gEnd);
+
+			this.currentToken = {
+				text: match.word,
+				flags: this.nextTokenFlags | match.flags,
+				range: {
+					type: TokenRangeType.TEXT,
+					node: this.textNodeBuf[a.nodeIndex],
+					offset: a.offset,
+					endNode: this.textNodeBuf[b.nodeIndex],
+					endOffset: b.offset,
+				},
+			};
+			this.nextTokenFlags = 0;
+			this.finalizeToken();
+		};
+
+		const flushChunk = (gStart: number, gEnd: number) => {
+			if (gEnd <= gStart) return;
+
+			const chunk = fullText.slice(gStart, gEnd);
+			if (!chunk.length) return;
+
+			for (const seg of segmenter.segment(chunk)) {
+				const s0 = gStart + seg.index;
+				const s1 = s0 + seg.segment.length;
+				if (s1 <= s0) continue;
+
+				commitRange(s0, s1);
+				this.finalizeToken(); // segment 1개 = 토큰 1개
+			}
+		};
+
 		let nodeIndex = 0;
 		let charIndex = 0;
+		let gChunkStart = -1;
 
 		OUTER: do {
 			const textNode = this.textNodeBuf[nodeIndex];
 			const text = textNode.nodeValue!;
 			const textLen = text.length;
 
-			let currentStart = -1;
 			let trieMatch: TrieMatch;
+
 			while (charIndex < textLen) {
 				const cp = text.codePointAt(charIndex)!;
-				if (normalizedCharMap[cp] !== undefined) this.shouldNormalize = true;
-
 				const char = text[charIndex];
+
+				const gHere = localToGlobal(starts, nodeIndex, charIndex);
+
 				if (spaceChars[char]) {
-					if (currentStart !== -1) {
-						this.processToken(textNode, currentStart, charIndex);
-						currentStart = -1;
+					if (gChunkStart !== -1) {
+						flushChunk(gChunkStart, gHere);
+						gChunkStart = -1;
 					}
 					this.finalizeToken();
-				} else if ((trieMatch = this.handleWildcard(nodeIndex, charIndex, textNode, currentStart))) {
+				} else if ((trieMatch = this.handleWildcard(nodeIndex, charIndex, textNode, -1))) {
+					if (gChunkStart !== -1) {
+						flushChunk(gChunkStart, gHere);
+						gChunkStart = -1;
+					}
+
+					const match = this.findInTrie(wildcardTrieNode, nodeIndex, charIndex + 1);
+					if (match) {
+						const gStart = gHere;
+						const gEnd = localToGlobal(starts, match.bufferIndex, match.charIndex);
+						commitTrieToken({ word: match.word, flags: match.flags, gStart, gEnd });
+						nodeIndex = match.bufferIndex;
+						charIndex = match.charIndex;
+						continue OUTER;
+					}
+
 					nodeIndex = trieMatch.nextNodeIndex;
 					charIndex = trieMatch.nextCharIndex;
 					continue OUTER;
-				} else if ((trieMatch = this.handleSectionHeading(nodeIndex, charIndex, textNode, currentStart))) {
+				} else if ((trieMatch = this.handleSectionHeading(nodeIndex, charIndex, textNode, -1))) {
+					if (gChunkStart !== -1) {
+						flushChunk(gChunkStart, gHere);
+						gChunkStart = -1;
+					}
+
+					const match = this.findInTrie(SectionHeadingTrieNode, nodeIndex, charIndex);
+					if (match) {
+						const gStart = gHere;
+						const gEnd = localToGlobal(starts, match.bufferIndex, match.charIndex);
+						commitTrieToken({ word: match.word.trimEnd(), flags: match.flags, gStart, gEnd });
+						nodeIndex = match.bufferIndex;
+						charIndex = match.charIndex;
+						continue OUTER;
+					}
+
 					nodeIndex = trieMatch.nextNodeIndex;
 					charIndex = trieMatch.nextCharIndex;
 					continue OUTER;
 				} else {
-					if (currentStart === -1) {
-						currentStart = charIndex;
-					}
+					if (gChunkStart === -1) gChunkStart = gHere;
 				}
 
 				charIndex++;
 				if (cp > 0xffff) charIndex++;
 			}
 
-			if (currentStart !== -1) {
-				this.processToken(textNode, currentStart, textLen);
-				currentStart = -1;
-			}
 			nodeIndex++;
 			charIndex = 0;
 		} while (nodeIndex < this.textNodeBuf.length);
+
+		if (gChunkStart !== -1) {
+			flushChunk(gChunkStart, fullText.length);
+		}
 
 		this.finalizeToken();
 		this.textNodeBuf.length = 0;
@@ -319,7 +470,6 @@ class TokenizerState {
 		const isBlockElement = BLOCK_ELEMENTS[nodeName];
 
 		if (isBlockElement || nodeName === "SUP" || nodeName === "SUB") {
-			// if (this.currentToken) this.finalizeToken();
 			if (this.textNodeBuf.length) this.flushTextBuf();
 			this.nextTokenFlags |= TokenFlags.LINE_START;
 			this.lastLineBreakElem = null;
@@ -358,19 +508,16 @@ class TokenizerState {
 					continue;
 				}
 
-				// Recurse
 				await this.traverse(child, deadline);
 			}
 		}
 
-		
 		if (isBlockElement || nodeName === "SUP" || nodeName === "SUB") {
-			// if (this.currentToken) this.finalizeToken();
 			if (this.textNodeBuf.length) this.flushTextBuf();
 			this.nextTokenFlags |= TokenFlags.LINE_START;
 			this.lastLineBreakElem = null;
 		}
-		
+
 		this.applyNodeBoundaryFlags(nodeName, tokenStart, this.tokenIndex);
 	}
 
@@ -456,4 +603,3 @@ type TrieMatch = {
 	nextNodeIndex: number;
 	nextCharIndex: number;
 } | null;
-

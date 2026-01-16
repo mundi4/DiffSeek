@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DiffSeek Core - Standalone Example</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 20px;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        }
+        .container {
+            display: flex;
+            gap: 10px;
+            height: 600px;
+        }
+        .editor-container {
+            flex: 1;
+            border: 1px solid #ccc;
+            position: relative;
+        }
+        .renderer-container {
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+        }
+        .controls {
+            margin-bottom: 20px;
+        }
+        button {
+            padding: 8px 16px;
+            margin-right: 10px;
+            cursor: pointer;
+        }
+        h1 {
+            margin-top: 0;
+        }
+    </style>
+</head>
+<body>
+    <h1>DiffSeek Core - Standalone Example</h1>
+    <p>This example demonstrates using DiffSeek core without React.</p>
+    
+    <div class="controls">
+        <button id="loadSample">Load Sample Content</button>
+        <button id="toggleSync">Toggle Sync Mode</button>
+        <button id="clearContent">Clear Content</button>
+    </div>
+
+    <div class="container">
+        <div class="editor-container" id="left-container"></div>
+        <div class="editor-container" id="right-container"></div>
+    </div>
+    <div class="renderer-container" id="renderer-container"></div>
+
+    <script type="module">
+        // This is a conceptual example showing how the core would be used
+        console.log('DiffSeek Core Standalone Example');
+        console.log('Note: This is a demonstration file showing the intended API.');
+        
+        // Conceptual usage (would work when core is built as standalone library):
+        // const app = new DiffSeekApp({
+        //     leftContainer: document.getElementById('left-container'),
+        //     rightContainer: document.getElementById('right-container'),
+        //     rendererContainer: document.getElementById('renderer-container'),
+        //     diffOptions: { ignoreWhitespace: 'ignore', compareImage: true }
+        // });
+    </script>
+</body>
+</html>

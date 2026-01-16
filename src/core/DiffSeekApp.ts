@@ -28,6 +28,7 @@ import { DiffController } from "./DiffController";
 import { Editor } from "./Editor";
 import { Renderer } from "./Renderer";
 import type { DiffContext } from "./DiffContext";
+import { getDefaultDiffOptions } from "./defaultDiffOptions";
 
 export interface DiffSeekAppOptions {
 	leftContainer?: HTMLElement;
@@ -46,29 +47,12 @@ export class DiffSeekApp {
 		this.#leftEditor = new Editor("left");
 		this.#rightEditor = new Editor("right");
 		this.#renderer = new Renderer(this.#leftEditor, this.#rightEditor);
-		
-		const defaultDiffOptions: DiffOptions = {
-			algorithm: "histogram",
-			tokenization: "char",
-			ignoreWhitespace: "ignore",
-			compareSupSub: false,
-			compareImage: true,
-			compareImageTolerance: 99,
-			maxGram: 4,
-			lengthBiasFactor: 1,
-			sectionHeadingMultiplier: 1,
-			containerStartMultiplier: 1,
-			containerEndMultiplier: 1,
-			lineStartMultiplier: 1,
-			lineEndMultiplier: 1,
-			uniqueMultiplier: 1,
-		};
 
 		this.#diffController = new DiffController(
 			this.#leftEditor,
 			this.#rightEditor,
 			this.#renderer,
-			{ ...defaultDiffOptions, ...options?.diffOptions }
+			{ ...getDefaultDiffOptions(), ...options?.diffOptions }
 		);
 
 		// Mount to DOM if containers provided

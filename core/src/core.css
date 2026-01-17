@@ -1,0 +1,322 @@
+:root {
+  --editor-font-size: 14px;
+  --editor-line-height: 1.4;
+  --editor-padding: 8px;
+  --editor-td-padding: 4px;
+  --editor-td-border-color: #666666;
+  --editor-underline-offset: 0.2em;
+  --bg-normal: #ffffff;
+  --bg-sync-mode: #f5f0e6;
+  --text-normal: #000000;
+  --text-sync-mode: #2f2a24;
+  --sync-mode-scrollbar-width: 10px;
+  --editor-minimap-width: 15px;
+}
+
+.ds-workspace {
+  position: relative;
+  isolation: isolate;
+  min-width: 0;
+  --editor-bg-color: var(--bg-normal);
+  --editor-fg-color: var(--text-normal);
+  background-color: var(--editor-bg-color);
+  height: 100%;
+}
+
+/*
+Editor/Renderer 레이아웃
+*/
+
+.ds-deck {
+  min-height: 0;
+  height: 100%;
+  position: relative;
+  display: grid;
+  grid-template-areas: "left right minimap";
+  grid-template-columns: 1fr 1fr auto;
+  position: relative;
+  background-color: transparent;
+}
+
+.ds-minimap {
+  display: none;
+}
+
+.ds-editor {
+  position: relative;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
+  overflow-x: hidden;
+  overflow-y: scroll;
+  display: flex;
+  flex-direction: column;
+  background-color: transparent;
+}
+
+.ds-editor-left {
+  grid-area: left;
+}
+
+.ds-editor-right {
+  grid-area: right;
+}
+
+.ds-minimap {
+  grid-area: minimap;
+}
+
+.ds-renderer {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+}
+
+.ds-renderer--suspended {
+  opacity: 0.5;
+}
+
+/* z-index 조정 */
+.ds-workspace {
+  z-index: 0;
+}
+
+.ds-deck {
+  z-index: 20;
+}
+
+.ds-renderer {
+  z-index: 10;
+}
+
+.ds-diff-layer {
+  z-index: 0;
+}
+
+.ds-highlight-layer {
+  z-index: 1;
+}
+
+.ds-editor::-webkit-scrollbar-button {
+  display: none;
+}
+
+.ds-editor::-webkit-scrollbar {
+  width: var(--editor-minimap-width, 15px);
+  border-inline: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+/* 2. 움직이는 막대(Thumb)를 그려줘야 보입니다 */
+.ds-editor::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2); /* 막대 색상 */
+
+  border-radius: 0px; /* 둥근 모서리 */
+
+  /* 트랙과의 간격 (선택사항) */
+  /* border: 3px solid transparent; */
+  background-clip: content-box; /* 간격을 위해 필요 */
+}
+
+/* 3. 트랙(Track) 배경 (선택사항) */
+.ds-editor::-webkit-scrollbar-track {
+  /* background: rgba(0, 0, 0, 0.05); */
+}
+
+/*
+Sync Mode
+*/
+.ds-workspace.sync-mode {
+  --editor-bg-color: var(--bg-sync-mode);
+  --editor-fg-color: var(--text-sync-mode);
+}
+
+.sync-mode .ds-deck {
+}
+
+.sync-mode .ds-editor {
+}
+
+.ds-editor {
+  color: var(--editor-fg-color);
+  line-height: var(--editor-line-height);
+}
+
+.ds-editor-content {
+  flex: 1 0 auto;
+  min-height: 0;
+  position: relative;
+  border: 0;
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+  font-size: var(--editor-font-size);
+  padding: var(--editor-padding);
+  /* line-height: var(--editor-line-height); */
+  scroll-padding-top: calc(3em * var(--editor-line-height));
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  outline: none;
+  background-color: transparent;
+}
+
+.ds-editor-minimap {
+  position: absolute;
+  pointer-events: none;
+  top: 0;
+  right: calc(var(--editor-minimap-width, 15px) * -1);
+  bottom: 0;
+  width: var(--editor-minimap-width, 15px);
+}
+
+.ds-renderer {
+  pointer-events: none;
+}
+
+.ds-renderer canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  will-change: transform;
+}
+
+.sync-mode .ds-editor-content {
+  min-height: unset;
+}
+
+ds-anchor {
+  display: none;
+}
+
+.sync-mode .ds-anchor[data-anchor-index] {
+  display: block;
+}
+
+.sync-mode .ds-anchor.padded::before {
+  content: "";
+  display: block;
+  height: var(--anchor-adjust, 0px);
+}
+
+ds-diff {
+  visibility: hidden; /* contenteditable 안에서 걸리적 거리지 않게! */
+  display: inline-block;
+  height: 0;
+}
+
+.sync-mode ds-diff {
+  display: block;
+}
+
+/* :not(.sync-mode) ds-diff::after {
+  display: inline;
+  content: "\200B";
+} */
+
+/* ds-diff::after {
+  display: block;
+  width: 4px;
+  content: "\200B";
+} */
+
+.sync-mode .striped.padded::before {
+  background: transparent
+    repeating-linear-gradient(
+      135deg,
+      hsl(0 0% 88% / 0.95) 0px,
+      hsl(0 0% 88% / 0.95) 3px,
+      transparent 3px,
+      transparent 6px
+    );
+  opacity: 0.75;
+}
+
+.ds-editor-height-boost {
+  display: none;
+}
+
+.sync-mode .ds-editor-height-boost {
+  display: block;
+  flex: 0 0 auto;
+  background: transparent
+    repeating-linear-gradient(
+      135deg,
+      hsl(0 0% 90% / 0.95) 0px,
+      hsl(0 0% 90% / 0.95) 5px,
+      transparent 5px,
+      transparent 10px
+    );
+  height: 0;
+  /* height: var(--height-boost, 0px); */
+}
+
+.ds-editor-content p {
+  margin-block: 0;
+}
+
+.ds-editor-content pre {
+  margin: 0;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.ds-editor-content code {
+  font-family: monospace;
+}
+
+/* ds-diff::before {
+  content: " ";
+  display: block;
+  position: absolute;
+  width: 4px;
+  height: calc(1.2em + 4px);
+  background-color: red;
+  opacity: 30%;
+  left: 0;
+  margin-top: -2px;
+} */
+
+.ds-editor-content td,
+.ds-editor-content th {
+  position: relative;
+}
+
+.ds-editor-content * {
+  line-height: var(--editor-line-height);
+}
+
+.ds-editor-content .color-red {
+  color: red;
+}
+
+.ds-editor-content table {
+  table-layout: auto;
+  border-collapse: collapse;
+  border-spacing: 0;
+  width: 100%;
+}
+
+.ds-editor-content td {
+  padding: 4px;
+  position: relative;
+  vertical-align: top;
+  border: 1px solid var(--editor-td-border-color);
+  padding: var(--editor-td-padding);
+  min-height: calc(1em * var(--editor-line-height));
+}
+
+.ds-editor-content * {
+  /* 그림 같은게 너무 크면 싫잖아 */
+  max-width: 100%;
+}
+
+.ds-editor-content u {
+  text-underline-offset: var(--editor-underline-offset);
+}

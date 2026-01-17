@@ -1,0 +1,340 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Tokenizer Test</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        header {
+            background: #333;
+            color: white;
+            padding: 15px 20px;
+            box-shadow: 0 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        header h1 {
+            font-size: 20px;
+            font-weight: 600;
+        }
+
+        .container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        .panel {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+        }
+
+        .panel-header {
+            background: #f5f5f5;
+            border-bottom: 2px solid #ddd;
+            padding: 10px 15px;
+            font-weight: 600;
+            color: #555;
+        }
+
+        .panel-content {
+            flex: 1;
+            overflow: auto;
+            padding: 15px;
+        }
+
+        #input-html {
+            width: 100%;
+            height: 100%;
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 14px;
+            padding: 10px;
+            border: 1px solid #ddd;
+            resize: none;
+            outline: none;
+        }
+
+        #input-html:focus {
+            border-color: #4CAF50;
+        }
+
+        #output {
+            font-family: 'Consolas', 'Monaco', monospace;
+            font-size: 13px;
+            line-height: 1.6;
+        }
+
+        .token {
+            display: flex;
+            padding: 8px;
+            margin-bottom: 5px;
+            background: #f9f9f9;
+            border-left: 3px solid #4CAF50;
+            border-radius: 2px;
+        }
+
+        .token:hover {
+            background: #f0f0f0;
+        }
+
+        .token-index {
+            color: #999;
+            width: 40px;
+            flex-shrink: 0;
+        }
+
+        .token-line {
+            color: #2196F3;
+            width: 60px;
+            flex-shrink: 0;
+        }
+
+        .token-text {
+            flex: 1;
+            color: #333;
+            font-weight: 600;
+            word-break: break-all;
+        }
+
+        .token-flags {
+            color: #666;
+            font-size: 11px;
+            margin-left: 10px;
+        }
+
+        .line-start {
+            display: flex;
+            padding: 6px;
+            margin-bottom: 3px;
+            background: #e3f2fd;
+            border-left: 3px solid #2196F3;
+            font-size: 12px;
+            border-radius: 2px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin: 20px 0 10px 0;
+            padding-bottom: 5px;
+            border-bottom: 2px solid #ddd;
+        }
+
+        .section-title:first-child {
+            margin-top: 0;
+        }
+
+        .stats {
+            background: #fff3e0;
+            padding: 10px;
+            border-radius: 4px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+
+        .stats strong {
+            color: #f57c00;
+        }
+
+        .error {
+            background: #ffebee;
+            color: #c62828;
+            padding: 15px;
+            border-left: 4px solid #c62828;
+            border-radius: 2px;
+            margin-bottom: 15px;
+        }
+
+        p {
+            margin: 0;
+            padding: 0;
+            background: #ffe0b2;
+            border: 1px dashed #ff9800;
+            min-width: 20px;
+            /* min-height: 10px; */
+        }
+
+        .visual-preview {
+            background: #fafafa;
+            border: 1px solid #ddd;
+            padding: 10px;
+            margin-bottom: 15px;
+            border-radius: 4px;
+        }
+
+        .visual-preview [contenteditable] {
+            background: white;
+            border: 2px solid #4CAF50;
+            padding: 10px;
+            min-height: 100px;
+            outline: none;
+        }
+
+        .visual-preview [contenteditable]:focus {
+            border-color: #2196F3;
+        }
+    </style>
+</head>
+
+<body>
+    <header>
+        <h1>Tokenizer Test - Live HTML to Tokens</h1>
+    </header>
+    <div class="container">
+        <div class="panel">
+            <div class="panel-header">HTML Input</div>
+            <div class="panel-content">
+                <textarea id="input-html" spellcheck="false"
+                    placeholder="Enter HTML here...&#10;&#10;Example:&#10;<div>Hello <strong>world</strong>!</div>&#10;<p>Test paragraph<br>with line break</p>"></textarea>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-header">Tokenization Result</div>
+            <div class="panel-content">
+                <div id="output"></div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { tokenize } from './src/core/tokenization/tokenizer.ts';
+        import { TokenFlags } from './src/core/TokenFlags.ts';
+
+        const inputTextarea = document.getElementById('input-html');
+        const outputDiv = document.getElementById('output');
+        // const tokenizer = new Tokenizer();
+
+        let debounceTimer;
+
+        function getFlagNames(flags) {
+            const names = [];
+
+            // Check all possible flags based on TokenFlags enum
+            if (flags & TokenFlags.LINE_START) names.push('LINE_START');
+            if (flags & TokenFlags.LINE_END) names.push('LINE_END');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE1) names.push('SECTION_HEADING_TYPE1');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE2) names.push('SECTION_HEADING_TYPE2');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE3) names.push('SECTION_HEADING_TYPE3');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE4) names.push('SECTION_HEADING_TYPE4');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE5) names.push('SECTION_HEADING_TYPE5');
+            if (flags & TokenFlags.SECTION_HEADING_TYPE6) names.push('SECTION_HEADING_TYPE6');
+            if (flags & TokenFlags.LAW_ARTICLE) names.push('LAW_ARTICLE');
+            if (flags & TokenFlags.WILDCARD) names.push('WILDCARD');
+            if (flags & TokenFlags.MANUAL_ANCHOR) names.push('MANUAL_ANCHOR');
+            if (flags & TokenFlags.IMAGE) names.push('IMAGE');
+            if (flags & TokenFlags.NO_JOIN_NEXT) names.push('NO_JOIN_NEXT');
+            if (flags & TokenFlags.NO_JOIN_PREV) names.push('NO_JOIN_PREV');
+
+            return names.length > 0 ? names.join(', ') : 'None';
+        }
+
+        let abordController = null;
+        async function doTokenize() {
+            if (abordController) {
+                abordController.abort();
+                abordController = null;
+            }
+
+            abordController = new AbortController();
+            console.log('Starting tokenization...');
+            const html = inputTextarea.value;
+
+            if (!html) {
+                outputDiv.innerHTML = '<div style="color: #999; padding: 20px; text-align: center;">Enter HTML in the left panel to see tokenization results</div>';
+                return;
+            }
+
+            try {
+                const container = document.createElement('div');
+                container.innerHTML = html;
+
+                const result = await tokenize(container);
+                abordController = null;
+
+                displayResults(result, html, container);
+
+            } catch (error) {
+                outputDiv.innerHTML = `<div class="error"><strong>Error:</strong> ${error.message}</div>`;
+                console.error(error);
+            }
+        }
+
+        function displayResults(result, html, container) {
+            const { tokens, lineStartPoints, elapsed } = result;
+
+            let output = '';
+
+            // Stats
+            output += `<div class="stats">`;
+            output += `<strong>Tokens:</strong> ${tokens.length} | `;
+            output += `<strong>Lines:</strong> ${lineStartPoints.length} | `;
+            output += `<strong>Time:</strong> ${elapsed.toFixed(2)}ms`;
+            output += `</div>`;
+
+            // Visual Preview
+            output += `<div class="section-title">Visual Preview (contenteditable)</div>`;
+            output += `<div class="visual-preview">`;
+            output += `<div contenteditable="true">${html}</div>`;
+            output += `</div>`;
+
+            // Line Start Points
+            output += `<div class="section-title">Line Start Points (${lineStartPoints.length})</div>`;
+            lineStartPoints.forEach((point, idx) => {
+                const nodeName = point.which?.nodeName || 'unknown';
+                output += `<div class="line-start">`;
+                output += `<span style="color: #999; width: 30px; display: inline-block;">${idx + 1}:</span> `;
+                output += `<strong>${nodeName}</strong> (${point.where})`;
+                output += `</div>`;
+            });
+
+            // Tokens
+            output += `<div class="section-title">Tokens (${tokens.length})</div>`;
+            tokens.forEach(token => {
+                const flagsStr = getFlagNames(token.flags);
+                const flagsHex = '0x' + token.flags.toString(16).toUpperCase().padStart(4, '0');
+
+                output += `<div class="token">`;
+                output += `<span class="token-index">#${token.index}</span>`;
+                output += `<span class="token-line">Line ${token.lineNumber}</span>`;
+                output += `<span class="token-text">"${escapeHtml(token.text)}"</span>`;
+                output += `<span class="token-flags">Flags: ${flagsHex} (${flagsStr})</span>`;
+                output += `</div>`;
+            });
+
+            outputDiv.innerHTML = output;
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        inputTextarea.addEventListener('input', () => {
+            clearTimeout(debounceTimer);
+            debounceTimer = setTimeout(doTokenize, 300);
+        });
+
+        // Initial tokenize with sample
+        inputTextarea.value = `<div>Hello <strong>world</strong>!</div><p>Test paragraph<br>with line break</p>`;
+        doTokenize();
+    </script>
+</body>
+
+</html>

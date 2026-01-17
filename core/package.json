@@ -1,0 +1,25 @@
+{
+  "name": "diffseek-core",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "dev": "exit 0",
+    "build": "tsc -p tsconfig.json",
+    "clean": "rimraf dist"
+  },
+  "devDependencies": {
+    "jsdom": "latest",
+    "typescript": "^5",
+    "vitest": "latest"
+  },
+  "dependencies": {
+    "@tabler/icons-react": "^3.36.1",
+    "jotai": "^2.17.0"
+  }
+}

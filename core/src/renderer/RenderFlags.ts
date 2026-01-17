@@ -1,0 +1,22 @@
+export const enum RenderFlags {
+    NONE = 0,
+    // LAYOUT FLAGS
+    LAYOUT = 1 << 0,
+    HIT_TEST = 1 << 1, // For hit testing only, not for rendering
+
+    // REGIONAL FLAGS
+    GEOMETRY = 1 << 5,
+    SCROLL = 1 << 6,
+    RESIZE = 1 << 7,
+    SELECTION_HIGHLIGHT = 1 << 8,
+    DIFF_HIGHLIGHT = 1 << 9,
+
+    MINIMAP = GEOMETRY | RESIZE,
+    DIFF_LAYER = GEOMETRY | SCROLL | RESIZE,
+    HIGHLIGHT_LAYER = GEOMETRY | SCROLL | RESIZE | DIFF_HIGHLIGHT | SELECTION_HIGHLIGHT,
+
+    GENERAL_MASK = LAYOUT | HIT_TEST,
+    REGION_MASK = DIFF_LAYER | HIGHLIGHT_LAYER,
+}
+
+export const REGION_FLAGS_SHIFT = 10;

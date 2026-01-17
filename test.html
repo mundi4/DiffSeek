@@ -1,0 +1,147 @@
+<html>
+
+<head>
+    <style>
+        .test-case {
+            margin: 20px;
+            padding: 10px;
+            border: 2px solid #ccc;
+        }
+
+        .visual {
+            background: #f0f0f0;
+            padding: 5px;
+            font-family: monospace;
+            white-space: pre-wrap;
+            border: 2px solid #4CAF50;
+            min-height: 50px;
+        }
+
+        .visual:focus {
+            outline: 3px solid #2196F3;
+            background: #fff;
+        }
+
+        p {
+            margin: 0;
+            padding: 0;
+            background: #ffe0b2;
+            border: 1px dashed #ff9800;
+            display: inline-block;
+            min-width: 20px;
+        }
+
+        div.visual>div {
+            background: #e3f2fd;
+            border: 1px dashed #2196F3;
+            display: inline-block;
+            min-width: 20px;
+        }
+    </style>
+</head>
+
+<body>
+    <h2>Visual Test: BR vs P line breaks (Click and use arrow keys to test cursor position)</h2>
+    <div id="test-container"></div>
+
+    <script>
+        const cases = [
+            { id: 'case1', title: 'a&lt;br&gt;&lt;p&gt;b&lt;/p&gt;', html: 'a<br><p>b</p>' },
+            { id: 'case2', title: 'a&lt;br&gt;&lt;div&gt;b&lt;/div&gt;', html: 'a<br><div>b</div>' },
+            { id: 'case3', title: 'a&lt;br&gt;b (just BR)', html: 'a<br>b' },
+            { id: 'case4', title: '&lt;p&gt;a&lt;/p&gt;&lt;p&gt;b&lt;/p&gt;', html: '<p>a</p><p>b</p>' },
+            { id: 'ref2', title: 'Reference: Definitely 2 lines (a&lt;br&gt;b)', html: 'a<br>b' },
+            { id: 'ref3', title: 'Reference: Definitely 3 lines (a&lt;br&gt;&lt;br&gt;b)', html: 'a<br><br>b' },
+        ];
+
+        const pCases = [
+            { id: 'case5', title: '&lt;p&gt;a&lt;br&gt;&lt;/p&gt; (BR ends P) - Expected: 1 or 2 lines?', html: '<p>a<br></p>' },
+            { id: 'case6', title: '&lt;p&gt;a&lt;br&gt;b&lt;/p&gt; (BR with text after) - Expected: 2 lines', html: '<p>a<br>b</p>' },
+            { id: 'case7', title: '&lt;p&gt;a&lt;br&gt; &lt;/p&gt; (BR with space after) - Expected: 1 or 2 lines?', html: '<p>a<br> </p>' },
+            { id: 'case7.2', title: '&lt;p&gt;a&lt;br&gt; &lt;/p&gt; (BR with space after) - Expected: 1 or 2 lines?', html: '<div>a<br> </div>' },
+            { id: 'case8', title: '&lt;p&gt;a&lt;br&gt;&amp;nbsp;&lt;/p&gt; (BR with nbsp after) - Expected: 2 lines', html: '<p>a<br>&nbsp;</p>' },
+            { id: 'case9', title: '&lt;p&gt;a&lt;br&gt;&lt;/p&gt;&lt;p&gt;b&lt;/p&gt; (BR ends P, then another P) - Expected: 2 or 3 lines?', html: '<p>a<br></p><p>b</p>' },
+        ];
+
+        const container = document.getElementById('test-container');
+
+        cases.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+            div.innerHTML = `<h3>${c.title}</h3><div class="visual" id="${c.id}" contenteditable="true"></div>`;
+            container.appendChild(div);
+            document.getElementById(c.id).innerHTML = c.html;
+        });
+
+        const h2 = document.createElement('h2');
+        h2.textContent = 'P element with BR tests';
+        container.appendChild(h2);
+
+        pCases.forEach(c => {
+            const div = document.createElement('div');
+            div.className = 'test-case';
+            div.innerHTML = `<h3>${c.title}</h3><div class="visual" id="${c.id}" contenteditable="true"></div>`;
+            container.appendChild(div);
+            document.getElementById(c.id).innerHTML = c.html;
+        });
+    </script>
+
+    <script>
+        function analyzeCase(id, description) {
+            const el = document.getElementById(id);
+            const lines = el.innerText.split('\n');
+            console.log(`\n${description}:`);
+            console.log('innerText:', JSON.stringify(el.innerText));
+            console.log('Line count:', lines.length);
+            lines.forEach((line, i) => {
+                console.log(`  Line ${i + 1}: ${JSON.stringify(line)}`);
+            });
+
+            // Visual line count
+            const range = document.createRange();
+            range.selectNodeContents(el);
+            const rects = range.getClientRects();
+            console.log('Visual line count (approx):', rects.length);
+        }
+
+        analyzeCase('case1', 'a<br><p>b</p>');
+        analyzeCase('case2', 'a<br><div>b</div>');
+        analyzeCase('case3', 'a<br>b');
+        analyzeCase('case4', '<p>a</p><p>b</p>');
+        analyzeCase('ref2', 'REFERENCE: 2 lines (a<br>b)');
+        analyzeCase('ref3', 'REFERENCE: 3 lines (a<br><br>b)');
+
+        console.log('\n=== P element with BR tests ===');
+        analyzeCase('case5', '<p>a<br></p>');
+        analyzeCase('case6', '<p>a<br>b</p>');
+        analyzeCase('case7', '<p>a<br> </p>');
+        analyzeCase('case8', '<p>a<br>&nbsp;</p>');
+        analyzeCase('case9', '<p>a<br></p><p>b</p>');
+    </script>
+    <script>
+        const seg = new Intl.Segmenter("ko", { granularity: "word" });
+
+        function dump(str) {
+            console.log("INPUT:", JSON.stringify(str));
+            for (const s of seg.segment(str)) {
+                console.log({
+                    segment: JSON.stringify(s.segment),
+                    isWordLike: s.isWordLike,
+                });
+            }
+            console.log("----");
+        }
+
+        // 테스트 케이스들
+        dump("안녕# #하세   요. \t    \t\t");
+        dump("안녕\u00a0?");
+        dump("안녕 \u00a0 ?");
+        dump("\u00a0?");
+        dump(" ? ");
+        dump("\u00a0\u00a0??");
+        dump("hello\u00a0world...");
+        dump("world..!");
+        dump("world..! ??..");
+        dump("hello\u00a0world \t!\t");
+    </script>
+</body>

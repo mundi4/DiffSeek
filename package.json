@@ -1,0 +1,21 @@
+{
+  "name": "diffseek-v2",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "core",
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w app",
+    "build": "npm run build --workspace=core && npm run build --workspace=app",
+    "test": "vitest",
+    "test:ui": "vitest --ui"
+  },
+  "devDependencies": {
+    "@types/node": "latest",
+    "@vitest/ui": "latest",
+    "typescript": "latest",
+    "vitest": "latest"
+  }
+}

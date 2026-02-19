@@ -1,16 +1,16 @@
-import { diffsAtom, visibleDiffIndexesAtom } from "@/states/diffAtoms";
-import { hoveredDiffIndexAtom, syncModeAtom, whitespaceHandlingAtom } from "@/states/viewAtoms";
-import type { DiffseekEngine } from "@core/DiffseekEngine";
-import type { DiffOptions } from "@core/types";
+import { diffOptionsAtom, diffsAtom, diffWorkflowStatusAtom, hoveredDiffIndexAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
+import type { DiffseekEngine } from "@core";
+import type { DiffOptions } from "@core";
 import { getDefaultStore, useSetAtom, useStore } from "jotai";
 import { useEffect } from "react";
 
 export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
+    const setDiffOptions = useSetAtom(diffOptionsAtom);
     const setDiffs = useSetAtom(diffsAtom);
     const setSyncMode = useSetAtom(syncModeAtom);
-    const setWhitespaceHandling = useSetAtom(whitespaceHandlingAtom);
     const setVisibleDiffIndexes = useSetAtom(visibleDiffIndexesAtom);
     const setHoveredDiffIndex = useSetAtom(hoveredDiffIndexAtom);
+    const setDiffWorkflowStatus = useSetAtom(diffWorkflowStatusAtom);
 
     useEffect(() => {
         const unsub: (() => void)[] = [];
@@ -22,10 +22,14 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
 
         engine.updateDiffOptions(diffOptions);
 
-        setWhitespaceHandling(engine.diffOptions.whitespace);
+        setDiffOptions(engine.diffOptions);
+
+        unsub.push(engine.on("statusChanged", (status) => {
+            setDiffWorkflowStatus(status);
+        }));
 
         unsub.push(engine.on("diffOptionsChanged", (diffOptions) => {
-            setWhitespaceHandling(diffOptions.whitespace);
+            setDiffOptions(diffOptions);
         }));
 
         unsub.push(engine.on("syncModeChanged", ({ syncMode }) => {
@@ -51,9 +55,6 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
         unsub.push(engine.on('hoveredDiffIndexChanged', (diffIndex) => {
             setHoveredDiffIndex(diffIndex);
         }));
-
-
-
 
         return () => {
             unsub.forEach((unsubFn) => unsubFn());

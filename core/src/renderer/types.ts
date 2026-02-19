@@ -1,4 +1,32 @@
-import type { Rect } from "../types";
+/**
+ * Renderer types
+ * Rendering and visualization definitions
+ */
+
+import type { Span } from "../shared/types";
+
+export type Rect = {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+};
+
+export type DiffVisibilityChangeEntry = {
+    item: number;
+    isVisible: boolean;
+};
+
+export type RenderedDiff = {
+    diffIndex: number;
+    hue: number;
+    leftRange: Range;
+    rightRange: Range;
+    leftSpan: Span;
+    rightSpan: Span;
+    leftMarkerEl: HTMLElement | null;
+    rightMarkerEl: HTMLElement | null;
+};
 
 export type RenderViewport = {
     getBoundingClientRect: () => Rect;
@@ -25,3 +53,5 @@ export type RenderBounds = {
     maxX: number;
     maxY: number;
 };
+
+export * from "./RenderFlags";

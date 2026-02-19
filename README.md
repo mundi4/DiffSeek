@@ -1,1 +1,1 @@
-# Diffseek v2
+# diffseek

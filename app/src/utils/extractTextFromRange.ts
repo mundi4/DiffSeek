@@ -1,4 +1,4 @@
-import { BLOCK_ELEMENTS, VOID_ELEMENTS } from "@core/constants";
+//import { BLOCK_ELEMENTS, VOID_ELEMENTS } from "@core/constants";
 
 type extractTextFromRangeOptions = {
     maxLength?: number; // Optional max length for the extracted text
@@ -94,29 +94,29 @@ export function extractTextFromRange(
                 childIndex = Array.prototype.indexOf.call(container.childNodes, prev);
             }
             childIndex++;
-            if (BLOCK_ELEMENTS[prev.nodeName]) {
-                // If the previous element is a block element, we need to finalize the current block
-                if (
-                    hasVisibleContent
-                    //|| prev.nodeName === "P" // P 우대 금지 ㅋ
-                ) {
-                    // text += "\n";
-                    if (newline()) break;
-                }
-                if (blockStack.length > 0) {
-                    ({ hasVisibleContent } = blockStack.pop()!);
-                } else {
-                    hasVisibleContent = false;
-                }
-            }
+            // if (BLOCK_ELEMENTS[prev.nodeName]) {
+            //     // If the previous element is a block element, we need to finalize the current block
+            //     if (
+            //         hasVisibleContent
+            //         //|| prev.nodeName === "P" // P 우대 금지 ㅋ
+            //     ) {
+            //         // text += "\n";
+            //         if (newline()) break;
+            //     }
+            //     if (blockStack.length > 0) {
+            //         ({ hasVisibleContent } = blockStack.pop()!);
+            //     } else {
+            //         hasVisibleContent = false;
+            //     }
+            // }
             continue;
         }
 
         if (current.nodeType === 1) {
-            if (BLOCK_ELEMENTS[current.nodeName]) {
-                blockStack.push({ node: current, hasVisibleContent });
-                hasVisibleContent = false;
-            }
+            // if (BLOCK_ELEMENTS[current.nodeName]) {
+            //     blockStack.push({ node: current, hasVisibleContent });
+            //     hasVisibleContent = false;
+            // }
             if (current.nodeName === "BR") {
                 // append로 넣어버리면 줄바꿈이 제거되므로...
                 if (newline()) break;
@@ -124,12 +124,13 @@ export function extractTextFromRange(
                 hasVisibleContent = false; // 블럭이 줄바꿈 문자로 끝난다면 닫힐 때 추가로 줄바꿈을 넣을 필요가 없음
             } else if (current.nodeName === "IMG") {
                 append("🖼️");
-            } else if (!VOID_ELEMENTS[current.nodeName]) {
-                indexStack.push(childIndex);
-                container = current;
-                childIndex = 0;
-                continue;
             }
+            // else if (!VOID_ELEMENTS[current.nodeName]) {
+            //     indexStack.push(childIndex);
+            //     container = current;
+            //     childIndex = 0;
+            //     continue;
+            // }
         }
 
         if (current.nodeType === 3) {

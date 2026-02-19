@@ -1,13 +1,11 @@
 
-import { DIFF_TAG_NAME } from "../constants";
+import { DIFF_TAG_NAME } from "../shared/constants";
 import { Editor } from "../editor/Editor";
-import { mergeRects } from "../helpers/mergeRects";
-import type { Rect } from "../types";
 import { advanceNode } from "../utils/advanceNode";
-// import { extractRectsFromRange } from "./extractRectsFromRange";
 import { Renderer } from "./Renderer";
-import { RenderFlags } from "./RenderFlags";
-import type { DiffRenderItem, RectSet, RenderViewport } from "./types";
+import { RENDER_FLAGS_DIFF_HIGHLIGHT, RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GEOMETRY, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_MINIMAP, RENDER_FLAGS_RESIZE, RENDER_FLAGS_SCROLL, type DiffRenderItem, type Rect, type RectSet } from "./types";
+import { mergeRects } from "./mergeRects";
+import { extractRectsFromRange } from "./extractRectsFromRange";
 
 export class EditorRegion {
     readonly renderer: Renderer;
@@ -33,7 +31,7 @@ export class EditorRegion {
         this.editor = editor;
     }
 
-    updateLayout(): RenderFlags {
+    updateLayout(): number {
         let { x, y, width, height } = this.editor.rootElement.getBoundingClientRect();
         const scrollTop = this.editor.rootElement.scrollTop;
 
@@ -41,13 +39,13 @@ export class EditorRegion {
         x -= renderer.x;
         y -= renderer.y;
 
-        let ret = RenderFlags.NONE;
+        let ret: number = 0;
         if (this.regionX !== x || this.regionY !== y || this.regionWidth !== width || this.regionHeight !== height) {
             renderer.invalidateGeometries(this.editor.name);
-            ret = RenderFlags.RESIZE;
+            ret = RENDER_FLAGS_RESIZE;
         } else if (this.#scrollTop !== scrollTop) {
             renderer.invalidateScroll(this.editor.name);
-            ret = RenderFlags.SCROLL;
+            ret = RENDER_FLAGS_SCROLL;
         }
 
         this.regionX = x;
@@ -106,7 +104,7 @@ export class EditorRegion {
 
         if (wasShown || shouldShow) {
             this.renderer.invalidateDiffLayer(this.editor.name);
-            return RenderFlags.DIFF_HIGHLIGHT;
+            return RENDER_FLAGS_DIFF_HIGHLIGHT;
         }
 
         return 0;
@@ -135,8 +133,9 @@ export class EditorRegion {
         this.renderer.invalidateHighlightLayer(this.editor.name);
     }
 
-    prepare(dirtyFlags: RenderFlags) {
-        this.#scrollTop = this.editor.rootElement.scrollTop;
+    prepare(dirtyFlags: number) {
+        const scrollTop = this.#scrollTop = this.editor.rootElement.scrollTop;
+        const scrollLeft = 0;
 
         const diffGeometries = this.diffGeometries;
         const visibleDiffIndices = this.#visibleDiffIndices;
@@ -144,13 +143,11 @@ export class EditorRegion {
         const newGeometryRects: Rect[] = [];
 
         visibleDiffIndices.clear();
-        if (dirtyFlags & RenderFlags.GEOMETRY) {
+
+        if (dirtyFlags & RENDER_FLAGS_GEOMETRY) {
             diffGeometries.length = 0;
             this.#diffLineRects.length = 0;
         }
-
-        const scrollTop = this.#scrollTop;
-        const scrollLeft = 0;//this.#scrollLeft;
 
         const canvasX = this.renderer.x;
         const canvasY = this.renderer.y;
@@ -161,7 +158,6 @@ export class EditorRegion {
 
         for (let diffIndex = 0; diffIndex < diffs.length; diffIndex++) {
             let geometry = diffGeometries[diffIndex];
-
             if (!geometry) {
                 // geometry 정보가 전혀 없음.
                 // rough한 rect만 추출. 어차피 이 rect가 렌더 조건을 통과하게되면 더 정밀한 rect들을 추출하고 다시 테스트를 해봐야되므로 rough한 rect추출은 의미 없어보일 수 있지만
@@ -197,13 +193,13 @@ export class EditorRegion {
 
             // rough test를 통과했으므로 이제 완벽한 rects 필요.
             if (geometry.rects === null) {
-                const rangeRects = this.#extractRectsFromRange(
+                const rangeRects = extractRectsFromRange(
                     diffs[diffIndex].range,
                     offsetLeft,
                     offsetTop,
                     diffExpandX,
                     diffExpandY,
-                    diffs[diffIndex].empty
+                    diffs[diffIndex].empty,
                 );
                 // let added = false;
                 for (const rect of rangeRects) {
@@ -247,22 +243,22 @@ export class EditorRegion {
         }
     }
 
-    render(dirtyFlags: RenderFlags) {
-        if (dirtyFlags & RenderFlags.DIFF_LAYER) {
+    render(dirtyFlags: number) {
+        if (dirtyFlags & RENDER_FLAGS_DIFF_LAYER) {
             this.renderDiffLayer(dirtyFlags);
         }
 
-        if (dirtyFlags & RenderFlags.HIGHLIGHT_LAYER) {
+        if (dirtyFlags & RENDER_FLAGS_HIGHLIGHT_LAYER) {
             this.renderHighlightLayer(dirtyFlags);
         }
     }
 
-    renderDiffLayer(dirtyFlags: RenderFlags) {
+    renderDiffLayer(dirtyFlags: number) {
         const options = this.renderer.options;
         const ctx = this.renderer.ctx;
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
-        if (dirtyFlags & RenderFlags.MINIMAP) {
+        if (dirtyFlags & RENDER_FLAGS_MINIMAP) {
             ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
         } else {
             ctx.clearRect(0, 0, this.regionWidth - this.renderer.options.minimapWidth, this.regionHeight);
@@ -280,6 +276,7 @@ export class EditorRegion {
         const scrollLeft = 0;//this.#scrollLeft + this.#renderer.workspaceEl.scrollLeft;
         const regionHeight = this.regionHeight;
         ctx.fillStyle = options.diffLineColor;
+
         for (const diffLineRect of this.#diffLineRects) {
             const x = Math.floor(diffLineRect.x - scrollLeft),
                 y = Math.floor(diffLineRect.y - scrollTop),
@@ -316,7 +313,7 @@ export class EditorRegion {
             }
         }
 
-        if (dirtyFlags & RenderFlags.MINIMAP && this.diffGeometries.length > 0) {
+        if (dirtyFlags & RENDER_FLAGS_MINIMAP && this.diffGeometries.length > 0) {
             this.#renderMinimap(ctx);
         }
 
@@ -384,7 +381,7 @@ export class EditorRegion {
         }
     }
 
-    renderHighlightLayer(dirtyFlags: RenderFlags) {
+    renderHighlightLayer(dirtyFlags: number) {
         const ctx = this.renderer.highlightCtx;
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
@@ -399,10 +396,10 @@ export class EditorRegion {
         const scrollLeft = 0;
 
         if (this.#selectionHighlight) {
-            if (!this.#selectionHighlightRects || dirtyFlags & RenderFlags.GEOMETRY) {
+            if (!this.#selectionHighlightRects || dirtyFlags & RENDER_FLAGS_GEOMETRY) {
                 const offsetX = -this.renderer.x - this.regionX + scrollLeft;
                 const offsetY = -this.renderer.y - this.regionY + scrollTop;
-                const rawRects = this.#extractRectsFromRange(this.#selectionHighlight, offsetX, offsetY, 0, 0, false);
+                const rawRects = extractRectsFromRange(this.#selectionHighlight, offsetX, offsetY, 0, 0, false);
                 const mergedRect = mergeRects(rawRects, 1, 1) as RectSet;
                 this.#selectionHighlightRects = mergedRect;
             }
@@ -507,157 +504,157 @@ export class EditorRegion {
         return null;
     }
 
-    #extractRectsFromRange(range: Range, offsetLeft: number, offsetTop: number, expandX = 0, expandY = 0, emptyDiff = false): Rect[] {
-        const result: Rect[] = [];
-        const tempRange = document.createRange();
-        let startNode: Node | null;
+    // private extractRectsFromRange(range: Range, offsetLeft: number, offsetTop: number, expandX = 0, expandY = 0, emptyDiff = false): Rect[] {
+    //     const result: Rect[] = [];
+    //     const tempRange = document.createRange();
+    //     let startNode: Node | null;
 
-        if (
-            emptyDiff &&
-            range.startContainer.nodeType === 1 &&
-            range.startContainer === range.endContainer && range.startOffset + 1 === range.endOffset) {
-            const diffEl = range.startContainer.childNodes[range.startOffset] as HTMLElement;
+    //     if (
+    //         emptyDiff &&
+    //         range.startContainer.nodeType === 1 &&
+    //         range.startContainer === range.endContainer && range.startOffset + 1 === range.endOffset) {
+    //         const diffEl = range.startContainer.childNodes[range.startOffset] as HTMLElement;
 
-            // diffEl.classList.add("extracting");
-            // void diffEl.offsetWidth; // force reflow
-            const tempText = diffEl.firstChild!;
-            tempRange.selectNodeContents(tempText);
+    //         // diffEl.classList.add("extracting");
+    //         // void diffEl.offsetWidth; // force reflow
+    //         const tempText = diffEl.firstChild!;
+    //         tempRange.selectNodeContents(tempText);
 
-            for (const rect of tempRange.getClientRects()) {
-                result.push({
-                    x: rect.x + offsetLeft - expandX,
-                    y: rect.y + offsetTop - expandY,
-                    width: rect.width + expandX * 2,
-                    height: rect.height + expandY * 2,
-                });
-            }
-            // diffEl.classList.remove("extracting");
+    //         for (const rect of tempRange.getClientRects()) {
+    //             result.push({
+    //                 x: rect.x + offsetLeft - expandX,
+    //                 y: rect.y + offsetTop - expandY,
+    //                 width: rect.width + expandX * 2,
+    //                 height: rect.height + expandY * 2,
+    //             });
+    //         }
+    //         // diffEl.classList.remove("extracting");
 
-            return result;
-        }
+    //         return result;
+    //     }
 
-        if (range.startContainer.nodeType === 3) {
-            tempRange.setStart(range.startContainer, range.startOffset);
-            if (emptyDiff) {
-                tempRange.collapse(true);
-            } else {
-                if (range.startContainer === range.endContainer) {
-                    tempRange.setEnd(range.startContainer, range.endOffset);
-                } else {
-                    tempRange.setEnd(range.startContainer, range.startContainer.nodeValue!.length);
-                }
-            }
-            for (const rect of tempRange.getClientRects()) {
-                result.push({
-                    x: rect.x + offsetLeft - expandX,
-                    y: rect.y + offsetTop - expandY,
-                    width: rect.width + expandX * 2,
-                    height: rect.height + expandY * 2,
-                });
-                if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) return result;
-            }
-            startNode = advanceNode(range.startContainer)!;
-        } else {
-            startNode = range.startContainer.childNodes[range.startOffset] ?? advanceNode(range.startContainer, null, true);
+    //     if (range.startContainer.nodeType === 3) {
+    //         tempRange.setStart(range.startContainer, range.startOffset);
+    //         if (emptyDiff) {
+    //             tempRange.collapse(true);
+    //         } else {
+    //             if (range.startContainer === range.endContainer) {
+    //                 tempRange.setEnd(range.startContainer, range.endOffset);
+    //             } else {
+    //                 tempRange.setEnd(range.startContainer, range.startContainer.nodeValue!.length);
+    //             }
+    //         }
+    //         for (const rect of tempRange.getClientRects()) {
+    //             result.push({
+    //                 x: rect.x + offsetLeft - expandX,
+    //                 y: rect.y + offsetTop - expandY,
+    //                 width: rect.width + expandX * 2,
+    //                 height: rect.height + expandY * 2,
+    //             });
+    //             if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) return result;
+    //         }
+    //         startNode = advanceNode(range.startContainer)!;
+    //     } else {
+    //         startNode = range.startContainer.childNodes[range.startOffset] ?? advanceNode(range.startContainer, null, true);
 
-            if (!startNode) return result;
-        }
+    //         if (!startNode) return result;
+    //     }
 
-        const endContainer = range.endContainer;
-        let endOffset: number;
-        let endNode: Node;
-        if (endContainer.nodeType === 3) {
-            endNode = endContainer;
-            endOffset = range.endOffset;
-        } else {
-            endNode = endContainer.childNodes[range.endOffset] ?? advanceNode(endContainer, null, true)!;
-            endOffset = -1;
-        }
+    //     const endContainer = range.endContainer;
+    //     let endOffset: number;
+    //     let endNode: Node;
+    //     if (endContainer.nodeType === 3) {
+    //         endNode = endContainer;
+    //         endOffset = range.endOffset;
+    //     } else {
+    //         endNode = endContainer.childNodes[range.endOffset] ?? advanceNode(endContainer, null, true)!;
+    //         endOffset = -1;
+    //     }
 
-        if (!startNode || !endNode || endNode.compareDocumentPosition(startNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
-            return result;
-        }
+    //     if (!startNode || !endNode || endNode.compareDocumentPosition(startNode) & Node.DOCUMENT_POSITION_FOLLOWING) {
+    //         return result;
+    //     }
 
-        const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_ALL);
-        walker.currentNode = startNode;
+    //     const walker = document.createTreeWalker(range.commonAncestorContainer, NodeFilter.SHOW_ALL);
+    //     walker.currentNode = startNode;
 
-        do {
-            const node = walker.currentNode;
-            if (!node) break;
+    //     do {
+    //         const node = walker.currentNode;
+    //         if (!node) break;
 
-            if (node === endNode) {
-                if (node.nodeType === 3 && endOffset >= 0) {
-                    tempRange.setStart(endNode, 0);
-                    if (emptyDiff) {
-                        tempRange.collapse(true);
-                    } else {
-                        tempRange.setEnd(endNode, endOffset);
-                    }
-                    for (const rect of tempRange.getClientRects()) {
-                        result.push({
-                            x: rect.x + offsetLeft - expandX,
-                            y: rect.y + offsetTop - expandY,
-                            width: rect.width + expandX * 2,
-                            height: rect.height + expandY * 2,
-                        });
-                        if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) return result;
-                    }
-                }
-                break;
-            }
+    //         if (node === endNode) {
+    //             if (node.nodeType === 3 && endOffset >= 0) {
+    //                 tempRange.setStart(endNode, 0);
+    //                 if (emptyDiff) {
+    //                     tempRange.collapse(true);
+    //                 } else {
+    //                     tempRange.setEnd(endNode, endOffset);
+    //                 }
+    //                 for (const rect of tempRange.getClientRects()) {
+    //                     result.push({
+    //                         x: rect.x + offsetLeft - expandX,
+    //                         y: rect.y + offsetTop - expandY,
+    //                         width: rect.width + expandX * 2,
+    //                         height: rect.height + expandY * 2,
+    //                     });
+    //                     if (emptyDiff && (rect.x !== 0 || rect.y !== 0)) return result;
+    //                 }
+    //             }
+    //             break;
+    //         }
 
-            if (node.nodeType === 3) {
-                tempRange.selectNodeContents(node);
-                for (const rect of tempRange.getClientRects()) {
-                    result.push({
-                        x: rect.x + offsetLeft - expandX,
-                        y: rect.y + offsetTop - expandY,
-                        width: rect.width + expandX * 2,
-                        height: rect.height + expandY * 2,
-                    });
-                }
-            } else if (node.nodeName === "BR") {
-                // no-op
-            } else if (node.nodeName === DIFF_TAG_NAME) {
-                if (emptyDiff) {
-                    const tempText = document.createTextNode("\u200B");
-                    node.appendChild(tempText);
-                    tempRange.selectNodeContents(tempText);
-                    for (const rect of tempRange.getClientRects()) {
-                        result.push({
-                            x: rect.x + offsetLeft - expandX,
-                            y: rect.y + offsetTop - expandY,
-                            width: rect.width + expandX * 2,
-                            height: rect.height + expandY * 2,
-                        });
-                    }
-                    tempText.remove();
-                } else {
-                    // if ((node as HTMLElement).classList.contains(MANUAL_ANCHOR_CLASS_NAME)) {
-                    //     tempRange.selectNode(node as HTMLElement);
-                    //     for (const rect of (node as HTMLElement).getClientRects()) {
-                    //         result.push({
-                    //             x: rect.x + offsetLeft - expandX,
-                    //             y: rect.y + offsetTop - expandY,
-                    //             width: rect.width + expandX * 2,
-                    //             height: rect.height + expandY * 2,
-                    //         });
-                    //     }
-                    // }
-                }
-            } else if (node.nodeName === "IMG") {
-                tempRange.selectNode(node);
-                for (const rect of tempRange.getClientRects()) {
-                    result.push({
-                        x: rect.x + offsetLeft - expandX,
-                        y: rect.y + offsetTop - expandY,
-                        width: rect.width + expandX * 2,
-                        height: rect.height + expandY * 2,
-                    });
-                }
-            }
-        } while (walker.nextNode());
+    //         if (node.nodeType === 3) {
+    //             tempRange.selectNodeContents(node);
+    //             for (const rect of tempRange.getClientRects()) {
+    //                 result.push({
+    //                     x: rect.x + offsetLeft - expandX,
+    //                     y: rect.y + offsetTop - expandY,
+    //                     width: rect.width + expandX * 2,
+    //                     height: rect.height + expandY * 2,
+    //                 });
+    //             }
+    //         } else if (node.nodeName === "BR") {
+    //             // no-op
+    //         } else if (node.nodeName === DIFF_TAG_NAME) {
+    //             if (emptyDiff) {
+    //                 const tempText = document.createTextNode("\u200B");
+    //                 node.appendChild(tempText);
+    //                 tempRange.selectNodeContents(tempText);
+    //                 for (const rect of tempRange.getClientRects()) {
+    //                     result.push({
+    //                         x: rect.x + offsetLeft - expandX,
+    //                         y: rect.y + offsetTop - expandY,
+    //                         width: rect.width + expandX * 2,
+    //                         height: rect.height + expandY * 2,
+    //                     });
+    //                 }
+    //                 tempText.remove();
+    //             } else {
+    //                 // if ((node as HTMLElement).classList.contains(MANUAL_ANCHOR_CLASS_NAME)) {
+    //                 //     tempRange.selectNode(node as HTMLElement);
+    //                 //     for (const rect of (node as HTMLElement).getClientRects()) {
+    //                 //         result.push({
+    //                 //             x: rect.x + offsetLeft - expandX,
+    //                 //             y: rect.y + offsetTop - expandY,
+    //                 //             width: rect.width + expandX * 2,
+    //                 //             height: rect.height + expandY * 2,
+    //                 //         });
+    //                 //     }
+    //                 // }
+    //             }
+    //         } else if (node.nodeName === "IMG") {
+    //             tempRange.selectNode(node);
+    //             for (const rect of tempRange.getClientRects()) {
+    //                 result.push({
+    //                     x: rect.x + offsetLeft - expandX,
+    //                     y: rect.y + offsetTop - expandY,
+    //                     width: rect.width + expandX * 2,
+    //                     height: rect.height + expandY * 2,
+    //                 });
+    //             }
+    //         }
+    //     } while (walker.nextNode());
 
-        return result;
-    }
+    //     return result;
+    // }
 }

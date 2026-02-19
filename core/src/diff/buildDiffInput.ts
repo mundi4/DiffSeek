@@ -1,0 +1,85 @@
+import { HEADING_MASK, TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_WORD_LIKE } from "../tokenization";
+import type { DiffOptions, DiffInput } from "./types";
+
+const DATA_STRIDE = 5;
+
+export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions: DiffOptions): { input: DiffInput; lineCount: number } {
+    const tokenCount = data.length / DATA_STRIDE;
+
+    // 토큰의 경계가 항상 공백과 100% 일치하지는 않으므로 공백을 정규화해서 buffer에 넣을 경우 예상치 못한 상황이 생길 수 있음
+    // "AB" vs "A" 
+    // 왼쪽A는 후행공백이 없고 오른쪽 A는 후행공백(줄바꿈)이 있으므로 매치가 안됨.
+    const insertSpace = false;//diffOptions.whitespace === "collapse";
+    const flagsArray = new Uint32Array(tokenCount);
+    const offsetArray = new Uint32Array(tokenCount + 1);
+
+    let totalBufLen = 0;
+    let lineCount = 0;
+    let headingIdx = -1;
+    for (let i = 0; i < tokenCount; i++) {
+        const textLength = data[i * DATA_STRIDE + 1];
+        let flags = data[i * DATA_STRIDE + 2];
+        if (flags & TOKEN_FLAGS_LINE_START) {
+            lineCount++;
+        }
+
+        // 단순히 "1." 같은 텍스트는 섹션 헤딩으로 간주하지 않음.
+        // 반드시 같은 줄에 유효한 단어가 존재해야 함.
+        // "제1조" 이건 좀 애매하다. 뒤에 단어 없이도 헤딩으로 간주해도 되지 않을까? 고려해 볼 문제...
+        // TODO: 사실 이건 메인쓰레드에서 처리해야하고 여기서는 그 이상으로 의미를 분석하려고 시도하면 안됨.
+        if (flags & HEADING_MASK) {
+            headingIdx = i;
+        } else if (headingIdx >= 0) {
+            if (flags & TOKEN_FLAGS_WORD_LIKE) {
+                headingIdx = -1;
+            }
+            if (headingIdx >= 0 && (flags & TOKEN_FLAGS_LINE_END)) {
+                // 단어를 만나지 못했음. headingIndex의 섹션 헤딩 플래그를 제거.
+                flagsArray[headingIdx] &= ~HEADING_MASK;
+                headingIdx = -1;
+            }
+        }
+
+        flagsArray[i] = flags;
+        // offsetArray[i] = totalBufLen;
+        offsetArray[i] = totalBufLen;
+        // lengthArray[i] = t.textLength;
+
+        totalBufLen += textLength;
+
+        if (insertSpace && ((flags & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) || (flags & TOKEN_FLAGS_LINE_END))) {
+            totalBufLen++;
+        }
+    }
+    offsetArray[tokenCount] = totalBufLen;
+
+    const textBuffer = new Uint16Array(totalBufLen);
+    // const hashArray = new Uint32Array(count);
+
+    let currentPos = 0;
+    for (let i = 0; i < tokenCount; i++) {
+        const ofs = data[i * DATA_STRIDE + 0];
+        const len = data[i * DATA_STRIDE + 1];
+        const flags = flagsArray[i];
+        for (let j = 0; j < len; j++) {
+            textBuffer[currentPos++] = wholeText.charCodeAt(ofs + j);
+        }
+        if (insertSpace && ((flags & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) || (flags & TOKEN_FLAGS_LINE_END))) {
+            textBuffer[currentPos++] = 32;
+        }
+        // hashArray[i] = calculateHash(buffer, offsetArray[i], currentPos - offsetArray[i]);
+    }
+
+    data.fill(0);
+
+    return {
+        input: {
+            buffer: textBuffer,
+            offsets: offsetArray,
+            flags: flagsArray,
+            resultBuffer: data,
+            tokenCount
+        },
+        lineCount
+    };
+}

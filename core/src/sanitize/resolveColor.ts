@@ -63,6 +63,7 @@ function isReddish(color: string): boolean {
     const rgb = getRGB(color);
     isRed = rgb ? rgb[0] >= 139 && rgb[0] - Math.max(rgb[1], rgb[2]) >= 65 : false;
     reddishCache.set(color, isRed);
+
     return isRed;
 }
 

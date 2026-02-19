@@ -1,92 +1,100 @@
-import { DiffseekEngine, type InternalDiffseekEventMap } from './DiffseekEngine';
+// import { DiffseekEngine, type InternalDiffseekEventMap } from './engine/DiffseekEngine';
+// import type { DiffseekEventMap } from './public/types';
 
-export type Handler<T> = (data: T) => void;
+// export type Handler<T> = (data: T) => void;
 
-export function CreateDiffseek() {
-    let _containerEl: HTMLElement | null = null;
-    const engine = new DiffseekEngine({});
-    let _stateChanged = false;
+// // Re-export public API types
+// export * from './public';
 
-    let _stateCache: Diffseek['state'] = {
-        syncMode: engine.syncMode,
-    };
+// export function CreateDiffseek() {
+//     let _containerEl: HTMLElement | null = null;
+//     const engine = new DiffseekEngine({});
+//     let _stateChanged = false;
 
-    engine.syncModeChanged.on(() => {
-        _stateChanged = true;
-    });
-    engine.diffContextChanged.on(() => {
-        _stateChanged = true;
-    });
+//     let _stateCache: Diffseek['state'] = {
+//         syncMode: engine.syncMode,
+//     };
 
-    const instance: Diffseek = {
-        mount(el: HTMLElement) {
-            this.unmount();
-            el.appendChild(engine.workspaceEl);
-            _containerEl = el;
-        },
+//     engine.syncModeChanged.on(() => {
+//         _stateChanged = true;
+//     });
+//     engine.diffContextChanged.on(() => {
+//         _stateChanged = true;
+//     });
 
-        unmount() {
-            if (_containerEl) {
-                _containerEl.removeChild(engine.workspaceEl);
-                _containerEl = null;
-            }
-        },
+//     const instance: Diffseek = {
+//         mount(el: HTMLElement) {
+//             this.unmount();
+//             el.appendChild(engine.workspaceEl);
+//             _containerEl = el;
+//         },
 
-        get syncMode(): boolean {
-            return engine.syncMode;
-        },
+//         unmount() {
+//             if (_containerEl) {
+//                 _containerEl.removeChild(engine.workspaceEl);
+//                 _containerEl = null;
+//             }
+//         },
 
-        set syncMode(value: boolean) {
-            if (engine.syncMode === value) {
-                return;
-            }
-            engine.syncMode = value;
-        },
+//         get syncMode(): boolean {
+//             return engine.syncMode;
+//         },
 
-        get state() {
-            if (_stateChanged) {
-                _stateCache = {
-                    syncMode: engine.syncMode,
-                };
-                _stateChanged = false;
-            }
-            return _stateCache;
-        },
+//         set syncMode(value: boolean) {
+//             if (engine.syncMode === value) {
+//                 return;
+//             }
+//             engine.syncMode = value;
+//         },
 
-        on<K extends keyof DiffseekEventMap>(event: K, handler: Handler<DiffseekEventMap[K]>) {
-            engine.on(event, handler);
-        },
+//         get state() {
+//             if (_stateChanged) {
+//                 _stateCache = {
+//                     syncMode: engine.syncMode,
+//                 };
+//                 _stateChanged = false;
+//             }
+//             return _stateCache;
+//         },
 
-        off<K extends keyof DiffseekEventMap>(event: K, handler: Handler<DiffseekEventMap[K]>) {
-            engine.off(event, handler);
-        },
-    };
+//         on<K extends keyof DiffseekEventMap>(event: K, handler: Handler<DiffseekEventMap[K]>) {
+//             engine.on(event, handler);
+//         },
 
-    return instance;
-}
+//         off<K extends keyof DiffseekEventMap>(event: K, handler: Handler<DiffseekEventMap[K]>) {
+//             engine.off(event, handler);
+//         },
+//     };
+
+//     return instance;
+// }
 
 
 
-export interface Diffseek {
-    mount(el: HTMLElement): void;
-    unmount(): void;
+// export interface Diffseek {
+//     mount(el: HTMLElement): void;
+//     unmount(): void;
 
-    on<K extends keyof DiffseekEventMap>(
-        event: K,
-        handler: (data: DiffseekEventMap[K]) => void
-    ): void;
+//     on<K extends keyof DiffseekEventMap>(
+//         event: K,
+//         handler: (data: DiffseekEventMap[K]) => void
+//     ): void;
 
-    off<K extends keyof DiffseekEventMap>(
-        event: K,
-        handler: (data: DiffseekEventMap[K]) => void
-    ): void;
+//     off<K extends keyof DiffseekEventMap>(
+//         event: K,
+//         handler: (data: DiffseekEventMap[K]) => void
+//     ): void;
 
-    get syncMode(): boolean;
-    set syncMode(value: boolean);
+//     get syncMode(): boolean;
+//     set syncMode(value: boolean);
 
-    readonly state: {
-        readonly syncMode: boolean;
-    };
-}
+//     readonly state: {
+//         readonly syncMode: boolean;
+//     };
+// }
 
-export type DiffseekEventMap = Exclude<InternalDiffseekEventMap, "diffContextChanged">;
+// // Note: DiffseekEventMap is now exported from './public' and excludes internal events
+// // This allows external consumers to use the stable public API
+
+export { DiffseekEngine } from "./engine/DiffseekEngine";
+export type * from "./types";

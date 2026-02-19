@@ -1,12 +1,10 @@
 import { useDiffseekActions } from "@/bridge/DiffseekProvider";
-import { diffsAtom, visibleDiffIndexesAtom } from "@/states/diffAtoms";
-import { hoveredDiffIndexAtom } from "@/states/viewAtoms";
+import { diffsAtom, hoveredDiffIndexAtom, visibleDiffIndexesAtom } from "@/states/coreAtoms";
 import { extractTextFromRange } from "@/utils/extractTextFromRange";
-import { ActionIcon, Text } from "@mantine/core";
+import { ActionIcon, Box, Stack, Text } from "@mantine/core";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { useCallback, useRef, type MouseEvent } from "react";
-
 
 export function DiffList() {
     const _diffs = useAtomValue(diffsAtom);
@@ -52,7 +50,7 @@ export function DiffList() {
 
     return (
         <div className={`diff-list ${_diffs === null ? "diff-list--disabled" : ""}`}>
-            <ul>
+            <Stack gap={2}>
                 {diffs.map((diff) => (
                     <DiffListItem key={diff.diffIndex} {...diff}
                         leftVisible={leftVisibleDiffsIndices.includes(diff.diffIndex)}
@@ -60,7 +58,7 @@ export function DiffList() {
                         highlighted={hoveredDiffIndex === diff.diffIndex}
                     />
                 ))}
-            </ul>
+            </Stack>
         </div>
     );
 }
@@ -86,7 +84,7 @@ function DiffListItem({ diffIndex, hue, leftText, rightText, leftVisible, rightV
     };
 
     return (
-        <li
+        <Box
             className={clsx("diff-list-item", highlighted && "diff-list-item--highlighted")}
             style={{ "--diff-hue": hue } as React.CSSProperties}
             onClick={handleClick}
@@ -116,139 +114,9 @@ function DiffListItem({ diffIndex, hue, leftText, rightText, leftVisible, rightV
                 visible={rightVisible}
             />
             <div className="text">{rightText}</div>
-        </li>
+        </Box>
     );
 }
-
-
-
-// import { useCallback, useMemo, useRef } from "preact/hooks";
-// import type { TargetedMouseEvent } from "preact";
-// import clsx from "clsx";
-
-// import { appState } from "../states/appState";
-// import { extractTextFromRange } from "../utils/extractTextFromRange";
-// import { SideTagButton } from "./SideTagButton";
-
-// type DiffListItemProps = {
-//     diffIndex: number;
-//     hue: number;
-//     leftText: string;
-//     rightText: string;
-//     leftVisible: boolean;
-//     rightVisible: boolean;
-//     onClick: (e: TargetedMouseEvent<HTMLElement>, diffIndex: number, side?: "left" | "right") => void;
-//     onMouseEnter: (diffIndex: number) => void;
-//     onMouseLeave: (diffIndex: number) => void;
-// };
-
-// export function DiffList() {
-//     const diffContext = appState.diffContext.value;
-//     const visibleDiffs = appState.visibleDiffs.value;
-
-//     const lastDiffs = useRef<DiffListItemProps[]>([]);
-
-//     const handleItemClick = useCallback(
-//         (e: TargetedMouseEvent<HTMLElement>, diffIndex: number, side?: "left" | "right") => {
-//             if (side) {
-//                 appState.diffseekRuntime.scrollToDiff(diffIndex, side, {
-//                     behavior: "smooth",
-//                     block: "center",
-//                 });
-//             } else {
-//                 appState.diffseekRuntime.scrollToDiff(diffIndex, "left", {
-//                     behavior: "smooth",
-//                     block: "center",
-//                 });
-//                 appState.diffseekRuntime.scrollToDiff(diffIndex, "right", {
-//                     behavior: "smooth",
-//                     block: "center",
-//                 });
-//             }
-//             e.stopPropagation();
-//             e.preventDefault();
-//         },
-//         []
-//     );
-
-//     const handleMouseEnter = useCallback((diffIndex: number) => {
-//         appState.diffseekRuntime.setHoveredDiff(diffIndex);
-//     }, []);
-
-//     const handleMouseLeave = useCallback(() => {
-//         appState.diffseekRuntime.setHoveredDiff(null);
-//     }, []);
-
-//     const items = useMemo<DiffListItemProps[]>(() => {
-//         if (!diffContext?.isValid) {
-//             return lastDiffs.current;
-//         }
-
-//         const mapped = diffContext.diffs.map((diff) => ({
-//             diffIndex: diff.diffIndex,
-//             hue: diff.hue,
-//             leftText: extractTextFromRange(diff.leftRange, { maxLength: 50 })[0],
-//             rightText: extractTextFromRange(diff.rightRange, { maxLength: 50 })[0],
-//             leftVisible: visibleDiffs.left.has(diff.diffIndex),
-//             rightVisible: visibleDiffs.right.has(diff.diffIndex),
-//             onClick: handleItemClick,
-//             onMouseEnter: handleMouseEnter,
-//             onMouseLeave: handleMouseLeave,
-//         }));
-
-//         lastDiffs.current = mapped;
-//         return mapped;
-//     }, [diffContext, visibleDiffs, handleItemClick, handleMouseEnter, handleMouseLeave]);
-
-//     const disabled = !diffContext?.isValid;
-
-//     return (
-//         <div className={clsx("diff-list", disabled && "diff-list--disabled")}>
-//             <ul>
-//                 {items.map((diff) => (
-//                     <DiffListItem key={diff.diffIndex} {...diff} />
-//                 ))}
-//             </ul>
-//         </div>
-//     );
-// }
-
-// function DiffListItem({
-//     diffIndex,
-//     hue,
-//     leftText,
-//     rightText,
-//     leftVisible,
-//     rightVisible,
-//     onClick,
-//     onMouseEnter,
-//     onMouseLeave,
-// }: DiffListItemProps) {
-//     return (
-//         <li
-//             className="diff-list-item"
-//             style={{ "--diff-hue": hue }}
-//             onClick={(e) => onClick(e, diffIndex)}
-//             onMouseEnter={() => onMouseEnter(diffIndex)}
-//             onMouseLeave={() => onMouseLeave(diffIndex)}
-//         >
-//             <SideTagButton
-//                 side="left"
-//                 visible={leftVisible}
-//                 onClick={(e) => onClick(e, diffIndex, "left")}
-//             />
-//             <div className="text">{leftText}</div>
-
-//             <SideTagButton
-//                 side="right"
-//                 visible={rightVisible}
-//                 onClick={(e) => onClick(e, diffIndex, "right")}
-//             />
-//             <div className="text">{rightText}</div>
-//         </li>
-//     );
-// }
-
 
 export type SideTagButtonProps = {
     side: "left" | "right";
@@ -279,4 +147,3 @@ export function SideTagButton({
         </ActionIcon>
     );
 }
-//className={`side-tag-button side-tag-button--${side} ${visible ? 'side-tag-button--visible' : 'side-tag-button--hidden'}`}

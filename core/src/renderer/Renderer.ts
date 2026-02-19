@@ -1,9 +1,9 @@
-import type { RenderedDiff, EditorName, Rect, DiffVisibilityChangeEntry } from "../types";
 import { deepMerge } from "../utils/deepMerge";
 import { Editor } from "../editor/Editor";
-import type { DiffRenderItem } from "./types";
-import { REGION_FLAGS_SHIFT, RenderFlags } from "./RenderFlags";
+import type { DiffRenderItem, DiffVisibilityChangeEntry, Rect, RenderedDiff } from "./types";
+import { RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GENERAL_MASK, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_REGION_SHIFT, RENDER_FLAGS_REGION_MASK, RENDER_FLAGS_HIT_TEST, RENDER_FLAGS_LAYOUT, RENDER_FLAGS_SCROLL, RENDER_FLAGS_GEOMETRY } from "./types";
 import { EditorRegion } from "./EditorRegion";
+import type { EditorName } from "../editor";
 
 export const defaultRendererOptions = {
     diffSaturation: 100,
@@ -19,9 +19,9 @@ export const defaultRendererOptions = {
 
     // geometry
     diffExpandX: 2,
-    diffExpandY: 2,
+    diffExpandY: 1,
     diffLineExpandY: 0,
-    diffLineHeightMultiplier: 1,
+    diffLineHeightMultiplier: 1.2,
 
     // minimap
     minimapEnabled: true,
@@ -69,7 +69,7 @@ export class Renderer {
 
 
     renderCallbackId: number | null = null;
-    nextRenderFlags: RenderFlags = RenderFlags.NONE;
+    nextRenderFlags: number = 0;
     mouseX: number = -1;
     mouseY: number = -1;
     syncMode: boolean = false;
@@ -163,7 +163,7 @@ export class Renderer {
         const actualDiffIndex = this.hoveredDiffIndex ?? this.highlightedDiffIndex ?? null;
         const l = this.leftRegion.setHighlightedDiffIndex(actualDiffIndex);
         const r = this.rightRegion.setHighlightedDiffIndex(actualDiffIndex);
-        this.nextRenderFlags |= l | (r << REGION_FLAGS_SHIFT);
+        this.nextRenderFlags |= l | (r << RENDER_FLAGS_REGION_SHIFT);
     }
 
     get isSyncMode() {
@@ -203,13 +203,13 @@ export class Renderer {
             this.scaledHeight = scaledHeight;
             this.canvas.width = this.highlightCanvas.width = scaledWidth;
             this.canvas.height = this.highlightCanvas.height = scaledHeight;
-            this.nextRenderFlags = RenderFlags.GENERAL_MASK
-                | RenderFlags.REGION_MASK
-                | (RenderFlags.REGION_MASK << REGION_FLAGS_SHIFT)
+            this.nextRenderFlags = RENDER_FLAGS_GENERAL_MASK
+                | RENDER_FLAGS_REGION_MASK
+                | (RENDER_FLAGS_REGION_MASK << RENDER_FLAGS_REGION_SHIFT)
         }
 
         this.nextRenderFlags |= this.leftRegion.updateLayout();
-        this.nextRenderFlags |= this.rightRegion.updateLayout() << REGION_FLAGS_SHIFT;
+        this.nextRenderFlags |= this.rightRegion.updateLayout() << RENDER_FLAGS_REGION_SHIFT;
 
         this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
         this.highlightCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
@@ -219,7 +219,7 @@ export class Renderer {
         this.mouseX = x - this.canvasX;
         this.mouseY = y - this.canvasY;
         //this.hitTest(x, y);
-        this.invalidate(RenderFlags.HIT_TEST);
+        this.invalidate(RENDER_FLAGS_HIT_TEST);
     }
 
     queueRender() {
@@ -245,7 +245,7 @@ export class Renderer {
         if (this.renderCallbackId !== null) {
             cancelAnimationFrame(this.renderCallbackId);
             this.renderCallbackId = null;
-            this.nextRenderFlags = RenderFlags.NONE;
+            this.nextRenderFlags = 0;
             this.stage = RenderStage.Idle;
         }
     }
@@ -259,32 +259,32 @@ export class Renderer {
         this.stage = RenderStage.Prepare;
         this.callbacks.prepare?.(time);
 
-        if (this.nextRenderFlags & RenderFlags.LAYOUT) {
+        if (this.nextRenderFlags & RENDER_FLAGS_LAYOUT) {
             this.updateLayout();
         }
 
-        let leftRegionFlags = this.nextRenderFlags & RenderFlags.REGION_MASK;
-        let rightRegionFlags = (this.nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
+        let leftRegionFlags = this.nextRenderFlags & RENDER_FLAGS_REGION_MASK;
+        let rightRegionFlags = (this.nextRenderFlags >> RENDER_FLAGS_REGION_SHIFT) & RENDER_FLAGS_REGION_MASK;
 
         let leftDiffVisibilityChangeEntries: DiffVisibilityChangeEntry[] | null = null;
         let rightDiffVisibilityChangeEntries: DiffVisibilityChangeEntry[] | null = null;
 
         if (leftRegionFlags) {
             this.leftRegion.prepare(leftRegionFlags);
-            if (leftRegionFlags & RenderFlags.DIFF_LAYER) {
+            if (leftRegionFlags & RENDER_FLAGS_DIFF_LAYER) {
                 leftDiffVisibilityChangeEntries = this.updateVisibleDiffIndices(this.visibleDiffIndices.left, this.leftRegion.visibleDiffIndices);
             }
         }
         if (rightRegionFlags) {
             this.rightRegion.prepare(rightRegionFlags);
-            if (rightRegionFlags & RenderFlags.DIFF_LAYER) {
+            if (rightRegionFlags & RENDER_FLAGS_DIFF_LAYER) {
                 rightDiffVisibilityChangeEntries = this.updateVisibleDiffIndices(this.visibleDiffIndices.right, this.rightRegion.visibleDiffIndices);
             }
         }
 
         //console.log(this.workspaceEl.getBoundingClientRect(), this.workspaceEl.scrollTop);
 
-        if (this.nextRenderFlags & RenderFlags.HIT_TEST) {
+        if (this.nextRenderFlags & RENDER_FLAGS_HIT_TEST) {
             this.hitTest(this.mouseX, this.mouseY);
         }
 
@@ -292,9 +292,9 @@ export class Renderer {
         this.callbacks.draw?.(time);
 
         this.stage = RenderStage.Draw;
-        leftRegionFlags |= this.nextRenderFlags & RenderFlags.REGION_MASK;
-        rightRegionFlags |= (this.nextRenderFlags >> REGION_FLAGS_SHIFT) & RenderFlags.REGION_MASK;
-        this.nextRenderFlags = RenderFlags.NONE;
+        leftRegionFlags |= this.nextRenderFlags & RENDER_FLAGS_REGION_MASK;
+        rightRegionFlags |= (this.nextRenderFlags >> RENDER_FLAGS_REGION_SHIFT) & RENDER_FLAGS_REGION_MASK;
+        this.nextRenderFlags = 0;
 
         if (leftRegionFlags) {
             this.leftRegion.render(leftRegionFlags);
@@ -308,7 +308,7 @@ export class Renderer {
         }
 
         this.stage = RenderStage.Idle;
-        if (this.nextRenderFlags !== RenderFlags.NONE) {
+        if (this.nextRenderFlags !== 0) {
             // If there are still flags to render, schedule another render
             this.queueRender();
         }
@@ -347,30 +347,30 @@ export class Renderer {
     invalidateAll() {
         this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
         this.highlightCtx.clearRect(0, 0, this.highlightCanvas.width, this.highlightCanvas.height);
-        this.invalidate(RenderFlags.GENERAL_MASK | RenderFlags.REGION_MASK | (RenderFlags.REGION_MASK << REGION_FLAGS_SHIFT));
+        this.invalidate(RENDER_FLAGS_GENERAL_MASK | RENDER_FLAGS_REGION_MASK | (RENDER_FLAGS_REGION_MASK << RENDER_FLAGS_REGION_SHIFT));
     }
 
     invalidateLayout() {
-        this.invalidate(RenderFlags.LAYOUT);
+        this.invalidate(RENDER_FLAGS_LAYOUT);
     }
 
     invalidateDiffLayer(which?: "left" | "right" | undefined) {
-        return this.invalidateRegion(RenderFlags.DIFF_LAYER, which);
+        return this.invalidateRegion(RENDER_FLAGS_DIFF_LAYER, which);
     }
 
     invalidateHighlightLayer(which?: "left" | "right" | undefined) {
-        return this.invalidateRegion(RenderFlags.HIGHLIGHT_LAYER, which);
+        return this.invalidateRegion(RENDER_FLAGS_HIGHLIGHT_LAYER, which);
     }
 
     invalidateGeometries(which?: "left" | "right" | undefined) {
-        return this.invalidateRegion(RenderFlags.GEOMETRY, which);
+        return this.invalidateRegion(RENDER_FLAGS_GEOMETRY, which);
     }
 
     invalidateScroll(which?: "left" | "right" | undefined) {
-        return this.invalidateRegion(RenderFlags.SCROLL, which);
+        return this.invalidateRegion(RENDER_FLAGS_SCROLL, which);
     }
 
-    invalidate(flags: RenderFlags) {
+    invalidate(flags: number) {
         this.nextRenderFlags |= flags;
         if (this.stage === RenderStage.Idle) {
             this.queueRender();
@@ -382,11 +382,11 @@ export class Renderer {
         }
     }
 
-    invalidateRegion(flags: RenderFlags, which?: "left" | "right") {
+    invalidateRegion(flags: number, which?: "left" | "right") {
         if (which === "right") {
-            flags <<= REGION_FLAGS_SHIFT;
+            flags <<= RENDER_FLAGS_REGION_SHIFT;
         } else if (!which) {
-            flags |= flags << REGION_FLAGS_SHIFT;
+            flags |= flags << RENDER_FLAGS_REGION_SHIFT;
         }
         this.invalidate(flags);
     }
@@ -507,4 +507,15 @@ export class Renderer {
         this.rootElement.classList.remove("ds-renderer--suspended");
         this.queueRender();
     }
+}
+
+function renderFlagsToString(rightRegionFlags: number) {
+    const flags = [];
+    if (rightRegionFlags & RENDER_FLAGS_LAYOUT) flags.push("LAYOUT");
+    if (rightRegionFlags & RENDER_FLAGS_GEOMETRY) flags.push("GEOMETRY");
+    if (rightRegionFlags & RENDER_FLAGS_SCROLL) flags.push("SCROLL");
+    if (rightRegionFlags & RENDER_FLAGS_HIT_TEST) flags.push("HIT_TEST");
+    if (rightRegionFlags & RENDER_FLAGS_DIFF_LAYER) flags.push("DIFF_LAYER");
+    if (rightRegionFlags & RENDER_FLAGS_HIGHLIGHT_LAYER) flags.push("HIGHLIGHT_LAYER");
+    return flags.join(", ") || "None";
 }

@@ -160,6 +160,8 @@ Sync Mode
   overflow-wrap: anywhere;
   outline: none;
   background-color: transparent;
+
+  font-family: monospace;
 }
 
 .ds-editor-minimap {
@@ -188,28 +190,52 @@ Sync Mode
   min-height: unset;
 }
 
+.sync-mode ds-diff {
+  display: block;
+  position: relative;
+}
+
+.sync-mode ds-diff.has-preceding-space::before {
+  content: " ";
+  display: inline;
+}
+
+.sync-mode ds-diff.has-following-space::after {
+  content: " ";
+  display: inline;
+}
+
+.sync-mode ds-diff.line-start::before {
+  content: "" !important;
+  display: block !important;
+}
+
+.sync-mode ds-diff.line-end::after {
+  content: "" !important;
+  display: block !important;
+}
+
 ds-anchor {
   display: none;
 }
 
-.sync-mode .ds-anchor[data-anchor-index] {
+.sync-mode ds-anchor[data-anchor-index] {
   display: block;
 }
 
-.sync-mode .ds-anchor.padded::before {
-  content: "";
-  display: block;
-  height: var(--anchor-adjust, 0px);
+.sync-mode ds-anchor.padded::before,
+.sync-mode ds-diff.padded::before {
+  content: "" !important;
+  display: block !important;
+  height: var(--anchor-adjust, 0px) !important;
 }
 
 ds-diff {
   visibility: hidden; /* contenteditable 안에서 걸리적 거리지 않게! */
   display: inline-block;
   height: 0;
-}
-
-.sync-mode ds-diff {
-  display: block;
+  user-select: none;
+  width: 0px;
 }
 
 /* :not(.sync-mode) ds-diff::after {

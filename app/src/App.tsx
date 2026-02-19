@@ -1,15 +1,12 @@
-import '@mantine/core/styles.css';
-import { useEffect, useRef } from 'react'
-import { DiffseekEngine } from '@core/DiffseekEngine';
-import './App.css';
 import '@core/core.css';
-import { diffsAtom, visibleDiffIndexesAtom } from './states/diffAtoms';
-import { getDefaultStore, Provider, useSetAtom, useStore } from 'jotai';
-import { DiffList } from './components/DiffList';
-import { AppHeader } from './components/AppHeader';
-import { syncModeAtom } from './states/viewAtoms';
+import { DiffseekEngine, type DiffOptions } from '@core';
+import '@mantine/core/styles.css';
+import { getDefaultStore, Provider } from 'jotai';
+import { useEffect, useRef } from 'react';
+import './App.css';
 import { DiffseekProvider } from './bridge/DiffseekProvider';
-import type { DiffOptions } from '@core/types';
+import { AppHeader } from './components/AppHeader';
+import { DiffList } from './components/DiffList';
 
 const engine = new DiffseekEngine({});
 engine.replaceDiffOptions({
@@ -25,10 +22,29 @@ export function App() {
     useEffect(() => {
         console.log("mounting DiffseekRuntime...");
 
-        if (hostRef.current!.firstElementChild) {
-            return;
+        if (!hostRef.current!.firstElementChild) {
+            hostRef.current!.appendChild(engine.workspaceEl);
         }
-        hostRef.current!.appendChild(engine.workspaceEl);
+
+        const keyDown = (e: KeyboardEvent) => {
+            if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                engine.syncMode = !engine.syncMode;
+            } else if ((e.key === "1" || e.key === "2") && e.altKey) {
+                e.preventDefault();
+                engine.pasteBomb(e.key === "1" ? "left" : "right");
+            } else if ((e.key === "ArrowUp" || e.key === "ArrowDown") && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                engine.scrollNudge("current", e.key === "ArrowUp" ? "up" : "down");
+            }
+        };
+
+        window.addEventListener("keydown", keyDown);
+
+        return () => {
+            window.removeEventListener("keydown", keyDown);
+        };
+
     }, []);
 
     // useEffect(() => {

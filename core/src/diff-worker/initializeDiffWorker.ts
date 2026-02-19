@@ -1,15 +1,17 @@
-import { ABORT_REASON_CANCELLED } from "../constants";
-import { getDefaultDiffOptions } from "./getDefaultDiffOptions";
-import type { DiffOptions, SerializedToken } from "../types";
-import type { DiffWorkerResponse, DiffWorkerRequest, DiffWorkerResult } from "./worker";
-import DiffWorker from "./worker.ts?worker&inline";
+import { ABORT_REASON_CANCELLED } from "../shared/constants";
+import type { DiffOptions } from "../diff/types";
+import type { DiffWorkerResult, DiffWorkerResponse, DiffWorkerRequest } from "./types";
+// import DiffWorker from "./worker.ts?worker&inline";
+import DiffWorker from "./worker.ts?worker";
 
 export type DiffWorkerArgs = {
     leftWholeText: string;
     rightWholeText: string;
     leftTokenBuffer: Int32Array;
     rightTokenBuffer: Int32Array;
-    options?: Partial<DiffOptions>;
+    leftTokenCount: number;
+    rightTokenCount: number;
+    options: DiffOptions;
     abortSignal?: AbortSignal;
     onStatus?: (e: DiffWorkerStatusEvent) => void;
 }
@@ -19,8 +21,6 @@ export type DiffWorkerStatusEvent = {
     progress?: number;
     error?: string;
 }
-
-const DEFAULT_DIFF_OPTIONS = getDefaultDiffOptions();
 
 export function initializeDiffWorker() {
     type _Ctx = {
@@ -47,14 +47,14 @@ export function initializeDiffWorker() {
 
                     currentCtx.resolve({
                         //diffs: data.diffs,
-                        leftTokenBuffer: data.leftTokenBuffer,
-                        rightTokenBuffer: data.rightTokenBuffer,
+                        leftResultBuffer: data.leftResultBuffer,
+                        rightResultBuffer: data.rightResultBuffer,
                         elapsedTime: data.elapsedTime,
                     });
                     currentCtx = null;
                 }
-            } else if (data.type === "progress") {
-                currentCtx?.onStatus?.({ type: "progress", progress: data.progress });
+                // } else if (data.type === "progress") {
+                //     currentCtx?.onStatus?.({ type: "progress", progress: data.progress });
             } else if (data.type === "start") {
                 currentCtx?.onStatus?.({ type: "start" });
             } else if (data.type === "aborted") {
@@ -80,7 +80,9 @@ export function initializeDiffWorker() {
                 leftTokenBuffer,
                 rightWholeText,
                 rightTokenBuffer,
-                options = {},
+                leftTokenCount,
+                rightTokenCount,
+                options,
                 abortSignal,
                 onStatus }: DiffWorkerArgs
         ): Promise<DiffWorkerResult> => {
@@ -98,20 +100,23 @@ export function initializeDiffWorker() {
                 rightWholeText,
                 leftTokenBuffer,
                 rightTokenBuffer,
-                options: { ...DEFAULT_DIFF_OPTIONS, ...options }
+                leftTokenCount,
+                rightTokenCount,
+                options: { ...options }
+            };
+
+            const onAbort = () => {
+                if (currentCtx) {
+                    worker.postMessage({
+                        type: "cancel",
+                    } satisfies DiffWorkerRequest);
+                    currentCtx.reject(ABORT_REASON_CANCELLED);
+                    currentCtx = null;
+                }
             };
 
             if (abortSignal) {
-                abortSignal.addEventListener("abort", () => {
-                    if (currentCtx) {
-                        console.log("posting cancel to worker", reqId);
-                        worker.postMessage({
-                            type: "cancel",
-                        } satisfies DiffWorkerRequest);
-                        currentCtx.reject(ABORT_REASON_CANCELLED);
-                        currentCtx = null;
-                    }
-                }, { once: true });
+                abortSignal.addEventListener("abort", onAbort, { once: true });
             }
 
             return new Promise<DiffWorkerResult>((resolve, reject) => {
@@ -121,6 +126,10 @@ export function initializeDiffWorker() {
                     reject,
                 };
                 worker.postMessage(request, [leftTokenBuffer.buffer, rightTokenBuffer.buffer]);
+            }).finally(() => {
+                if (abortSignal) {
+                    abortSignal.removeEventListener("abort", onAbort);
+                }
             });
         },
         cancel: () => {

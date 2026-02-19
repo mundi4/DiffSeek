@@ -1,11 +1,5 @@
-import { ANCHOR_TAG_NAME, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME } from "../constants";
-
-export type ElementPolicy = {
-    allowedAttrs?: Record<string, boolean>;
-    allowedStyles?: Record<string, boolean>;
-    replaceTag?: string;
-    exclude?: boolean;
-};
+import { ANCHOR_TAG_NAME, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME } from "../shared/constants";
+import type { ElementPolicy } from "./types";
 
 const EXCLUDED_TAG_OPTIONS: ElementPolicy = {
     exclude: true,

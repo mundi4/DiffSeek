@@ -3,7 +3,7 @@ import { createContext, useContext, type ReactNode } from 'react';
 import { useCoreBinding } from './useCoreBinding';
 import { useCoreActions } from './useCoreActions';
 import type { DiffseekActions } from './types';
-import type { DiffseekEngine } from '@core/DiffseekEngine';
+import type { DiffseekEngine } from '@core';
 
 const ActionsContext = createContext<DiffseekActions | null>(null);
 

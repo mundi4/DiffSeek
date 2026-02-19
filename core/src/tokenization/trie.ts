@@ -1,203 +1,256 @@
-/**
- * Trie node for pattern matching
- * Used for matching law articles, regulations, etc.
- */
-export interface TrieNode {
-    next: Record<number, TrieNode>;   // 정수 키는 객체가 Map보다 빠름
-    allowSpace?: boolean;
-    word?: {
-        text: string;
-        flags: number;
-    };
+// buildFlatTrie.ts
+// Edge-list(flat) trie builder (BUILD ONLY).
+// - UTF-16 charCode(16-bit) 기반
+// - OPTIONAL_SPACE_MARKER '§'는 "현재 노드에서 공백 허용" 플래그로만 처리
+// - 정규화는 빌드에서 절대 고려하지 않음 (matching 단계에서만 처리)
+// - startChars: 희소 리스트(Uint16Array unique+sorted)로 반환 (CHAR_META 주입용)
+// - nodeOutId: 0=없음, 1..N=출력(1-based)
+
+import { CHAR_META } from "../shared/charMeta";
+import { CM_WS } from "../shared/charMetaFlags";
+import type { TextNodeCursor, TextPos } from "./TextNodeCursor";
+
+export const OPTIONAL_SPACE_MARKER_CU = 0x00a7; // '§'
+const NF_ALLOW_SPACE = 1 << 0;
+
+export interface BuildTrieWord {
+    pattern: string; // includes '§' markers for optional spaces
+    text: string;
+    flags: number;
 }
 
-/**
- * Marker character for optional spaces in Trie words
- */
-export const OPTIONAL_SPACE_MARKER = '§';
+export interface FlatTrie {
+    // nodes
+    nodeEdgeStart: Uint32Array;
+    nodeEdgeCount: Uint16Array;
+    nodeFlags: Uint8Array;
+    nodeOutId: Uint16Array; // 0 none, 1..N output id (1-based)
 
-import { WS_TABLE } from '../constants';
-import { TokenFlags } from '../TokenFlags';
+    // edges
+    edgeChar: Uint16Array;  // raw charCode (NOT normalized)
+    edgeNext: Uint32Array;  // next node index
 
-/**
- * Create a Trie root node
- */
-export function createTrie(): TrieNode {
-    return { next: {} };
+    // outputs
+    outText: string[];
+    outFlags: Uint32Array;
+
+    // compact unique sorted start chars (raw charCode)
+    startChars: Uint16Array;
 }
 
-/**
- * Insert a word into the trie
- * word: normalized text with OPTIONAL_SPACE_MARKER (§) indicating optional space positions
- * text: display text
- * flags: token flags to apply when matched
- * 
- * Example: insertIntoTrie(trie, "제§1§조", "제1조", flags)
- */
-export function insertIntoTrie(
-    trie: TrieNode,
-    word: string,
-    text: string,
-    flags: number
-): void {
-    let node = trie;
-    for (const char of word) {
-        // If marker, mark allowSpace on current node
-        if (char === OPTIONAL_SPACE_MARKER) {
-            node.allowSpace = true;
-            continue;
-        }
-
-        const cp = char.codePointAt(0)!;
-        if (!node.next[cp]) {
-            node.next[cp] = { next: {} };
-        }
-        node = node.next[cp]!;
-    }
-    node.word = { text, flags };
-}
-
-/**
- * Build wildcard trie
- * Matches: (현행과같음), <현행과같음>, [현행과같음] etc. with optional spaces
- */
-export function buildWildcardTrie(): TrieNode {
-    const trie = createTrie();
-
-    const wildcards = [
-        { text: '추가' },
-        { text: '삭제' },
-        { text: '신설' },
-        { text: '생략' },
-        { text: '현행과같음' },
-        { text: '현행과동일' },
-    ];
-
-    const brackets = [
-        { open: '(', close: ')' },
-        { open: '<', close: '>' },
-        { open: '[', close: ']' },
-    ];
-
-    for (const wildcard of wildcards) {
-        // 각 글자 사이에 선택적 공백 마커 추가
-        const charArray = Array.from(wildcard.text);
-        const withSpaces = charArray.join('§');
-
-        for (const bracket of brackets) {
-            // 패턴: (현행과같음) → '(§현§행§과§같§음§)'
-            const pattern = `${bracket.open}§${withSpaces}§${bracket.close}`;
-            const display = `${bracket.open}${wildcard.text}${bracket.close}`;
-            insertIntoTrie(trie, pattern, display, TokenFlags.WILDCARD);
-        }
-    }
-
-    return trie;
-}
-
-/**
- * Match result when trie matches multiple segments
- */
 export interface TrieMatch {
-    count: number;      // 몇 개의 segment가 매칭되었는가
-    word: string;       // 매칭된 단어
-    flags: number;      // 플래그
-    segmentEndIdx?: number;  // 마지막 segment index
-    charEndIdx?: number;     // segment 내 마지막 character index
+    word: string;
+    flags: number;
 }
 
-/**
- * Match trie against segment array starting at given index
- * Efficiently matches across multiple segments
- * 
- * @param trie Root trie node
- * @param segments Array of segment objects with 'text' property
- * @param segmentIndex Starting segment index
- * @returns TrieMatch with count if matched, null otherwise
- */
-export function matchTrie(
-    trie: TrieNode,
-    segments: Array<{ text: string }>,
-    segmentIndex: number
-): TrieMatch | null {
-    let node: TrieNode | null = trie;
-    let segIdx = segmentIndex;
-    let charIdx = 0;
+export interface BuildFlatTrieOptions {
+    // if multiple patterns end at same node:
+    terminalPolicy?: "last" | "first";
+}
 
-    // 가장 최근에 찾은 완전한 단어 기록
-    let matchedNode: TrieNode | null = null;
-    let matchedSegIdx = segmentIndex;
+type TmpNode = {
+    edges: Map<number, number>; // charCode -> next node index
+    flags: number;             // NF_ALLOW_SPACE
+    outId: number;             // 0 or 1-based
+};
 
-    while (segIdx < segments.length && node) {
-        const segmentText = segments[segIdx].text;
+export function buildFlatTrie(words: BuildTrieWord[], opts: BuildFlatTrieOptions = {}): FlatTrie {
+    const terminalPolicy = opts.terminalPolicy ?? "last";
 
-        while (charIdx < segmentText.length && node) {
-            const cp = segmentText.charCodeAt(charIdx)!;
-            const isSpace = WS_TABLE[cp];
+    const nodes: TmpNode[] = [];
+    const outText: string[] = [];
+    const outFlags: number[] = [];
+    const startSet = new Set<number>();
 
-            // 현재 노드에 word가 있으면 기록 (longest match)
-            if (node.word) {
-                matchedNode = node;
-                matchedSegIdx = segIdx;
-            }
+    function newNode(): number {
+        nodes.push({ edges: new Map(), flags: 0, outId: 0 });
+        return nodes.length - 1;
+    }
 
-            // allowSpace인 경우 공백 건너뛰기 (노드 유지)
-            if (isSpace && node.allowSpace) {
-                charIdx++;
+    function addOut(text: string, flags: number): number {
+        outText.push(text);
+        outFlags.push(flags >>> 0);
+        return outText.length; // 1-based
+    }
+
+    const root = newNode();
+
+    for (const w of words) {
+        const outId = addOut(w.text, w.flags);
+
+        // start char (first non-marker charCode)
+        for (let i = 0; i < w.pattern.length; i++) {
+            const cu = w.pattern.charCodeAt(i);
+            if (cu === OPTIONAL_SPACE_MARKER_CU) continue;
+            startSet.add(cu);
+            break;
+        }
+
+        let node = root;
+
+        for (let i = 0; i < w.pattern.length; i++) {
+            const cu = w.pattern.charCodeAt(i);
+
+            if (cu === OPTIONAL_SPACE_MARKER_CU) {
+                nodes[node].flags |= NF_ALLOW_SPACE;
                 continue;
             }
 
-            // 다음 codepoint가 있으면 진행
-            if (node.next[cp]) {
-                node = node.next[cp];
-                charIdx++;
-            } else {
-                // 매칭 실패 - 루프 종료
-                break;
+            const edges = nodes[node].edges;
+            let nxt = edges.get(cu);
+            if (nxt === undefined) {
+                nxt = newNode();
+                edges.set(cu, nxt);
             }
+            node = nxt;
         }
 
-        // segment 끝에 도달했으면 다음 segment로 이동
-        if (charIdx >= segmentText.length && node) {
-            // segment 경계를 allowSpace로 취급
-            // node.allowSpace가 true면, 다음 segment로 계속 진행 가능
-            if (node.allowSpace && segIdx + 1 < segments.length) {
-                segIdx++;
-                charIdx = 0;
-                // allowSpace 상태를 유지하면서 다음 segment 처리
-            } else if (!node.allowSpace && segIdx + 1 < segments.length) {
-                // allowSpace가 아니면 다음 segment로 진행하지만, 노드 상태는 유지
-                segIdx++;
-                charIdx = 0;
-            } else if (segIdx + 1 >= segments.length) {
-                // 마지막 segment 도달
-                break;
-            }
-        } else if (charIdx < segmentText.length) {
-            // segment 중간에 매칭 실패
-            break;
+        // terminal assign
+        if (terminalPolicy === "last" || nodes[node].outId === 0) {
+            nodes[node].outId = outId;
         }
     }
 
-    // 마지막 노드 확인
-    if (node?.word) {
-        matchedNode = node;
-        matchedSegIdx = segIdx;
+    // ---- flatten to typed arrays ----
+    const nodeCount = nodes.length;
+
+    // count edges
+    let edgeCount = 0;
+    for (let i = 0; i < nodeCount; i++) edgeCount += nodes[i].edges.size;
+
+    const nodeEdgeStart = new Uint32Array(nodeCount);
+    const nodeEdgeCount = new Uint16Array(nodeCount);
+    const nodeFlags = new Uint8Array(nodeCount);
+    const nodeOutId = new Uint16Array(nodeCount);
+
+    const edgeChar = new Uint16Array(edgeCount);
+    const edgeNext = new Uint32Array(edgeCount);
+
+    let e = 0;
+    for (let ni = 0; ni < nodeCount; ni++) {
+        const n = nodes[ni];
+
+        nodeEdgeStart[ni] = e;
+        nodeEdgeCount[ni] = n.edges.size;
+        nodeFlags[ni] = n.flags;
+        nodeOutId[ni] = n.outId;
+
+        if (n.edges.size) {
+            const entries = Array.from(n.edges.entries());
+            entries.sort((a, b) => a[0] - b[0]); // deterministic order
+
+            for (let k = 0; k < entries.length; k++) {
+                const [ch, nxt] = entries[k];
+                edgeChar[e] = ch;
+                edgeNext[e] = nxt;
+                e++;
+            }
+        }
     }
 
-    if (!matchedNode) {
-        return null;
-    }
-
-    // matchedSegIdx는 마지막 매칭된 segment의 인덱스
-    // count는 segmentIndex부터 matchedSegIdx까지의 segment 개수
-    const count = matchedSegIdx - segmentIndex + 1;
+    const startArr = Array.from(startSet);
+    startArr.sort((a, b) => a - b);
 
     return {
-        count,
-        word: matchedNode.word!.text,
-        flags: matchedNode.word!.flags,
+        nodeEdgeStart,
+        nodeEdgeCount,
+        nodeFlags,
+        nodeOutId,
+        edgeChar,
+        edgeNext,
+        outText,
+        outFlags: Uint32Array.from(outFlags),
+        startChars: Uint16Array.from(startArr),
     };
 }
 
-export const wildcardTrie = buildWildcardTrie();
+export function matchFlatTrieAtCursor(
+    trie: FlatTrie,
+    cursor: TextNodeCursor,
+    normalizeLut?: Uint16Array,
+): TrieMatch | null {
+
+    const start = cursor.getPos();
+
+    let node = 0;
+    let bestOutId = 0;
+    const bestEnd: TextPos = { nodeIndex: start.nodeIndex, charIndex: start.charIndex };
+
+    while (!cursor.eof()) {
+
+        // consume 전 terminal 기록
+        const outId = trie.nodeOutId[node];
+        if (outId) {
+            bestOutId = outId;
+            cursor.getPosInto(bestEnd);
+        }
+
+        let cu = cursor.current;
+        // console.log("Trie matching at cursor.", { char: String.fromCharCode(cu), code: cu, pos: cursor.getPos() });
+
+        // allowSpace
+        if ((trie.nodeFlags[node] & NF_ALLOW_SPACE) &&
+            (CHAR_META[cu] & CM_WS)) {
+
+            if (!cursor.moveNext()) break;
+            continue;
+        }
+
+        if (normalizeLut) {
+            cu = normalizeLut[cu];
+        }
+
+        // transition
+        const startEdge = trie.nodeEdgeStart[node];
+        const cnt = trie.nodeEdgeCount[node];
+
+        let nextNode = -1;
+        for (let i = 0; i < cnt; i++) {
+            const ei = startEdge + i;
+            if (trie.edgeChar[ei] === cu) {
+                nextNode = trie.edgeNext[ei];
+                break;
+            }
+        }
+
+        if (nextNode < 0) {
+            // mismatch
+            if (!bestOutId) {
+                cursor.moveTo(start);
+                return null;
+            }
+
+            const outIndex0 = bestOutId - 1;
+            cursor.moveTo(bestEnd);
+
+            return {
+                word: trie.outText[outIndex0],
+                flags: trie.outFlags[outIndex0],
+            };
+        }
+
+        node = nextNode;
+
+        if (!cursor.moveNext()) break;
+    }
+
+    // EOF 이후 terminal 체크
+    const outId = trie.nodeOutId[node];
+    if (outId) {
+        bestOutId = outId;
+        cursor.getPosInto(bestEnd);
+    }
+
+    if (!bestOutId) {
+        cursor.moveTo(start);
+        return null;
+    }
+
+    const outIndex0 = bestOutId - 1;
+    cursor.moveTo(bestEnd);
+
+    return {
+        word: trie.outText[outIndex0],
+        flags: trie.outFlags[outIndex0],
+    };
+}

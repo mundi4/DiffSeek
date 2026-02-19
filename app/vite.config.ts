@@ -15,7 +15,11 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         assetsInlineLimit: 4096 * 8,
-        minify: false,
+        minify: false,//'esbuild',
+        rollupOptions: {
+            output: {
+            }
+        }
     },
     server: {
         port: 5200,

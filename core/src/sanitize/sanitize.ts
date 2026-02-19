@@ -1,9 +1,8 @@
-import { TEXTLESS_ELEMENTS, VOID_ELEMENTS } from "../constants";
-import { resolveColor } from "./resolveColor";
-import { resolveFont, transformDingbatText, type DingbatFont } from "./normalizeFont";
+import { TEXTLESS_ELEMENTS, VOID_ELEMENTS } from "../shared/constants";
 import { getElementPolicy } from "./elementPolicy";
-import { Scheduler } from "../scheduler";
-
+import { resolveFont, normalizeDingbatText } from "./normalizeFont";
+import { resolveColor } from "./resolveColor";
+import type { DingbatFont } from "./types";
 
 const START_TAG = "<!--StartFragment-->";
 const END_TAG = "<!--EndFragment-->";
@@ -238,7 +237,7 @@ function extractAllowedStyles(from: CSSStyleDeclaration, allowed?: Record<string
 export function normalizeTextContent(text: string, preformatted: boolean, font: "NORMAL" | DingbatFont): string {
 	let normalized = preformatted ? text : text.replace(/[\s\r\n]+/g, " ");
 	if (font !== "NORMAL") {
-		normalized = transformDingbatText(normalized, font);
+		normalized = normalizeDingbatText(normalized, font);
 	}
 	return normalized;
 }

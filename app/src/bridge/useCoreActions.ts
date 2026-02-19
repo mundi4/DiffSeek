@@ -1,7 +1,6 @@
-import type { DiffseekEngine } from "@core/DiffseekEngine";
 import { useMemo } from "react";
 import type { DiffseekActions } from "./types";
-import type { WhitespaceHandling } from "@core/types";
+import type { DiffOptions, DiffseekEngine } from "@core";
 
 export function useCoreActions({ engine }: { engine: DiffseekEngine }) {
     return useMemo(() => {
@@ -10,7 +9,7 @@ export function useCoreActions({ engine }: { engine: DiffseekEngine }) {
                 engine.syncMode = enable;
             },
 
-            setWhitespaceMode(mode: WhitespaceHandling) {
+            setWhitespaceMode(mode: DiffOptions["whitespace"]) {
                 engine.updateDiffOptions({ whitespace: mode });
             },
 

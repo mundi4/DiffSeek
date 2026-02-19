@@ -1,13 +1,12 @@
-import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, VOID_ELEMENTS } from "../constants";
-import { paragraphizePlainText } from "../helpers/paragraphizePlainText";
-import { tokenize } from "../tokenization/tokenizer";
-import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "../helpers/tokenRangeHelpers";
-import type { EditorContext, EditorName, EditorSettings, LineStartPoint, Rect, Span, Token } from "../types";
-import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
-import { advanceNode } from "../utils/advanceNode";
-import { findCommonAncestor } from "../utils/findCommonAncestor";
-import { TokenFlags } from "../TokenFlags";
+import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../shared/constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
+import type { Span } from "../shared/types";
+import type { LineBoundaryInfo, Token } from "../tokenization";
+import { tokenize } from "../tokenization/tokenize";
+import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
+import { paragraphizePlainText } from "./paragraphizePlainText";
+import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./tokenRangeConverters";
+import type { EditorContext, EditorName, EditorSettings } from "./types";
 
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000;
 
@@ -34,6 +33,12 @@ const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
     altArrowScrollLines: 3
 };
 
+export type TokenSnapshot = {
+    wholeText: string;
+    tokens: readonly Token[];
+    lineBoundaries: readonly LineBoundaryInfo[];
+}
+
 export class Editor implements EditorContext {
     readonly name: EditorName;
     readonly rootElement: HTMLElement;
@@ -43,7 +48,8 @@ export class Editor implements EditorContext {
 
     wholeText: string = "";
     tokens: readonly Token[] = [];
-    lineStartPoints: readonly LineStartPoint[] = [];
+    lineBoundaries: readonly LineBoundaryInfo[] = [];
+
     settings: EditorSettings;
     mutationObserver: MutationObserver;
     callbacks: EditorCallbacks = {};
@@ -52,6 +58,12 @@ export class Editor implements EditorContext {
     resizeObserver = new ResizeObserver(() => this.onResize());
     // tokenizer: Tokenizer = new Tokenizer();
     tokenizeAbortController: AbortController | null = null;
+
+    private savedScroll: { ref: HTMLElement; targetTop: number } | null = null;
+    private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve({ wholeText: "", tokens: [], lineBoundaries: [] });
+    private _tokenizingPromiseResolver: ((snapshot: TokenSnapshot) => void) = () => { };
+    private _tokenizingPromiseRejecter: ((err: any) => void) = () => { };
+    private _tokenizingRanToFinished: boolean = true;
 
     constructor(name: EditorName, settings: Partial<EditorSettings> = {}) {
         this.name = name;
@@ -102,6 +114,9 @@ export class Editor implements EditorContext {
         });
 
         this.resizeObserver.observe(this.rootElement);
+
+        this.contentElement.innerHTML = "<P><BR></P>";
+        this.handleContentChangedInternal();
     }
 
     setCallbacks(callbacks: Partial<EditorCallbacks>) {
@@ -129,18 +144,18 @@ export class Editor implements EditorContext {
     }
 
     private onKeyDown(e: KeyboardEvent) {
-        if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
-            // vscode같은 코드에디터에서 흔하게 사용하는 단축키.
-            // 마우스에 손대지 않고 한두줄 정도 스크롤하고 싶은데 커서를 화면 경계까지 옮기다가 손가락에 굳은살이 생길까 염려되는 경우
-            e.preventDefault();
-            this.scrollNudge(e.key === "ArrowUp" ? "up" : "down");
-            return;
-        }
+        // if (e.ctrlKey && (e.key === "ArrowUp" || e.key === "ArrowDown")) {
+        //     // vscode같은 코드에디터에서 흔하게 사용하는 단축키.
+        //     // 마우스에 손대지 않고 한두줄 정도 스크롤하고 싶은데 커서를 화면 경계까지 옮기다가 손가락에 굳은살이 생길까 염려되는 경우
+        //     e.preventDefault();
+        //     this.scrollNudge(e.key === "ArrowUp" ? "up" : "down");
+        //     return;
+        // }
 
-        if (e.altKey && (e.key === "2" || e.key === "3")) {
-            e.preventDefault();
-            this.insertManualAnchor(e.key === "2" ? "A" : "B");
-        }
+        // if (e.altKey && (e.key === "2" || e.key === "3")) {
+        //     e.preventDefault();
+        //     this.insertManualAnchor(e.key === "2" ? "A" : "B");
+        // }
     }
 
     scrollNudge(direction: "up" | "down", lines: number = this.settings.altArrowScrollLines) {
@@ -187,49 +202,41 @@ export class Editor implements EditorContext {
         this.contentElement.contentEditable = value ? "false" : "true";
     }
 
-    get container() {
-        return this.rootElement;
+    waitForTokens(): Promise<TokenSnapshot> {
+        return this._tokenizingPromise;
     }
-
-    get contentEditableElement(): HTMLElement {
-        return this.contentElement;
-    }
-
-    get scrollTop(): number {
-        return this.rootElement?.scrollTop ?? 0;
-    }
-
-    set scrollTop(value: number) {
-        if (this.rootElement) {
-            this.rootElement.scrollTop = value;
-        }
-    }
-
-    get scrollLeft(): number {
-        return this.rootElement?.scrollLeft ?? 0;
-    }
-
-    set scrollLeft(value: number) {
-        if (this.rootElement) {
-            this.rootElement.scrollLeft = value;
-        }
-    }
-
-
-
 
     private async handleContentChangedInternal() {
+        // 기존 promise는 resolve/reject까지 된 상태이므로 새 promise 생성
+        if (this._tokenizingRanToFinished) {
+            this._tokenizingPromise = new Promise((resolve, reject) => {
+                this._tokenizingPromiseResolver = resolve;
+                this._tokenizingPromiseRejecter = reject;
+            });
+            this._tokenizingRanToFinished = false;
+        }
+
         this.callbacks.contentChanging?.(this);
         this.tokens = [];
+
         try {
             await this.doTokenize();
             //console.debug(this.editorName, "tokenize done", this.tokens);
+            this._tokenizingPromiseResolver?.({
+                wholeText: this.wholeText,
+                tokens: this.tokens,
+                lineBoundaries: this.lineBoundaries
+            });
+
             this.callbacks.contentChanged?.(this);
+            this._tokenizingRanToFinished = true;
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {
-                // console.debug(this.editorName, "Tokenization cancelled");
+                // 다시 토큰화가 실행될 것이니까 promise는 그냥 내비두고 resolve도 reject도 하지 않음
             } else {
                 console.error(this.name, "Tokenization error:", err);
+                this._tokenizingPromiseRejecter?.(err);
+                this._tokenizingRanToFinished = true;
             }
         }
     }
@@ -238,15 +245,12 @@ export class Editor implements EditorContext {
         if (this.contentElement.childNodes.length === 0) {
             this.contentElement.appendChild(INITIAL_CONTENT_HTML.cloneNode(true));
         }
-        // console.log(mutations)
     }
 
     private observeMutation() {
         this.mutationObserver.observe(this.contentElement, {
             childList: true,
-            subtree: true,
-            //attributes: true,
-            //characterData: true,
+            // subtree: true,
         });
     }
 
@@ -256,30 +260,36 @@ export class Editor implements EditorContext {
 
     private async doTokenize() {
         if (this.tokenizeAbortController) {
-            console.log("abort away!")
             this.tokenizeAbortController.abort(ABORT_REASON_CANCELLED);
         }
-        this.tokenizeAbortController = new AbortController();
+
+        const controller = new AbortController();
+        this.tokenizeAbortController = controller;
+
         try {
-            const { wholeText, tokens, lineStartPoints, elapsed } = await tokenize(this.contentElement, {
+            const result = await tokenize(this.contentElement, {
                 signal: this.tokenizeAbortController.signal,
             });
-            // console.log("tokenization result:", { wholeText, tokens, lineStartPoints, elapsed });
+            // console.log(wholeText)
 
-            if (import.meta.env.DEV) {
-                console.debug(this.name, `Tokenization completed in ${elapsed.toFixed(2)} ms, ${tokens.length} tokens found.`);
-            }
+            // if (import.meta.env.DEV) {
+            //     console.debug(this.name, `Tokenization completed in ${result.elapsed.toFixed(2)} ms, result:`, result);
+            // }
 
             this.tokenizeAbortController = null;
-            this.wholeText = wholeText;
-            this.tokens = tokens;
-            this.lineStartPoints = lineStartPoints;
-        } catch (err) {
-            if (err === ABORT_REASON_CANCELLED) {
-                console.warn(this.name, "Tokenization cancelled");
-                // swallow
-            } else {
-                throw err;
+            this.wholeText = result.wholeText;
+            this.tokens = result.tokens;
+            this.lineBoundaries = result.lineBoundaries;
+            // } catch (err) {
+            //     if (err === ABORT_REASON_CANCELLED) {
+            //         console.warn(this.name, "Tokenization cancelled");
+            //         // swallow
+            //     } else {
+            //         throw err;
+            //     }
+        } finally {
+            if (this.tokenizeAbortController === controller) {
+                this.tokenizeAbortController = null;
             }
         }
     }
@@ -291,7 +301,6 @@ export class Editor implements EditorContext {
     // 사용자가 붙여넣기를 하는 순간 실행되어야 하고
     // 붙여넣기 직후에 추가 입력을 할 수도 있기 때문에 동기로 처리
     private onPaste(e: ClipboardEvent) {
-        console.log("pasting...")
         const startTime = performance.now();
 
         const selection = document.getSelection();
@@ -305,23 +314,6 @@ export class Editor implements EditorContext {
         }
 
         e.preventDefault();
-
-        // const items = e.clipboardData?.items;
-        // if (items) {
-        //     for (const item of items) {
-        //         if (item.type.startsWith("image/")) {
-        //             const file = item.getAsFile();
-        //             if (file) {
-        //                 // MS Office는 이미지 이름을 보통 이런 식으로 매김
-        //                 console.log("Pasted image file:", file.name, file.type, file.size);
-        //             }
-        //         } else {
-        //             console.log("Non-image clipboard item:", item.type);
-        //         }
-        //     }
-        // } else {
-        //     console.log("No clipboard items available");
-        // }
 
         let isHTML = true;
         let data = e.clipboardData?.getData("text/html") ?? "";
@@ -352,20 +344,13 @@ export class Editor implements EditorContext {
         return null;
     }
 
-    /**
-     * 폭탄 붙여넣기! 왜 bomb인가? 되돌릴 수 없기 때문. ctrl-z 안먹힘.
-     * 전체 내용을 클립보드의 내용으로 교체함.
-     * 또한 클립보드 액세스를 가능하게 하는 사용자의 동작 없이 실행이 되므로 브라우저에서 "허용" 여부를 묻는 경고창이 뜰 수 있음.
-     */
-    private async pasteBomb(plaintextOnly: boolean = false) {
-        const startTime = performance.now();
-
+    async pasteBomb(plaintextOnly: boolean = false) {
         if (!navigator.clipboard || !navigator.clipboard.read) {
-            throw new Error("Clipboard API is not available in this browser");
+            console.warn("Clipboard API is not available in this browser");
+            return;
         }
 
-        //this.editor.contentEditable = "false";
-        this.contentElement.classList.add("busy");
+        const startTime = performance.now();
 
         try {
             const items = await navigator.clipboard.read();
@@ -680,28 +665,7 @@ export class Editor implements EditorContext {
     }
 
     forceReflow() {
-        // force reflow
-        if (!this.rootElement) {
-            return;
-        }
-        //this.wrapper.style.display = "none";
         void this.rootElement.offsetHeight; // force reflow
-        //void this.editor.offsetHeight; // force reflow
-        //this.wrapper.style.display = "";
-    }
-
-    getBoundingClientRect(): Rect {
-        if (!this.rootElement) {
-            return { x: 0, y: 0, width: 0, height: 0 };
-        }
-        return this.rootElement.getBoundingClientRect();
-    }
-
-    getScroll(): [x: number, y: number] {
-        if (!this.rootElement) {
-            return [0, 0];
-        }
-        return [this.rootElement.scrollLeft, this.rootElement.scrollTop];
     }
 
     // 텍스트노드, 인라인노드, P태그 안에는 블럭요소를 집어넣으면 안되지만 contenteditable 안에서 브라우저는 그런걸 제어해주지 않음.
@@ -779,144 +743,83 @@ export class Editor implements EditorContext {
         return range;
     }
 
-    lastMarkerEl: Element | null = null;
+    saveScrollPosition() {
+        const root = this.rootElement;
+        const content = this.contentElement;
 
-    getOrInsertDiffElement(tokenIndex: number, hint: TokenFlags) {
-        // 앞 방향으로 찾음.
-        // 그냥 common ancestor를 찾고
-        // 그 사이에 넣으면 되지 않나...
-        // <div>hello></div>(here)<div>world</div>
-        // <div>hello(here)<br>world</div>
+        const rootRect = root.getBoundingClientRect();
 
-        let which: Node | null = null;
-        let where: InsertPosition | null = null;
+        let ref: HTMLElement | null = null;
 
-        if (tokenIndex === 0) {
-            which = this.contentElement;
-            where = "afterbegin";
-        } else {
-            const prevToken = this.tokens[tokenIndex - 1];
-            const nextToken = this.tokens[tokenIndex];
-            const root = this.contentElement;
+        const probeY = rootRect.top + 20;
+        const steps = Math.max(4, Math.floor(rootRect.width / 80));
 
-            let a: Node | null = prevToken.endNode;
-            let b: Node | null = nextToken.startNode;
-
-            let da = 0, db = 0;
-            for (let n = a; n && n != root; n = n.parentNode!) da++;
-            for (let n = b; n && n != root; n = n.parentNode!) db++;
-            if (!a || !b) return null;
-
-            let prevChild: Node | null = null;
-            while (da > db && a) {
-                prevChild = a;
-                a = a.parentNode;
-                da--;
-            }
-            while (db > da && b) {
-                b = b.parentNode;
-                db--;
-            }
-
-            while (a && b) {
-                if (a === b) break;
-                prevChild = a;
-                a = a.parentNode;
-                b = b.parentNode;
-            }
-
-            if (!a || !prevChild) return null;
-            which = prevChild;
-            where = "afterend";
-        }
-
-        if (!which || !where) {
-            return null;
-        }
-
-        let el: HTMLElement | null = null;
-        if (where === "afterend") {
-            el = which.nextSibling as HTMLElement;
-        } else {
-            el = which.firstChild as HTMLElement;
-        }
-
-        if (!el || el.nodeName !== DIFF_TAG_NAME) {
-            const insertBefore = el;
-            el = document.createElement(DIFF_TAG_NAME);
-            if (where === "afterend") {
-                which.parentElement!.insertBefore(el, insertBefore);
-            } else {
-                (which as Element).insertAdjacentElement("afterbegin", el);
+        for (let i = 0; i <= steps; i++) {
+            const x = rootRect.left + (rootRect.width * i) / steps;
+            const stack = document.elementsFromPoint(x, probeY);
+            const hit = stack.find(e => e !== content && content.contains(e)) as HTMLElement | undefined;
+            if (hit) {
+                ref = hit;
+                break;
             }
         }
 
-        return el;
+        if (!ref) {
+            const walker = document.createTreeWalker(
+                content,
+                NodeFilter.SHOW_ELEMENT,
+                null
+            );
+
+            let node = walker.nextNode() as HTMLElement | null;
+
+            while (node) {
+                const rect = node.getBoundingClientRect();
+
+                const verticallyVisible =
+                    rect.bottom > rootRect.top &&
+                    rect.top < rootRect.bottom;
+
+                const hasBox = rect.height > 0;
+
+                if (verticallyVisible && hasBox) {
+                    ref = node;
+                    break;
+                }
+
+                node = walker.nextNode() as HTMLElement | null;
+            }
+        }
+
+        if (!ref) {
+            return;
+        }
+
+        const refRect = ref.getBoundingClientRect();
+        const targetTop = refRect.top - rootRect.top;
+
+        this.savedScroll = {
+            ref,
+            targetTop
+        };
     }
 
-    getOrInsertAnchorElement(tokenIndex: number) {
-        // 앞으로 쭉 거슬러 올라가면서 줄바꿈 경계를 찾음
-        // <span>hello<br></span>world 같은 변태적인 상황을 고려하려면
-        // 단순히 이전 형제와 부모로만 이동할 것이 아니라 형제의 자손 방향으로도 탐색해야 함.
-        // 이전 형제로 시작
-        // 자식이 있으면 마지막 자식(재귀)
-        // 이전 형제가 없으면 현재 노드가 부모의 몇 번째 노드인지 확인한 후 부모로 이동
-        // 부모 확인 후 부모의 이전 형제(자식은 이미 확인했음)
-        // 아 존나 복잡하다
-        // 토큰화 단계에서 이런 위치들을 미리 점 찍어 놓을 수 있지만... 책임이 과한 것 같아...
-        // 
+    restoreScrollPosition() {
+        const saved = this.savedScroll;
+        if (!saved) return;
 
-        if (import.meta.env.DEV) {
-            console.assert(tokenIndex >= 0 && tokenIndex < this.tokens.length, `Invalid token index: ${tokenIndex}`);
+        const { ref, targetTop } = saved;
+        if (ref.isConnected) {
+            const root = this.rootElement;
+            const rootRect = root.getBoundingClientRect();
+            const refRect = ref.getBoundingClientRect();
+
+            const currentTop = refRect.top - rootRect.top;
+            const delta = currentTop - targetTop;
+
+            root.scrollTop += delta;
         }
 
-        let where: InsertPosition | null = null;
-        let which: Node | null = null;
-
-        if (this.tokens.length === 0) {
-            where = "afterbegin";
-            which = this.contentElement;
-        } else {
-            const token = this.tokens[tokenIndex];
-            ({ which, where } = this.lineStartPoints[token.lineNumber - 1]);
-        }
-
-        if (!where || !which) {
-            // console.warn(this.name, "getOrInsertAnchorElement: could not determine insertion point for token index", tokenIndex);
-            return null;
-        }
-        // console.log("Inserting anchor at", this.name, { which, where });
-
-        let anchorEl: HTMLElement | null = null;
-        if (where === "afterend") {
-            anchorEl = which.nextSibling as HTMLElement;
-            if (!anchorEl || anchorEl.nodeName !== ANCHOR_TAG_NAME) {
-                anchorEl = document.createElement(ANCHOR_TAG_NAME);
-                which.parentElement!.insertBefore(anchorEl, which.nextSibling);
-                //which.insertAdjacentElement("afterend", anchorEl);
-            }
-        } else if (where === "beforebegin") {
-            anchorEl = which.previousSibling as HTMLElement;
-            if (!anchorEl || anchorEl.nodeName !== ANCHOR_TAG_NAME) {
-                anchorEl = document.createElement(ANCHOR_TAG_NAME);
-                which.parentElement!.insertBefore(anchorEl, which);
-                // which.insertAdjacentElement("beforebegin", anchorEl);
-            }
-        } else if (where === "afterbegin") {
-            anchorEl = which.firstChild as HTMLElement;
-            if (!anchorEl || anchorEl.nodeName !== ANCHOR_TAG_NAME) {
-                anchorEl = document.createElement(ANCHOR_TAG_NAME);
-                (which as Element).insertAdjacentElement("afterbegin", anchorEl);
-            }
-        } else if (where === "beforeend") {
-            anchorEl = which.lastChild as HTMLElement;
-            if (!anchorEl || anchorEl.nodeName !== ANCHOR_TAG_NAME) {
-                anchorEl = document.createElement(ANCHOR_TAG_NAME);
-                (which as Element).insertAdjacentElement("beforeend", anchorEl);
-            }
-        }
-
-        this.lastMarkerEl = anchorEl;
-        return anchorEl;
+        this.savedScroll = null;
     }
 }

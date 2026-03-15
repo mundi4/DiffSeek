@@ -1,4 +1,4 @@
-export function hashStringFNV1aBase64(str: string): string {
+export function hashString(str: string): string {
     let h = 0x811c9dc5;
     for (let i = 0; i < str.length; i++) {
         h ^= str.charCodeAt(i);

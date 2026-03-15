@@ -36,4 +36,4 @@ export type TokenizeResult = {
     elapsed: number;
 }
 
-export * from "./TokenFlags";
+export * from "./token-flags";

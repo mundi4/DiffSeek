@@ -1,11 +1,11 @@
-import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../shared/constants";
+import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
-import type { Span } from "../shared/types";
 import type { LineBoundaryInfo, Token } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
+import type { Span } from "../types";
 import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
-import { paragraphizePlainText } from "./paragraphizePlainText";
-import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./tokenRangeConverters";
+import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
+import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorSettings } from "./types";
 
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000;

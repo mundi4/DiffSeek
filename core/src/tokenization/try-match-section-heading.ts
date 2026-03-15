@@ -1,6 +1,6 @@
-import type { TextNodeCursor } from "./TextNodeCursor";
-import { CHAR_META } from "../shared/charMeta";
-import { CM_WS } from "../shared/charMetaFlags";
+import type { TextNodeCursor } from "./text-node-cursor";
+import { CHAR_META } from "../char-meta";
+import { CM_WS } from "../char-meta-flags";
 import { TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE, TOKEN_FLAGS_SECTION_HEADING_TYPE1, TOKEN_FLAGS_SECTION_HEADING_TYPE2, TOKEN_FLAGS_SECTION_HEADING_TYPE3, TOKEN_FLAGS_SECTION_HEADING_TYPE4, TOKEN_FLAGS_SECTION_HEADING_TYPE5, TOKEN_FLAGS_SECTION_HEADING_TYPE6 } from "./types";
 
 export const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";

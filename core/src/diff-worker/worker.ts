@@ -1,13 +1,13 @@
 /// <reference lib="webworker" />
 
-import { ABORT_REASON_CANCELLED } from "../shared/constants";
+import { ABORT_REASON_CANCELLED } from "../constants";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffOptions } from "./types";
-import { buildDiffInput } from "../diff/buildDiffInput";
-import { buildDiffScoreSystem } from "../diff/buildDiffScoreSystem";
+import { buildDiffInput } from "../diff/build-diff-input";
+import { buildDiffScoreSystem } from "../diff/build-diff-score-system";
 import { writeToResultBuffer } from "../diff/helpers";
-import { buildPatienceAnchors } from "../diff/patienceDiff";
-import { processSegmentsWithAnchors } from "../diff/processSegmentsWithAnchors";
-import { runHistogramDiff } from "../diff/runHistogramDiff";
+import { buildPatienceAnchors } from "../diff/patience-diff";
+import { processSegmentsWithAnchors } from "../diff/process-segments-with-anchors";
+import { runHistogramDiff } from "../diff/run-histogram-diff";
 import type { DiffInput, DiffJobContext } from "../diff/types";
 import type { DiffWorkerRequest, DiffWorkerResponse } from "./types";
 

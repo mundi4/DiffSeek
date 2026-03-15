@@ -1,16 +1,16 @@
-import { ABORT_REASON_CANCELLED } from "../shared/constants";
-import { initializeDiffWorker, type DiffWorkerStatusEvent } from "../diff-worker/initializeDiffWorker";
-import { Editor, type EditorCallbacks } from "../editor/Editor";
-import { Renderer } from "../renderer/Renderer";
-import { getDefaultDiffOptions } from "../diff/getDefaultDiffOptions";
+import { ABORT_REASON_CANCELLED } from "../constants";
+import { initializeDiffWorker, type DiffWorkerStatusEvent } from "../diff-worker/initialize-diff-worker";
+import { Editor, type EditorCallbacks } from "../editor/editor";
+import { Renderer } from "../renderer/renderer";
+import { getDefaultDiffOptions } from "../diff/get-default-diff-options";
 import { createEvent } from "../utils/createEvent";
-import { resolveMatchingSpanPair } from "./resolveMatchingSpanPair";
-import { AnchorManager } from "./AnchorManager";
-import { DiffPipeline } from "./DiffPipeline";
+import { resolveMatchingSpanPair } from "./resolve-matching-span-pair";
+import { AnchorManager } from "./anchor-manager";
+import { DiffPipeline } from "./diff-pipeline";
 import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
-import type { Span } from "../shared/types";
+import type { Span } from "../types";
 
 const defaultOptions: DiffseekOptions = {
     diffPalette: [

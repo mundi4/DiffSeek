@@ -2,4 +2,4 @@
 export { tokenize } from "./tokenize";
 export { type LineBoundaryInfo, type Token, type TokenizeResult, type TokenizerOptions } from "./types";
 
-export * from "./TokenFlags";
+export * from "./token-flags";

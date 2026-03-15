@@ -6,9 +6,9 @@
 // - startChars: 희소 리스트(Uint16Array unique+sorted)로 반환 (CHAR_META 주입용)
 // - nodeOutId: 0=없음, 1..N=출력(1-based)
 
-import { CHAR_META } from "../shared/charMeta";
-import { CM_WS } from "../shared/charMetaFlags";
-import type { TextNodeCursor, TextPos } from "./TextNodeCursor";
+import { CHAR_META } from "../char-meta";
+import { CM_WS } from "../char-meta-flags";
+import type { TextNodeCursor, TextPos } from "./text-node-cursor";
 
 export const OPTIONAL_SPACE_MARKER_CU = 0x00a7; // '§'
 const NF_ALLOW_SPACE = 1 << 0;

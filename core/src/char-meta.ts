@@ -5,7 +5,7 @@
    Edit the generator, not this file.
 */
 
-import { CM_LETTER, CM_NEWLINE, CM_NUMBER, CM_SURROGATE, CM_WS, CM_WS_COLLAPSABLE } from "./charMetaFlags";
+import { CM_LETTER, CM_NEWLINE, CM_NUMBER, CM_SURROGATE, CM_WS, CM_WS_COLLAPSABLE } from "./char-meta-flags";
 
 type Range = readonly [start: number, endInclusive: number, value: number];
 

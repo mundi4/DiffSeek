@@ -3,7 +3,7 @@
  * Rendering and visualization definitions
  */
 
-import type { Span } from "../shared/types";
+import type { Span } from "../types";
 
 export type Rect = {
     x: number;
@@ -54,4 +54,4 @@ export type RenderBounds = {
     maxY: number;
 };
 
-export * from "./RenderFlags";
+export * from "./render-flags";

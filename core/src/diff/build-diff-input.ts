@@ -1,5 +1,5 @@
 import { HEADING_MASK, TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_WORD_LIKE } from "../tokenization";
-import type { DiffOptions, DiffInput } from "./types";
+import type { DiffInput, DiffOptions } from "./types";
 
 const DATA_STRIDE = 5;
 
@@ -26,7 +26,7 @@ export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions
         // 단순히 "1." 같은 텍스트는 섹션 헤딩으로 간주하지 않음.
         // 반드시 같은 줄에 유효한 단어가 존재해야 함.
         // "제1조" 이건 좀 애매하다. 뒤에 단어 없이도 헤딩으로 간주해도 되지 않을까? 고려해 볼 문제...
-        // TODO: 사실 이건 메인쓰레드에서 처리해야하고 여기서는 그 이상으로 의미를 분석하려고 시도하면 안됨.
+        // TODO: 애당초 이건 토큰화 단계에서 확인한 후 조건에 맞는 경우에만 flag를 부여해야 하지 않을까?
         if (flags & HEADING_MASK) {
             headingIdx = i;
         } else if (headingIdx >= 0) {
@@ -41,9 +41,7 @@ export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions
         }
 
         flagsArray[i] = flags;
-        // offsetArray[i] = totalBufLen;
         offsetArray[i] = totalBufLen;
-        // lengthArray[i] = t.textLength;
 
         totalBufLen += textLength;
 
@@ -54,7 +52,6 @@ export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions
     offsetArray[tokenCount] = totalBufLen;
 
     const textBuffer = new Uint16Array(totalBufLen);
-    // const hashArray = new Uint32Array(count);
 
     let currentPos = 0;
     for (let i = 0; i < tokenCount; i++) {
@@ -67,7 +64,6 @@ export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions
         if (insertSpace && ((flags & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) || (flags & TOKEN_FLAGS_LINE_END))) {
             textBuffer[currentPos++] = 32;
         }
-        // hashArray[i] = calculateHash(buffer, offsetArray[i], currentPos - offsetArray[i]);
     }
 
     data.fill(0);

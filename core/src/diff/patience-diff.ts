@@ -53,7 +53,6 @@ export function buildPatienceAnchors(
 
         let h = calculateHash(lhsBuffer, charPos, charLen);
         if (!ignoreWhitespaces) {
-            // console.log("applying whitespace positions to hash for LHS line", { lineStart, lineEnd, charPos, charLen, h });
             // 버퍼에는 공백이 포함되어 있지 않으므로 해시에 공백의 위치를 반영해줘야함
             for (let j = lineStart; j < lineEnd; j++) {
                 if (lhsFlags[j] & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) {
@@ -63,7 +62,6 @@ export function buildPatienceAnchors(
                 }
             }
             h = h >>> 0;
-            // console.log("final hash for LHS line after applying whitespace positions", h);
         }
         h = h & HASH_MASK;
 

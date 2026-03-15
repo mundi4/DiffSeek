@@ -1,8 +1,8 @@
 import { deepMerge } from "../utils/deepMerge";
-import { Editor } from "../editor/Editor";
+import { Editor } from "../editor/editor";
 import type { DiffRenderItem, DiffVisibilityChangeEntry, Rect, RenderedDiff } from "./types";
 import { RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GENERAL_MASK, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_REGION_SHIFT, RENDER_FLAGS_REGION_MASK, RENDER_FLAGS_HIT_TEST, RENDER_FLAGS_LAYOUT, RENDER_FLAGS_SCROLL, RENDER_FLAGS_GEOMETRY } from "./types";
-import { EditorRegion } from "./EditorRegion";
+import { EditorRegion } from "./editor-region";
 import type { EditorName } from "../editor";
 
 export const defaultRendererOptions = {

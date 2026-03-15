@@ -1,4 +1,4 @@
-import { ANCHOR_TAG_NAME, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME } from "../shared/constants";
+import { ANCHOR_TAG_NAME, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import type { ElementPolicy } from "./types";
 
 const EXCLUDED_TAG_OPTIONS: ElementPolicy = {

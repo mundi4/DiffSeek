@@ -1,11 +1,9 @@
 
-import { DIFF_TAG_NAME } from "../shared/constants";
-import { Editor } from "../editor/Editor";
-import { advanceNode } from "../utils/advanceNode";
-import { Renderer } from "./Renderer";
+import { Editor } from "../editor/editor";
+import { extractRectsFromRange } from "./extract-rects-from-range";
+import { mergeRects } from "./merge-rects";
+import { Renderer } from "./renderer";
 import { RENDER_FLAGS_DIFF_HIGHLIGHT, RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GEOMETRY, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_MINIMAP, RENDER_FLAGS_RESIZE, RENDER_FLAGS_SCROLL, type DiffRenderItem, type Rect, type RectSet } from "./types";
-import { mergeRects } from "./mergeRects";
-import { extractRectsFromRange } from "./extractRectsFromRange";
 
 export class EditorRegion {
     readonly renderer: Renderer;

@@ -1,5 +1,5 @@
 import { isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, sliceDiffInput, tokenRangeToString, writeToResultBuffer } from "./helpers";
-import { runHistogramDiff, runHistogramDiff16, runHistogramDiff32 } from "./runHistogramDiff";
+import { runHistogramDiff, runHistogramDiff16, runHistogramDiff32 } from "./run-histogram-diff";
 import { type DiffJobContext, type DiffInput, type DiffAnchor, DIFF_TYPE_ADDED, DIFF_TYPE_REMOVED, DIFF_TYPE_MODIFIED, DIFF_TYPE_UNCHANGED } from "./types";
 
 
@@ -115,12 +115,16 @@ function markUnchanged(lhs: DiffInput, rhs: DiffInput, lhsPos: number, lhsEnd: n
                 throw new Error(`Invalid anchor match at lhs[${l}, ${lhsEnd}), rhs[${r}, ${rhsEnd})`);
             }
         }
+
         if (!match || match[0] === 0 || match[1] === 0) {
-            console.warn(`Anchor mismatch at lhs[${l}, ${lhsEnd}), rhs[${r}, ${rhsEnd})`);
+            if (import.meta.env.DEV) {
+                console.warn(`Anchor mismatch at lhs[${l}, ${lhsEnd}), rhs[${r}, ${rhsEnd})`);
+            }
             writeToResultBuffer(lhsResultBuf, rhsResultBuf, l, lhsEnd, r, rhsEnd, DIFF_TYPE_UNCHANGED);
             return;
         }
         // console.log(`Marking unchanged segment: lhs[${l}, ${l + match[0]}), rhs[${r}, ${r + match[1]})`);
+
         const [lMatchLen, rMatchLen] = match;
         writeToResultBuffer(lhsResultBuf, rhsResultBuf, l, l + lMatchLen, r, r + rMatchLen, DIFF_TYPE_UNCHANGED);
         l += lMatchLen;

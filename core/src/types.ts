@@ -42,3 +42,9 @@
 // }
 
 export type { DiffOptions } from "./diff";
+
+
+export type Span = {
+    start: number;
+    end: number;
+};

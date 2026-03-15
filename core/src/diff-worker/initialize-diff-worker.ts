@@ -1,4 +1,4 @@
-import { ABORT_REASON_CANCELLED } from "../shared/constants";
+import { ABORT_REASON_CANCELLED } from "../constants";
 import type { DiffOptions } from "../diff/types";
 import type { DiffWorkerResult, DiffWorkerResponse, DiffWorkerRequest } from "./types";
 // import DiffWorker from "./worker.ts?worker&inline";

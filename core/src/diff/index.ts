@@ -1,4 +1,4 @@
-export { getDefaultDiffOptions } from "./getDefaultDiffOptions";
+export { getDefaultDiffOptions } from "./get-default-diff-options";
 export type { DiffOptions, HistogramAnchorScoreOptions } from "./types";
 
 // export DIFF_TYPE

@@ -96,5 +96,5 @@
 // // Note: DiffseekEventMap is now exported from './public' and excludes internal events
 // // This allows external consumers to use the stable public API
 
-export { DiffseekEngine } from "./engine/DiffseekEngine";
+export { DiffseekEngine } from "./engine/diffseek-engine";
 export type * from "./types";

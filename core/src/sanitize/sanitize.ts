@@ -1,7 +1,7 @@
-import { TEXTLESS_ELEMENTS, VOID_ELEMENTS } from "../shared/constants";
-import { getElementPolicy } from "./elementPolicy";
-import { resolveFont, normalizeDingbatText } from "./normalizeFont";
-import { resolveColor } from "./resolveColor";
+import { TEXTLESS_ELEMENTS, VOID_ELEMENTS } from "../constants";
+import { getElementPolicy } from "./element-policies";
+import { resolveFont, normalizeDingbatText } from "./normalize-font";
+import { resolveColor } from "./resolve-color";
 import type { DingbatFont } from "./types";
 
 const START_TAG = "<!--StartFragment-->";

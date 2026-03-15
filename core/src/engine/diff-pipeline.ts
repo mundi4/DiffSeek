@@ -1,16 +1,15 @@
-import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from "../shared/constants";
-import type { initializeDiffWorker } from "../diff-worker/initializeDiffWorker";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_UNCHANGED, type DiffOptions } from "../diff";
-import type { Editor, TokenSnapshot } from "../editor/Editor";
+import type { initializeDiffWorker } from "../diff-worker/initialize-diff-worker";
+import type { DiffWorkerResult } from "../diff-worker/types";
+import type { Editor, TokenSnapshot } from "../editor/editor";
 import type { RenderedDiff } from "../renderer/types";
 import { Scheduler } from "../scheduler";
-import type { LineBoundaryInfo, Token } from "../tokenization";
-import { createRangeFromElement } from "../utils/createRangeFromElement";
-import type { AnchorManager } from "./AnchorManager";
-import type { DiffseekOptions } from "./DiffseekEngine";
-import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
-import type { DiffWorkerResult } from "../diff-worker/types";
+import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from "../constants";
+import type { Token } from "../tokenization";
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization";
+import type { AnchorManager } from "./anchor-manager";
+import type { DiffseekOptions } from "./diffseek-engine";
+import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
 
 export class DiffPipeline {
     private abortController: AbortController | null = null;
@@ -258,7 +257,6 @@ export class DiffPipeline {
                         if (line) {
                             which = line.startWhich;
                             where = line.startWhere;
-                            console.log("Empty diff: using line boundary for insertion point", { line, emptyPrevLineNum, emptyNextLineNum });
                         }
                     }
                 }
@@ -268,22 +266,18 @@ export class DiffPipeline {
                         if (emptyPrevToken.flags & TOKEN_FLAGS_STRUCTURAL_OPEN) {
                             which = emptyPrevToken.endNode;
                             where = "afterbegin";
-                            console.log("Empty diff: using structural open token for insertion point", { emptyPrevToken });
                         } else {
                             which = emptyPrevToken.endNode;
                             where = "afterend";
-                            console.log("Empty diff: using previous token end for insertion point", { emptyPrevToken });
                         }
                     }
                     if (!which) {
                         if (emptyNextToken!.flags & TOKEN_FLAGS_STRUCTURAL_CLOSE) {
                             which = emptyNextToken!.startNode;
                             where = "beforeend";
-                            console.log("Empty diff: using structural close token for insertion point", { emptyNextToken });
                         } else {
                             which = emptyNextToken!.startNode;
                             where = "beforebegin";
-                            console.log("Empty diff: using next token start for insertion point", { emptyNextToken });
                         }
                     }
                 }
@@ -345,7 +339,6 @@ export class DiffPipeline {
                     filledSnapshot, filledStart, filledEnd,
                     emptySnapshot, emptyStart, emptyEnd
                 );
-                console.log("createMarkerForEmptyDiff:", { filledStart, filledEnd, emptyStart, emptyEnd, emptyEl });
 
                 const emptyRange = document.createRange();
                 if (emptyEl) {

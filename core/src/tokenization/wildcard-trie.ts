@@ -1,6 +1,6 @@
-import { CHAR_META } from "../shared/charMeta";
-import { CM_TRIE_SHIFT } from "../shared/charMetaFlags";
-import { TOKEN_FLAGS_WILDCARD } from "./TokenFlags";
+import { CHAR_META } from "../char-meta";
+import { CM_TRIE_SHIFT } from "../char-meta-flags";
+import { TOKEN_FLAGS_WILDCARD } from "./token-flags";
 import { type BuildTrieWord, buildFlatTrie } from "./trie";
 
 function buildWildcardFlatTrie() {

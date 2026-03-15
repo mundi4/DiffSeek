@@ -1,14 +1,14 @@
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './TokenFlags';
-import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../shared/constants';
+import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
+import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../constants';
 import { Scheduler } from '../scheduler';
-import { hashStringFNV1aBase64 } from '../utils/hashStringFNV1aBase64';
-import { TextNodeCursor, type TextPos } from './TextNodeCursor';
-import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcardTrie';
+import { hashString } from '../utils/hashString';
+import { TextNodeCursor, type TextPos } from './text-node-cursor';
+import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcard-trie';
 import { matchFlatTrieAtCursor } from './trie';
-import { CHAR_META } from '../shared/charMeta';
-import { CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER, CM_NEEDS_NORM } from '../shared/charMetaFlags';
-import { NormalizeCharTable } from './NormalizeCharTable';
-import { CM_HEADING_START, tryMatchSectionHeading } from './tryMatchSectionHeading';
+import { CHAR_META } from '../char-meta';
+import { CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER, CM_NEEDS_NORM } from '../char-meta-flags';
+import { NormalizeCharTable } from './normalize-char-table';
+import { CM_HEADING_START, tryMatchSectionHeading } from './try-match-section-heading';
 import { type LineBoundaryInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
 
 const IGNORED_TAGS: Record<string, boolean> = {
@@ -357,7 +357,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
     const addImageToken = (img: HTMLImageElement) => {
         const src = img.src || `image${nextImageId++}`;
-        const text = hashStringFNV1aBase64(src);
+        const text = hashString(src);
 
         return addToken(
             "image",

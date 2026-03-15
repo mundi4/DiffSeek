@@ -1,5 +1,5 @@
-import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../shared/constants";
-import type { Editor } from "../editor/Editor";
+import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
+import type { Editor } from "../editor/editor";
 import { Scheduler } from "../scheduler";
 import type { AnchorPair } from "./types";
 

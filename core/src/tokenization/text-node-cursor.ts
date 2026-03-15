@@ -1,5 +1,5 @@
-import { CHAR_META } from "../shared/charMeta";
-import { CM_WS } from "../shared/charMetaFlags";
+import { CHAR_META } from "../char-meta";
+import { CM_WS } from "../char-meta-flags";
 
 export interface TextPos {
     nodeIndex: number;

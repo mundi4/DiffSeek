@@ -1,15 +1,15 @@
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
+import { CHAR_META } from '../char-meta';
+import { CM_LETTER, CM_NEEDS_NORM, CM_NUMBER, CM_WS, CM_WS_COLLAPSABLE } from '../char-meta-flags';
 import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../constants';
 import { Scheduler } from '../scheduler';
 import { hashString } from '../utils/hashString';
-import { TextNodeCursor, type TextPos } from './text-node-cursor';
-import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcard-trie';
-import { matchFlatTrieAtCursor } from './trie';
-import { CHAR_META } from '../char-meta';
-import { CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER, CM_NEEDS_NORM } from '../char-meta-flags';
 import { NormalizeCharTable } from './normalize-char-table';
+import { TextNodeCursor, type TextPos } from './text-node-cursor';
+import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
+import { matchFlatTrieAtCursor } from './trie';
 import { CM_HEADING_START, tryMatchSectionHeading } from './try-match-section-heading';
 import { type LineBoundaryInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
+import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcard-trie';
 
 const IGNORED_TAGS: Record<string, boolean> = {
     [MANUAL_ANCHOR_TAG_NAME]: true,
@@ -48,10 +48,6 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
     // 공백을 무시(주로 줄의 시작 부분)
     let isTrimMode = false;
-
-    let maxNumSegments = 0;
-    let numSegmentCalls = 0;
-    let totalSegmentCount = 0;
 
     // traverse 상태
     let current: HTMLElement;
@@ -373,10 +369,6 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
             return false;
         }
 
-        maxNumSegments = Math.max(maxNumSegments, textNodeBuf.length);
-        totalSegmentCount += textNodeBuf.length;
-        numSegmentCalls++;
-
         const cursor = new TextNodeCursor(textNodeBuf);
         // if (!cursor.moveNext()) {
         //     resetTextBuf();
@@ -685,8 +677,6 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
     scheduler.throwIfAborted();
 
     const elapsed = performance.now() - startTime;
-
-    console.log(`Max segments (in flushTextBuf): ${maxNumSegments}, Total segmenter calls: ${numSegmentCalls}, avg segments: ${numSegmentCalls > 0 ? (totalSegmentCount / numSegmentCalls).toFixed(2) : "N/A"}`);
 
     return {
         wholeText: wholeTextBuf.join(""),

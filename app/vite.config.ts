@@ -1,25 +1,34 @@
-import react from '@vitejs/plugin-react'
+import react, { reactCompilerPreset } from '@vitejs/plugin-react'
+import babel from '@rolldown/plugin-babel'
 import path from "path"
 import { defineConfig } from 'vite'
 
 export default defineConfig({
     plugins: [
-        react({
-            babel: {
-                plugins: [['babel-plugin-react-compiler']],
-            },
-        })
+        react(),
+        babel({ presets: [reactCompilerPreset()] })
     ],
     build: {
-        target: 'es2024',
+        target: 'esnext',
         outDir: 'dist',
+        assetsDir: ".",
         emptyOutDir: true,
-        assetsInlineLimit: 4096 * 8,
-        minify: false,//'esbuild',
-        rollupOptions: {
+        assetsInlineLimit: 4096 * 4096, // 웬만하면 다 inline
+        minify: "esbuild",
+        cssCodeSplit: false,
+        rolldownOptions: {
+            treeshake: true,
             output: {
+                format: "iife",
+                codeSplitting: false,
             }
         }
+        // rollupOptions: {
+        //     treeshake: true,
+        //     output: {
+        //         format: "iife"
+        //     }
+        // }
     },
     server: {
         port: 5200,

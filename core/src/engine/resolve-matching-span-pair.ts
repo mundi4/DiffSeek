@@ -1,6 +1,6 @@
 import { TOKEN_BUFFER_STRIDE } from "../constants";
 import type { EditorName } from "../editor";
-import type { Span } from "../shared/types";
+import type { Span } from "../types";
 import type { DiffContext } from "./types";
 
 /**

@@ -1,7 +1,7 @@
 import { useDiffseekActions } from "@/bridge/DiffseekProvider";
 import { diffsAtom, hoveredDiffIndexAtom, visibleDiffIndexesAtom } from "@/states/coreAtoms";
 import { extractTextFromRange } from "@/utils/extractTextFromRange";
-import { ActionIcon, Box, Stack, Text } from "@mantine/core";
+import { ActionIcon, Box, Stack } from "@mantine/core";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { useCallback, useRef, type MouseEvent } from "react";

@@ -6,10 +6,9 @@ const DATA_STRIDE = 5;
 export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions: DiffOptions): { input: DiffInput; lineCount: number } {
     const tokenCount = data.length / DATA_STRIDE;
 
-    // 토큰의 경계가 항상 공백과 100% 일치하지는 않으므로 공백을 정규화해서 buffer에 넣을 경우 예상치 못한 상황이 생길 수 있음
-    // "AB" vs "A" 
-    // 왼쪽A는 후행공백이 없고 오른쪽 A는 후행공백(줄바꿈)이 있으므로 매치가 안됨.
-    const insertSpace = false;//diffOptions.whitespace === "collapse";
+    // 공백을 넣어줘야 자연스럽게 공백을 포함한 텍스트로 sa가 만들어짐.
+    const insertSpace = _diffOptions.whitespace === "collapse";
+
     const flagsArray = new Uint32Array(tokenCount);
     const offsetArray = new Uint32Array(tokenCount + 1);
 

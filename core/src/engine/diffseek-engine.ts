@@ -22,10 +22,12 @@ const defaultOptions: DiffseekOptions = {
         60, // 노랑
         270, // 보라?
     ],
+    readonlySyncMode: false,
 }
 
 export type DiffseekOptions = {
     diffPalette: number[];
+    readonlySyncMode: boolean;
 }
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
@@ -129,7 +131,6 @@ export class DiffseekEngine {
      * Diff 옵션 업데이트
      */
     updateDiffOptions(newOptions: Partial<DiffOptions>, runWorkflow: boolean = true) {
-        console.log("Updating diff options:", newOptions);
         // 실제로 변경된 값일 때만 적용
         const keys = Object.keys(newOptions) as (keyof DiffOptions)[];
         let newDiffOptions: DiffOptions | undefined = undefined;
@@ -178,7 +179,6 @@ export class DiffseekEngine {
             focus: (editor) => {
                 this.focusedEditor = editor;
                 this.lastActiveEditor = editor;
-                console.log("Editor focused:", editor.name);
             },
             blur: (editor) => {
                 if (this.focusedEditor === editor) {
@@ -299,7 +299,6 @@ export class DiffseekEngine {
         if (this.lastEditorWidth[editor.name] !== width) {
             this.lastEditorWidth[editor.name] = width;
             if (this._syncMode) {
-                console.log("Editor resized, realigning anchors...");
                 this.alignAnchors();
             }
         }
@@ -340,6 +339,8 @@ export class DiffseekEngine {
     }
 
     set syncMode(value: boolean) {
+        value = !!value;
+
         if (value === this._syncMode) {
             return;
         }
@@ -352,8 +353,8 @@ export class DiffseekEngine {
         }
 
         this._syncMode = value;
-        this.leftEditor.isSyncMode = value;
-        this.rightEditor.isSyncMode = value;
+        this.leftEditor.isReadOnly = this.options.readonlySyncMode && value;
+        this.rightEditor.isReadOnly = this.options.readonlySyncMode && value;
         this.renderer.isSyncMode = value;
         this.workspaceEl.classList.toggle("sync-mode", value);
 
@@ -392,7 +393,6 @@ export class DiffseekEngine {
 
     scrollToDiff(diffIndex: number, side?: EditorName, options?: ScrollIntoViewOptions) {
         const sides: EditorName[] = side ? [side] : this._syncMode ? ["left"] : ["left", "right"];
-        console.log("Scrolling to diff", diffIndex, side, "sides:", sides, "options:", options);
         for (const s of sides) {
             const rect = this.renderer.getDiffRect(s, diffIndex);
             if (rect) {
@@ -476,14 +476,20 @@ export class DiffseekEngine {
 
             this.renderer.setDiffs(diffContext.diffs);
 
-            this.renderer.resumeRendering();
+            if (this._syncMode) {
+                await this.alignAnchors();
+            }
+
             this.renderer.invalidateAll();
+            this.renderer.resumeRendering();
 
             this.setDiffContext(diffContext);
             this.statusChanged.emit({ phase: 'idle' });
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {
-                console.debug("Diff workflow cancelled");
+                if (import.meta.env.DEV) {
+                    console.debug("Diff workflow cancelled");
+                }
             } else {
                 console.error("Diff workflow error:", err);
             }
@@ -498,6 +504,7 @@ export class DiffseekEngine {
         const controller = this.alignAnchorsAbortController = new AbortController();
         try {
             this.programmaticScrollInProgress++;
+
             await this.anchorManager.alignAnchors(controller.signal);
             this.renderer.invalidateGeometries();
 
@@ -523,7 +530,6 @@ export class DiffseekEngine {
 
     private setDiffContext(diffContext: DiffContext | null) {
         if (this.diffContext !== diffContext) {
-            console.log("Diff context changed:", diffContext);
             if (this.diffContext) {
                 this.diffContext.isValid = false;
             }

@@ -98,3 +98,8 @@
 
 export { DiffseekEngine } from "./engine/diffseek-engine";
 export type * from "./types";
+
+export { getDefaultDiffOptions } from "./diff/get-default-diff-options";
+
+export { type DiffWorkflowStatus } from "./engine/types";
+export { type RenderedDiff } from "./renderer";

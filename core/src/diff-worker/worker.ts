@@ -219,7 +219,6 @@ async function runDiffJob(workItem: WorkItem, abortSignal: AbortSignal): Promise
     }
 
     const elapsedTime = performance.now() - startTime;
-    console.debug(`%cDiff job completed in ${elapsedTime.toFixed(2)} ms %c(left tokens: ${leftTokenCount}, right tokens: ${rightTokenCount})`, "color:green", "color:gray");
 
     return {
         leftResultBuffer,

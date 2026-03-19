@@ -36,7 +36,6 @@ export class DiffPipeline {
     }): Promise<DiffContext> {
         this.cancel();
 
-        const startTime = performance.now();
         const controller = new AbortController();
         this.abortController = controller;
         const signal = controller.signal;
@@ -49,18 +48,11 @@ export class DiffPipeline {
             const leftTokenSnapshot = await this.leftEditor.waitForTokens();
             const rightTokenSnapshot = await this.rightEditor.waitForTokens();
 
-            const tokenizationDoneTime = performance.now();
-            console.log(`Tokenization time: ${tokenizationDoneTime - startTime} ms`);
-
             const leftTokensData = this.serializeTokens(leftTokenSnapshot.tokens);
             scheduler.throwIfAborted();
             const rightTokensData = this.serializeTokens(rightTokenSnapshot.tokens);
             scheduler.throwIfAborted();
 
-            const serializationDoneTime = performance.now();
-            console.log(`Token serialization time: ${serializationDoneTime - tokenizationDoneTime} ms`);
-
-            // 2. 워커 실행
             this.onStatus({ phase: "diffing", progress: 0 });
 
             const workerResult = await this.diffWorker.run({
@@ -75,8 +67,10 @@ export class DiffPipeline {
             });
 
             scheduler.throwIfAborted();
-            const diffingDoneTime = performance.now();
-            console.log(`Diffing time: ${diffingDoneTime - serializationDoneTime} ms`);
+
+            if (import.meta.env.DEV) {
+                console.debug(`Diff worker completed in ${workerResult.elapsedTime.toFixed(2)} ms.`);
+            }
 
             this.onStatus({ phase: "processing", progress: 0 });
 
@@ -94,12 +88,6 @@ export class DiffPipeline {
             });
 
             scheduler.throwIfAborted();
-
-            const processingDoneTime = performance.now();
-            console.log(`Post-processing time: ${processingDoneTime - diffingDoneTime} ms`);
-
-            const endTime = performance.now();
-            console.log(`Total DiffPipeline run time: ${endTime - startTime} ms`);
 
             return diffContext;
         } finally {

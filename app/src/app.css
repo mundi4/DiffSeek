@@ -121,11 +121,12 @@ body {
   padding: 4px 4px;
   align-items: center;
   font-size: 12px;
+  border-radius: var(--mantine-radius-sm);
   cursor: pointer;
 }
 
 .diff-list-item:hover,
-diff-list-item--highlighted {
+.diff-list-item--highlighted {
   --diff-hue: 0 !important;
 }
 

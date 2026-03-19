@@ -20,8 +20,6 @@ export function App() {
     const hostRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
-        console.log("mounting DiffseekRuntime...");
-
         if (!hostRef.current!.firstElementChild) {
             hostRef.current!.appendChild(engine.workspaceEl);
         }

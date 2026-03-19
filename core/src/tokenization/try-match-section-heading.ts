@@ -28,19 +28,16 @@ type NumberingMatch = {
 };
 
 function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
-    // console.log("Trying to match law article...");
     let code: number = -1;
     let meta: number = 0;
 
     code = skipWs(cursor);
     if (code < 0x30 || code > 0x39) {
-        // console.log("Expected digit after '제', but not found.", { char: String.fromCharCode(code), code });
         return null;
     }
 
     let number = parseAsciiNumber(cursor, code);
     if (!number) {
-        // console.log("Failed to parse law article number.");
         return null;
     }
 
@@ -52,14 +49,11 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
     }
 
     if (code !== 0xc870) { // 조
-        // console.log("Expected '조' after law article number, but not found.", { char: String.fromCharCode(code), code });
         return null;
     }
 
-    // console.log("Matched law article number.", { number });
-
-    // 허용되는 다음 문자
     code = cursor.peek();
+
     if (code !== -1) {
         // code = cursor.current;
         if (code === 46 // 제1조.
@@ -67,8 +61,6 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
             || CHAR_META[code] & CM_WS) { // "제1조 "
             // good
         } else {
-            // console.log("Unexpected character after law article number.", { char: String.fromCharCode(code), code });
-            // 실패.
             return null;
         }
     }

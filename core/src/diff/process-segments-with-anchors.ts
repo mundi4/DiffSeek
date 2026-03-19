@@ -123,7 +123,6 @@ function markUnchanged(lhs: DiffInput, rhs: DiffInput, lhsPos: number, lhsEnd: n
             writeToResultBuffer(lhsResultBuf, rhsResultBuf, l, lhsEnd, r, rhsEnd, DIFF_TYPE_UNCHANGED);
             return;
         }
-        // console.log(`Marking unchanged segment: lhs[${l}, ${l + match[0]}), rhs[${r}, ${r + match[1]})`);
 
         const [lMatchLen, rMatchLen] = match;
         writeToResultBuffer(lhsResultBuf, rhsResultBuf, l, l + lMatchLen, r, r + rMatchLen, DIFF_TYPE_UNCHANGED);

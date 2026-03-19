@@ -27,8 +27,6 @@ export class AnchorManager {
         this.previouslyUsedMarkers = this.markerElements;
         this.markerElements = new Set();
         this.anchorPairs.length = 0;
-
-        console.log("AnchorManager: beginUpdate, previous markers:", this.previouslyUsedMarkers, this.markerElements);
     }
 
     endUpdate() {
@@ -38,7 +36,6 @@ export class AnchorManager {
         }
         this.cleanupUnsuedMarkers();
         this.previouslyUsedMarkers = null;
-        console.log("AnchorManager: endUpdate, current markers:", this.markerElements);
     }
 
     createAnchorPair(
@@ -60,7 +57,6 @@ export class AnchorManager {
             delta: 0,
         };
 
-        console.log("Created anchor pair:", pair);
         this.markerElements.add(leftEl);
         this.markerElements.add(rightEl);
         this.anchorPairs.push(pair);
@@ -117,7 +113,6 @@ export class AnchorManager {
         }
 
         this.markerElements.add(el);
-        // console.log("getOrCreateMarkerElement: returning marker element", { tagName, which, where, el });
 
         return el;
     }
@@ -148,7 +143,6 @@ export class AnchorManager {
                     const scheduler = new Scheduler({ signal: abortSignal, yieldInterval: 0 });
                     const anchorPairs = this.anchorPairs;
 
-                    const startTime = performance.now();
                     const leftEditor = this.leftEditor;
                     const rightEditor = this.rightEditor;
 
@@ -236,10 +230,6 @@ export class AnchorManager {
                         rightEditor.heightBoostElement.style.height = `0px`;
                     }
 
-                    const elapsed = performance.now() - startTime;
-                    if (import.meta.env.DEV) {
-                        console.debug(`Anchors aligned in ${elapsed.toFixed(1)}ms`);
-                    }
                     resolve();
                 } catch (e) {
                     if (e === ABORT_REASON_CANCELLED) {

@@ -7,6 +7,11 @@ const defaultDiffOptions: DiffOptions = {
     whitespace: "collapse",
 
     // ─────────────────────────────
+    // Tokenization
+    // ─────────────────────────────
+    mergeNonWordTokens: false,
+
+    // ─────────────────────────────
     // Patience Diff
     // ─────────────────────────────
     usePatience: true,

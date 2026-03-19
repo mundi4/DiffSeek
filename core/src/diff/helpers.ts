@@ -57,7 +57,6 @@ export function matchPrefixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lIdx
         }
 
         // [전이 구간] 한쪽만 끝났다면 다음 토큰으로 목표 갱신 (Flag 검사)
-
         if (isLReached) {
             if (++i === lUpper) return null; // 더 갈 곳 없으면 동기화 실패
             // const prevF = lhsFlags[i - 1];

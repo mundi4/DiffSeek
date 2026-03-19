@@ -9,9 +9,6 @@ export function buildPatienceAnchors(
     rhsLineCount: number,
     ignoreWhitespaces: boolean
 ): DiffAnchor[] {
-
-    console.debug("Building patience anchors...", { lhsLineCount, rhsLineCount, ignoreWhitespaces });
-
     const HASH_MASK = 0xFFFF;
     const MIN_TEXT_LEN = 5;
     const LINE_BUFFER_STRIDE = 4;

@@ -15,8 +15,6 @@ export class EditorRegion {
     #selectionHighlightRects: RectSet | null = null;
     #visibleDiffIndices: Set<number> = new Set();
     #visibleDiffIndicesArr: number[] = [];
-    // #ctx: CanvasRenderingContext2D;
-    // #highlightCtx: CanvasRenderingContext2D;
     regionX: number = 0;
     regionY: number = 0;
     regionWidth: number = 0;

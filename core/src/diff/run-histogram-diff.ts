@@ -18,15 +18,12 @@ export function runHistogramDiff(ctx: DiffJobContext, lhsInput: DiffInput, rhsIn
 
 const HASH_SIZE = 0xfffff + 1;
 const HEAD = new Int32Array(HASH_SIZE);
+const YIELD_INTERVAL = 0xff as const;
 
 function createRunHistogramDiff(bitWidth: 16 | 32) {
     const IndexArray = bitWidth === 16 ? Uint16Array : Uint32Array;
-    // const MAX_VALUE = bitWidth === 16 ? 0xffff : 0xffffffff;
-    // center: ±20%
-    // band:   ±50%
-    // 앵커의 centerness를 판단하는 기준 범위
-    const CENTER_RANGE_RATIO = 0.2; // 중앙의 20% 영역
-    const BAND_RANGE_RATIO = 0.5; // 중앙의 50% 영역
+    const CENTER_RANGE_RATIO = 0.2 as const; // 중앙의 20% 영역
+    const BAND_RANGE_RATIO = 0.5 as const; // 중앙의 50% 영역
 
     return async function runHistogramDiff(
         ctx: DiffJobContext,
@@ -59,16 +56,13 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
         let _yieldCounter = 0;
         let _lastYieldTime = Date.now();
 
-        async function yieldIfNeeded(progress?: number) {
+        async function yieldIfNeeded(bypass = false) {
             const now = performance.now();
-            if (now - _lastYieldTime > MIN_YIELD_INTERVAL) {
+            if (bypass || (now - _lastYieldTime > MIN_YIELD_INTERVAL)) {
+                _yieldCounter = 0;
                 _lastYieldTime = now;
                 await new Promise((resolve) => setTimeout(resolve, 0));
                 abortSignal.throwIfAborted();
-            }
-
-            if (progress !== undefined) {
-                //postProgress(progress);
             }
         }
 
@@ -77,7 +71,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
         const { sa: _sa, lcp: _lcp } = buildIndexTables(lhsInput, rhsInput, _lhsIds, _rhsIds, _pivot);
 
         async function diffCore(lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number): Promise<void> {
-            // console.log(`%cdiffCore called with lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`, "color:orange");
             if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
                 throw new Error(`Invalid range: lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`);
             }
@@ -101,20 +94,22 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                 return;
             }
 
-            if ((_yieldCounter++ & 0x1ff) === 0) {
-                await yieldIfNeeded();
-            }
 
             if (allowHistogramBitWidthSwitching && (lhsCount + rhsCount) < 0xffff) {
                 // 현재 구간이 16-bit 히스토그램으로 처리 가능한 크기라면, 비트 폭을 낮춰서 시도함.
                 // 이게 얼마나 이득이 될 지는 모르겠음.
-                // if (import.meta.env.DEV) {
-                //     console.log(`%cSwitching to 16-bit histogram diff for lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`, "color:pink");
-                // }
+                await yieldIfNeeded(true);
+                if (import.meta.env.DEV) {
+                    console.debug(`%cSwitching to 16-bit histogram diff for lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`, "color:pink");
+                }
                 const newLhsInput = sliceDiffInput(lhsInput, lhsLower, lhsUpper);
                 const newRhsInput = sliceDiffInput(rhsInput, rhsLower, rhsUpper);
                 await runHistogramDiff16(ctx, newLhsInput, newRhsInput, lhsResultOffset + lhsLower, rhsResultOffset + rhsLower);
                 return;
+            } else {
+                if ((++_yieldCounter & YIELD_INTERVAL) === 0) {
+                    await yieldIfNeeded();
+                }
             }
 
             const anchor = await findAnchor(lhsLower, lhsUpper, rhsLower, rhsUpper);
@@ -127,13 +122,7 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                     console.warn(`Anchor length mismatch: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Adjusting to minimum of the two.`);
                 }
 
-                // const anchorText = tokenRangeToString(lhsInput.buffer, _lhsOffsets, anchor.lhsStart, anchor.lhsEnd);
-                // console.debug(`%cFound anchor: lhs[${anchor.lhsStart}, ${anchor.lhsEnd}), rhs[${anchor.rhsStart}, ${anchor.rhsEnd}), text: "${anchorText}"`,
-                //     "color:green"
-                // );
-
                 let [tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart, 2);
-                // console.log(`%cbackward consumed:, L: ${anchor.lhsStart - tmpLhsLower}, R: ${anchor.rhsStart - tmpRhsLower}`, "color:blue");
                 if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
                     await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
                 }
@@ -154,8 +143,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                 }
 
             } else {
-                // console.log(`%cNo suitable anchor found for lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper}). Marking as diff.`, "color:red");
-
                 if (_ignoreWhitespaces) {
                     // 앵커를 찾지 못한 경우에도 consume 시도
                     ([lhsLower, lhsUpper, rhsLower, rhsUpper] = consumeCommonEdges(lhsLower, lhsUpper, rhsLower, rhsUpper, 3));
@@ -172,7 +159,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                     _rightTokenProcessed += rhsUpper - rhsLower;
                 }
             }
-            // console.log(`%cdiffCore finished with lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`, "color:orange");
         }
 
         const {
@@ -188,12 +174,24 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
             maxBonus
         } = ctx.score;
 
+
         let stack = new IndexArray(1024 * 2);
+        type AnchorCandidate = {
+            h: number,
+            lo: number,
+            hi: number,
+            baseScore: number,
+            bestPossibleScore: number
+        };
+
+        const MAX_NUM_ANCHOR_CANDIDATES = 20;
+        const anchorCandidates: AnchorCandidate[] = new Array(MAX_NUM_ANCHOR_CANDIDATES);
+        for (let i = 0; i < MAX_NUM_ANCHOR_CANDIDATES; i++) {
+            anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0 };
+        }
 
 
         async function findAnchor(lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number): Promise<DiffAnchor | null> {
-            // console.log(`findAnchor called with lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`);
-
             const MAX_BONUS_SCORE = maxBonus;
 
             const lhsRange = lhsUpper - lhsLower;
@@ -210,17 +208,77 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
 
             let bestScore = -1, bestAnchorPosL = -1, bestAnchorPosR = -1, bestAnchorLen = 0;
 
+            let lPosBuf = _lhsResultBuffer.subarray(lhsLower * RESULT_BUFFER_STRIDE, lhsUpper * RESULT_BUFFER_STRIDE),
+                rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
+
+            let numCandidates = 0;
+            function squashAnchorCandidates() {
+                for (let i = 0; i < numCandidates; i++) {
+                    let numL = 0, numR = 0;
+                    const { h, lo, hi, baseScore, bestPossibleScore } = anchorCandidates[i];
+                    if (bestPossibleScore <= bestScore) {
+                        continue;
+                    }
+
+                    for (let k = lo; k <= hi; k++) {
+                        const j = _sa[k];
+                        const jEnd = j + h;
+                        if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper) {
+                            lPosBuf[numL++] = j;
+                        } else if (j >= rhsLoG && j < rhsHiG && jEnd <= rhsHiG) {
+                            rPosBuf[numR++] = j - _pivot;
+                        }
+                    }
+
+                    for (let x = 0; x < numL; x++) {
+                        const l = lPosBuf[x];
+                        const lf = _lhsFlags[l];
+                        for (let y = 0; y < numR; y++) {
+                            const r = rPosBuf[y];
+                            let policyGrade = 0;
+                            const rf = _rhsFlags[r];
+                            if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
+                                policyGrade = 2;
+                            } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
+                                policyGrade = 1;
+                            }
+
+                            let posGrade = 0;
+
+                            const lCenterDist2 = (l << 1) + h - lhsCenter2;
+                            const rCenterDist2 = (r << 1) + h - rhsCenter2;
+
+                            const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
+                            const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
+
+                            if (absL <= lhsHalf2 && absR <= rhsHalf2) {
+                                posGrade = 2;
+                            } else if (absL <= lhsBand2 && absR <= rhsBand2) {
+                                posGrade = 1;
+                            }
+
+                            const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
+                            const finalScore = baseScore + bonusScore;
+                            if (finalScore > bestScore) {
+                                bestScore = finalScore;
+                                bestAnchorPosL = l;
+                                bestAnchorPosR = r;
+                                bestAnchorLen = h;
+                            }
+                        }
+                    }
+                }
+                numCandidates = 0;
+            }
+
             // 1. LCP Stack 기반의 Interval 순회 (중복 제거)
 
             //const stack = [{ lo: 0, h: 0 }];
             let stackSize = 0;
-            let maxFreqGrade = 1;
+
             stack[0] = 0;
             stack[1] = 0;
             stackSize = 1;
-
-            let lPosBuf = _lhsResultBuffer.subarray(lhsLower * RESULT_BUFFER_STRIDE, lhsUpper * RESULT_BUFFER_STRIDE),
-                rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
 
             const sa = _sa;
             const lcp = _lcp;
@@ -228,63 +286,59 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
             const rhsLoG = _pivot + rhsLower;
             const rhsHiG = _pivot + rhsUpper;
 
-            // console.log(`Starting LCP stack processing for sa[0..${n}), rhsSa[${rhsLoG}..${rhsHiG})`, "color:red");
-
-            // let numIterations = 0;
-            // let maxHSeen = 0;
             for (let i = 1; i <= n; i++) {
                 let lastLo = i - 1;
                 const currentLCP = (i === n) ? 0 : lcp[i];
-                // console.log(`%cProcessing suffix array index ${i}/${n}, currentLCP: ${currentLCP}, stackSize: ${stackSize}`, "color:orange");
                 while (stackSize > 0 && stack[(stackSize - 1) * 2 + 1] > currentLCP) {
-                    // ++numIterations;
                     stackSize--;
                     const lo = stack[stackSize * 2];
                     const h = stack[stackSize * 2 + 1];
-                    // if (h > maxHSeen) maxHSeen = h;
-                    // console.debug(`%cProcessing interval [${lo}, ${i}) with LCP ${h} (currentLCP: ${currentLCP})`, "color:blue");
 
                     if (h === 0) {
                         lastLo = lo;
                         continue;
                     }
-                    // const interval = stack.pop()!;
-                    // const { lo, h } = interval;
+
                     const hi = i - 1;
-                    // --------------------------------------------------------
-                    // 2. 이 구간(lo~hi)이 우리 박스 안에서 유효한지 평가
-                    // --------------------------------------------------------
+
+                    // 이 구간(lo~hi)이 우리 박스 안에서 유효한지 확인
                     let freqL = 0, freqR = 0;
                     // let minPosL = lhsUpper, minPosR = rhsUpper;
-                    let freqGrade = maxFreqGrade + 1;
+                    let lengthGrade = 0;
                     let textLen = -1;
+                    let freqGrade: number;
+                    let baseScore = 0;
                     for (let k = lo; k <= hi; k++) {
                         const j = sa[k];
-                        //console.log("j:", j, "h:", h, "lo:", lo, "hi:", hi, "pivot:", pivot);
                         const jEnd = j + h;
                         // 클로저 내의 박스 경계 조건 체크
                         if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper && freqL < fMax) {
-                            //console.log(`Found candidate in LHS at j: ${j}, jEnd: ${jEnd}`);
-                            lPosBuf[freqL] = j;
+                            // lPosBuf[freqL] = j;
                             freqL++;
                             // 왼쪽에서만 계산해도 됨. 어차피 왼쪽에서 한번도 등장하지 않는다면 이후로는 무시할 거니까!
                             if (textLen === -1) {
                                 textLen = _lhsOffsets[jEnd] - _lhsOffsets[j];
+                                lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
                             }
                             if (freqR > 0) {
                                 freqGrade = freqLUT[freqL * fStride + freqR];
-                                if (freqGrade > maxFreqGrade) {
+                                baseScore = core[fRow[freqGrade] + lengthGrade];
+                                if (baseScore + MAX_BONUS_SCORE < bestScore) {
+                                    // 쓰레기
+                                    baseScore = 0;
                                     break;
                                 }
                             }
                             if (freqL === fMax && freqR === fMax) break;
                         } else if (j >= rhsLoG && j < rhsHiG && jEnd <= rhsHiG && freqR < fMax) {
-                            //console.log(`Found candidate in RHS at : ${j - pivot}, jEnd: ${jEnd - pivot}`);
-                            rPosBuf[freqR] = j - _pivot;
+                            // rPosBuf[freqR] = j - _pivot;
                             freqR++;
                             if (freqL > 0) {
                                 freqGrade = freqLUT[freqL * fStride + freqR];
-                                if (freqGrade > maxFreqGrade) {
+                                baseScore = core[fRow[freqGrade] + lengthGrade];
+                                if (baseScore + MAX_BONUS_SCORE < bestScore) {
+                                    // 쓰레기
+                                    baseScore = 0;
                                     break;
                                 }
                             }
@@ -292,62 +346,15 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                         }
                     }
 
-                    //console.log(`Interval [${lo}, ${hi}] has freqL: ${freqL}, freqR: ${freqR}, textLen: ${textLen}, freqGrade: ${freqGrade}`);
-
-                    if (freqGrade <= maxFreqGrade) {
-                        if (textLen > lMax) textLen = lMax;
-                        const lGrade = lenLUT[textLen];
-                        const baseScore = core[fRow[freqGrade] + lGrade];
-
-                        // 현재 최고점보다 나을 가능성이 있다면 L x R 조합 수행
-                        if (baseScore + MAX_BONUS_SCORE > bestScore) {
-                            const limitL = freqL;
-                            const limitR = freqR;
-                            for (let x = 0; x < limitL; x++) {
-                                const l = lPosBuf[x];
-                                const lf = _lhsFlags[l];
-                                for (let y = 0; y < limitR; y++) {
-                                    const r = rPosBuf[y];
-
-                                    // 헤딩 또는 줄시작 보너스
-                                    let policyGrade = 0;
-                                    const rf = _rhsFlags[r];
-                                    // heading 최우선
-                                    if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-                                        policyGrade = 2;
-                                    }
-                                    // line-start 차선
-                                    else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
-                                        policyGrade = 1;
-                                    }
-
-                                    // posGrade = 현재는 중앙에 가까울 때 보너스
-                                    let posGrade = 0;
-
-                                    const lCenterDist2 = (l << 1) + h - lhsCenter2;
-                                    const rCenterDist2 = (r << 1) + h - rhsCenter2;
-
-                                    const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
-                                    const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
-
-                                    if (absL <= lhsHalf2 && absR <= rhsHalf2) {
-                                        posGrade = 2;
-                                    } else if (absL <= lhsBand2 && absR <= rhsBand2) {
-                                        posGrade = 1;
-                                    }
-
-                                    const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
-                                    const totalScore = baseScore + bonusScore;
-                                    if (totalScore >= bestScore) {
-                                        bestScore = totalScore;
-                                        bestAnchorPosL = l;
-                                        bestAnchorPosR = r;
-                                        bestAnchorLen = h;
-                                        // console.log(`New best anchor found at lhs: ${l}, rhs: ${r}, len: ${h},textLen: ${textLen} baseScore: ${baseScore}, bonusScore: ${bonusScore}, posGrade: ${posGrade}, policyGrade: ${policyGrade}, totalScore: ${totalScore}`,
-                                        // "color:green");
-                                    }
-                                }
-                            }
+                    if (baseScore > 0) {
+                        anchorCandidates[numCandidates].h = h;
+                        anchorCandidates[numCandidates].lo = lo;
+                        anchorCandidates[numCandidates].hi = hi;
+                        anchorCandidates[numCandidates].baseScore = baseScore;
+                        anchorCandidates[numCandidates].bestPossibleScore = baseScore + MAX_BONUS_SCORE;
+                        numCandidates++;
+                        if (numCandidates === MAX_NUM_ANCHOR_CANDIDATES) {
+                            squashAnchorCandidates();
                         }
                     }
                     // --------------------------------------------------------
@@ -366,13 +373,15 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                     stackSize++;
                 }
 
-                if ((_yieldCounter++ & 0x1ff) === 0) {
+                if ((++_yieldCounter & YIELD_INTERVAL) === 0) {
                     await yieldIfNeeded();
                 }
             }
 
-            //console.log("%c LCP stack processing completed. Total iterations: " + numIterations, "color:green");
-            // console.log(`%c LCP stack processing completed. Total iterations: ${numIterations}, max h seen: ${maxHSeen}`, "color:orange");
+            if (numCandidates > 0) {
+                squashAnchorCandidates();
+            }
+
             if (bestAnchorPosL !== -1) {
                 return {
                     lhsStart: bestAnchorPosL,

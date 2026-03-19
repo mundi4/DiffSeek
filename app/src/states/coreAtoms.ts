@@ -1,6 +1,4 @@
-import { getDefaultDiffOptions } from "@core/diff/getDefaultDiffOptions";
-import type { DiffWorkflowStatus } from "@core/DiffseekEngine";
-import type { RenderedDiff } from "@core";
+import { getDefaultDiffOptions, type DiffWorkflowStatus, type RenderedDiff } from "@core";
 import { atom } from "jotai";
 
 export const syncModeAtom = atom<boolean>(false);

@@ -22,7 +22,6 @@ export class Scheduler {
      * 가장 가까운 2^n - 1 형태의 비트마스크를 찾음
      */
     private findNearestMask(value: number): number {
-        //console.log("Finding nearest mask for value:", value);
         //if (value <= 0) return 0x7f;  // 기본값: 127 (2^7 - 1)
 
         // 의도적으로 0을 넣어서 yieldInterval 무시. 호출하는 쪽에서 직접 체크하고 싶을 때!

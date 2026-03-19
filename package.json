@@ -8,14 +8,17 @@
   ],
   "scripts": {
     "dev": "npm run dev -w app",
-    "build": "npm run build -w core && npm run build -w app",
+    "build": "node scripts/build.ts",
     "test": "vitest",
     "test:ui": "vitest --ui"
   },
   "devDependencies": {
-    "@types/node": "latest",
-    "@vitest/ui": "latest",
-    "typescript": "latest",
-    "vitest": "latest"
-  }
+    "@types/archiver": "^7.0.0",
+    "@types/node": "^25.5.0",
+    "@vitest/ui": "^4.1.0",
+    "archiver": "^7.0.1",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.0"
+  },
+  "dependencies": {}
 }

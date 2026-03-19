@@ -1,8 +1,7 @@
 import { ABORT_REASON_CANCELLED } from "../constants";
 import type { DiffOptions } from "../diff/types";
 import type { DiffWorkerResult, DiffWorkerResponse, DiffWorkerRequest } from "./types";
-// import DiffWorker from "./worker.ts?worker&inline";
-import DiffWorker from "./worker.ts?worker";
+import DiffWorker from "./worker.ts?worker&inline";
 
 export type DiffWorkerArgs = {
     leftWholeText: string;
@@ -37,16 +36,10 @@ export function initializeDiffWorker() {
         const data = e.data;
         if (data.reqId === currentReqId) {
             if (data.type === "done") {
-                // console.log("worker done", data.reqId);
                 currentCtx?.onStatus?.({ type: "done" });
                 if (currentCtx) {
 
-                    // for (let i = 0; i < data.leftTokenBuffer.length / 5; i++) {
-                    //     console.log("LHSBUF: #", i, data.leftTokenBuffer[i * 5 + 0], data.leftTokenBuffer[i * 5 + 1], data.leftTokenBuffer[i * 5 + 2], data.leftTokenBuffer[i * 5 + 3], data.leftTokenBuffer[i * 5 + 4]);
-                    // }
-
                     currentCtx.resolve({
-                        //diffs: data.diffs,
                         leftResultBuffer: data.leftResultBuffer,
                         rightResultBuffer: data.rightResultBuffer,
                         elapsedTime: data.elapsedTime,
@@ -59,7 +52,7 @@ export function initializeDiffWorker() {
                 currentCtx?.onStatus?.({ type: "start" });
             } else if (data.type === "aborted") {
                 if (import.meta.env.DEV) {
-                    console.log("diff request aborted (reqId: " + data.reqId + ")");
+                    console.debug("diff request aborted (reqId: " + data.reqId + ")");
                 }
                 currentCtx?.onStatus?.({ type: "aborted" });
                 currentCtx?.reject(ABORT_REASON_CANCELLED);

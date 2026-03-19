@@ -1,14 +1,14 @@
 import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
-import type { LineBoundaryInfo, Token } from "../tokenization";
+import type { LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
 import type { Span } from "../types";
 import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
 import { paragraphizePlainText } from "./paragraphize-plain-text";
-import type { EditorContext, EditorName, EditorSettings } from "./types";
+import type { EditorContext, EditorName, EditorOptions } from "./types";
 
-const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000;
+const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000 as const;
 
 export type EditorCallbacks = {
     contentChanging?: (editor: Editor) => void;
@@ -28,9 +28,9 @@ export type EditorCallbacks = {
 const INITIAL_CONTENT_HTML = document.createElement("P");
 INITIAL_CONTENT_HTML.appendChild(document.createElement("BR"));
 
-const DEFAULT_EDITOR_SETTINGS: EditorSettings = {
+const DEFAULT_EDITOR_OPTIONS: EditorOptions = {
     lineHeight: 1.5,
-    altArrowScrollLines: 3
+    altArrowScrollLines: 3,
 };
 
 export type TokenSnapshot = {
@@ -50,14 +50,15 @@ export class Editor implements EditorContext {
     tokens: readonly Token[] = [];
     lineBoundaries: readonly LineBoundaryInfo[] = [];
 
-    settings: EditorSettings;
+    options: EditorOptions;
     mutationObserver: MutationObserver;
     callbacks: EditorCallbacks = {};
-    _isSyncMode: boolean = false;
+    _isReadOnly: boolean = false;
     // mountHelper: ReturnType<typeof mountHelper>;
     resizeObserver = new ResizeObserver(() => this.onResize());
     // tokenizer: Tokenizer = new Tokenizer();
     tokenizeAbortController: AbortController | null = null;
+    tokenizeOptions: TokenizerOptions = {};
 
     private savedScroll: { ref: HTMLElement; targetTop: number } | null = null;
     private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve({ wholeText: "", tokens: [], lineBoundaries: [] });
@@ -65,11 +66,11 @@ export class Editor implements EditorContext {
     private _tokenizingPromiseRejecter: ((err: any) => void) = () => { };
     private _tokenizingRanToFinished: boolean = true;
 
-    constructor(name: EditorName, settings: Partial<EditorSettings> = {}) {
+    constructor(name: EditorName, options: Partial<EditorOptions> = {}) {
         this.name = name;
-        this.settings = {
-            ...DEFAULT_EDITOR_SETTINGS,
-            ...settings,
+        this.options = {
+            ...DEFAULT_EDITOR_OPTIONS,
+            ...options,
         };
 
         this.rootElement = document.createElement("div");
@@ -158,9 +159,9 @@ export class Editor implements EditorContext {
         // }
     }
 
-    scrollNudge(direction: "up" | "down", lines: number = this.settings.altArrowScrollLines) {
+    scrollNudge(direction: "up" | "down", lines: number = this.options.altArrowScrollLines) {
         const fontSize = parseFloat(getComputedStyle(this.contentElement).fontSize);
-        const delta = (direction === "up" ? -this.settings.lineHeight : this.settings.lineHeight) * lines * fontSize;
+        const delta = (direction === "up" ? -this.options.lineHeight : this.options.lineHeight) * lines * fontSize;
         this.rootElement.scrollBy({
             top: delta,
             behavior: "instant",
@@ -190,15 +191,15 @@ export class Editor implements EditorContext {
         document.execCommand("insertHTML", false, html);
     }
 
-    get isSyncMode(): boolean {
-        return this._isSyncMode;
+    get isReadOnly(): boolean {
+        return this._isReadOnly;
     }
 
-    set isSyncMode(value: boolean) {
-        if (this._isSyncMode === value) {
+    set isReadOnly(value: boolean) {
+        if (this._isReadOnly === value) {
             return;
         }
-        this._isSyncMode = value;
+        this._isReadOnly = value;
         this.contentElement.contentEditable = value ? "false" : "true";
     }
 
@@ -270,7 +271,6 @@ export class Editor implements EditorContext {
             const result = await tokenize(this.contentElement, {
                 signal: this.tokenizeAbortController.signal,
             });
-            // console.log(wholeText)
 
             // if (import.meta.env.DEV) {
             //     console.debug(this.name, `Tokenization completed in ${result.elapsed.toFixed(2)} ms, result:`, result);
@@ -301,8 +301,6 @@ export class Editor implements EditorContext {
     // 사용자가 붙여넣기를 하는 순간 실행되어야 하고
     // 붙여넣기 직후에 추가 입력을 할 수도 있기 때문에 동기로 처리
     private onPaste(e: ClipboardEvent) {
-        const startTime = performance.now();
-
         const selection = document.getSelection();
         if (!selection || selection.rangeCount === 0) {
             return;
@@ -328,8 +326,6 @@ export class Editor implements EditorContext {
             targetRange: range,
             allowLegacyExecCommand: data.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE,
         });
-        const endTime = performance.now();
-        console.debug(this.name, "Paste operation took", endTime - startTime, "ms");
     }
 
     getSelectionRange(): Range | null {
@@ -743,7 +739,7 @@ export class Editor implements EditorContext {
         return range;
     }
 
-    saveScrollPosition() {
+    saveScrollPosition(): boolean {
         const root = this.rootElement;
         const content = this.contentElement;
 
@@ -792,7 +788,7 @@ export class Editor implements EditorContext {
         }
 
         if (!ref) {
-            return;
+            return false;
         }
 
         const refRect = ref.getBoundingClientRect();
@@ -802,11 +798,13 @@ export class Editor implements EditorContext {
             ref,
             targetTop
         };
+
+        return true;
     }
 
-    restoreScrollPosition() {
+    restoreScrollPosition(): boolean {
         const saved = this.savedScroll;
-        if (!saved) return;
+        if (!saved) return false;
 
         const { ref, targetTop } = saved;
         if (ref.isConnected) {
@@ -821,5 +819,6 @@ export class Editor implements EditorContext {
         }
 
         this.savedScroll = null;
+        return true;
     }
 }

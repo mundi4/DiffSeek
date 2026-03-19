@@ -140,7 +140,6 @@ export function getElementPolicy(node: Node): ElementPolicy {
         return SMART_TAG_OPTIONS; // 날짜 따위가 이런 태그로 들어오는 경우가 있다.
     }
 
-    // console.log("Sanitize: Unrecognized element:", nodeName);
     // 나머지는 인라인 요소로 처리하기. 완전히 버려버리면 안된다!
     return COMMON_INLINE_ELEMENT_OPTIONS;
 }

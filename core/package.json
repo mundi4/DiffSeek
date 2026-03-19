@@ -14,12 +14,7 @@
     "clean": "rimraf dist"
   },
   "devDependencies": {
-    "jsdom": "latest",
-    "typescript": "^5",
-    "vitest": "latest"
-  },
-  "dependencies": {
-    "@tabler/icons-react": "^3.36.1",
-    "jotai": "^2.17.0"
+    "jsdom": "^29.0.0",
+    "vitest": "^4.1.0"
   }
 }

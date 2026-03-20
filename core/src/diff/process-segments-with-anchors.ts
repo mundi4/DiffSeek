@@ -1,5 +1,5 @@
 import { isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, sliceDiffInput, tokenRangeToString, writeToResultBuffer } from "./helpers";
-import { runHistogramDiff, runHistogramDiff16, runHistogramDiff32 } from "./run-histogram-diff";
+import { runHistogramDiff } from "./run-histogram-diff";
 import { type DiffJobContext, type DiffInput, type DiffAnchor, DIFF_TYPE_ADDED, DIFF_TYPE_REMOVED, DIFF_TYPE_MODIFIED, DIFF_TYPE_UNCHANGED } from "./types";
 
 
@@ -12,8 +12,7 @@ export async function processSegmentsWithAnchors(
     let lastL = 0;
     let lastR = 0;
 
-    const histogramBitWidth = ctx.diffOptions.histogramBitWidth;
-    const histogramFunc = (histogramBitWidth === "auto") ? runHistogramDiff : (ctx.diffOptions.histogramBitWidth === 16 ? runHistogramDiff16 : runHistogramDiff32);
+    const histogramFunc = runHistogramDiff;
 
     // lhs.resultBuffer.fill(0);
     // rhs.resultBuffer.fill(0);

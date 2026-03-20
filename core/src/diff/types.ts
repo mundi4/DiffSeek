@@ -13,8 +13,7 @@ export type DiffOptions = {
     usePatience: boolean;
     patienceMinLines: number;
     patienceMinTokens: number;
-    histogramBitWidth: "auto" | 16 | 32;
-    allowHistogramBitWidthSwitching: boolean;
+    localSAHybridRatio: number;
 };
 
 export type DiffInput = {

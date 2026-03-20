@@ -222,7 +222,7 @@ export class Editor implements EditorContext {
 
         try {
             await this.doTokenize();
-            //console.debug(this.editorName, "tokenize done", this.tokens);
+            console.debug(this.name, "tokenize done", this.tokens.length);
             this._tokenizingPromiseResolver?.({
                 wholeText: this.wholeText,
                 tokens: this.tokens,

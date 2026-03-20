@@ -168,12 +168,12 @@ async function runDiffJob(workItem: WorkItem, abortSignal: AbortSignal): Promise
             lenMax: 20
         });
 
-        const ctx = {
+        const ctx: DiffJobContext = {
             reqId: workItem.reqId,
             score: scoreSystem,
             diffOptions: workItem.diffOptions,
             signal: abortSignal,
-        } satisfies DiffJobContext;
+        };
 
         const { input: lhsInput, lineCount: lhsLineCount } = buildDiffInput(workItem.leftWholeText, workItem.leftTokenBuffer, workItem.diffOptions);
         const { input: rhsInput, lineCount: rhsLineCount } = buildDiffInput(workItem.rightWholeText, workItem.rightTokenBuffer, workItem.diffOptions);
@@ -216,6 +216,7 @@ async function runDiffJob(workItem: WorkItem, abortSignal: AbortSignal): Promise
                 0
             );
         }
+
     }
 
     const elapsedTime = performance.now() - startTime;

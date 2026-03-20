@@ -35,13 +35,9 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
         if (bitWidth === 16) {
             const totalN = lhsInput.tokenCount + rhsInput.tokenCount;
             if (totalN >= 0xffff) {
-                throw new Error(`Input too large for 16-bit histogram diff: total tokens ${totalN} exceeds limit of 65535. Consider using 32-bit histogram diff or another diff algorithm.`);
+                throw new Error("Input too large for 16-bit histogram diff");
             }
         }
-
-        // if (import.meta.env.DEV) {
-        //     console.debug(`%cRunning ${bitWidth}-bit histogram diff for lhs tokens [${lhsResultOffset}, ${lhsResultOffset + lhsInput.tokenCount}), rhs tokens [${rhsResultOffset}, ${rhsResultOffset + rhsInput.tokenCount})`, "color:purple");
-        // }
 
         const allowHistogramBitWidthSwitching = bitWidth === 32 && ctx.diffOptions.allowHistogramBitWidthSwitching && ctx.diffOptions.histogramBitWidth === "auto";
         const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
@@ -49,16 +45,15 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
         const { tokenCount: _lhsTokenCount, buffer: _lhsTextBuffer, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
         const { tokenCount: _rhsTokenCount, buffer: _rhsTextBuffer, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
 
-        const MIN_YIELD_INTERVAL = 50;
+        const MIN_YIELD_INTERVAL_MS = 50;
 
         const abortSignal = ctx.signal;
-        let _leftTokenProcessed = 0, _rightTokenProcessed = 0;
         let _yieldCounter = 0;
         let _lastYieldTime = Date.now();
 
-        async function yieldIfNeeded(bypass = false) {
+        async function yieldIfNeeded(forceYield = false) {
             const now = performance.now();
-            if (bypass || (now - _lastYieldTime > MIN_YIELD_INTERVAL)) {
+            if (forceYield || (now - _lastYieldTime > MIN_YIELD_INTERVAL_MS)) {
                 _yieldCounter = 0;
                 _lastYieldTime = now;
                 await new Promise((resolve) => setTimeout(resolve, 0));
@@ -154,9 +149,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                     if (rhsLower < rhsUpper) type |= DIFF_TYPE_ADDED;
 
                     writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsUpper, rhsLower, rhsUpper, type, lhsResultOffset, rhsResultOffset);
-
-                    _leftTokenProcessed += lhsUpper - lhsLower;
-                    _rightTokenProcessed += rhsUpper - rhsLower;
                 }
             }
         }
@@ -409,9 +401,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
 
                         writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsLower + 1, rhsLower, rhsLower + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
 
-                        _leftTokenProcessed++;
-                        _rightTokenProcessed++;
-
                         // pushMatch(head, lhsLower, 1, rhsLower, 1);
                         lhsLower++;
                         rhsLower++;
@@ -442,9 +431,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
 
                             writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsLower + lCount, rhsLower, rhsLower + rCount, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
 
-                            _leftTokenProcessed += lCount;
-                            _rightTokenProcessed += rCount;
-
                             // pushMatch(head, lhsLower, lCount, rhsLower, rCount);
                             lhsLower += lCount; // 왼쪽 소모량 적용
                             rhsLower += rCount; // 오른쪽 소모량 적용
@@ -463,9 +449,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
 
                     if (_lhsIds[lIdx] === _rhsIds[rIdx]) {
                         writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lIdx, lIdx + 1, rIdx, rIdx + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
-
-                        _leftTokenProcessed++;
-                        _rightTokenProcessed++;
 
                         // pushMatch(tail, lIdx, 1, rIdx, 1);
                         lhsUpper--;
@@ -494,9 +477,6 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
                             const rMatchStart = rhsUpper - rCount;
 
                             writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lMatchStart, lhsUpper, rMatchStart, rhsUpper, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
-
-                            _leftTokenProcessed += lCount;
-                            _rightTokenProcessed += rCount;
 
                             // pushMatch(tail, lMatchStart, lCount, rMatchStart, rCount);
                             lhsUpper -= lCount; // 왼쪽 소모량 적용
@@ -747,27 +727,4 @@ function createRunHistogramDiff(bitWidth: 16 | 32) {
 
         return { sa, rank, lcp };
     }
-
-    // function computeLongestCommonSubstring(
-    //     sa: InstanceType<typeof IndexArray>,
-    //     lcp: InstanceType<typeof IndexArray>,
-    //     pivot: number
-    // ): number {
-    //     const n = sa.length;
-    //     let maxLen = 0;
-
-    //     for (let i = 1; i < n; i++) {
-    //         const prevIsLhs = sa[i - 1] < pivot;
-    //         const currIsLhs = sa[i] < pivot;
-    //         // 서로 다른 문서에서 온 suffix인지 확인
-    //         if (prevIsLhs !== currIsLhs) {
-    //             const len = lcp[i];
-    //             if (len > maxLen) {
-    //                 maxLen = len;
-    //             }
-    //         }
-    //     }
-
-    //     return maxLen;
-    // }
 }

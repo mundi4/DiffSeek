@@ -1,8 +1,8 @@
-import { useMinimumBusy } from "@/hooks/useDelayedBoolean";
+import { useMinimumBusy } from "@/hooks/use-minimum-busy";
 import { Loader } from "@mantine/core";
 
 export function BusyIndicator({ busy }: { busy: boolean }) {
-    const showLoader = useMinimumBusy(busy, 500);
+    const showLoader = useMinimumBusy(busy, 400);
 
     if (!showLoader) {
         return null;

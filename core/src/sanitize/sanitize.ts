@@ -118,7 +118,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 
 			if (colorChanged) {
 				// (newElement as HTMLElement).classList.remove("color-red", "color-normal");
-				if (color === "red") {
+				if (newColor === "red") {
 					(sanitizedNode as HTMLElement).classList.add("color-red");
 				} else {//if (states.color === "normal") {
 					(sanitizedNode as HTMLElement).classList.add("color-normal");

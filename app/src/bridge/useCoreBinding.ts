@@ -46,9 +46,34 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
         }));
 
         unsub.push(engine.on('diffVisibilityChanged', (visibleDiffs) => {
-            setVisibleDiffIndexes({
-                left: engine.getVisibleDiffs("left"),
-                right: engine.getVisibleDiffs("right"),
+            setVisibleDiffIndexes((prev) => {
+                if (!visibleDiffs.left.length && !visibleDiffs.right.length) {
+                    return prev;
+                }
+
+                const left = new Set(prev.left);
+                const right = new Set(prev.right);
+
+                for (const change of visibleDiffs.left) {
+                    if (change.isVisible) {
+                        left.add(change.item);
+                    } else {
+                        left.delete(change.item);
+                    }
+                }
+
+                for (const change of visibleDiffs.right) {
+                    if (change.isVisible) {
+                        right.add(change.item);
+                    } else {
+                        right.delete(change.item);
+                    }
+                }
+
+                return {
+                    left: Array.from(left),
+                    right: Array.from(right),
+                };
             });
         }));
 

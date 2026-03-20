@@ -15,6 +15,7 @@ export class EditorRegion {
     #selectionHighlightRects: RectSet | null = null;
     #visibleDiffIndices: Set<number> = new Set();
     #visibleDiffIndicesArr: number[] = [];
+    #sortedDiffIndices: number[] = [];
     regionX: number = 0;
     regionY: number = 0;
     regionWidth: number = 0;
@@ -84,6 +85,7 @@ export class EditorRegion {
     setDiffs(diffs: DiffRenderItem[]) {
         this.#diffs = diffs;
         this.diffGeometries.length = 0;
+        this.#sortedDiffIndices.length = 0;
         this.#visibleDiffIndices.clear();
         this.#selectionHighlight = null;
         this.#selectionHighlightRects = null;
@@ -143,6 +145,7 @@ export class EditorRegion {
         if (dirtyFlags & RENDER_FLAGS_GEOMETRY) {
             diffGeometries.length = 0;
             this.#diffLineRects.length = 0;
+            this.#sortedDiffIndices.length = 0;
         }
 
         const canvasX = this.renderer.x;
@@ -174,10 +177,33 @@ export class EditorRegion {
                     // strokeStyle: null,
                 };
             }
+        }
+
+        if (this.#sortedDiffIndices.length !== diffs.length) {
+            const sorted = this.#sortedDiffIndices;
+            sorted.length = diffs.length;
+            for (let i = 0; i < diffs.length; i++) {
+                sorted[i] = i;
+            }
+            sorted.sort((a, b) => {
+                const ga = diffGeometries[a]!;
+                const gb = diffGeometries[b]!;
+                if (ga.minY !== gb.minY) return ga.minY - gb.minY;
+                if (ga.maxY !== gb.maxY) return ga.maxY - gb.maxY;
+                return a - b;
+            });
+        }
+
+        for (const diffIndex of this.#sortedDiffIndices) {
+            let geometry = diffGeometries[diffIndex]!;
+
+            // minY 정렬 순회이므로, 뷰포트 하단을 넘어가면 이후는 전부 스킵 가능.
+            if (geometry.minY - scrollTop > regionHeight) {
+                break;
+            }
 
             if (
                 geometry.maxY - scrollTop < 0 ||
-                geometry.minY - scrollTop > regionHeight ||
                 geometry.maxX - scrollLeft < 0 ||
                 geometry.minX - scrollLeft > this.regionWidth
             ) {
@@ -213,7 +239,8 @@ export class EditorRegion {
                     // }
                 }
 
-                diffGeometries[diffIndex] = geometry = mergeRects(rangeRects, 1, 1) as RectSet;
+                diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
+                geometry = diffGeometries[diffIndex]!;
             }
 
             for (const rect of geometry.rects!) {

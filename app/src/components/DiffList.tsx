@@ -4,11 +4,13 @@ import { extractTextFromRange } from "@/utils/extractTextFromRange";
 import { ActionIcon, Box, Stack } from "@mantine/core";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
-import { useCallback, useRef, type MouseEvent } from "react";
+import { memo, useCallback, useMemo, useRef, type MouseEvent } from "react";
 
 export function DiffList() {
     const _diffs = useAtomValue(diffsAtom);
     const { left: leftVisibleDiffsIndices, right: rightVisibleDiffsIndices } = useAtomValue(visibleDiffIndexesAtom);
+    const leftVisibleSet = useMemo(() => new Set(leftVisibleDiffsIndices), [leftVisibleDiffsIndices]);
+    const rightVisibleSet = useMemo(() => new Set(rightVisibleDiffsIndices), [rightVisibleDiffsIndices]);
     const lastDiffs = useRef<(Omit<DiffListItemProps, "leftVisible" | "rightVisible" | "highlighted">)[]>([]);
     const { setHoveredDiff, scrollToDiff } = useDiffseekActions();
     const hoveredDiffIndex = useAtomValue(hoveredDiffIndexAtom);
@@ -30,31 +32,31 @@ export function DiffList() {
     }, [setHoveredDiff]);
 
 
-    let diffs: (Omit<DiffListItemProps, "leftVisible" | "rightVisible" | "highlighted">)[];
-    if (_diffs === null) {
-        diffs = lastDiffs.current;
-    } else {
-        diffs = _diffs.map((diff) => ({
+    const diffs = useMemo<(Omit<DiffListItemProps, "leftVisible" | "rightVisible" | "highlighted">)[]>(() => {
+        if (_diffs === null) {
+            return lastDiffs.current;
+        }
+
+        const mapped = _diffs.map((diff) => ({
             diffIndex: diff.diffIndex,
             hue: diff.hue,
             leftText: extractTextFromRange(diff.leftRange, { maxLength: 50 })[0],
             rightText: extractTextFromRange(diff.rightRange, { maxLength: 50 })[0],
-            // leftVisible: leftVisibleDiffsIndices.includes(diff.diffIndex),
-            // rightVisible: rightVisibleDiffsIndices.includes(diff.diffIndex),
             onClick,
-            onMouseEnter: onMouseEnter,
-            onMouseLeave: onMouseLeave,
+            onMouseEnter,
+            onMouseLeave,
         }));
-        lastDiffs.current = diffs;
-    }
+        lastDiffs.current = mapped;
+        return mapped;
+    }, [_diffs, onClick, onMouseEnter, onMouseLeave]);
 
     return (
         <div className={`diff-list ${_diffs === null ? "diff-list--disabled" : ""}`}>
             <Stack gap={2}>
                 {diffs.map((diff) => (
                     <DiffListItem key={diff.diffIndex} {...diff}
-                        leftVisible={leftVisibleDiffsIndices.includes(diff.diffIndex)}
-                        rightVisible={rightVisibleDiffsIndices.includes(diff.diffIndex)}
+                        leftVisible={leftVisibleSet.has(diff.diffIndex)}
+                        rightVisible={rightVisibleSet.has(diff.diffIndex)}
                         highlighted={hoveredDiffIndex === diff.diffIndex}
                     />
                 ))}
@@ -76,7 +78,7 @@ type DiffListItemProps = {
     onMouseLeave: (diffIndex: number) => void;
 };
 
-function DiffListItem({ diffIndex, hue, leftText, rightText, leftVisible, rightVisible, highlighted, onClick, onMouseEnter, onMouseLeave }: DiffListItemProps) {
+const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, rightText, leftVisible, rightVisible, highlighted, onClick, onMouseEnter, onMouseLeave }: DiffListItemProps) {
 
     const handleClick = (e: MouseEvent) => {
         const side = (e.target as HTMLElement).dataset.side;
@@ -116,7 +118,12 @@ function DiffListItem({ diffIndex, hue, leftText, rightText, leftVisible, rightV
             <div className="text">{rightText}</div>
         </Box>
     );
-}
+}, (prev, next) => {
+    return prev.diffIndex === next.diffIndex
+        && prev.leftVisible === next.leftVisible
+        && prev.rightVisible === next.rightVisible
+        && prev.highlighted === next.highlighted;
+});
 
 export type SideTagButtonProps = {
     side: "left" | "right";

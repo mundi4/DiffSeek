@@ -22,7 +22,7 @@ const defaultOptions: DiffseekOptions = {
         60, // 노랑
         270, // 보라?
     ],
-    readonlySyncMode: false,
+    readonlySyncMode: true,
 }
 
 export type DiffseekOptions = {

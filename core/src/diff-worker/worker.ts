@@ -11,7 +11,9 @@ import { runHistogramDiff } from "../diff/run-histogram-diff";
 import type { DiffInput, DiffJobContext } from "../diff/types";
 import type { DiffWorkerRequest, DiffWorkerResponse } from "./types";
 
-const scheduler = (() => {
+const jobScheduler = (() => {
+    const START_COALESCE_MS = 100;
+
     type RunningSlot = {
         controller: AbortController;
         promise: Promise<void>;
@@ -19,6 +21,29 @@ const scheduler = (() => {
 
     let running: RunningSlot | null = null;
     let pending: WorkItem | null = null;
+    let startTimer: number | null = null;
+
+    function clearStartTimer() {
+        if (startTimer !== null) {
+            clearTimeout(startTimer);
+            startTimer = null;
+        }
+    }
+
+    function scheduleTryStartNext() {
+        if (running || !pending) {
+            return;
+        }
+
+        if (startTimer !== null) {
+            return;
+        }
+
+        startTimer = self.setTimeout(() => {
+            startTimer = null;
+            tryStartNext();
+        }, START_COALESCE_MS);
+    }
 
     function run(item: WorkItem) {
         pending = item;
@@ -28,10 +53,12 @@ const scheduler = (() => {
             return;
         }
 
-        tryStartNext();
+        scheduleTryStartNext();
     }
 
     function cancel() {
+        clearStartTimer();
+
         if (pending) {
             postAborted(pending.reqId);
             pending = null;
@@ -65,7 +92,7 @@ const scheduler = (() => {
                 if (running === slot) {
                     running = null;
                 }
-                tryStartNext();
+                scheduleTryStartNext();
             }
         })();
     }
@@ -92,7 +119,7 @@ type WorkItem = {
 self.onmessage = (e) => {
     const request = e.data as DiffWorkerRequest;
     if (request.type === "diff") {
-        scheduler.run({
+        jobScheduler.run({
             reqId: request.reqId,
             leftWholeText: request.leftWholeText,
             rightWholeText: request.rightWholeText,
@@ -103,7 +130,7 @@ self.onmessage = (e) => {
             diffOptions: request.options,
         });
     } else if (request.type === "cancel") {
-        scheduler.cancel();
+        jobScheduler.cancel();
     }
 }
 
@@ -248,3 +275,5 @@ function shouldUsePatience(
 
     return true;
 }
+
+

@@ -1,7 +1,8 @@
 import { useDiffseekActions } from "@/bridge/DiffseekProvider";
-import { diffsAtom, hoveredDiffIndexAtom, visibleDiffIndexesAtom } from "@/states/coreAtoms";
+import { diffsAtom, hoveredDiffIndexAtom, paletteAtom, visibleDiffIndexesAtom } from "@/states/coreAtoms";
 import { extractTextFromRange } from "@/utils/extractTextFromRange";
 import { ActionIcon, Box, Stack } from "@mantine/core";
+import { getDiffHue } from "@core";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
 import { memo, useCallback, useMemo, useRef, type MouseEvent } from "react";
@@ -9,6 +10,7 @@ import { memo, useCallback, useMemo, useRef, type MouseEvent } from "react";
 export function DiffList() {
     const _diffs = useAtomValue(diffsAtom);
     const { left: leftVisibleDiffsIndices, right: rightVisibleDiffsIndices } = useAtomValue(visibleDiffIndexesAtom);
+    const palette = useAtomValue(paletteAtom);
     const leftVisibleSet = useMemo(() => new Set(leftVisibleDiffsIndices), [leftVisibleDiffsIndices]);
     const rightVisibleSet = useMemo(() => new Set(rightVisibleDiffsIndices), [rightVisibleDiffsIndices]);
     const lastDiffs = useRef<(Omit<DiffListItemProps, "leftVisible" | "rightVisible" | "highlighted">)[]>([]);
@@ -39,7 +41,7 @@ export function DiffList() {
 
         const mapped = _diffs.map((diff) => ({
             diffIndex: diff.diffIndex,
-            hue: diff.hue,
+            hue: getDiffHue(diff.diffIndex, palette?.diffHues ?? []),
             leftText: extractTextFromRange(diff.leftRange, { maxLength: 50 })[0],
             rightText: extractTextFromRange(diff.rightRange, { maxLength: 50 })[0],
             onClick,
@@ -48,7 +50,7 @@ export function DiffList() {
         }));
         lastDiffs.current = mapped;
         return mapped;
-    }, [_diffs, onClick, onMouseEnter, onMouseLeave]);
+    }, [_diffs, onClick, onMouseEnter, onMouseLeave, palette]);
 
     return (
         <div className={`diff-list ${_diffs === null ? "diff-list--disabled" : ""}`}>
@@ -120,6 +122,9 @@ const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, righ
     );
 }, (prev, next) => {
     return prev.diffIndex === next.diffIndex
+        && prev.hue === next.hue
+        && prev.leftText === next.leftText
+        && prev.rightText === next.rightText
         && prev.leftVisible === next.leftVisible
         && prev.rightVisible === next.rightVisible
         && prev.highlighted === next.highlighted;

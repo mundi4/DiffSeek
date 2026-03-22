@@ -2,6 +2,7 @@ import { RESULT_BUFFER_STRIDE } from "./constants";
 import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, writeToResultBuffer } from "./helpers";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffAnchor, type DiffInput, type DiffJobContext } from "./types";
 import { HEADING_MASK, TOKEN_FLAGS_LINE_START } from "../tokenization";
+import { SECTION_HEADING_TYPE_NONE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_PAREN_NUMERIC, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, headingFlagsToType } from "../constants/section-heading";
 
 const HASH_SIZE = 0xfffff + 1;
 const HEAD = new Int32Array(HASH_SIZE);
@@ -10,6 +11,26 @@ const IndexArray = Uint32Array;
 const CENTER_RANGE_RATIO = 0.2 as const; // 중앙의 20% 영역
 const BAND_RANGE_RATIO = 0.5 as const; // 중앙의 50% 영역
 const DEFAULT_LOCAL_SA_HYBRID_RATIO = 0.6;
+
+// const HEADING_MIN_H: Record<SectionHeadingType, number> = {
+//     [SECTION_HEADING_TYPE_NONE]: 0,
+//     [SECTION_HEADING_TYPE_NUMERIC_DOT]: 2,
+//     [SECTION_HEADING_TYPE_HANGUL_DOT]: 2,
+//     [SECTION_HEADING_TYPE_PAREN_NUMERIC]: 3,
+//     [SECTION_HEADING_TYPE_PAREN_HANGUL]: 3,
+//     [SECTION_HEADING_TYPE_NUMERIC_PAREN]: 2,
+//     [SECTION_HEADING_TYPE_HANGUL_PAREN]: 2,
+//     [SECTION_HEADING_TYPE_LAW_ARTICLE]: 1,
+// };
+const HEADING_MIN_H = new Uint8Array(8);
+HEADING_MIN_H[SECTION_HEADING_TYPE_NONE] = 0;
+HEADING_MIN_H[SECTION_HEADING_TYPE_NUMERIC_DOT] = 2; // "1." > "1" + "."
+HEADING_MIN_H[SECTION_HEADING_TYPE_HANGUL_DOT] = 2; // "가." > "가" + "."
+HEADING_MIN_H[SECTION_HEADING_TYPE_PAREN_NUMERIC] = 3; // "(1)" > "(" + "1" + ")"
+HEADING_MIN_H[SECTION_HEADING_TYPE_PAREN_HANGUL] = 3; // "(가)" > "(" + "가" + ")"
+HEADING_MIN_H[SECTION_HEADING_TYPE_NUMERIC_PAREN] = 2; // "1)" > "1" + ")"
+HEADING_MIN_H[SECTION_HEADING_TYPE_HANGUL_PAREN] = 2; // "가)" > "가" + ")"
+HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 1; // "제1조" > "제1조" (single merged token) - mergeLetterNumberBoundary 옵션에 따라 1 또는 3
 
 export async function runHistogramDiff(
     ctx: DiffJobContext,
@@ -20,6 +41,11 @@ export async function runHistogramDiff(
 ) {
     const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
     const localSAHybridRatio = ctx.diffOptions.localSAHybridRatio ?? DEFAULT_LOCAL_SA_HYBRID_RATIO;
+    if (ctx.diffOptions.mergeLetterNumberBoundary) {
+        HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 1; // "제1조" > "제1조" (single merged token)
+    } else {
+        HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 3; // "제" "1" "조" > "제1조" (3 tokens)
+    }
 
     const { tokenCount: _lhsTokenCount, buffer: _lhsTextBuffer, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
     const { tokenCount: _rhsTokenCount, buffer: _rhsTextBuffer, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
@@ -35,7 +61,7 @@ export async function runHistogramDiff(
         if (forceYield || (now - _lastYieldTime > MIN_YIELD_INTERVAL_MS)) {
             _yieldCounter = 0;
             _lastYieldTime = now;
-            await new Promise((resolve) => setTimeout(resolve, 0));
+            await scheduler.yield();
             abortSignal.throwIfAborted();
         }
     }
@@ -270,8 +296,13 @@ export async function runHistogramDiff(
                         let policyGrade = 0;
                         const rf = _rhsFlags[r];
                         if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-                            policyGrade = 2;
-                        } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
+                            const headingType = headingFlagsToType(lf & HEADING_MASK);
+                            const minH = HEADING_MIN_H[headingType];
+                            if (h >= minH) {
+                                policyGrade = 2;
+                            }
+                        }
+                        if (policyGrade === 0 && (lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
                             policyGrade = 1;
                         }
 
@@ -462,7 +493,7 @@ export async function runHistogramDiff(
                     }
 
                     // matchPrefixTokens는 이제 [lCount, rCount]를 리턴함
-                    const matched = matchPrefixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper, _ignoreWhitespaces);
+                    const matched = matchPrefixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper);
                     if (matched) {
                         const [lCount, rCount] = matched;
 
@@ -507,7 +538,7 @@ export async function runHistogramDiff(
                         break;
                     }
 
-                    const matched = matchSuffixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper, _ignoreWhitespaces);
+                    const matched = matchSuffixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper);
                     if (matched) {
                         const [lCount, rCount] = matched;
                         const lMatchStart = lhsUpper - lCount;

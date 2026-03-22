@@ -1,16 +1,18 @@
-import { diffOptionsAtom, diffsAtom, diffWorkflowStatusAtom, hoveredDiffIndexAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
+import { diffContextAtom, diffOptionsAtom, diffWorkflowStatusAtom, editableInSyncModeAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
 import type { DiffseekEngine } from "@core";
 import type { DiffOptions } from "@core";
-import { getDefaultStore, useSetAtom, useStore } from "jotai";
+import { getDefaultStore, useSetAtom } from "jotai";
 import { useEffect } from "react";
 
 export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
     const setDiffOptions = useSetAtom(diffOptionsAtom);
-    const setDiffs = useSetAtom(diffsAtom);
+    const setDiffContext = useSetAtom(diffContextAtom);
     const setSyncMode = useSetAtom(syncModeAtom);
+    const setEditableInSyncMode = useSetAtom(editableInSyncModeAtom);
     const setVisibleDiffIndexes = useSetAtom(visibleDiffIndexesAtom);
     const setHoveredDiffIndex = useSetAtom(hoveredDiffIndexAtom);
     const setDiffWorkflowStatus = useSetAtom(diffWorkflowStatusAtom);
+    const setPalette = useSetAtom(paletteAtom);
 
     useEffect(() => {
         const unsub: (() => void)[] = [];
@@ -19,10 +21,14 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
         const diffOptions: Partial<DiffOptions> = {
             whitespace: store.get(whitespaceHandlingAtom),
         };
+        const editableInSyncMode = store.get(editableInSyncModeAtom);
 
         engine.updateDiffOptions(diffOptions);
+        engine.editableInSyncMode = editableInSyncMode;
 
         setDiffOptions(engine.diffOptions);
+        setPalette(engine.palette);
+        setEditableInSyncMode(engine.editableInSyncMode);
 
         unsub.push(engine.on("statusChanged", (status) => {
             setDiffWorkflowStatus(status);
@@ -32,16 +38,33 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
             setDiffOptions(diffOptions);
         }));
 
+        unsub.push(engine.on("paletteChanged", (palette) => {
+            setPalette(palette);
+        }));
+
         unsub.push(engine.on("syncModeChanged", ({ syncMode }) => {
             setSyncMode(syncMode);
         }));
 
+        unsub.push(engine.on("editableInSyncModeChanged", ({ editableInSyncMode }) => {
+            setEditableInSyncMode(editableInSyncMode);
+        }));
+
         unsub.push(engine.on('diffContextChanged', (diffContext) => {
             if (diffContext) {
-                setDiffs(diffContext.diffs);
+                setDiffContext({
+                    diffs: diffContext.diffs.slice(),
+                    commonOutline: diffContext.commonOutline.slice(),
+                    leftTokenCount: diffContext.leftTokens.length,
+                    rightTokenCount: diffContext.rightTokens.length,
+                    timingTokenizingMs: diffContext.timing.tokenizingMs,
+                    timingDiffingMs: diffContext.timing.diffingMs,
+                    timingProcessingMs: diffContext.timing.processingMs,
+                    timingTotalMs: diffContext.timing.totalMs,
+                });
             }
             else {
-                setDiffs(null);
+                setDiffContext(null);
             }
         }));
 

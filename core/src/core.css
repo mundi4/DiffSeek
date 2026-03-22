@@ -160,8 +160,7 @@ Sync Mode
   overflow-wrap: anywhere;
   outline: none;
   background-color: transparent;
-
-  font-family: monospace;
+  font-family: var(--editor-font-family, inherit);
 }
 
 .ds-editor-minimap {
@@ -271,10 +270,10 @@ ds-diff {
   background: transparent
     repeating-linear-gradient(
       135deg,
-      hsl(0 0% 90% / 0.95) 0px,
-      hsl(0 0% 90% / 0.95) 5px,
-      transparent 5px,
-      transparent 10px
+      hsl(0 0% 90% / 0.75) 0px,
+      hsl(0 0% 90% / 0.75) 6px,
+      transparent 12px,
+      transparent 18px
     );
   height: 0;
   /* height: var(--height-boost, 0px); */

@@ -1,315 +1,199 @@
-// import { describe, it, expect, beforeEach } from 'vitest';
-// import { Tokenizer } from '../src/core/tokenization/tokenizer';
-// import { TokenType } from '../src/core/types';
-// import { TokenFlags } from '../src/core/TokenFlags';
-
-// describe('Tokenizer', () => {
-//     let tokenizer: Tokenizer;
-//     let container: HTMLDivElement;
-
-//     beforeEach(() => {
-//         tokenizer = new Tokenizer();
-//         container = document.createElement('div');
-//     });
-
-//     async function tokenize(text: string) {
-//         container.innerHTML = text;
-//         return await tokenizer.tokenizeAsync(container);
-//     }
-
-//     it("handles inline formatting tags within a single div", async () => {
-//         const result = await tokenize(`
-//         <div>Hello <strong>world</strong>!</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(3);
-//         expect(lineStartPoints).toHaveLength(1);
-
-//         // Verify all tokens are on the same line
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Hello", line: 1 },
-//             { text: "world", line: 1 },
-//             { text: "!", line: 1 }
-//         ]);
-
-//         // Verify line start point
-//         expect(lineStartPoints[0].where).toBe("beforebegin");
-//         expect(lineStartPoints[0].which?.nodeName).toBe("DIV");
-//     });
-
-//     it("treats each div as a separate line", async () => {
-//         const result = await tokenize(`
-//         <div>First line</div>
-//         <div>Second line</div>
-//         <div>Third line</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(6);
-//         expect(lineStartPoints).toHaveLength(3);
-
-//         // Verify tokens are distributed across three lines
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "First", line: 1 },
-//             { text: "line", line: 1 },
-//             { text: "Second", line: 2 },
-//             { text: "line", line: 2 },
-//             { text: "Third", line: 3 },
-//             { text: "line", line: 3 }
-//         ]);
-
-//         // Verify all line start points are DIV elements
-//         lineStartPoints.forEach(point => {
-//             expect(point.which?.nodeName).toBe("DIV");
-//             expect(point.where).toBe("beforebegin");
-//         });
-//     });
-
-//     it("treats br tags as line breaks within a block", async () => {
-//         const result = await tokenize(`
-//         <div>First line<br>Second line<br>Third line</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(6);
-//         expect(lineStartPoints).toHaveLength(3);
-
-//         // Verify tokens are distributed across three lines
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "First", line: 1 },
-//             { text: "line", line: 1 },
-//             { text: "Second", line: 2 },
-//             { text: "line", line: 2 },
-//             { text: "Third", line: 3 },
-//             { text: "line", line: 3 }
-//         ]);
-
-//         // First line starts at the DIV
-//         expect(lineStartPoints[0].which?.nodeName).toBe("DIV");
-//         expect(lineStartPoints[0].where).toBe("beforebegin");
-
-//         // Subsequent lines start after BR tags
-//         expect(lineStartPoints[1].which?.nodeName).toBe("BR");
-//         expect(lineStartPoints[1].where).toBe("afterend");
-//         expect(lineStartPoints[2].which?.nodeName).toBe("BR");
-//         expect(lineStartPoints[2].where).toBe("afterend");
-//     });
-
-//     it("treats each paragraph as a separate line", async () => {
-//         const result = await tokenize(`
-//         <p>First paragraph</p>
-//         <p>Second paragraph</p>
-//         <p>Third paragraph</p>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(6);
-//         expect(lineStartPoints).toHaveLength(3);
-
-//         // Verify tokens are distributed across three lines
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "First", line: 1 },
-//             { text: "paragraph", line: 1 },
-//             { text: "Second", line: 2 },
-//             { text: "paragraph", line: 2 },
-//             { text: "Third", line: 3 },
-//             { text: "paragraph", line: 3 }
-//         ]);
-
-//         // Verify all line start points are P elements
-//         lineStartPoints.forEach(point => {
-//             expect(point.which?.nodeName).toBe("P");
-//             expect(point.where).toBe("beforebegin");
-//         });
-//     });
-
-//     it("tokenizes plain text without any HTML tags as a single line", async () => {
-//         const result = await tokenize(`Hello world from plain text`);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(5);
-//         expect(lineStartPoints).toHaveLength(1);
-
-//         // All tokens should be on line 1
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Hello", line: 1 },
-//             { text: "world", line: 1 },
-//             { text: "from", line: 1 },
-//             { text: "plain", line: 1 },
-//             { text: "text", line: 1 }
-//         ]);
-
-//         // Verify line start point for container
-//         expect(lineStartPoints[0].which?.nodeName).toBe("DIV");
-//     });
-
-//     it("handles inline elements with br creating line breaks", async () => {
-//         const result = await tokenize(`Hello <span>world</span><br> <em>with</em> <strong>inline</strong> elements`);
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(5);
-//         expect(lineStartPoints).toHaveLength(2);
-
-//         // Verify tokens are split by br tag
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Hello", line: 1 },
-//             { text: "world", line: 1 },
-//             { text: "with", line: 2 },
-//             { text: "inline", line: 2 },
-//             { text: "elements", line: 2 }
-//         ]);
-
-//         // First line starts at container(as first child)
-//         expect(lineStartPoints[0].which?.nodeName).toBe(container.nodeName);
-//         expect(lineStartPoints[0].where).toBe("afterbegin");
-
-//         // Second line starts after BR
-//         expect(lineStartPoints[1].which?.nodeName).toBe("BR");
-//         expect(lineStartPoints[1].where).toBe("afterend");
-//     });
-
-//     it("handles complex mix of div and br elements", async () => {
-//         const result = await tokenize(`
-//         <div>First div<br>with br</div>
-//         <div>Second div</div>
-//         <div>Third<br>has<br>multiple brs</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(10);
-//         expect(lineStartPoints).toHaveLength(6);
-
-//         // Verify token distribution across lines
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "First", line: 1 },
-//             { text: "div", line: 1 },
-//             { text: "with", line: 2 },
-//             { text: "br", line: 2 },
-//             { text: "Second", line: 3 },
-//             { text: "div", line: 3 },
-//             { text: "Third", line: 4 },
-//             { text: "has", line: 5 },
-//             { text: "multiple", line: 6 },
-//             { text: "brs", line: 6 }
-//         ]);
-
-//         // Line 1: First DIV
-//         expect(lineStartPoints[0].which?.nodeName).toBe("DIV");
-//         expect(lineStartPoints[0].where).toBe("beforebegin");
-
-//         // Line 2: BR within first DIV
-//         expect(lineStartPoints[1].which?.nodeName).toBe("BR");
-//         expect(lineStartPoints[1].where).toBe("afterend");
-
-//         // Line 3: Second DIV
-//         expect(lineStartPoints[2].which?.nodeName).toBe("DIV");
-//         expect(lineStartPoints[2].where).toBe("beforebegin");
-
-//         // Line 4: Third DIV
-//         expect(lineStartPoints[3].which?.nodeName).toBe("DIV");
-//         expect(lineStartPoints[3].where).toBe("beforebegin");
-
-//         // Lines 5-6: BRs within third DIV
-//         expect(lineStartPoints[4].which?.nodeName).toBe("BR");
-//         expect(lineStartPoints[5].which?.nodeName).toBe("BR");
-//     });
-
-//     it("handles br followed by whitespace before block end", async () => {
-//         const result = await tokenize(`
-//         <div>Line one<br>   </div>
-//         <div>Line two</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(4);
-
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Line", line: 1 },
-//             { text: "one", line: 1 },
-//             { text: "Line", line: 2 },
-//             { text: "two", line: 2 }
-//         ]);
-
-//         // BR creates line break but whitespace after doesn't create empty line
-//         expect(lineStartPoints.some(p => p.which?.nodeName === "BR")).toBe(true);
-//     });
-
-//     it("handles br followed by nbsp before block end", async () => {
-//         const result = await tokenize(`
-//         <div>Text here<br>&nbsp;</div>
-//         <div>Next block</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(4);
-
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Text", line: 1 },
-//             { text: "here", line: 1 },
-//             { text: "Next", line: 2 },
-//             { text: "block", line: 2 }
-//         ]);
-//     });
-
-//     it("handles br with no trailing content before block end", async () => {
-//         const result = await tokenize(`
-//         <div>Content<br></div>
-//         <div>More content</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(3);
-
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Content", line: 1 },
-//             { text: "More", line: 2 },
-//             { text: "content", line: 2 }
-//         ]);
-//     });
-
-//     it("handles multiple br tags with mixed whitespace", async () => {
-//         const result = await tokenize(`
-//         <div>Start<br><br>  <br>End</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens).toHaveLength(2);
-
-//         expect(tokens.map(t => ({ text: t.text, line: t.lineNumber }))).toEqual([
-//             { text: "Start", line: 1 },
-//             { text: "End", line: 4 }
-//         ]);
-
-//         // Multiple BRs should create empty lines
-//         expect(lineStartPoints.length).toBeGreaterThanOrEqual(4);
-//     });
-
-//     it("handles nested divs with br tags", async () => {
-//         const result = await tokenize(`
-//         <div>Outer start<br><div>Inner block</div>Outer end</div>
-//         `);
-
-//         const { tokens, lineStartPoints } = result;
-
-//         expect(tokens.map(t => t.text)).toEqual([
-//             "Outer", "start", "Inner", "block", "Outer", "end"
-//         ]);
-
-//         // Verify proper line number assignment
-//         expect(tokens[0].lineNumber).toBe(1);  // Outer
-//         expect(tokens[1].lineNumber).toBe(1);  // start
-//         expect(tokens[2].lineNumber).toBe(2);  // Inner (after BR or in new DIV)
-//         expect(tokens[3].lineNumber).toBe(2);  // block
-//     });
-// });
+import { describe, it, expect } from 'vitest';
+import { tokenize } from '../src/tokenization/tokenize';
+import {
+    HEADING_MASK,
+    TOKEN_FLAGS_LINE_START,
+    TOKEN_FLAGS_WORD_LIKE,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE1,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE2,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE3,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE4,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE5,
+    TOKEN_FLAGS_SECTION_HEADING_TYPE6,
+    TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE,
+} from '../src/tokenization/token-flags';
+
+function makeContainer(html: string): HTMLElement {
+    const div = document.createElement('div');
+    div.innerHTML = html;
+    return div;
+}
+
+async function tok(html: string) {
+    const container = makeContainer(html);
+    const signal = new AbortController().signal;
+    const result = await tokenize(container, signal);
+    const texts = result.tokens.map(t =>
+        result.wholeText.slice(t.textOffset, t.textOffset + t.textLength)
+    );
+    return { ...result, texts };
+}
+
+// ─── 섹션 헤딩 토큰화 ────────────────────────────────────────────────────────
+
+describe('section heading tokenization', () => {
+
+    it('TYPE1: "1. 제목" — 첫 토큰에 TYPE1 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>1. 제목</div>');
+        // "1", ".", "제목"
+        expect(texts[0]).toBe('1');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE1).toBeTruthy();
+        expect(tokens[0].flags & TOKEN_FLAGS_LINE_START).toBeTruthy();
+        expect(tokens[0].flags & TOKEN_FLAGS_WORD_LIKE).toBeTruthy();
+        // 나머지 토큰에는 헤딩 플래그 없음
+        expect(tokens[1].flags & HEADING_MASK).toBe(0);
+        expect(tokens[2].flags & HEADING_MASK).toBe(0);
+
+        expect(sectionHeadings).toHaveLength(1);
+        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE1);
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenIndex).toBe(0);
+        expect(sectionHeadings[0].tokenCount).toBe(2);
+    });
+
+    it('TYPE1: "3. 내용" — ordinal=3', async () => {
+        const { sectionHeadings } = await tok('<div>3. 내용</div>');
+        expect(sectionHeadings[0].ordinal).toBe(3);
+        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE1);
+    });
+
+    it('TYPE2: "가. 제목" — 첫 토큰에 TYPE2 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>가. 제목</div>');
+        expect(texts[0]).toBe('가');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE2).toBeTruthy();
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(2);
+    });
+
+    it('TYPE3: "(1) 제목" — 첫 토큰 "("에 TYPE3 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>(1) 제목</div>');
+        // "(", "1", ")", "제목"
+        expect(texts[0]).toBe('(');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE3).toBeTruthy();
+        expect(tokens[0].flags & TOKEN_FLAGS_LINE_START).toBeTruthy();
+        expect(tokens[1].flags & HEADING_MASK).toBe(0);
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(3);
+    });
+
+    it('TYPE4: "(가) 제목" — 첫 토큰 "("에 TYPE4 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>(가) 제목</div>');
+        expect(texts[0]).toBe('(');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE4).toBeTruthy();
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(3);
+    });
+
+    it('TYPE5: "1) 제목" — 첫 토큰 "1"에 TYPE5 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>1) 제목</div>');
+        expect(texts[0]).toBe('1');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE5).toBeTruthy();
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(2);
+    });
+
+    it('TYPE6: "가) 제목" — 첫 토큰 "가"에 TYPE6 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>가) 제목</div>');
+        expect(texts[0]).toBe('가');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE6).toBeTruthy();
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(2);
+    });
+
+    it('LAW_ARTICLE: "제1조 제목" — 첫 토큰 "제"에 LAW_ARTICLE 플래그', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>제1조 제목</div>');
+        // "제", "1", "조", "제목"
+        expect(texts[0]).toBe('제');
+        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE).toBeTruthy();
+        expect(tokens[1].flags & HEADING_MASK).toBe(0);
+        expect(tokens[2].flags & HEADING_MASK).toBe(0);
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].tokenCount).toBe(3);
+    });
+
+    it('LAW_ARTICLE: "제32조 내용" — ordinal=32', async () => {
+        const { sectionHeadings } = await tok('<div>제32조 내용</div>');
+        expect(sectionHeadings[0].ordinal).toBe(32);
+        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+    });
+
+    it('헤딩 뒤에 word-like 없으면 헤딩 아님 — "1." 단독', async () => {
+        const { tokens, texts, sectionHeadings } = await tok('<div>1.</div>');
+        expect(sectionHeadings).toHaveLength(0);
+        expect(tokens[0].flags & HEADING_MASK).toBe(0);
+    });
+
+    it('헤딩 뒤에 word-like 없으면 헤딩 아님 — "(1)" 단독', async () => {
+        const { sectionHeadings } = await tok('<div>(1)</div>');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('줄 중간에 나오는 "1."은 헤딩 아님', async () => {
+        const { sectionHeadings } = await tok('<div>ABC 1. 내용</div>');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('여러 줄 각각 헤딩 — tokenIndex가 올바름', async () => {
+        const { tokens, sectionHeadings } = await tok(
+            '<div>1. 제목A</div><div>2. 제목B</div>'
+        );
+        expect(sectionHeadings).toHaveLength(2);
+        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[1].ordinal).toBe(2);
+        // 각 tokenIndex가 실제로 LINE_START | TYPE1 플래그를 가진 토큰 인덱스인지 확인
+        for (const sh of sectionHeadings) {
+            expect(tokens[sh.tokenIndex].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE1).toBeTruthy();
+        }
+    });
+});
+
+// ─── letter/digit 경계 분리 ────────────────────────────────────────────────
+
+async function tokWithMerge(html: string, merge: boolean) {
+    const container = makeContainer(html);
+    const signal = new AbortController().signal;
+    const result = await tokenize(container, signal, { mergeLetterNumberBoundary: merge });
+    return result.tokens.map(t =>
+        result.wholeText.slice(t.textOffset, t.textOffset + t.textLength)
+    );
+}
+
+describe('letter/digit boundary split', () => {
+
+    it('"제32조" — split(기본값): 3토큰', async () => {
+        expect(await tokWithMerge('<div>제32조</div>', false)).toEqual(['제', '32', '조']);
+    });
+
+    it('"제32조" — merge: 1토큰', async () => {
+        expect(await tokWithMerge('<div>제32조</div>', true)).toEqual(['제32조']);
+    });
+
+    it('"page3" — split(기본값): 분리', async () => {
+        expect(await tokWithMerge('<div>page3</div>', false)).toEqual(['page', '3']);
+    });
+
+    it('"page3" — merge: 하나로', async () => {
+        expect(await tokWithMerge('<div>page3</div>', true)).toEqual(['page3']);
+    });
+
+    it('"H2O" — split(기본값): 분리', async () => {
+        expect(await tokWithMerge('<div>H2O</div>', false)).toEqual(['H', '2', 'O']);
+    });
+
+    it('"H2O" — merge: 하나로', async () => {
+        expect(await tokWithMerge('<div>H2O</div>', true)).toEqual(['H2O']);
+    });
+
+    // 같은 카테고리 내에서는 split 모드에서도 분리 없음
+    it('순수 한글 "제목" — split 모드에서도 하나로', async () => {
+        expect(await tokWithMerge('<div>제목</div>', false)).toEqual(['제목']);
+    });
+
+    it('순수 영문 "ABC" — split 모드에서도 하나로', async () => {
+        expect(await tokWithMerge('<div>ABC</div>', false)).toEqual(['ABC']);
+    });
+
+    it('순수 숫자 "123" — split 모드에서도 하나로', async () => {
+        expect(await tokWithMerge('<div>123</div>', false)).toEqual(['123']);
+    });
+});

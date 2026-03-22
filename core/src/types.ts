@@ -48,3 +48,26 @@ export type Span = {
     start: number;
     end: number;
 };
+
+export type Palette = {
+    diffHues: number[];
+    diffSaturation: number;
+    diffLightness: number;
+    diffAlpha: number;
+    diffLineColor: string;
+    highlightedDiffColor: string;
+    guidelineColor: string;
+    selectionHighlightColor: string;
+    minimapDiffColor: string;
+};
+
+export type DiffEntry = {
+    diffIndex: number;
+    leftRange: Range;
+    rightRange: Range;
+    leftSpan: Span;
+    rightSpan: Span;
+    leftMarkerEl: HTMLElement | null;
+    rightMarkerEl: HTMLElement | null;
+};
+

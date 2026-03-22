@@ -1,14 +1,17 @@
 import '@core/core.css';
 import { DiffseekEngine, type DiffOptions } from '@core';
 import '@mantine/core/styles.css';
-import { getDefaultStore, Provider } from 'jotai';
-import { useEffect, useRef } from 'react';
-import './App.css';
+import { getDefaultStore, Provider, useAtomValue } from 'jotai';
+import { useEffect, useRef, useState } from 'react';
 import { DiffseekProvider } from './bridge/DiffseekProvider';
 import { AppHeader } from './components/AppHeader';
 import { DiffList } from './components/DiffList';
+import { OutlineModal } from './components/OutlineModal';
+import { BusyIndicator } from "./components/BusyIndicator";
+import { diffWorkflowStatusAtom } from './states/coreAtoms';
+import './App.css';
 
-const engine = new DiffseekEngine({});
+const engine = new DiffseekEngine();
 engine.replaceDiffOptions({
     useCoarseSplit: false,
     whitespace: "collapse",
@@ -18,6 +21,8 @@ engine.replaceDiffOptions({
 const atomStore = getDefaultStore();
 export function App() {
     const hostRef = useRef<HTMLDivElement>(null);
+    const diffWorkflowStatus = useAtomValue(diffWorkflowStatusAtom);
+    const [outlineOpened, setOutlineOpened] = useState(false);
 
     useEffect(() => {
         if (!hostRef.current!.firstElementChild) {
@@ -25,7 +30,10 @@ export function App() {
         }
 
         const keyDown = (e: KeyboardEvent) => {
-            if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
+            if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                setOutlineOpened(true);
+            } else if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 engine.syncMode = !engine.syncMode;
             } else if ((e.key === "1" || e.key === "2") && e.altKey) {
@@ -60,13 +68,13 @@ export function App() {
         <DiffseekProvider engine={engine}>
             <Provider store={atomStore}>
                 {/* <div className="app-header-container"><AppHeader /></div> */}
-                <header>
-                    <AppHeader />
-                </header>
                 <main id="diffseek-host" ref={hostRef} />
                 <aside>
                     <DiffList />
+                    <AppHeader />
                 </aside>
+                <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} />
+                {/* <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} /> */}
             </Provider>
         </DiffseekProvider>
     )

@@ -2,6 +2,7 @@ import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "
 import { sanitizeHTML } from "../sanitize/sanitize";
 import type { LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
+import type { SectionHeadingInfo } from "../tokenization/types";
 import type { Span } from "../types";
 import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
@@ -9,6 +10,7 @@ import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions } from "./types";
 
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000 as const;
+const TOKENIZE_DEBOUNCE_DELAY_MS = 200 as const;
 
 export type EditorCallbacks = {
     contentChanging?: (editor: Editor) => void;
@@ -37,7 +39,17 @@ export type TokenSnapshot = {
     wholeText: string;
     tokens: readonly Token[];
     lineBoundaries: readonly LineBoundaryInfo[];
+    sectionHeadings: readonly SectionHeadingInfo[];
+    elapsedTime: number;
 }
+
+const NULL_TOKEN_SNAPSHOT: TokenSnapshot = {
+    wholeText: "",
+    tokens: [],
+    lineBoundaries: [],
+    sectionHeadings: [],
+    elapsedTime: 0,
+} as const;
 
 export class Editor implements EditorContext {
     readonly name: EditorName;
@@ -49,6 +61,7 @@ export class Editor implements EditorContext {
     wholeText: string = "";
     tokens: readonly Token[] = [];
     lineBoundaries: readonly LineBoundaryInfo[] = [];
+    sectionHeadings: readonly SectionHeadingInfo[] = [];
 
     options: EditorOptions;
     mutationObserver: MutationObserver;
@@ -61,10 +74,11 @@ export class Editor implements EditorContext {
     tokenizeOptions: TokenizerOptions = {};
 
     private savedScroll: { ref: HTMLElement; targetTop: number } | null = null;
-    private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve({ wholeText: "", tokens: [], lineBoundaries: [] });
+    private _hasPendingPromise: boolean = false;
+    private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve(NULL_TOKEN_SNAPSHOT);
     private _tokenizingPromiseResolver: ((snapshot: TokenSnapshot) => void) = () => { };
     private _tokenizingPromiseRejecter: ((err: any) => void) = () => { };
-    private _tokenizingRanToFinished: boolean = true;
+    private tokenizeDebounceTimer: ReturnType<typeof setTimeout> | null = null;
 
     constructor(name: EditorName, options: Partial<EditorOptions> = {}) {
         this.name = name;
@@ -203,43 +217,136 @@ export class Editor implements EditorContext {
         this.contentElement.contentEditable = value ? "false" : "true";
     }
 
-    waitForTokens(): Promise<TokenSnapshot> {
-        return this._tokenizingPromise;
+    waitForTokens(signal?: AbortSignal): Promise<TokenSnapshot> {
+        if (!signal) {
+            return this._tokenizingPromise;
+        }
+
+        if (signal.aborted) {
+            return Promise.reject(signal.reason ?? ABORT_REASON_CANCELLED);
+        }
+
+        return new Promise<TokenSnapshot>((resolve, reject) => {
+            const onAbort = () => {
+                reject(signal.reason ?? ABORT_REASON_CANCELLED);
+            };
+
+            signal.addEventListener("abort", onAbort, { once: true });
+
+            this._tokenizingPromise.then(
+                (snapshot) => {
+                    signal.removeEventListener("abort", onAbort);
+                    resolve(snapshot);
+                },
+                (err) => {
+                    signal.removeEventListener("abort", onAbort);
+                    reject(err);
+                }
+            );
+        });
+    }
+
+    scheduleRetokenize() {
+        this.handleContentChangedInternal();
     }
 
     private async handleContentChangedInternal() {
-        // 기존 promise는 resolve/reject까지 된 상태이므로 새 promise 생성
-        if (this._tokenizingRanToFinished) {
+        // 머리 좀 아픔... 차근차근
+
+        // 목표:
+        // 1. waitForTokens()이 항상 최신의 토큰을 기다릴 수 있도록 하는 것(중간에 tokenize가 여러번 실행되더라도 끊김 없이 항상 마지막 tokenize 결과를 기다릴 수 있도록)
+        // 2. 실제로 바쁜 경우에만 debounce 적용하고 그렇지 않으면 즉시 실행.
+
+        // 지금 바쁜지 안바쁜지...
+        let isBusy = false;
+
+        // 기존 작업이 있다면 즉시 취소.
+        if (this.tokenizeAbortController) {
+            this.tokenizeAbortController.abort(ABORT_REASON_CANCELLED);
+            this.tokenizeAbortController = null;
+            isBusy = true;
+        }
+
+        // 예약된 debounce가 있다면 역시 취소.
+        if (this.tokenizeDebounceTimer) {
+            clearTimeout(this.tokenizeDebounceTimer);
+            this.tokenizeDebounceTimer = null;
+            isBusy = true;
+        }
+
+        // 아직 resolve/reject 되지 않은 pending promise가 없다면 새로운 promise를 만들고 resolver/rejecter 보관...
+        // 호출하는 쪽에서 waitForTokens로 항상 최신의 토큰을 await 할 수 있도록.
+        if (!this._hasPendingPromise) {
             this._tokenizingPromise = new Promise((resolve, reject) => {
                 this._tokenizingPromiseResolver = resolve;
                 this._tokenizingPromiseRejecter = reject;
             });
-            this._tokenizingRanToFinished = false;
+            this._hasPendingPromise = true;
         }
 
+        // 내용이 바뀌었으므로 기존의 내용은 이미 잘못된 내용을 가르키고 있을 확률이 높다.
+        // 더이상 잘못된 값을 참조하지 못하도록...
+        this.wholeText = NULL_TOKEN_SNAPSHOT.wholeText;
+        this.tokens = NULL_TOKEN_SNAPSHOT.tokens;
+        this.lineBoundaries = NULL_TOKEN_SNAPSHOT.lineBoundaries;
+        this.sectionHeadings = NULL_TOKEN_SNAPSHOT.sectionHeadings;
+
+        // engine이 workflow를 시작할 수 있도록 이벤트를 발생시킴.
         this.callbacks.contentChanging?.(this);
-        this.tokens = [];
 
-        try {
-            await this.doTokenize();
-            console.debug(this.name, "tokenize done", this.tokens.length);
-            this._tokenizingPromiseResolver?.({
-                wholeText: this.wholeText,
-                tokens: this.tokens,
-                lineBoundaries: this.lineBoundaries
-            });
-
-            this.callbacks.contentChanged?.(this);
-            this._tokenizingRanToFinished = true;
-        } catch (err) {
-            if (err === ABORT_REASON_CANCELLED) {
-                // 다시 토큰화가 실행될 것이니까 promise는 그냥 내비두고 resolve도 reject도 하지 않음
-            } else {
-                console.error(this.name, "Tokenization error:", err);
-                this._tokenizingPromiseRejecter?.(err);
-                this._tokenizingRanToFinished = true;
-            }
+        if (isBusy) {
+            this.tokenizeDebounceTimer = setTimeout(() => {
+                this.executeTokenization();
+            }, TOKENIZE_DEBOUNCE_DELAY_MS);
+        } else {
+            this.executeTokenization();
         }
+    }
+
+    private executeTokenization() {
+        if (this.tokenizeAbortController) {
+            this.tokenizeAbortController.abort(ABORT_REASON_CANCELLED);
+            this.tokenizeAbortController = null;
+        }
+
+        if (this.tokenizeDebounceTimer) {
+            clearTimeout(this.tokenizeDebounceTimer);
+            this.tokenizeDebounceTimer = null;
+        }
+
+        const controller = new AbortController();
+        this.tokenizeAbortController = controller;
+
+        tokenize(this.contentElement, controller.signal, this.tokenizeOptions)
+            .then(({ wholeText, tokens, lineBoundaries, sectionHeadings, elapsed }) => {
+                if (this.tokenizeAbortController === controller) {
+                    this.wholeText = wholeText;
+                    this.tokens = tokens;
+                    this.lineBoundaries = lineBoundaries;
+                    this.sectionHeadings = sectionHeadings;
+                    this._hasPendingPromise = false;
+
+                    this._tokenizingPromiseResolver?.({
+                        wholeText: wholeText,
+                        tokens: tokens,
+                        lineBoundaries: lineBoundaries,
+                        sectionHeadings: sectionHeadings,
+                        elapsedTime: elapsed,
+                    });
+
+                    this.callbacks.contentChanged?.(this);
+                }
+            }).catch((err) => {
+                if (this.tokenizeAbortController === controller) {
+                    // console.error(this.name, "Tokenization error:", err);
+                    this._tokenizingPromiseRejecter?.(err);
+                }
+            }).finally(() => {
+                if (this.tokenizeAbortController === controller) {
+                    this.tokenizeAbortController = null;
+                    this._hasPendingPromise = false;
+                }
+            });
     }
 
     private onMutation(_mutations: MutationRecord[]) {
@@ -257,41 +364,6 @@ export class Editor implements EditorContext {
 
     private unobserveMutation() {
         this.mutationObserver.disconnect();
-    }
-
-    private async doTokenize() {
-        if (this.tokenizeAbortController) {
-            this.tokenizeAbortController.abort(ABORT_REASON_CANCELLED);
-        }
-
-        const controller = new AbortController();
-        this.tokenizeAbortController = controller;
-
-        try {
-            const result = await tokenize(this.contentElement, {
-                signal: this.tokenizeAbortController.signal,
-            });
-
-            // if (import.meta.env.DEV) {
-            //     console.debug(this.name, `Tokenization completed in ${result.elapsed.toFixed(2)} ms, result:`, result);
-            // }
-
-            this.tokenizeAbortController = null;
-            this.wholeText = result.wholeText;
-            this.tokens = result.tokens;
-            this.lineBoundaries = result.lineBoundaries;
-            // } catch (err) {
-            //     if (err === ABORT_REASON_CANCELLED) {
-            //         console.warn(this.name, "Tokenization cancelled");
-            //         // swallow
-            //     } else {
-            //         throw err;
-            //     }
-        } finally {
-            if (this.tokenizeAbortController === controller) {
-                this.tokenizeAbortController = null;
-            }
-        }
     }
 
     private onCopy(e: ClipboardEvent) {
@@ -389,7 +461,6 @@ export class Editor implements EditorContext {
             return true;
         } finally {
             this.contentElement.classList.remove("busy");
-            //this.editor.contentEditable = "true";
         }
     }
 

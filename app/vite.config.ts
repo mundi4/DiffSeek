@@ -15,7 +15,7 @@ export default defineConfig({
         emptyOutDir: true,
         assetsInlineLimit: 4096 * 4096, // 웬만하면 다 inline
         minify: "esbuild",
-        cssCodeSplit: false,
+        // cssCodeSplit: false,
         rolldownOptions: {
             treeshake: true,
             output: {

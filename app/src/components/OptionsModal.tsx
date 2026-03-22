@@ -1,366 +1,236 @@
-// import { useEffect, useRef, useState } from 'preact/hooks';
-// import { appState } from '../states/appState';
-// import { getDefaultDiffOptions } from '../core/renderer/DiffOptions';
-// import type { DiffOptions } from '../../../core/src/types';
+import { useDiffseekActions } from "@/bridge/DiffseekProvider";
+import { diffOptionsAtom, editableInSyncModeAtom } from "@/states/coreAtoms";
+import { type DiffOptions, getDefaultDiffOptions } from "@core";
+import { Box, Button, Flex, Group, Modal, NumberInput, Radio, Stack, Switch, Text } from "@mantine/core";
+import { useAtomValue } from "jotai";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-// function useDraftOptions(open: boolean) {
-//     const [draft, setDraft] = useState<DiffOptions>(getDefaultDiffOptions());
+type CategoryKey = "general" | "tokens" | "patience" | "advanced";
 
-//     useEffect(() => {
-//         if (!open) {
-//             return;
-//         }
-//         const runtime = appState.diffseekRuntime;
-//         if (runtime) {
-//             setDraft(runtime.getDiffOptions());
-//         } else {
-//             setDraft(getDefaultDiffOptions());
-//         }
-//     }, [open]);
+interface Category {
+    key: CategoryKey;
+    label: string;
+    description: string;
+}
 
-//     return [draft, setDraft] as const;
-// }
+const categories: Category[] = [
+    { key: "general", label: "일반", description: "기본 설정" },
+    { key: "tokens", label: "토큰 처리", description: "토큰 병합 옵션" },
+    { key: "patience", label: "Patience Diff", description: "Patience Diff 알고리즘" },
+    { key: "advanced", label: "고급", description: "추가 알고리즘 설정" },
+];
 
-// export function OptionsModal() {
-//     const open = appState.optionsModalOpen.value;
-//     const [draft, setDraft] = useDraftOptions(open);
-//     const modalRef = useRef<HTMLDivElement>(null);
-//     const initialFocusRef = useRef<HTMLSelectElement>(null);
+export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+    const current = useAtomValue(diffOptionsAtom);
+    const currentEditableInSyncMode = useAtomValue(editableInSyncModeAtom);
+    const { updateDiffOptions, resetDiffOptions, setEditableInSyncMode } = useDiffseekActions();
+    const [draft, setDraft] = useState<DiffOptions>(current);
+    const [draftEditableInSyncMode, setDraftEditableInSyncMode] = useState<boolean>(currentEditableInSyncMode);
+    const [activeCategory, setActiveCategory] = useState<CategoryKey>("general");
+    const contentRef = useRef<HTMLDivElement>(null);
 
-//     useEffect(() => {
-//         if (!open) {
-//             return;
-//         }
-//         const previouslyFocused = document.activeElement as HTMLElement | null;
+    useEffect(() => {
+        if (opened) {
+            setDraft(current);
+            setDraftEditableInSyncMode(currentEditableInSyncMode);
+            setActiveCategory("general");
+        }
+    }, [opened, current, currentEditableInSyncMode]);
 
-//         const getFocusable = () => {
-//             const root = modalRef.current;
-//             if (!root) {
-//                 return [] as HTMLElement[];
-//             }
-//             const focusable = root.querySelectorAll<HTMLElement>(
-//                 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
-//             );
-//             return Array.from(focusable).filter((el) => !el.hasAttribute('disabled') && !el.getAttribute('aria-hidden'));
-//         };
+    const canApply = useMemo(() => {
+        return JSON.stringify(draft) !== JSON.stringify(current)
+            || draftEditableInSyncMode !== currentEditableInSyncMode;
+    }, [draft, current, draftEditableInSyncMode, currentEditableInSyncMode]);
 
-//         const focusFirst = () => {
-//             if (initialFocusRef.current) {
-//                 initialFocusRef.current.focus();
-//                 return;
-//             }
-//             const focusable = getFocusable();
-//             if (focusable.length > 0) {
-//                 focusable[0].focus();
-//             }
-//         };
+    const apply = () => {
+        updateDiffOptions(draft);
+        setEditableInSyncMode(draftEditableInSyncMode);
+        onClose();
+    };
 
-//         const handleKeydown = (e: KeyboardEvent) => {
-//             if (e.key === 'Escape') {
-//                 appState.optionsModalOpen.value = false;
-//                 return;
-//             }
+    const reset = () => {
+        resetDiffOptions();
+        setDraft(getDefaultDiffOptions());
+        setEditableInSyncMode(false);
+        setDraftEditableInSyncMode(false);
+    };
 
-//             if (e.key === 'Tab') {
-//                 const focusable = getFocusable();
-//                 if (focusable.length === 0) {
-//                     e.preventDefault();
-//                     return;
-//                 }
-//                 const first = focusable[0];
-//                 const last = focusable[focusable.length - 1];
-//                 if (e.shiftKey) {
-//                     if (document.activeElement === first || document.activeElement === modalRef.current) {
-//                         last.focus();
-//                         e.preventDefault();
-//                     }
-//                 } else if (document.activeElement === last) {
-//                     first.focus();
-//                     e.preventDefault();
-//                 }
-//             }
-//         };
-//         window.addEventListener('keydown', handleKeydown);
+    const renderContent = () => {
+        switch (activeCategory) {
+            case "general":
+                return (
+                    <Stack gap="lg">
+                        <Box>
+                            <Switch
+                                label="동기 모드에서 편집 활성화"
+                                checked={draftEditableInSyncMode}
+                                onChange={(e) => {
+                                    const checked = e.currentTarget.checked;
+                                    setDraftEditableInSyncMode(checked);
+                                }}
+                            />
+                            <Text size="sm" c="dimmed" mt="xs">
+                                양쪽 정렬 모드에서도 문서 편집을 허용합니다.
+                            </Text>
+                        </Box>
 
-//         requestAnimationFrame(() => {
-//             focusFirst();
-//         });
+                        <Box>
+                            <Radio.Group
+                                label="공백 처리"
+                                value={draft.whitespace}
+                                onChange={(v) => {
+                                    setDraft((prev) => ({ ...prev, whitespace: v as DiffOptions["whitespace"] }));
+                                }}
+                            >
+                                <Stack gap="xs" mt="xs">
+                                    <Radio value="collapse" label="연속된 공백을 하나로 취급" />
+                                    <Radio value="ignore" label="모든 공백 무시" />
+                                </Stack>
+                            </Radio.Group>
+                        </Box>
+                    </Stack>
+                );
 
-//         return () => {
-//             window.removeEventListener('keydown', handleKeydown);
-//             previouslyFocused?.focus();
-//         };
-//     }, [open]);
+            case "tokens":
+                return (
+                    <Box>
+                        <Switch
+                            label="비단어 토큰 병합"
+                            checked={draft.mergeNonWordTokens}
+                            onChange={(e) => {
+                                const checked = e.currentTarget.checked;
+                                setDraft((prev) => ({ ...prev, mergeNonWordTokens: checked }));
+                            }}
+                        />
+                        <Text size="sm" c="dimmed" mt="xs">
+                            연속된 비단어(문장부호 등)를 하나로 묶어서 비교합니다.
+                        </Text>
+                    </Box>
+                );
 
-//     if (!open) {
-//         return null;
-//     }
+            case "patience":
+                return (
+                    <Stack gap="lg">
+                        <Box>
+                            <Switch
+                                label="Patience Diff 사용"
+                                checked={draft.usePatience}
+                                onChange={(e) => {
+                                    const checked = e.currentTarget.checked;
+                                    setDraft((prev) => ({ ...prev, usePatience: checked }));
+                                }}
+                            />
+                            <Text size="sm" c="dimmed" mt="xs">
+                                고유한 내용을 가진 줄끼리 우선적으로 매칭을 시도합니다. 비교 속도가 향상됩니다.
+                            </Text>
+                        </Box>
 
-//     const updateField = <K extends keyof DiffOptions>(key: K, value: DiffOptions[K]) => {
-//         setDraft((prev) => ({ ...prev, [key]: value }));
-//     };
+                        <NumberInput
+                            label="최소 줄 수"
+                            description="Patience Diff를 적용할 최소 줄 개수"
+                            min={1}
+                            step={1}
+                            value={draft.patienceMinLines}
+                            onChange={(v) => setDraft((prev) => ({ ...prev, patienceMinLines: Number(v) || 1 }))}
+                        />
 
-//     const apply = () => {
-//         const runtime = appState.diffseekRuntime;
-//         runtime?.setDiffOptions(draft);
-//         appState.diffOptions.value = draft;
-//         runtime?.runDiffWorkflow();
-//         appState.optionsModalOpen.value = false
-//     };
+                        <NumberInput
+                            label="최소 토큰 수"
+                            description="Patience Diff를 적용할 최소 토큰 개수"
+                            min={1}
+                            step={50}
+                            value={draft.patienceMinTokens}
+                            onChange={(v) => setDraft((prev) => ({ ...prev, patienceMinTokens: Number(v) || 1 }))}
+                        />
+                    </Stack>
+                );
 
-//     const reset = () => {
-//         const defaults = getDefaultDiffOptions();
-//         setDraft(defaults);
-//         appState.diffseekRuntime?.setDiffOptions(null);
-//         appState.diffOptions.value = defaults;
-//     };
+            case "advanced":
+                return (
+                    <NumberInput
+                        label="Local SA Hybrid Ratio"
+                        description="Local sequence alignment 가중치 (0 ~ 1)"
+                        min={0}
+                        max={1}
+                        step={0.05}
+                        decimalScale={2}
+                        value={draft.localSAHybridRatio}
+                        onChange={(v) => {
+                            const num = Math.max(0, Math.min(1, Number(v) || 0));
+                            setDraft((prev) => ({ ...prev, localSAHybridRatio: num }));
+                        }}
+                    />
+                );
 
-//     return (
-//         <div
-//             className="options-modal-backdrop"
-//             onClick={(e) => {
-//                 if (e.currentTarget === e.target) {
-//                     appState.optionsModalOpen.value = false;
-//                 }
-//             }}
-//         >
-//             <div ref={modalRef} className="options-modal" role="dialog" aria-modal="true" aria-label="Options">
-//                 <header className="options-modal-header">
-//                     <div className="options-modal-header-content">
-//                         <h2 className="options-modal-title">설정</h2>
-//                         <p className="options-modal-subtitle">비교 결과에 영향을 주는 핵심 옵션</p>
-//                     </div>
-//                     <button
-//                         className="options-modal-close"
-//                         onClick={() => (appState.optionsModalOpen.value = false)}
-//                         aria-label="Close options"
-//                     >
-//                         ×
-//                     </button>
-//                 </header>
+            default:
+                return null;
+        }
+    };
 
-//                 <section className="options-modal-body">
-//                     <div className="options-section">
-//                         <div className="options-section-header">
-//                             <h3>공백 처리</h3>
-//                             <span className="options-section-caption">띄어쓰기/줄바꿈 처리 방식</span>
-//                         </div>
-//                         <div className="options-grid">
-//                             <label htmlFor="opt-whitespace">공백 처리 방식</label>
-//                             <select
-//                                 id="opt-whitespace"
-//                                 ref={initialFocusRef}
-//                                 value={draft.whitespace}
-//                                 onChange={(e) => updateField('whitespace', (e.target as HTMLSelectElement).value as DiffOptions['whitespace'])}
-//                             >
-//                                 <option value="collapse">일반(공백 축약)</option>
-//                                 <option value="ignore">공백 무시</option>
-//                                 <option value="ignoreAtEdge">줄 경계의 공백만 무시</option>
-//                             </select>
-//                         </div>
-//                     </div>
+    return (
+        <Modal
+            opened={opened}
+            onClose={onClose}
+            title="비교 옵션"
+            centered
+            size="xl"
+            styles={{ body: { display: "flex", flexDirection: "column", gap: "1rem" } }}
+        >
+            <Flex gap="md" style={{ flex: 1, minHeight: "400px" }}>
+                {/* Left Sidebar */}
+                <Stack gap={0} style={{ width: "150px", flexShrink: 0, borderRight: "1px solid var(--mantine-color-gray-3)" }}>
+                    {categories.map((cat) => (
+                        <Button
+                            key={cat.key}
+                            variant={activeCategory === cat.key ? "filled" : "subtle"}
+                            justify="flex-start"
+                            fullWidth
+                            radius={0}
+                            onClick={() => {
+                                setActiveCategory(cat.key);
+                                contentRef.current?.scrollTo(0, 0);
+                            }}
+                            styles={{ section: { marginRight: "0.5rem" } }}
+                        >
+                            {cat.label}
+                        </Button>
+                    ))}
+                </Stack>
 
-//                     <div className="options-section">
-//                         <div className="options-section-header">
-//                             <h3>비교 단위</h3>
-//                             <span className="options-section-caption">문장 내 연속 토큰 기반</span>
-//                         </div>
-//                         <div className="options-grid">
-//                             <label htmlFor="opt-use-grams">그램(연속 토큰) 사용</label>
-//                             <input
-//                                 id="opt-use-grams"
-//                                 type="checkbox"
-//                                 checked={draft.useGrams}
-//                                 onChange={(e) => updateField('useGrams', (e.target as HTMLInputElement).checked)}
-//                             />
+                {/* Right Content */}
+                <Box
+                    ref={contentRef}
+                    style={{
+                        flex: 1,
+                        overflowY: "auto",
+                        paddingRight: "1rem",
+                        maxHeight: "400px",
+                    }}
+                >
+                    <Stack gap="md">
+                        <Box>
+                            <Text fw={600} size="lg" mb="xs">
+                                {categories.find((c) => c.key === activeCategory)?.label}
+                            </Text>
+                            <Text size="sm" c="dimmed" mb="md">
+                                {categories.find((c) => c.key === activeCategory)?.description}
+                            </Text>
+                        </Box>
+                        {renderContent()}
+                    </Stack>
+                </Box>
+            </Flex>
 
-//                             <label htmlFor="opt-max-gram">최대 그램 길이</label>
-//                             <input
-//                                 id="opt-max-gram"
-//                                 type="number"
-//                                 min={1}
-//                                 max={12}
-//                                 value={draft.maxGram}
-//                                 onChange={(e) => updateField('maxGram', Number((e.target as HTMLInputElement).value))}
-//                             />
-//                         </div>
-//                     </div>
-
-//                     <div className="options-section">
-//                         <div className="options-section-header">
-//                             <h3>보정값</h3>
-//                             <span className="options-section-caption">매칭 우선순위 보정</span>
-//                         </div>
-//                         <div className="options-grid">
-//                             <label htmlFor="opt-length-bonus">길이 보너스 사용</label>
-//                             <input
-//                                 id="opt-length-bonus"
-//                                 type="checkbox"
-//                                 checked={draft.useLengthBonus}
-//                                 onChange={(e) => updateField('useLengthBonus', (e.target as HTMLInputElement).checked)}
-//                             />
-
-//                             <label htmlFor="opt-length-mult">길이 보너스 강도</label>
-//                             <input
-//                                 id="opt-length-mult"
-//                                 type="number"
-//                                 step={0.1}
-//                                 value={draft.lengthBonusMultiplier}
-//                                 onChange={(e) => updateField('lengthBonusMultiplier', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-length-max">그램당 최대 길이</label>
-//                             <input
-//                                 id="opt-length-max"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.maxLengthPerGramForBonus}
-//                                 onChange={(e) => updateField('maxLengthPerGramForBonus', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-line-start">줄 시작 보너스 사용</label>
-//                             <input
-//                                 id="opt-line-start"
-//                                 type="checkbox"
-//                                 checked={draft.useLineStartBonus}
-//                                 onChange={(e) => updateField('useLineStartBonus', (e.target as HTMLInputElement).checked)}
-//                             />
-
-//                             <label htmlFor="opt-line-start-mult">줄 시작 보너스 강도</label>
-//                             <input
-//                                 id="opt-line-start-mult"
-//                                 type="number"
-//                                 step={0.1}
-//                                 value={draft.lineStartBonusMultiplier}
-//                                 onChange={(e) => updateField('lineStartBonusMultiplier', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-unique">고유성 보너스 사용</label>
-//                             <input
-//                                 id="opt-unique"
-//                                 type="checkbox"
-//                                 checked={draft.useUniqueBonus}
-//                                 onChange={(e) => updateField('useUniqueBonus', (e.target as HTMLInputElement).checked)}
-//                             />
-
-//                             <label htmlFor="opt-unique-mult">고유성 보너스 강도</label>
-//                             <input
-//                                 id="opt-unique-mult"
-//                                 type="number"
-//                                 step={0.1}
-//                                 value={draft.uniqueBonusMultiplier}
-//                                 onChange={(e) => updateField('uniqueBonusMultiplier', Number((e.target as HTMLInputElement).value))}
-//                             />
-//                         </div>
-//                     </div>
-
-//                     <div className="options-section">
-//                         <div className="options-section-header">
-//                             <h3>대략 분할</h3>
-//                             <span className="options-section-caption">큰 문서의 성능 최적화</span>
-//                         </div>
-//                         <div className="options-grid">
-//                             <label htmlFor="opt-coarse">대략 분할 사용</label>
-//                             <input
-//                                 id="opt-coarse"
-//                                 type="checkbox"
-//                                 checked={draft.useCoarseSplit}
-//                                 onChange={(e) => updateField('useCoarseSplit', (e.target as HTMLInputElement).checked)}
-//                             />
-
-//                             <label htmlFor="opt-coarse-mode">앵커 모드</label>
-//                             <select
-//                                 id="opt-coarse-mode"
-//                                 value={draft.coarseAnchorMode}
-//                                 onChange={(e) => updateField('coarseAnchorMode', (e.target as HTMLSelectElement).value as DiffOptions['coarseAnchorMode'])}
-//                             >
-//                                 <option value="line">줄 전체</option>
-//                                 <option value="linePrefix">줄 앞부분</option>
-//                                 <option value="fixedWindow">고정 윈도우</option>
-//                             </select>
-
-//                             <label htmlFor="opt-coarse-min-tokens">앵커 최소 토큰 수</label>
-//                             <input
-//                                 id="opt-coarse-min-tokens"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.coarseAnchorMinTokens}
-//                                 onChange={(e) => updateField('coarseAnchorMinTokens', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-coarse-window">앵커 토큰 윈도우</label>
-//                             <input
-//                                 id="opt-coarse-window"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.coarseAnchorTokenWindow}
-//                                 onChange={(e) => updateField('coarseAnchorTokenWindow', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-coarse-wordlike">앵커 최소 단어형 토큰</label>
-//                             <input
-//                                 id="opt-coarse-wordlike"
-//                                 type="number"
-//                                 min={0}
-//                                 value={draft.coarseAnchorMinWordLikeTokens}
-//                                 onChange={(e) => updateField('coarseAnchorMinWordLikeTokens', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-coarse-chars">앵커 최소 유효 글자수</label>
-//                             <input
-//                                 id="opt-coarse-chars"
-//                                 type="number"
-//                                 min={0}
-//                                 value={draft.coarseAnchorMinEffectiveChars}
-//                                 onChange={(e) => updateField('coarseAnchorMinEffectiveChars', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-split-min-tokens">분할 최소 토큰 수</label>
-//                             <input
-//                                 id="opt-split-min-tokens"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.coarseSplitMinTokens}
-//                                 onChange={(e) => updateField('coarseSplitMinTokens', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-split-min-side">분할 최소 편 토큰</label>
-//                             <input
-//                                 id="opt-split-min-side"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.coarseSplitMinSideTokens}
-//                                 onChange={(e) => updateField('coarseSplitMinSideTokens', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-split-gain">분할 최소 이득 비율</label>
-//                             <input
-//                                 id="opt-split-gain"
-//                                 type="number"
-//                                 step={0.01}
-//                                 value={draft.coarseSplitMinGainRatio}
-//                                 onChange={(e) => updateField('coarseSplitMinGainRatio', Number((e.target as HTMLInputElement).value))}
-//                             />
-
-//                             <label htmlFor="opt-split-max-anchors">분할 최대 고유 앵커 수</label>
-//                             <input
-//                                 id="opt-split-max-anchors"
-//                                 type="number"
-//                                 min={1}
-//                                 value={draft.coarseSplitMaxUniqueAnchors}
-//                                 onChange={(e) => updateField('coarseSplitMaxUniqueAnchors', Number((e.target as HTMLInputElement).value))}
-//                             />
-//                         </div>
-//                     </div>
-//                 </section>
-
-//                 <footer className="options-modal-footer">
-//                     <button className="options-button" onClick={reset}>초기화</button>
-//                     <div className="options-modal-spacer" />
-//                     <button className="options-button" onClick={() => (appState.optionsModalOpen.value = false)}>닫기</button>
-//                     <button className="options-button options-button-primary" onClick={apply}>적용</button>
-//                 </footer>
-//             </div>
-//         </div>
-//     );
-// }
+            {/* Footer */}
+            <Group justify="space-between" pt="md" style={{ borderTop: "1px solid var(--mantine-color-gray-3)" }}>
+                <Button variant="subtle" color="gray" onClick={reset}>
+                    기본값 복원
+                </Button>
+                <Group>
+                    <Button variant="default" onClick={onClose}>취소</Button>
+                    <Button onClick={apply} disabled={!canApply}>적용</Button>
+                </Group>
+            </Group>
+        </Modal>
+    );
+}

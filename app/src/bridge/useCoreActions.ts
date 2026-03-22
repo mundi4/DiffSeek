@@ -9,8 +9,20 @@ export function useCoreActions({ engine }: { engine: DiffseekEngine }) {
                 engine.syncMode = enable;
             },
 
+            setEditableInSyncMode(enable: boolean) {
+                engine.editableInSyncMode = enable;
+            },
+
             setWhitespaceMode(mode: DiffOptions["whitespace"]) {
                 engine.updateDiffOptions({ whitespace: mode });
+            },
+
+            updateDiffOptions(options: Partial<DiffOptions>) {
+                engine.updateDiffOptions(options);
+            },
+
+            resetDiffOptions() {
+                engine.replaceDiffOptions(null);
             },
 
             scrollToDiff(diffIndex: number, side: "left" | "right" | "both", options?: ScrollIntoViewOptions) {

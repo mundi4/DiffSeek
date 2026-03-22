@@ -1,21 +1,15 @@
 import { deepMerge } from "../utils/deepMerge";
 import { Editor } from "../editor/editor";
-import type { DiffRenderItem, DiffVisibilityChangeEntry, Rect, RenderedDiff } from "./types";
+import type { DiffRenderItem, DiffVisibilityChangeEntry, Rect } from "./types";
 import { RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GENERAL_MASK, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_REGION_SHIFT, RENDER_FLAGS_REGION_MASK, RENDER_FLAGS_HIT_TEST, RENDER_FLAGS_LAYOUT, RENDER_FLAGS_SCROLL, RENDER_FLAGS_GEOMETRY } from "./types";
 import { EditorRegion } from "./editor-region";
 import type { EditorName } from "../editor";
+import type { DiffEntry, Palette } from "..";
+import { getDiffHue } from "../utils/get-diff-hue";
+import { DEFAULT_PALETTE } from "../palette/default-palette";
 
 export const defaultRendererOptions = {
-    diffSaturation: 100,
-    diffLightness: 80,
-    diffAlpha: 1,
-
-    diffHighlightColor: "hsl(0 100% 80%)",
-    diffLineColor: "hsl(0 100% 90% / 0.5)",
-
-    // overlays
-    selectionColor: "hsl(0 0% 50% / 0.3)",
-    guidelineColor: "hsl(0 0% 50% / 0.3)",
+    palette: structuredClone(DEFAULT_PALETTE),
 
     // geometry
     diffExpandX: 2,
@@ -26,7 +20,6 @@ export const defaultRendererOptions = {
     // minimap
     minimapEnabled: true,
     minimapWidth: 15,
-    minimapColor: "hsl(0 100% 50% / 0.4)",
 };
 
 export type RendererOptions = typeof defaultRendererOptions;
@@ -86,7 +79,16 @@ export class Renderer {
     minimapEnabled: boolean = false;
 
     constructor(left: Editor, right: Editor, options?: Partial<RendererOptions>) {
-        this.options = { ...defaultRendererOptions, ...options };
+        this.options = {
+            ...defaultRendererOptions,
+            ...options,
+            palette: structuredClone(defaultRendererOptions.palette),
+        };
+
+        if (options?.palette) {
+            deepMerge(this.options.palette, options.palette);
+        }
+
         this.rootElement = document.createElement("div");
         this.rootElement.className = "ds-renderer";
 
@@ -391,16 +393,18 @@ export class Renderer {
         this.invalidate(flags);
     }
 
-    setDiffs(diffs: RenderedDiff[]) {
+    setDiffs(diffs: DiffEntry[]) {
         const leftDiffs: DiffRenderItem[] = new Array(diffs.length);
         const rightDiffs: DiffRenderItem[] = new Array(diffs.length);
 
-        const { diffSaturation, diffLightness, diffAlpha } = this.options;
+        const { diffSaturation, diffLightness, diffAlpha } = this.options.palette;
+        const { diffHues } = this.options.palette;
         for (let i = 0; i < diffs.length; i++) {
             const diff = diffs[i];
             const leftRange = diff.leftRange;
             const rightRange = diff.rightRange;
-            const color = `hsl(${diff.hue} ${diffSaturation}% ${diffLightness}% / ${diffAlpha})`;
+            const hue = getDiffHue(diff.diffIndex, diffHues);
+            const color = `hsl(${hue} ${diffSaturation}% ${diffLightness}% / ${diffAlpha})`;
             leftDiffs[i] = {
                 diffIndex: i,
                 range: leftRange,
@@ -491,7 +495,7 @@ export class Renderer {
         ctx.beginPath();
         ctx.moveTo(0, guideLineY);
         ctx.lineTo(this.width, guideLineY);
-        ctx.strokeStyle = this.options.guidelineColor;
+        ctx.strokeStyle = this.options.palette.guidelineColor;
         ctx.lineWidth = 1;
         ctx.stroke();
     }

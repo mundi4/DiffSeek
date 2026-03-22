@@ -12,6 +12,15 @@ export async function processSegmentsWithAnchors(
     let lastL = 0;
     let lastR = 0;
 
+    // console.log("=== anchors ===");
+    // for (const anchor of anchors) {
+    //     const textL = tokenRangeToString(lhs.buffer, lhs.offsets, anchor.lhsStart, anchor.lhsEnd);
+    //     const textR = tokenRangeToString(rhs.buffer, rhs.offsets, anchor.rhsStart, anchor.rhsEnd);
+    //     console.log(`lhs[${anchor.lhsStart}, ${anchor.lhsEnd}): "${textL}"`);
+    //     console.log(`rhs[${anchor.rhsStart}, ${anchor.rhsEnd}): "${textR}"`);
+    // }
+    // console.log("===============");
+
     const histogramFunc = runHistogramDiff;
 
     // lhs.resultBuffer.fill(0);
@@ -53,30 +62,29 @@ export async function processSegmentsWithAnchors(
         const rhsEnd = anchor.rhsEnd;
 
         // console.debug(`Processing anchor: lhs[${lhsPos}, ${lhsEnd}), rhs[${rhsPos}, ${rhsEnd}) (last: lhs[${lastL}], rhs[${lastR}])`);
-        const textL = tokenRangeToString(lhs.buffer, lhs.offsets, lhsPos, lhsEnd);
-        const textR = tokenRangeToString(rhs.buffer, rhs.offsets, rhsPos, rhsEnd);
-        // console.debug(`L: "${textL}"`);
-        // console.debug(`R: "${textR}"`);
+        // const textL = tokenRangeToString(lhs.buffer, lhs.offsets, lhsPos, lhsEnd);
+        // const textR = tokenRangeToString(rhs.buffer, rhs.offsets, rhsPos, rhsEnd);
+
         if (lhsPos > lastL || rhsPos > lastR) {
             let l = lhsPos, r = rhsPos;
-            if (ignoreWhitespaces) {
-                while (l > lastL && r > lastR) {
-                    const match = matchSuffixTokens(lhs, rhs, lastL, l, lastR, r, ignoreWhitespaces);
-                    if (match) {
-                        writeToResultBuffer(lhs.resultBuffer, rhs.resultBuffer, l - match[0], l, r - match[1], r, DIFF_TYPE_UNCHANGED);
-                        l -= match[0];
-                        r -= match[1];
-                    } else {
-                        break;
-                    }
-                }
-            }
+            // if (ignoreWhitespaces) {
+            //     while (l > lastL && r > lastR) {
+            //         const match = matchSuffixTokens(lhs, rhs, lastL, l, lastR, r, ignoreWhitespaces);
+            //         if (match) {
+            //             writeToResultBuffer(lhs.resultBuffer, rhs.resultBuffer, l - match[0], l, r - match[1], r, DIFF_TYPE_UNCHANGED);
+            //             l -= match[0];
+            //             r -= match[1];
+            //         } else {
+            //             break;
+            //         }
+            //     }
+            // }
             if (l > lastL || r > lastR) {
                 await diff(lastL, l, lastR, r);
             }
         }
 
-        markUnchanged(lhs, rhs, lhsPos, lhsEnd, rhsPos, rhsEnd, ignoreWhitespaces);
+        markUnchanged(lhs, rhs, lhsPos, lhsEnd, rhsPos, rhsEnd);
 
         lastL = lhsEnd;
         lastR = rhsEnd;
@@ -86,7 +94,7 @@ export async function processSegmentsWithAnchors(
         let l = lhs.tokenCount, r = rhs.tokenCount;
         if (ignoreWhitespaces) {
             while (l > lastL && r > lastR) {
-                const match = matchSuffixTokens(lhs, rhs, lastL, l, lastR, r, ignoreWhitespaces);
+                const match = matchSuffixTokens(lhs, rhs, lastL, l, lastR, r);
                 if (match) {
                     writeToResultBuffer(lhs.resultBuffer, rhs.resultBuffer, l - match[0], l, r - match[1], r, DIFF_TYPE_UNCHANGED);
                     l -= match[0];
@@ -102,13 +110,13 @@ export async function processSegmentsWithAnchors(
     }
 }
 
-function markUnchanged(lhs: DiffInput, rhs: DiffInput, lhsPos: number, lhsEnd: number, rhsPos: number, rhsEnd: number, ignoreWhitespaces: boolean) {
+function markUnchanged(lhs: DiffInput, rhs: DiffInput, lhsPos: number, lhsEnd: number, rhsPos: number, rhsEnd: number) {
     const lhsResultBuf = lhs.resultBuffer;
     const rhsResultBuf = rhs.resultBuffer;
     let l = lhsPos;
     let r = rhsPos;
     while (l < lhsEnd && r < rhsEnd) {
-        const match = matchPrefixTokens(lhs, rhs, l, lhsEnd, r, rhsEnd, ignoreWhitespaces);
+        const match = matchPrefixTokens(lhs, rhs, l, lhsEnd, r, rhsEnd);
         if (import.meta.env.DEV) {
             if (!match || match[0] <= 0 || match[1] <= 0) {
                 throw new Error(`Invalid anchor match at lhs[${l}, ${lhsEnd}), rhs[${r}, ${rhsEnd})`);

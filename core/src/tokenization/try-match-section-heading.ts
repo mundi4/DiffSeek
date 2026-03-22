@@ -1,6 +1,6 @@
 import type { TextNodeCursor } from "./text-node-cursor";
 import { CHAR_META } from "../char-meta";
-import { CM_WS } from "../char-meta-flags";
+import { CM_LETTER, CM_NUMBER, CM_WS } from "../char-meta-flags";
 import { TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE, TOKEN_FLAGS_SECTION_HEADING_TYPE1, TOKEN_FLAGS_SECTION_HEADING_TYPE2, TOKEN_FLAGS_SECTION_HEADING_TYPE3, TOKEN_FLAGS_SECTION_HEADING_TYPE4, TOKEN_FLAGS_SECTION_HEADING_TYPE5, TOKEN_FLAGS_SECTION_HEADING_TYPE6 } from "./types";
 
 export const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
@@ -25,6 +25,13 @@ type NumberingMatch = {
     text: string;
     ordinal: number;
     type: number;
+};
+
+export type SectionHeadingMatch = {
+    type: number;
+    text: string;
+    ordinal: number;
+    tokenCount: number;
 };
 
 function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
@@ -64,6 +71,9 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
             return null;
         }
     }
+
+    // '조'를 실제로 소비하여 다음 토큰에서 중복으로 다시 나오지 않게 한다.
+    cursor.moveNext();
 
     return {
         text: `제${number}조`,
@@ -105,6 +115,9 @@ function tryMatchParenthesized(cursor: TextNodeCursor): NumberingMatch | null {
         return null;
     }
 
+    // 닫는 괄호를 소비해서 중복 ')' 토큰 생성을 방지한다.
+    cursor.moveNext();
+
     number.text = `(${number.text})`;
     number.type = (number.type === TOKEN_FLAGS_SECTION_HEADING_TYPE1) ? TOKEN_FLAGS_SECTION_HEADING_TYPE3 : TOKEN_FLAGS_SECTION_HEADING_TYPE4;
     return number;
@@ -125,19 +138,43 @@ function tryMatchNumberWithSuffix(cursor: TextNodeCursor): NumberingMatch | null
 
     if (code === 0x2e) { // .
         number.text = `${number.text}.`;
+        // 접미 문자를 소비해서 중복 토큰 생성을 방지한다.
+        cursor.moveNext();
         return number;
     } else if (code === 0x29) { // )
         number.text = `${number.text})`;
         number.type = (number.type === TOKEN_FLAGS_SECTION_HEADING_TYPE1) ? TOKEN_FLAGS_SECTION_HEADING_TYPE5 : TOKEN_FLAGS_SECTION_HEADING_TYPE6;
+        // 접미 문자를 소비해서 중복 토큰 생성을 방지한다.
+        cursor.moveNext();
         return number;
     }
 
     return null;
 }
 
-export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number) {
-    let match: NumberingMatch | null = null;
+/** 현재 커서 위치부터 줄 끝까지 word-like 문자가 하나라도 있으면 true. 커서 위치는 변경하지 않는다. */
+function scanHasWordLike(cursor: TextNodeCursor): boolean {
+    while (cursor.moveNext()) {
+        const meta = CHAR_META[cursor.current];
+        if (meta & (CM_LETTER | CM_NUMBER)) return true;
+    }
+    return false;
+}
+
+function getTokenCount(type: number): number {
+    switch (type) {
+        case TOKEN_FLAGS_SECTION_HEADING_TYPE3:
+        case TOKEN_FLAGS_SECTION_HEADING_TYPE4:
+        case TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE:
+            return 3;
+        default:
+            return 2;
+    }
+}
+
+export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number): SectionHeadingMatch | null {
     const start = cursor.getPos();
+    let match: NumberingMatch | null = null;
 
     if (firstCharCode === 0xc81c) { // 제
         match = tryMatchLawArticle(cursor);
@@ -145,13 +182,24 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
         match = tryMatchParenthesized(cursor);
     } else if (firstCharCode >= 0x30 && firstCharCode <= 0x39) { // 1., 2., 1), 2)
         match = tryMatchNumberWithSuffix(cursor);
+    } else if (hangulOrderMap[firstCharCode]) { // 가., 나., 가), 나)
+        match = tryMatchNumberWithSuffix(cursor);
     }
 
-    if (!match) {
+    if (match) {
+        const hasWordLike = scanHasWordLike(cursor);
         cursor.moveTo(start);
+        if (!hasWordLike) return null;
+        return {
+            type: match.type,
+            text: match.text,
+            ordinal: match.ordinal,
+            tokenCount: getTokenCount(match.type),
+        };
     }
 
-    return match;
+    cursor.moveTo(start);
+    return null;
 }
 
 function parseOrdinal(cursor: TextNodeCursor, firstCode: number): NumberingMatch | null {
@@ -205,4 +253,3 @@ function skipWs(cursor: TextNodeCursor): number {
     }
     return code;
 }
-

@@ -1,4 +1,4 @@
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END } from "../tokenization";
+import { TOKEN_FLAGS_LINE_END } from "../tokenization";
 import { calculateHash, isTokenRangeTextEqual } from "./helpers";
 import type { DiffAnchor, DiffInput } from "./types";
 
@@ -49,17 +49,6 @@ export function buildPatienceAnchors(
         if (charLen < MIN_TEXT_LEN) continue;
 
         let h = calculateHash(lhsBuffer, charPos, charLen);
-        if (!ignoreWhitespaces) {
-            // 버퍼에는 공백이 포함되어 있지 않으므로 해시에 공백의 위치를 반영해줘야함
-            for (let j = lineStart; j < lineEnd; j++) {
-                if (lhsFlags[j] & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) {
-                    const wsOffset = lhsOffsets[j + 1] - charPos; // 시작위치에서의 상대 오프셋이어야 함!
-                    h ^= wsOffset;
-                    h = Math.imul(h, 16777619);
-                }
-            }
-            h = h >>> 0;
-        }
         h = h & HASH_MASK;
 
         let foundIdx = -1;
@@ -78,7 +67,6 @@ export function buildPatienceAnchors(
             if (ignoreWhitespaces || (foundEnd - foundStart) === (lineEnd - lineStart)) {
                 if (isTokenRangeTextEqual(lhsBuffer, lhsOffsets, foundStart, foundEnd,
                     lhsBuffer, lhsOffsets, lineStart, lineEnd)) {
-                    // 여기에서 공백 위치 검증을 해 볼 수도 있다. 정말 할 일 없을 때...
                     foundIdx = curr;
                     break;
                 }
@@ -114,17 +102,6 @@ export function buildPatienceAnchors(
         if (charLen < MIN_TEXT_LEN) continue;
 
         let h = calculateHash(rhsBuffer, charPos, charLen);
-        if (!ignoreWhitespaces) {
-            // 버퍼에는 공백이 포함되어 있지 않으므로 해시에 공백의 위치를 반영해줘야함
-            for (let j = lineStart; j < lineEnd; j++) {
-                if (rhsFlags[j] & TOKEN_FLAGS_HAS_FOLLOWING_SPACE) {
-                    const wsOffset = rhsOffsets[j + 1] - charPos; // 시작위치에서의 상대 오프셋이어야 함!
-                    h ^= wsOffset;
-                    h = Math.imul(h, 16777619);
-                }
-            }
-            h = h >>> 0;
-        }
         h = h & HASH_MASK;
 
         for (let curr = HEAD[h]; curr !== -1; curr = links[curr]) {
@@ -139,6 +116,8 @@ export function buildPatienceAnchors(
                     rhsBuffer, rhsOffsets, lineStart, lineEnd)) {
                     continue;
                 }
+            } else {
+                continue;
             }
 
             const rhsStartStored = lineBuffer[base + 2];

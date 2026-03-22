@@ -1,6 +1,6 @@
 import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
 import type { Editor } from "../editor/editor";
-import { Scheduler } from "../scheduler";
+import { createYieldIfNeeded } from "../utils/createYieldIfNeeded";
 import type { AnchorPair } from "./types";
 
 
@@ -131,112 +131,108 @@ export class AnchorManager {
         }
     }
 
-    async alignAnchors(abortSignal: AbortSignal) {
+    async alignAnchors(signal: AbortSignal) {
         return new Promise<void>((resolve, reject) => {
-            requestAnimationFrame(async () => {
-                try {
-                    if (abortSignal.aborted) {
-                        reject(ABORT_REASON_CANCELLED);
-                        return;
-                    }
+            requestAnimationFrame(() => {
+                const yieldIfNeeded = createYieldIfNeeded(signal);
+                void (async () => {
+                    try {
+                        signal.throwIfAborted();
 
-                    const scheduler = new Scheduler({ signal: abortSignal, yieldInterval: 0 });
-                    const anchorPairs = this.anchorPairs;
+                        const anchorPairs = this.anchorPairs;
 
-                    const leftEditor = this.leftEditor;
-                    const rightEditor = this.rightEditor;
+                        const leftEditor = this.leftEditor;
+                        const rightEditor = this.rightEditor;
 
-                    for (const pair of anchorPairs) {
-                        pair.delta = 0;
-                        if (pair.leftEl) {
-                            pair.leftEl.classList.remove("aligned");
-                            pair.leftEl.classList.remove("padded");
-                            pair.leftEl.style.removeProperty("--anchor-adjust");
-                        }
-                        if (pair.rightEl) {
-                            pair.rightEl.classList.remove("aligned");
-                            pair.rightEl.classList.remove("padded");
-                            pair.rightEl.style.removeProperty("--anchor-adjust");
-                        }
-                    }
-
-                    leftEditor.forceReflow();
-                    rightEditor.forceReflow();
-
-                    let leftScrollTop = leftEditor.rootElement.scrollTop;
-                    let rightScrollTop = rightEditor.rootElement.scrollTop;
-                    let leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
-                    let rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
-
-                    for (let i = 0; i < anchorPairs.length; i++) {
-                        if ((i & 0x1f) === 0) {
-                            await scheduler.yield();
+                        for (const pair of anchorPairs) {
+                            pair.delta = 0;
+                            if (pair.leftEl) {
+                                pair.leftEl.classList.remove("aligned");
+                                pair.leftEl.classList.remove("padded");
+                                pair.leftEl.style.removeProperty("--anchor-adjust");
+                            }
+                            if (pair.rightEl) {
+                                pair.rightEl.classList.remove("aligned");
+                                pair.rightEl.classList.remove("padded");
+                                pair.rightEl.style.removeProperty("--anchor-adjust");
+                            }
                         }
 
-                        const pair = anchorPairs[i];
-                        const { leftEl, rightEl } = pair;
-                        // 낙관적으로 --anchor-adjust 속성을 제거하기 전에 leftY/rightY를 계산하고 두 값이 같다면 그냥 정렬된 것으로 간주하고 넘어가기
+                        leftEditor.forceReflow();
+                        rightEditor.forceReflow();
 
-                        let leftY;
-                        let rightY;
-                        leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
-                        rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+                        let leftScrollTop = leftEditor.rootElement.scrollTop;
+                        let rightScrollTop = rightEditor.rootElement.scrollTop;
+                        let leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
+                        let rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
 
-                        let delta = Math.round(leftY - rightY);
-                        if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                            if (pair.delta > 0) {
-                                rightEl.classList.remove("aligned");
-                                rightEl.classList.remove("padded");
-                                rightEl.style.removeProperty("--anchor-adjust");
-                                void rightEl.offsetHeight; // force reflow
-                                rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
-                                rightScrollTop = rightEditor.rootElement.scrollTop;
-                            } else if (pair.delta < 0) {
-                                leftEl.classList.remove("aligned");
-                                leftEl.classList.remove("padded");
-                                leftEl.style.removeProperty("--anchor-adjust");
-                                void leftEl.offsetHeight; // force reflow
-                                leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
-                                leftScrollTop = leftEditor.rootElement.scrollTop;
+                        for (let i = 0; i < anchorPairs.length; i++) {
+                            if ((i & 0x1f) === 0) {
+                                await yieldIfNeeded();
                             }
 
+                            const pair = anchorPairs[i];
+                            const { leftEl, rightEl } = pair;
+                            // 낙관적으로 --anchor-adjust 속성을 제거하기 전에 leftY/rightY를 계산하고 두 값이 같다면 그냥 정렬된 것으로 간주하고 넘어가기
+
+                            let leftY;
+                            let rightY;
                             leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
                             rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-                            delta = Math.round(leftY - rightY);
 
+                            let delta = Math.round(leftY - rightY);
                             if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                                if (this.applyDeltaToPair(pair, delta, true)) {
-                                    leftScrollTop = leftEditor.rootElement.scrollTop;
+                                if (pair.delta > 0) {
+                                    rightEl.classList.remove("aligned");
+                                    rightEl.classList.remove("padded");
+                                    rightEl.style.removeProperty("--anchor-adjust");
+                                    void rightEl.offsetHeight; // force reflow
+                                    rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
                                     rightScrollTop = rightEditor.rootElement.scrollTop;
+                                } else if (pair.delta < 0) {
+                                    leftEl.classList.remove("aligned");
+                                    leftEl.classList.remove("padded");
+                                    leftEl.style.removeProperty("--anchor-adjust");
+                                    void leftEl.offsetHeight; // force reflow
+                                    leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
+                                    leftScrollTop = leftEditor.rootElement.scrollTop;
+                                }
+
+                                leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
+                                rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+                                delta = Math.round(leftY - rightY);
+
+                                if (delta < -MIN_DELTA || delta > MIN_DELTA) {
+                                    if (this.applyDeltaToPair(pair, delta, true)) {
+                                        leftScrollTop = leftEditor.rootElement.scrollTop;
+                                        rightScrollTop = rightEditor.rootElement.scrollTop;
+                                    }
                                 }
                             }
                         }
-                    }
 
-                    await scheduler.yield();
-                    leftEditor.forceReflow();
-                    rightEditor.forceReflow();
+                        await yieldIfNeeded();
+                        leftEditor.forceReflow();
+                        rightEditor.forceReflow();
 
-                    const leftContentHeight = leftEditor.contentElement.offsetHeight;
-                    const rightContentHeight = rightEditor.contentElement.offsetHeight;
-                    if (leftContentHeight > rightContentHeight) {
-                        leftEditor.heightBoostElement.style.height = `0px`;
-                        rightEditor.heightBoostElement.style.height = `${leftContentHeight - rightContentHeight}px`;
-                    } else if (rightContentHeight > leftContentHeight) {
-                        leftEditor.heightBoostElement.style.height = `${rightContentHeight - leftContentHeight}px`;
-                        rightEditor.heightBoostElement.style.height = `0px`;
-                    } else {
-                        leftEditor.heightBoostElement.style.height = `0px`;
-                        rightEditor.heightBoostElement.style.height = `0px`;
-                    }
+                        const leftContentHeight = leftEditor.contentElement.offsetHeight;
+                        const rightContentHeight = rightEditor.contentElement.offsetHeight;
+                        if (leftContentHeight > rightContentHeight) {
+                            leftEditor.heightBoostElement.style.height = `0px`;
+                            rightEditor.heightBoostElement.style.height = `${leftContentHeight - rightContentHeight}px`;
+                        } else if (rightContentHeight > leftContentHeight) {
+                            leftEditor.heightBoostElement.style.height = `${rightContentHeight - leftContentHeight}px`;
+                            rightEditor.heightBoostElement.style.height = `0px`;
+                        } else {
+                            leftEditor.heightBoostElement.style.height = `0px`;
+                            rightEditor.heightBoostElement.style.height = `0px`;
+                        }
 
-                    resolve();
-                } catch (e) {
-                    if (e === ABORT_REASON_CANCELLED) {
-                        return;
+                        resolve();
+                    } catch (e) {
+                        reject(e);
                     }
-                    reject(e);
-                }
+                })();
             });
         });
     }

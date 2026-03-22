@@ -10,6 +10,7 @@ export const DIFF_TYPE_MODIFIED = 0x3 as const;
 export type DiffOptions = {
     whitespace: "collapse" | "ignore";
     mergeNonWordTokens: boolean;
+    mergeLetterNumberBoundary: boolean;
     usePatience: boolean;
     patienceMinLines: number;
     patienceMinTokens: number;

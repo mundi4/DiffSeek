@@ -1,55 +1,90 @@
 import { useDiffseekActions } from "@/bridge/DiffseekProvider";
 import { diffWorkflowStatusAtom, syncModeAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
-import { Button, Group, Popover, Text } from "@mantine/core";
+import { ActionIcon, Group, Kbd, Popover, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useAtomValue } from "jotai";
-import { BusyIndicator } from "./BusyIndicator";
+import { forwardRef, useEffect } from "react";
+import { OptionsModal } from "./OptionsModal";
+
 import type { DiffOptions } from "@core";
+import { IconBook, IconEqual, IconSettings } from "@tabler/icons-react";
+import { DiffStatusIndicator } from "./DiffStatusIndicator";
+
+function StatusOn() {
+    return (
+        <Text span c="teal.8" fw={600}>(켜짐)</Text>
+    )
+}
+
+function StatusOff() {
+    return (
+        <Text span c="dimmed" fw={600}>(꺼짐)</Text>
+    )
+}
 
 export function AppHeader() {
     const syncMode = useAtomValue(syncModeAtom);
     const whitespaceHandling = useAtomValue(whitespaceHandlingAtom);
     const { setSyncMode, setWhitespaceMode } = useDiffseekActions();
-    const diffWorkflowStatus = useAtomValue(diffWorkflowStatusAtom);
+    const [optionsOpened, optionsHandlers] = useDisclosure(false);
 
+    useEffect(() => {
+        const onKeyDown = (e: KeyboardEvent) => {
+            if ((e.ctrlKey || e.metaKey) && e.key === ",") {
+                e.preventDefault();
+                optionsHandlers.open();
+            }
+        };
+
+        window.addEventListener("keydown", onKeyDown);
+        return () => window.removeEventListener("keydown", onKeyDown);
+    }, [optionsHandlers]);
 
     return (
-        <header className="app-header">
-            <Group align="center">
-                <MiniSyncButton isSync={syncMode} onClick={() => setSyncMode(!syncMode)} />
+        <>
+            <header className="app-header">
+                <Group justify="space-between" align="center" px={4}>
+                    <Group align="center" px={0} gap={4}>
+                        <MiniSyncButton isSync={syncMode} onClick={() => setSyncMode(!syncMode)} />
+                        <WhitespaceModeSelector mode={whitespaceHandling} onClick={() => setWhitespaceMode(whitespaceHandling === "ignore" ? "collapse" : "ignore")} />
+                    </Group>
+                    <DiffStatusIndicator />
 
-                <WhitespaceModeSelector mode={whitespaceHandling} onClick={() => setWhitespaceMode(whitespaceHandling === "ignore" ? "collapse" : "ignore")} />
-            </Group>
-            <Group align="center" justify="end">
-                <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} />
-            </Group>
-        </header>
+                </Group>
+            </header>
+            <OptionsModal opened={optionsOpened} onClose={optionsHandlers.close} />
+        </>
     );
 }
+
+const ToggleIconButton = forwardRef<HTMLButtonElement, { onClick: () => void; onEnter: () => void; onLeave: () => void; active: boolean; Icon: React.FC }>(function ToggleIconButton({ onClick, onEnter, onLeave, active, Icon }, ref) {
+    const color = active ? "blue" : "gray";
+    const variant = active ? "light" : "subtle";
+    return (
+        <ActionIcon ref={ref} size="sm" variant={variant} c={color} onClick={() => onClick()} onMouseEnter={onEnter} onMouseLeave={onLeave}>
+            <Icon />
+        </ActionIcon>
+    );
+});
 
 export function MiniSyncButton({ isSync, onClick }: { isSync: boolean; onClick: () => void }) {
     const tooltipContent = (
         <>
-            <Text size="sm">양쪽 문서를 정렬하고 위치를 동기화합니다.</Text>
-            <Text size="xs">활성화 된 경우 편집이 불가능합니다.</Text>
-            <Group align="center" >
-                <Text size="xs">단축키: <kbd >F2</kbd></Text>
+            <Text size="sm" fw={600}>줄맞춤 모드 {isSync ? <StatusOn /> : <StatusOff />}</Text>
+            <Text size="xs">양쪽 문서를 나란히 정렬하고 스크롤을 동기화합니다.</Text>
+            <Text size="xs"><Text span c="teal.8">켜진</Text> 상태에서는 편집이 불가능합니다.</Text>
+            <Group align="center" gap={8}>
+                <Text size="xs">단축키:</Text><Kbd size="xs">F2</Kbd>
             </Group>
         </>
     )
     const [opened, { close, open }] = useDisclosure(false);
+
     return (
-        <Popover opened={opened}>
+
+        <Popover opened={opened} position="bottom">
             <Popover.Target>
-                <Button
-                    onMouseEnter={open} onMouseLeave={close}
-                    size="compact-xs"
-                    variant={isSync ? "outline" : "subtle"}
-                    color={isSync ? "blue" : "dark"}
-                    onClick={() => onClick()}
-                >
-                    좌우 동기화: {isSync ? "켜짐" : "꺼짐"}
-                </Button>
+                <ToggleIconButton active={isSync} Icon={IconBook} onClick={onClick} onEnter={open} onLeave={close} />
             </Popover.Target>
             <Popover.Dropdown>
                 {tooltipContent}
@@ -67,8 +102,9 @@ export function MiniSyncButton({ isSync, onClick }: { isSync: boolean; onClick: 
 export function WhitespaceModeSelector({ mode, onClick }: { mode: DiffOptions["whitespace"]; onClick: () => void }) {
     const tooltipContent = (
         <>
-            <Text size="sm">공백을 무시하고 비교합니다.</Text>
-            <Text size="xs">활성화 되지 않은 경우 연속된 공백은 하나로 취급됩니다.</Text>
+            <Text size="sm" fw={600}>공백 무시 {mode === "ignore" ? <StatusOn /> : <StatusOff />}</Text>
+            <Text size="xs">공백을 무시하고 비교합니다.</Text>
+            <Text size="xs"><Text span c="dimmed">꺼진</Text> 상태에서는 연속된 공백은 하나로 취급됩니다.</Text>
             {/* <Group align="center" >
                 <Text size="xs">단축키: <kbd >F3</kbd></Text>
             </Group> */}
@@ -79,7 +115,8 @@ export function WhitespaceModeSelector({ mode, onClick }: { mode: DiffOptions["w
     return (
         <Popover opened={opened}>
             <Popover.Target>
-                <Button
+                <ToggleIconButton active={mode === "ignore"} Icon={IconEqual} onClick={onClick} onEnter={open} onLeave={close} />
+                {/* <Button
                     onMouseEnter={open} onMouseLeave={close}
                     size="compact-xs"
                     variant={mode === "ignore" ? "outline" : "subtle"}
@@ -87,7 +124,7 @@ export function WhitespaceModeSelector({ mode, onClick }: { mode: DiffOptions["w
                     onClick={() => onClick()}
                 >
                     공백 무시: {mode === "ignore" ? "켜짐" : "꺼짐"}
-                </Button>
+                </Button> */}
             </Popover.Target>
             <Popover.Dropdown>
                 {tooltipContent}

@@ -100,6 +100,10 @@ export { DiffseekEngine } from "./engine/diffseek-engine";
 export type * from "./types";
 
 export { getDefaultDiffOptions } from "./diff/get-default-diff-options";
+export { getDiffHue } from "./utils/get-diff-hue";
+export { DEFAULT_PALETTE } from "./palette/default-palette";
+export { NEW_YORK_PALETTE, PALETTE_PRESETS } from "./palette/index";
+export type { PalettePresetKey } from "./palette/index";
 
 export { type DiffWorkflowStatus } from "./engine/types";
-export { type RenderedDiff } from "./renderer";
+export type { CommonOutlineHeading } from "./engine/types";

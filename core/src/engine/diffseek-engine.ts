@@ -10,25 +10,8 @@ import { DiffPipeline } from "./diff-pipeline";
 import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
-import type { Span } from "../types";
-
-const defaultOptions: DiffseekOptions = {
-    diffPalette: [
-        30, // 주황?
-        180, // cyan
-        300, // 핑크?
-        120, // 초록
-        240, // 파랑
-        60, // 노랑
-        270, // 보라?
-    ],
-    readonlySyncMode: true,
-}
-
-export type DiffseekOptions = {
-    diffPalette: number[];
-    readonlySyncMode: boolean;
-}
+import type { Palette, Span } from "../types";
+import { DEFAULT_PALETTE } from "../palette/default-palette";
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
     "diffContextChanged": DiffContext | null;
@@ -42,7 +25,6 @@ export class DiffseekEngine {
     readonly renderer: Renderer;
     readonly anchorManager: AnchorManager;
 
-    options: DiffseekOptions = { ...defaultOptions };
     private diffWorker = initializeDiffWorker();
     private _diffOptions = getDefaultDiffOptions();
     diffContext: DiffContext | null = null;
@@ -55,6 +37,11 @@ export class DiffseekEngine {
     private programmaticScrollInProgress = 0;
 
     private alignAnchorsAbortController: AbortController | null = null;
+    private workflowRunScheduled = false;
+    private workflowRunInProgress = false;
+    private workflowRerunRequested = false;
+
+
 
     visibleDiffs: Record<EditorName, Set<number>> = {
         left: new Set(),
@@ -62,19 +49,23 @@ export class DiffseekEngine {
     };
 
     readonly syncModeChanged = createEvent<{ syncMode: boolean }>();
+    readonly editableInSyncModeChanged = createEvent<{ editableInSyncMode: boolean }>();
     readonly diffContextChanged = createEvent<DiffContext | null>();
     readonly statusChanged = createEvent<DiffWorkflowStatus>();
     readonly diffVisibilityChanged = createEvent<{ left: DiffVisibilityChangeEntry[]; right: DiffVisibilityChangeEntry[] }>();
     readonly diffOptionsChanged = createEvent<Readonly<DiffOptions>>();
+    readonly paletteChanged = createEvent<Readonly<Palette>>();
     readonly diffHoveredIndexChanged = createEvent<number | null>();
     readonly progressChanged = createEvent<{ progress: number }>();
 
     private _eventRegistry: Record<keyof InternalDiffseekEventMap, ReturnType<typeof createEvent<any>>> = {
         "syncModeChanged": this.syncModeChanged,
+        "editableInSyncModeChanged": this.editableInSyncModeChanged,
         "statusChanged": this.statusChanged,
         "diffContextChanged": this.diffContextChanged,
         "diffVisibilityChanged": this.diffVisibilityChanged,
         "diffOptionsChanged": this.diffOptionsChanged,
+        "paletteChanged": this.paletteChanged,
         "hoveredDiffIndexChanged": this.diffHoveredIndexChanged,
         "mount": createEvent<{ el: HTMLElement }>(),
         "unmount": createEvent<void>(),
@@ -90,11 +81,7 @@ export class DiffseekEngine {
         this._eventRegistry[event]?.off(handler);
     }
 
-    constructor(
-        options: Partial<DiffseekOptions>
-    ) {
-        this.setOptions(options);
-
+    constructor() {
         const workspaceEl = this.workspaceEl = document.createElement("div");
         workspaceEl.classList.add("ds-workspace");
 
@@ -110,17 +97,10 @@ export class DiffseekEngine {
 
         this.renderer = new Renderer(this.leftEditor, this.rightEditor);
         this.workspaceEl.appendChild(this.renderer.rootElement);
+        this.applyPaletteToRenderer(this._palette);
         this.anchorManager = new AnchorManager(this.leftEditor, this.rightEditor);
         this.diffPipeline = new DiffPipeline(this.diffWorker, this.leftEditor, this.rightEditor, this.anchorManager, this.handleDiffPipelineStatusChanged.bind(this));
         this.setupCallbacks();
-    }
-
-    setOptions(newOptions: Partial<DiffseekOptions> | null) {
-        if (newOptions) {
-            this.options = { ...defaultOptions, ...newOptions };
-        } else {
-            this.options = structuredClone(defaultOptions);
-        }
     }
 
     get diffOptions(): Readonly<DiffOptions> {
@@ -146,6 +126,15 @@ export class DiffseekEngine {
         if (newDiffOptions) {
             this._diffOptions = newDiffOptions;
             this.diffOptionsChanged.emit(this._diffOptions);
+
+            const tokOptions = {
+                mergeNonWordLikeTokens: newDiffOptions.mergeNonWordTokens,
+                mergeLetterNumberBoundary: newDiffOptions.mergeLetterNumberBoundary,
+            };
+            this.leftEditor.tokenizeOptions = tokOptions;
+            this.rightEditor.tokenizeOptions = tokOptions;
+            this.leftEditor.scheduleRetokenize();
+            this.rightEditor.scheduleRetokenize();
 
             if (runWorkflow) {
                 this.cancelOngoingOperations();
@@ -240,15 +229,7 @@ export class DiffseekEngine {
         this.cancelOngoingOperations();
         this.renderer.suspendRendering();
         this.setDiffContext(null);
-        queueMicrotask(() => {
-            this.startDiffWorkflow();
-        });
-
-
-        // if (!this.contentChanging[editor.name]) {
-        //     this.contentChanging[editor.name] = true;
-        //     this.statusChanged.emit({ phase: 'tokenizing' });
-        // }
+        this.requestDiffWorkflowRun();
     }
 
     handleEditorContentChanged(editor: Editor) {
@@ -311,10 +292,8 @@ export class DiffseekEngine {
     handleEditorMouseLeave(_editor: Editor, _e: MouseEvent) {
     }
 
-    handleDiffWorkerStatus = (e: DiffWorkerStatusEvent) => {
-        if (e.type === "progress") {
-            this.statusChanged.emit({ phase: 'diffing', progress: e.progress });
-        }
+    handleDiffWorkerStatus = (_e: DiffWorkerStatusEvent) => {
+        // progress는 pipeline이 emit하는 status에 포함됨
     }
 
     handleRendererDiffVisibilityChanged = (changes: Record<EditorName, DiffVisibilityChangeEntry[]>) => {
@@ -353,8 +332,8 @@ export class DiffseekEngine {
         }
 
         this._syncMode = value;
-        this.leftEditor.isReadOnly = this.options.readonlySyncMode && value;
-        this.rightEditor.isReadOnly = this.options.readonlySyncMode && value;
+        this.leftEditor.isReadOnly = !this._editableInSyncMode && value;
+        this.rightEditor.isReadOnly = !this._editableInSyncMode && value;
         this.renderer.isSyncMode = value;
         this.workspaceEl.classList.toggle("sync-mode", value);
 
@@ -464,13 +443,41 @@ export class DiffseekEngine {
         this.alignAnchorsAbortController = null;
     }
 
+    private requestDiffWorkflowRun() {
+        this.workflowRerunRequested = true;
+        if (this.workflowRunScheduled) {
+            return;
+        }
+
+        this.workflowRunScheduled = true;
+        queueMicrotask(() => {
+            this.workflowRunScheduled = false;
+            void this.drainDiffWorkflowRuns();
+        });
+    }
+
+    private async drainDiffWorkflowRuns() {
+        if (this.workflowRunInProgress) {
+            return;
+        }
+
+        this.workflowRunInProgress = true;
+        try {
+            while (this.workflowRerunRequested) {
+                this.workflowRerunRequested = false;
+                await this.startDiffWorkflow();
+            }
+        } finally {
+            this.workflowRunInProgress = false;
+        }
+    }
+
     //
     // region Diff Workflow
     private async startDiffWorkflow() {
         this.renderer.suspendRendering();
         try {
             const diffContext = await this.diffPipeline.run({
-                options: this.options,
                 diffOptions: this._diffOptions,
             });
 
@@ -484,7 +491,7 @@ export class DiffseekEngine {
             this.renderer.resumeRendering();
 
             this.setDiffContext(diffContext);
-            this.statusChanged.emit({ phase: 'idle' });
+            //this.statusChanged.emit({ phase: 'idle' });
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {
                 if (import.meta.env.DEV) {
@@ -542,4 +549,97 @@ export class DiffseekEngine {
         this.cancelOngoingOperations();
         this.diffWorker.terminate();
     }
+
+    private _palette: Palette = structuredClone(DEFAULT_PALETTE);
+
+    private applyPaletteToRenderer(palette: Readonly<Palette>) {
+        this.renderer.setOptions({
+            palette: {
+                diffHues: structuredClone(palette.diffHues),
+                diffSaturation: palette.diffSaturation,
+                diffLightness: palette.diffLightness,
+                diffAlpha: palette.diffAlpha,
+                diffLineColor: palette.diffLineColor,
+                highlightedDiffColor: palette.highlightedDiffColor,
+                selectionHighlightColor: palette.selectionHighlightColor,
+                guidelineColor: palette.guidelineColor,
+                minimapDiffColor: palette.minimapDiffColor,
+            },
+        });
+        this.renderer.invalidateAll();
+    }
+
+    get palette(): Readonly<Palette> {
+        return structuredClone(this._palette);
+    }
+
+    set palette(nextPalette: Readonly<Palette> | null) {
+        const normalizedPalette: Palette = structuredClone(nextPalette ?? DEFAULT_PALETTE);
+        if (normalizedPalette.diffHues.length === 0) {
+            normalizedPalette.diffHues = structuredClone(DEFAULT_PALETTE.diffHues);
+        }
+
+        if (isPaletteEqual(this._palette, normalizedPalette)) {
+            return;
+        }
+
+        const diffHuesChanged = !isNumberArrayEqual(this._palette.diffHues, normalizedPalette.diffHues);
+        this._palette = normalizedPalette;
+        this.applyPaletteToRenderer(this._palette);
+        this.paletteChanged.emit(structuredClone(this._palette));
+
+        if (diffHuesChanged) {
+            this.cancelOngoingOperations();
+            this.requestDiffWorkflowRun();
+            return;
+        }
+
+        if (this.diffContext) {
+            this.renderer.setDiffs(this.diffContext.diffs);
+        }
+        this.renderer.invalidateAll();
+    }
+
+    private _editableInSyncMode: boolean = false;
+
+    get editableInSyncMode(): boolean {
+        return this._editableInSyncMode;
+    }
+
+    set editableInSyncMode(value: boolean) {
+        value = !!value;
+        if (value === this._editableInSyncMode) {
+            return;
+        }
+        this._editableInSyncMode = value;
+        this.editableInSyncModeChanged.emit({ editableInSyncMode: value });
+        if (this._syncMode) {
+            this.leftEditor.isReadOnly = !value;
+            this.rightEditor.isReadOnly = !value;
+        }
+    }
+}
+
+function isNumberArrayEqual(a: readonly number[], b: readonly number[]): boolean {
+    if (a.length !== b.length) {
+        return false;
+    }
+    for (let i = 0; i < a.length; i++) {
+        if (a[i] !== b[i]) {
+            return false;
+        }
+    }
+    return true;
+}
+
+function isPaletteEqual(a: Readonly<Palette>, b: Readonly<Palette>): boolean {
+    return isNumberArrayEqual(a.diffHues, b.diffHues)
+        && a.diffSaturation === b.diffSaturation
+        && a.diffLightness === b.diffLightness
+        && a.diffAlpha === b.diffAlpha
+        && a.diffLineColor === b.diffLineColor
+        && a.highlightedDiffColor === b.highlightedDiffColor
+        && a.guidelineColor === b.guidelineColor
+        && a.selectionHighlightColor === b.selectionHighlightColor
+        && a.minimapDiffColor === b.minimapDiffColor;
 }

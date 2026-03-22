@@ -17,16 +17,7 @@ export type DiffVisibilityChangeEntry = {
     isVisible: boolean;
 };
 
-export type RenderedDiff = {
-    diffIndex: number;
-    hue: number;
-    leftRange: Range;
-    rightRange: Range;
-    leftSpan: Span;
-    rightSpan: Span;
-    leftMarkerEl: HTMLElement | null;
-    rightMarkerEl: HTMLElement | null;
-};
+
 
 export type RenderViewport = {
     getBoundingClientRect: () => Rect;

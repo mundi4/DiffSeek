@@ -298,7 +298,7 @@ export class EditorRegion {
         const scrollTop = this.#scrollTop;
         const scrollLeft = 0;//this.#scrollLeft + this.#renderer.workspaceEl.scrollLeft;
         const regionHeight = this.regionHeight;
-        ctx.fillStyle = options.diffLineColor;
+        ctx.fillStyle = options.palette.diffLineColor;
 
         for (const diffLineRect of this.#diffLineRects) {
             const x = Math.floor(diffLineRect.x - scrollLeft),
@@ -314,7 +314,7 @@ export class EditorRegion {
         for (const diffIndex of diffsToRender) {
             const geometry = diffGeometries[diffIndex]!;
             if (this.highlightedDiffIndex === diffIndex) {
-                ctx.fillStyle = options.diffHighlightColor;
+                ctx.fillStyle = options.palette.highlightedDiffColor;
             } else {
                 const item = diffs[diffIndex];
                 ctx.fillStyle = item.color;
@@ -379,7 +379,7 @@ export class EditorRegion {
         roughSpans.sort((a, b) => a.y - b.y);
 
         const TOLERANCE = 1;
-        ctx.fillStyle = this.renderer.options.minimapColor;
+        ctx.fillStyle = this.renderer.options.palette.minimapDiffColor;
 
         let y0 = -Infinity;
         let h0 = 0;
@@ -432,7 +432,7 @@ export class EditorRegion {
                 !(geometry.maxY - scrollTop < 0 || geometry.minY - scrollTop > regionHeight) &&
                 !(geometry.maxX - scrollLeft < 0 || geometry.minX - scrollLeft > regionWidth);
             if (isVisible) {
-                ctx.fillStyle = this.renderer.options.selectionColor;
+                ctx.fillStyle = this.renderer.options.palette.selectionHighlightColor;
                 for (const rect of geometry.rects!) {
                     const x = Math.floor(rect.x - scrollLeft),
                         y = Math.floor(rect.y - scrollTop),

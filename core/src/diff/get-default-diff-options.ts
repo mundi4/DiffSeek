@@ -10,6 +10,7 @@ const defaultDiffOptions: DiffOptions = {
     // Tokenization
     // ─────────────────────────────
     mergeNonWordTokens: false,
+    mergeLetterNumberBoundary: false,
 
     // ─────────────────────────────
     // Patience Diff

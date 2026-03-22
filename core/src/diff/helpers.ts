@@ -1,6 +1,6 @@
 import type { DiffInput } from "./types";
 import { RESULT_BUFFER_STRIDE } from "./constants";
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_TYPE_IMAGE } from "../tokenization";
+import { TOKEN_FLAGS_TYPE_IMAGE } from "../tokenization";
 
 export function calculateHash(buffer: Uint16Array, start: number, len: number): number {
     let h = 2166136261 >>> 0;
@@ -19,28 +19,14 @@ export function isTokenRangeTextEqual(bufA: Uint16Array, offA: Uint32Array, sA: 
     return true;
 }
 
-export function matchPrefixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lIdx: number, lUpper: number, rIdx: number, rUpper: number, ignoreWhitespaces: boolean): [number, number] | null {
+export function matchPrefixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lIdx: number, lUpper: number, rIdx: number, rUpper: number): [number, number] | null {
     const { buffer: lhsBuf, offsets: lhsOffsets, flags: lhsFlags } = lhsInput;
     const { buffer: rhsBuf, offsets: rhsOffsets, flags: rhsFlags } = rhsInput;
 
     let i = lIdx, j = rIdx;
-
-    if (!ignoreWhitespaces) {
-        const lFlags = lhsFlags[i];
-        const rFlags = rhsFlags[j];
-        // 공백을 무시하지 않을 때는 토큰 뒤 WS 여부도 일치해야 함.
-        if (!(lFlags & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END)) !==
-            !(rFlags & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END))) {
-            return null;
-        }
-    }
-
     let ci = lhsOffsets[i], cj = rhsOffsets[j];
     let lTargetPos = lhsOffsets[i + 1];
     let rTargetPos = rhsOffsets[j + 1];
-
-    // 첫 시작부터 이미지면 바로 아웃
-    //if ((lhsFlags[i] & TOKEN_FLAGS_IMAGE) || (rhsFlags[j] & TOKEN_FLAGS_IMAGE)) return null;
 
     while (true) {
         // [Scan 구간] Target 중 가까운 곳까지 전력 질주
@@ -56,62 +42,27 @@ export function matchPrefixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lIdx
             return [(i + 1) - lIdx, (j + 1) - rIdx];
         }
 
-        // [전이 구간] 한쪽만 끝났다면 다음 토큰으로 목표 갱신 (Flag 검사)
+        // [전이 구간] 한쪽만 끝났다면 다음 토큰으로 목표 갱신
         if (isLReached) {
-            if (++i === lUpper) return null; // 더 갈 곳 없으면 동기화 실패
-            // const prevF = lhsFlags[i - 1];
-            const nextF = lhsFlags[i];
-
-            if (!ignoreWhitespaces && (nextF & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END))) {
-                // 새 토큰에 후행 공백이 있으므로 이어 붙이면 안됨
-                return null;
-            }
-
-            if (//(prevF & TOKEN_FLAGS_NO_JOIN_NEXT) || (nextF & TOKEN_FLAGS_NO_JOIN_PREV) ||
-                (nextF & TOKEN_FLAGS_TYPE_IMAGE)) return null;
-            //if (isIgnoreAtEdge && (!(prevF & TOKEN_FLAGS_LINE_END) || !(nextF & TOKEN_FLAGS_LINE_START))) return null;
-
+            if (++i === lUpper) return null;
+            if (lhsFlags[i] & TOKEN_FLAGS_TYPE_IMAGE) return null;
             lTargetPos = lhsOffsets[i + 1];
         } else { // isRReached
             if (++j === rUpper) return null;
-            // const prevF = rhsFlags[j - 1];
-            const nextF = rhsFlags[j];
-
-            if (!ignoreWhitespaces && (nextF & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END))) {
-                return null;
-            }
-
-            if (//(prevF & TOKEN_FLAGS_NO_JOIN_NEXT) || (nextF & TOKEN_FLAGS_NO_JOIN_PREV) || 
-                (nextF & TOKEN_FLAGS_TYPE_IMAGE)) return null;
-            //if (isIgnoreAtEdge && (!(prevF & TOKEN_FLAGS_LINE_END) || !(nextF & TOKEN_FLAGS_LINE_START))) return null;
-
+            if (rhsFlags[j] & TOKEN_FLAGS_TYPE_IMAGE) return null;
             rTargetPos = rhsOffsets[j + 1];
         }
     }
 }
 
-export function matchSuffixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lLower: number, lUpper: number, rLower: number, rUpper: number, ignoreWhitespaces: boolean): [number, number] | null {
+export function matchSuffixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lLower: number, lUpper: number, rLower: number, rUpper: number): [number, number] | null {
     const { buffer: lhsBuf, offsets: lhsOffsets, flags: lhsFlags } = lhsInput;
     const { buffer: rhsBuf, offsets: rhsOffsets, flags: rhsFlags } = rhsInput;
 
     let i = lUpper - 1, j = rUpper - 1;
-
-    if (!ignoreWhitespaces) {
-        const lFlags = lhsFlags[i];
-        const rFlags = rhsFlags[j];
-        // 공백을 무시하지 않을 때는 토큰 뒤 WS 여부도 일치해야 함.
-        if (!(lFlags & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END)) !==
-            !(rFlags & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END))) {
-            return null;
-        }
-    }
-
     let ci = lhsOffsets[i + 1], cj = rhsOffsets[j + 1];
-
     let lTarget = lhsOffsets[i];
     let rTarget = rhsOffsets[j];
-
-    //if ((lhsFlags[i] & TOKEN_FLAGS_IMAGE) || (rhsFlags[j] & TOKEN_FLAGS_IMAGE)) return null;
 
     while (true) {
         while (ci > lTarget && cj > rTarget) {
@@ -127,34 +78,11 @@ export function matchSuffixTokens(lhsInput: DiffInput, rhsInput: DiffInput, lLow
 
         if (isLReached) {
             if (--i < lLower) return null;
-            // const currF = lhsFlags[i + 1];
-            const prevF = lhsFlags[i];
-
-            if (!ignoreWhitespaces && prevF & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END)) {
-                // 새 토큰에 후행 공백이 있으므로 매치 불가
-                return null;
-            }
-
-            if (//(prevF & TOKEN_FLAGS_NO_JOIN_NEXT) || (currF & TOKEN_FLAGS_NO_JOIN_PREV) || 
-                (prevF & TOKEN_FLAGS_TYPE_IMAGE)) return null;
-
-
-            // if (isIgnoreAtEdge && (!(prevF & TOKEN_FLAGS_LINE_END) || !(currF & TOKEN_FLAGS_LINE_START))) return null;
-
+            if (lhsFlags[i] & TOKEN_FLAGS_TYPE_IMAGE) return null;
             lTarget = lhsOffsets[i];
         } else { // isRReached
             if (--j < rLower) return null;
-            // const currF = rhsFlags[j + 1];
-            const prevF = rhsFlags[j];
-
-            if (!ignoreWhitespaces && (prevF & (TOKEN_FLAGS_HAS_FOLLOWING_SPACE | TOKEN_FLAGS_LINE_END))) {
-                return null;
-            }
-
-            if (//(prevF & TOKEN_FLAGS_NO_JOIN_NEXT) || (currF & TOKEN_FLAGS_NO_JOIN_PREV) || 
-                (prevF & TOKEN_FLAGS_TYPE_IMAGE)) return null;
-            // if (isIgnoreAtEdge && (!(prevF & TOKEN_FLAGS_LINE_END) || (!(currF & TOKEN_FLAGS_LINE_START)))) return null;
-
+            if (rhsFlags[j] & TOKEN_FLAGS_TYPE_IMAGE) return null;
             rTarget = rhsOffsets[j];
         }
     }

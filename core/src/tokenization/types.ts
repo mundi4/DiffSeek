@@ -3,7 +3,9 @@
  * Used in text tokenization and line boundary detection
  */
 
-import type { SchedulerOptions } from "../scheduler";
+import type { SectionHeadingMatch } from "./try-match-section-heading";
+
+export type SectionHeadingInfo = SectionHeadingMatch & { tokenIndex: number };
 
 export type Token = {
     index: number;
@@ -24,15 +26,17 @@ export type LineBoundaryInfo = {
     endWhere: InsertPosition | null;
 }
 
-export type TokenizerOptions = SchedulerOptions & {
+export type TokenizerOptions = {
     mergeNonWordLikeTokens?: boolean;
     enableStructuralTokens?: boolean;
+    mergeLetterNumberBoundary?: boolean;
 };
 
 export type TokenizeResult = {
     wholeText: string;
     tokens: Token[];
     lineBoundaries: LineBoundaryInfo[];
+    sectionHeadings: SectionHeadingInfo[];
     elapsed: number;
 }
 

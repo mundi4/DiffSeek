@@ -1,14 +1,13 @@
 import { CHAR_META } from '../char-meta';
 import { CM_LETTER, CM_NEEDS_NORM, CM_NUMBER, CM_WS, CM_WS_COLLAPSABLE } from '../char-meta-flags';
 import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../constants';
-import { Scheduler } from '../scheduler';
 import { hashString } from '../utils/hashString';
 import { NormalizeCharTable } from './normalize-char-table';
 import { TextNodeCursor, type TextPos } from './text-node-cursor';
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
 import { matchFlatTrieAtCursor } from './trie';
 import { CM_HEADING_START, tryMatchSectionHeading } from './try-match-section-heading';
-import { type LineBoundaryInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
+import { type LineBoundaryInfo, type SectionHeadingInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
 import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcard-trie';
 
 const IGNORED_TAGS: Record<string, boolean> = {
@@ -24,12 +23,16 @@ const PARENT_TYPE_INLINE = 3;
 
 type ParentType = typeof PARENT_TYPE_NONE | typeof PARENT_TYPE_BLOCK | typeof PARENT_TYPE_CONTAINER | typeof PARENT_TYPE_INLINE;
 
-export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}): Promise<TokenizeResult> {
+export async function tokenize(root: HTMLElement, signal: AbortSignal, options: TokenizerOptions = {}): Promise<TokenizeResult> {
     const mergeNonWordLikeTokens = !!options.mergeNonWordLikeTokens;
     const enableStructuralTokens = !!options.enableStructuralTokens;
+    const mergeLetterNumberBoundary = !!options.mergeLetterNumberBoundary;
+
+    let yieldCounter = 0;
 
     const tokens: Token[] = [];
     const lineBoundaries: LineBoundaryInfo[] = [];
+    const sectionHeadings: SectionHeadingInfo[] = [];
     let nextTokenFlags = TOKEN_FLAGS_NONE;
     let lastToken: Token | null = null;
 
@@ -39,6 +42,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
     let currentLineNumber = 0;
     let lineStartWhich: Node | null = null;
     let lineStartWhere: InsertPosition = "beforebegin"; // 그냥 처음엔 아무 값이나. lineStartWhich가 null이 아닐 때만 유효함
+
 
     /**
      * 줄바꿈 경계에서 아직은 새로운 줄을 시작하기가 꺼려질 때!
@@ -79,12 +83,10 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
     // 재귀 호출 없이 노드를 순회하기 위해...
     const stack: StackFrame[] = [];
 
-    // 자주 yield를 해줘서 내용이 변경된 경우 잽싸게 취소해야 함.
-    // 버벅이는 느낌보다는 살짝 느린 것이 나으니까.
-    const scheduler = new Scheduler({
-        signal: options.signal,
-        yieldInterval: 0,
-    });
+    const yieldNow = async () => {
+        await scheduler.yield();
+        signal.throwIfAborted();
+    };
 
     const markLineStart = (which: Node, where: InsertPosition) => {
         newLinePending = true;
@@ -139,7 +141,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         lineStartWhere = "beforebegin";
     }
 
-    const handleElement = (element: HTMLElement): ParentType => {
+    const handleElement = async (element: HTMLElement): Promise<ParentType> => {
         const elementName = element.nodeName;
 
         if (IGNORED_TAGS[elementName]) {
@@ -150,7 +152,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
             // 쌓여있던 텍스트노드 처리
             commitLineStart();
 
-            flushTextNodeBuf();
+            await flushTextNodeBuf();
             markLineEnd(element, "beforebegin");
 
             markLineStart(element, "afterend");
@@ -161,7 +163,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
         if (elementName === "IMG") {
             // 쌓여있던 텍스트노드 처리
-            flushTextNodeBuf();
+            await flushTextNodeBuf();
 
             addImageToken(element as HTMLImageElement);
 
@@ -170,7 +172,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
         if (CONTAINER_TAGS[elementName]) {
             // console.log("Handling container element.", { tag: elementName });
-            flushTextNodeBuf();
+            await flushTextNodeBuf();
 
             // markNewLine(element, "afterbegin");
             // commitNewLine();
@@ -180,7 +182,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         const isVoidElem = VOID_ELEMENTS[element.nodeName];
 
         if (BLOCK_ELEMENTS[elementName]) {
-            flushTextNodeBuf();
+            await flushTextNodeBuf();
 
             if (isVoidElem) {
                 markLineEnd(element, "beforebegin");
@@ -231,10 +233,10 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         currentHasTextNodes = false;
     }
 
-    const moveUp = () => {
+    const moveUp = async () => {
 
         if (currentParentType === PARENT_TYPE_BLOCK || currentParentType === PARENT_TYPE_CONTAINER) {
-            flushTextNodeBuf();
+            await flushTextNodeBuf();
 
             if (currentParentType === PARENT_TYPE_CONTAINER) {
                 // if (!currentHasTextNodes) {
@@ -364,7 +366,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         );
     }
 
-    function flushTextNodeBuf(): boolean {
+    async function flushTextNodeBuf(): Promise<boolean> {
         if (textNodeBuf.length === 0) {
             return false;
         }
@@ -380,7 +382,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         // 임시 문자열 저장
         const chunks: string[] = [];
 
-        let currentIsWordLike = false;
+        let currentWordCategory = 0; // 0=non-word, 1=letter, 2=number
         let collapsable = true;
         let tokenStartPos: TextPos | null = null;
         let chunkPos: TextPos | null = null;
@@ -464,7 +466,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
             }
 
             let flags = TOKEN_FLAGS_NONE;
-            if (currentIsWordLike) {
+            if (currentWordCategory !== 0) {
                 flags |= TOKEN_FLAGS_WORD_LIKE;
             }
 
@@ -482,6 +484,10 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
         if (cursor.moveNext()) {
             while (!cursor.eof()) {
+                if ((++yieldCounter & 0x1f) === 0) {
+                    await yieldNow();
+                }
+
                 const code = cursor.current;
                 let meta = CHAR_META[code];
 
@@ -503,41 +509,25 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
                 collapsable = false;
 
                 if (!tokenStartPos && (nextTokenFlags & TOKEN_FLAGS_LINE_START) && (meta & CM_HEADING_START)) {
-                    console.assert(chunkPos === null, "chunkPos should be null when tokenStartPos is null.");
-                    console.assert(chunks.length === 0, "chunks should be empty when tokenStartPos is null.");
-                    const startPos = cursor.getPos();
-                    const sectionHeading = tryMatchSectionHeading(cursor, code);
-                    if (sectionHeading) {
-                        const endPos = cursor.getPos();
-                        const startNodeIndex = startPos.nodeIndex;
-                        const startCharIndex = startPos.charIndex;
-                        const endNodeIndex = endPos.nodeIndex;
-                        const endCharIndex = endPos.charIndex;
-                        flushChunkRange(endPos);
-                        addToken(
-                            "text",
-                            sectionHeading.text,
-                            TOKEN_FLAGS_LINE_START | sectionHeading.type,
-                            textNodeBuf[startNodeIndex],
-                            startCharIndex,
-                            textNodeBuf[endNodeIndex],
-                            endCharIndex
-                        );
-                        tokenStartPos = null;
-                        chunkPos = null;
-                        // moveNext 안함. 이미 다음 위치로 이동되어있음.
-                        continue;
+                    const match = tryMatchSectionHeading(cursor, code);
+                    if (match) {
+                        nextTokenFlags |= match.type;
+                        sectionHeadings.push({ ...match, tokenIndex: tokens.length });
+                        // cursor는 복구됨. 그대로 일반 토큰화 진행.
                     }
                 }
 
-                const charIsWordLike = !!(meta & (CM_LETTER | CM_NUMBER));
+                const charCategory = (meta & CM_LETTER) ? 1 : (meta & CM_NUMBER) ? 2 : 0;
                 if (tokenStartPos) {
                     // 분리
-                    if (charIsWordLike !== currentIsWordLike || (!mergeNonWordLikeTokens && !charIsWordLike)) {
+                    const categoryChanged = mergeLetterNumberBoundary
+                        ? (charCategory !== 0) !== (currentWordCategory !== 0)
+                        : charCategory !== currentWordCategory;
+                    if (categoryChanged || (!mergeNonWordLikeTokens && charCategory === 0)) {
                         flushChunkRange();
                         flushText();
                         tokenStartPos = chunkPos = cursor.getPos();
-                        currentIsWordLike = charIsWordLike;
+                        currentWordCategory = charCategory;
                     } else {
                         // normalize 된 경우 chunkPos는 null이 되어버리므로
                         // 그 경우 다음 첫 유효문자 위치에 chunkPos를 설정해줘야 함
@@ -547,7 +537,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
                     }
                 } else {
                     tokenStartPos = chunkPos = cursor.getPos();
-                    currentIsWordLike = charIsWordLike;
+                    currentWordCategory = charCategory;
                 }
 
                 let norm: number = -1;
@@ -614,7 +604,8 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
     await (async () => {
         // initial state
-        let yieldCounter = 0;
+
+
 
         current = root;
         currentChildIndex = 0;
@@ -628,19 +619,19 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
 
         OUTER:
         while (true) {
-            if ((++yieldCounter & 0x7f) === 0) {
-                await scheduler.yield();
+            if ((++yieldCounter & 0x1f) === 0) {
+                await yieldNow();
             }
 
             while (currentChildIndex >= currentNumChildren) {
-                if (moveUp()) {
+                if (await moveUp()) {
                     break OUTER;
                 }
             }
 
             const child = current.childNodes[currentChildIndex];
             if (child.nodeType === 1) {
-                const parentType = handleElement(child as HTMLElement);
+                const parentType = await handleElement(child as HTMLElement);
                 if (parentType !== PARENT_TYPE_NONE) {
                     // console.log("Moving down into element.", { tag: child.nodeName, parentType });
                     moveDown(child as HTMLElement, parentType);
@@ -667,14 +658,14 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
             }
         }
 
+        //await yieldNow();
         //commitNewLine();
         // markEndLine(root, "beforeend");
     })();
 
 
 
-    // 리턴하기 전에 한번 더 abort 체크
-    scheduler.throwIfAborted();
+
 
     const elapsed = performance.now() - startTime;
 
@@ -682,6 +673,7 @@ export async function tokenize(root: HTMLElement, options: TokenizerOptions = {}
         wholeText: wholeTextBuf.join(""),
         tokens,
         lineBoundaries,
+        sectionHeadings,
         elapsed
     };
 }

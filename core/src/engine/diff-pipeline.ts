@@ -2,17 +2,23 @@ import { DIFF_TYPE_ADDED, DIFF_TYPE_UNCHANGED, type DiffOptions } from "../diff"
 import type { initializeDiffWorker } from "../diff-worker/initialize-diff-worker";
 import type { DiffWorkerResult } from "../diff-worker/types";
 import type { Editor, TokenSnapshot } from "../editor/editor";
-import type { RenderedDiff } from "../renderer/types";
-import { Scheduler } from "../scheduler";
 import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from "../constants";
 import type { Token } from "../tokenization";
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization";
 import type { AnchorManager } from "./anchor-manager";
-import type { DiffseekOptions } from "./diffseek-engine";
+import { buildCommonOutline } from "./build-common-outline";
 import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
+import type { DiffEntry } from "..";
+import { createYieldIfNeeded } from "../utils/createYieldIfNeeded";
 
 export class DiffPipeline {
     private abortController: AbortController | null = null;
+
+    private emitStatusForRun(controller: AbortController, status: DiffWorkflowStatus) {
+        if (this.abortController === controller) {
+            this.onStatus(status);
+        }
+    }
 
     constructor(
         private diffWorker: ReturnType<typeof initializeDiffWorker>,
@@ -30,7 +36,6 @@ export class DiffPipeline {
     }
 
     async run(params: {
-        options: DiffseekOptions;
         diffOptions: DiffOptions;
         // signal: AbortSignal;
     }): Promise<DiffContext> {
@@ -38,22 +43,29 @@ export class DiffPipeline {
 
         const controller = new AbortController();
         this.abortController = controller;
+
         const signal = controller.signal;
+        const yieldIfNeeded = createYieldIfNeeded(signal);
 
-        let anchorUpdateBegun = false;
         try {
-            const scheduler = new Scheduler({ signal, yieldInterval: 0 });
-            this.onStatus({ phase: "tokenizing" });
+            // 1. tokenize & serialize
+            const t0 = performance.now();
+            this.emitStatusForRun(controller, { phase: "tokenizing", startedAtMs: t0 });
 
-            const leftTokenSnapshot = await this.leftEditor.waitForTokens();
-            const rightTokenSnapshot = await this.rightEditor.waitForTokens();
+            const leftTokenSnapshot = await this.leftEditor.waitForTokens(signal);
+            signal.throwIfAborted();
+
+            const rightTokenSnapshot = await this.rightEditor.waitForTokens(signal);
+            signal.throwIfAborted();
 
             const leftTokensData = this.serializeTokens(leftTokenSnapshot.tokens);
-            scheduler.throwIfAborted();
             const rightTokensData = this.serializeTokens(rightTokenSnapshot.tokens);
-            scheduler.throwIfAborted();
+            await yieldIfNeeded();
 
-            this.onStatus({ phase: "diffing", progress: 0 });
+            const t1 = performance.now();
+
+            // 2. run diff worker
+            this.emitStatusForRun(controller, { phase: "diffing", startedAtMs: t1, tokenizingMs: t1 - t0 });
 
             const workerResult = await this.diffWorker.run({
                 leftWholeText: leftTokenSnapshot.wholeText,
@@ -66,42 +78,53 @@ export class DiffPipeline {
                 abortSignal: signal,
             });
 
-            scheduler.throwIfAborted();
+            signal.throwIfAborted();
 
-            if (import.meta.env.DEV) {
-                console.debug(`Diff worker completed in ${workerResult.elapsedTime.toFixed(2)} ms.`);
-            }
+            const t2 = performance.now();
 
-            this.onStatus({ phase: "processing", progress: 0 });
+            // 3. post process
+            this.emitStatusForRun(controller, { phase: "processing", startedAtMs: t2, tokenizingMs: t1 - t0, diffingMs: t2 - t1 });
 
-            // 3. 
             this.anchorManager.beginUpdate();
-            anchorUpdateBegun = true;
 
-            const diffContext = await this.process({
-                result: workerResult,
-                options: params.options,
-                diffOptions: params.diffOptions,
-                scheduler,
-                leftTokenSnapshot,
-                rightTokenSnapshot,
-            });
+            try {
+                const diffContext = await this.process({
+                    result: workerResult,
+                    diffOptions: params.diffOptions,
+                    leftTokenSnapshot,
+                    rightTokenSnapshot,
+                });
+                signal.throwIfAborted();
 
-            scheduler.throwIfAborted();
+                const t3 = performance.now();
 
-            return diffContext;
-        } finally {
-            if (anchorUpdateBegun) {
+                if (import.meta.env.DEV) {
+                    console.debug(
+                        `[pipeline] tokenizing=${(t1 - t0).toFixed(1)}ms  diffing=${(t2 - t1).toFixed(1)}ms (worker=${workerResult.elapsedTime.toFixed(1)}ms)  processing=${(t3 - t2).toFixed(1)}ms  total=${(t3 - t0).toFixed(1)}ms`
+                    );
+                }
+
+                return {
+                    ...diffContext,
+                    timing: {
+                        tokenizingMs: t1 - t0,
+                        diffingMs: t2 - t1,
+                        processingMs: t3 - t2,
+                        totalMs: t3 - t0,
+                    },
+                };
+            } finally {
                 this.anchorManager.endUpdate();
             }
+
+        } finally {
             // if (externalSignal) {
             //     externalSignal.removeEventListener("abort", onExternalAbort);
             // }
             if (this.abortController === controller) {
+                this.onStatus({ phase: "idle" });
                 this.abortController = null;
             }
-
-            this.onStatus({ phase: "idle" });
         }
     }
 
@@ -118,33 +141,28 @@ export class DiffPipeline {
     }
 
     private async process({
-        scheduler,
         leftTokenSnapshot,
         rightTokenSnapshot,
-        options,
         diffOptions,
         result,
     }:
         {
-            scheduler: Scheduler,
             leftTokenSnapshot: TokenSnapshot,
             rightTokenSnapshot: TokenSnapshot,
-            options: DiffseekOptions,
             diffOptions: DiffOptions,
             result: DiffWorkerResult
         }) {
-        await scheduler.yield();
+
+        const yieldIfNeeded = createYieldIfNeeded(this.abortController?.signal);
 
         const leftEditor = this.leftEditor;
         const rightEditor = this.rightEditor;
         const leftTokens = leftTokenSnapshot.tokens;
         const rightTokens = rightTokenSnapshot.tokens;
-        const diffPalette = options.diffPalette;
         const anchorManager = this.anchorManager;
-        const diffs: RenderedDiff[] = [];
+        const diffs: DiffEntry[] = [];
         const anchorPairs: AnchorPair[] = [];
         const leftTokenCount = leftTokens.length;
-        const numDiffColors = diffPalette.length;
 
         let chunkLeftStart = -1;
         let chunkLeftEnd = -1;
@@ -293,7 +311,6 @@ export class DiffPipeline {
             const rightToken = rightStart < rightTokens.length ? rightTokens[rightStart] : null;
 
             const diffIndex = diffs.length;
-            const hue = diffPalette[diffIndex % numDiffColors];
 
             let leftRange: Range | null = null;
             let rightRange: Range | null = null;
@@ -366,7 +383,6 @@ export class DiffPipeline {
 
             diffs.push({
                 diffIndex,
-                hue,
                 leftRange,
                 rightRange,
                 leftSpan: { start: leftStart, end: leftEnd },
@@ -479,7 +495,7 @@ export class DiffPipeline {
             lastRightEnd = rightEnd;
 
             if ((i & 0x1ff) === 0) {
-                await scheduler.yield();
+                await yieldIfNeeded();
             }
         }
 
@@ -495,10 +511,19 @@ export class DiffPipeline {
 
         flushChunk();
 
+        const commonOutline = buildCommonOutline({
+            leftWholeText: leftTokenSnapshot.wholeText,
+            rightWholeText: rightTokenSnapshot.wholeText,
+            leftTokens,
+            rightTokens,
+            leftResultBuffer,
+        });
+
         return {
             isValid: true,
             leftTokens,
             rightTokens,
+            commonOutline,
             leftTokenBuffer: leftResultBuffer,
             rightTokenBuffer: rightResultBuffer,
             diffOptions,
@@ -507,7 +532,7 @@ export class DiffPipeline {
             // rightEntries,
             diffs,
             anchorPairs,
-        } satisfies DiffContext;
+        } satisfies Omit<DiffContext, "timing">;
 
     }
 }

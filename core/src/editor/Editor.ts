@@ -686,11 +686,7 @@ export class Editor implements EditorContext {
     }
 
     scrollTo(offset: number, options?: ScrollOptions) {
-        if (!this.rootElement) {
-            return;
-        }
-
-        if (this.rootElement.scrollTop !== offset) {
+        if (this.rootElement && this.rootElement.scrollTop !== offset) {
             this.rootElement.scrollTo({
                 top: offset,
                 behavior: options?.behavior,

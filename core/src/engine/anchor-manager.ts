@@ -146,16 +146,10 @@ export class AnchorManager {
 
                         for (const pair of anchorPairs) {
                             pair.delta = 0;
-                            if (pair.leftEl) {
-                                pair.leftEl.classList.remove("aligned");
-                                pair.leftEl.classList.remove("padded");
-                                pair.leftEl.style.removeProperty("--anchor-adjust");
-                            }
-                            if (pair.rightEl) {
-                                pair.rightEl.classList.remove("aligned");
-                                pair.rightEl.classList.remove("padded");
-                                pair.rightEl.style.removeProperty("--anchor-adjust");
-                            }
+                            pair.leftEl.classList.remove("padded", "striped");
+                            pair.leftEl.style.removeProperty("--anchor-adjust");
+                            pair.rightEl.classList.remove("padded", "striped");
+                            pair.rightEl.style.removeProperty("--anchor-adjust");
                         }
 
                         leftEditor.forceReflow();
@@ -173,35 +167,10 @@ export class AnchorManager {
 
                             const pair = anchorPairs[i];
                             const { leftEl, rightEl } = pair;
-                            // 낙관적으로 --anchor-adjust 속성을 제거하기 전에 leftY/rightY를 계산하고 두 값이 같다면 그냥 정렬된 것으로 간주하고 넘어가기
-
-                            let leftY;
-                            let rightY;
-                            leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
-                            rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-
+                            let leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
+                            let rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
                             let delta = Math.round(leftY - rightY);
                             if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                                if (pair.delta > 0) {
-                                    rightEl.classList.remove("aligned");
-                                    rightEl.classList.remove("padded");
-                                    rightEl.style.removeProperty("--anchor-adjust");
-                                    void rightEl.offsetHeight; // force reflow
-                                    rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
-                                    rightScrollTop = rightEditor.rootElement.scrollTop;
-                                } else if (pair.delta < 0) {
-                                    leftEl.classList.remove("aligned");
-                                    leftEl.classList.remove("padded");
-                                    leftEl.style.removeProperty("--anchor-adjust");
-                                    void leftEl.offsetHeight; // force reflow
-                                    leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
-                                    leftScrollTop = leftEditor.rootElement.scrollTop;
-                                }
-
-                                leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
-                                rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-                                delta = Math.round(leftY - rightY);
-
                                 if (delta < -MIN_DELTA || delta > MIN_DELTA) {
                                     if (this.applyDeltaToPair(pair, delta, true)) {
                                         leftScrollTop = leftEditor.rootElement.scrollTop;
@@ -252,10 +221,9 @@ export class AnchorManager {
                 theEl = pair.leftEl;
             }
             theEl.style.setProperty("--anchor-adjust", `${delta}px`);
-            theEl.classList.add("aligned");
             theEl.classList.add("padded");
-            if (theEl.nodeName !== DIFF_TAG_NAME) {
-                theEl.classList.toggle("striped", delta >= MIN_STRIPED_DELTA);
+            if (theEl.nodeName !== DIFF_TAG_NAME && delta >= MIN_STRIPED_DELTA) {
+                theEl.classList.add("striped");
             }
             if (reflow) {
                 void theEl.offsetHeight; // force reflow

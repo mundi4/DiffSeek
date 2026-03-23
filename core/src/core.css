@@ -24,8 +24,8 @@
 }
 
 /*
-Editor/Renderer 레이아웃
-*/
+  Editor/Renderer 레이아웃
+  */
 
 .ds-deck {
   min-height: 0;
@@ -45,7 +45,6 @@ Editor/Renderer 레이아웃
 .ds-editor {
   position: relative;
   min-width: 0;
-  min-height: 0;
   height: 100%;
   overflow-x: hidden;
   overflow-y: scroll;
@@ -125,8 +124,8 @@ Editor/Renderer 레이아웃
 }
 
 /*
-Sync Mode
-*/
+  Sync Mode
+  */
 .ds-workspace.sync-mode {
   --editor-bg-color: var(--bg-sync-mode);
   --editor-fg-color: var(--text-sync-mode);
@@ -145,11 +144,11 @@ Sync Mode
 
 .ds-editor-content {
   flex: 1 0 auto;
-  min-height: 0;
   position: relative;
   border: 0;
   min-width: 0;
   max-width: 100%;
+  min-height: 100%;
   overflow-x: hidden;
   overflow-y: visible;
   font-size: var(--editor-font-size);
@@ -190,7 +189,7 @@ Sync Mode
 }
 
 .sync-mode ds-diff {
-  display: block;
+  display: inline-block;
   position: relative;
 }
 
@@ -238,15 +237,15 @@ ds-diff {
 }
 
 /* :not(.sync-mode) ds-diff::after {
-  display: inline;
-  content: "\200B";
-} */
+    display: inline;
+    content: "\200B";
+  } */
 
 /* ds-diff::after {
-  display: block;
-  width: 4px;
-  content: "\200B";
-} */
+    display: block;
+    width: 4px;
+    content: "\200B";
+  } */
 
 .sync-mode .striped.padded::before {
   background: transparent
@@ -267,14 +266,13 @@ ds-diff {
 .sync-mode .ds-editor-height-boost {
   display: block;
   flex: 0 0 auto;
-  background: transparent
-    repeating-linear-gradient(
-      135deg,
-      hsl(0 0% 90% / 0.75) 0px,
-      hsl(0 0% 90% / 0.75) 6px,
-      transparent 12px,
-      transparent 18px
-    );
+  background: repeating-linear-gradient(
+    0deg,
+    hsl(0 0% 88% / 0.4) 0px,
+    hsl(0 0% 88% / 0.4) 3px,
+    transparent 3px,
+    transparent 6px
+  );
   height: 0;
   /* height: var(--height-boost, 0px); */
 }
@@ -297,16 +295,16 @@ ds-diff {
 }
 
 /* ds-diff::before {
-  content: " ";
-  display: block;
-  position: absolute;
-  width: 4px;
-  height: calc(1.2em + 4px);
-  background-color: red;
-  opacity: 30%;
-  left: 0;
-  margin-top: -2px;
-} */
+    content: " ";
+    display: block;
+    position: absolute;
+    width: 4px;
+    height: calc(1.2em + 4px);
+    background-color: red;
+    opacity: 30%;
+    left: 0;
+    margin-top: -2px;
+  } */
 
 .ds-editor-content td,
 .ds-editor-content th {

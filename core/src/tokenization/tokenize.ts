@@ -27,6 +27,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
     const mergeNonWordLikeTokens = !!options.mergeNonWordLikeTokens;
     const enableStructuralTokens = !!options.enableStructuralTokens;
     const mergeLetterNumberBoundary = !!options.mergeLetterNumberBoundary;
+    const allowStandaloneLawArticle = !!options.allowStandaloneLawArticle;
 
     let yieldCounter = 0;
 
@@ -510,7 +511,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
                 if (!tokenStartPos && (nextTokenFlags & TOKEN_FLAGS_LINE_START) && (meta & CM_HEADING_START)) {
                     const headingStartPos = cursor.getPos();
-                    const match = tryMatchSectionHeading(cursor, code);
+                    const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle);
                     if (match) {
                         const headingEndPos = cursor.getPos();
                         nextTokenFlags |= match.type;

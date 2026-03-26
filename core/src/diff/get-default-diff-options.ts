@@ -11,6 +11,7 @@ const defaultDiffOptions: DiffOptions = {
     // ─────────────────────────────
     mergeNonWordTokens: false,
     mergeLetterNumberBoundary: false,
+    allowStandaloneLawArticle: true,
 
     // ─────────────────────────────
     // Patience Diff

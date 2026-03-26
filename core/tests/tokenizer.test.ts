@@ -19,10 +19,10 @@ function makeContainer(html: string): HTMLElement {
     return div;
 }
 
-async function tok(html: string) {
+async function tok(html: string, options: Parameters<typeof tokenize>[2] = {}) {
     const container = makeContainer(html);
     const signal = new AbortController().signal;
-    const result = await tokenize(container, signal);
+    const result = await tokenize(container, signal, options);
     const texts = result.tokens.map(t =>
         result.wholeText.slice(t.textOffset, t.textOffset + t.textLength)
     );
@@ -198,7 +198,19 @@ describe('section heading tokenization', () => {
         expect(sectionHeadings).toHaveLength(0);
     });
 
-    it('헤딩 뒤에 word-like 없으면 헤딩 아님 — "제1조" 단독', async () => {
+    it('allowStandaloneLawArticle: "제1조" 단독도 헤딩', async () => {
+        const { sectionHeadings, texts } = await tok('<div>제1조</div>', { allowStandaloneLawArticle: true });
+        expect(sectionHeadings).toHaveLength(1);
+        expect(texts[0]).toBe('제1조');
+    });
+
+    it('allowStandaloneLawArticle: "제995조" 단독도 헤딩', async () => {
+        const { sectionHeadings, texts } = await tok('<div>제995조</div>', { allowStandaloneLawArticle: true });
+        expect(sectionHeadings).toHaveLength(1);
+        expect(texts[0]).toBe('제995조');
+    });
+
+    it('allowStandaloneLawArticle 없으면 "제1조" 단독은 헤딩 아님', async () => {
         const { sectionHeadings } = await tok('<div>제1조</div>');
         expect(sectionHeadings).toHaveLength(0);
     });

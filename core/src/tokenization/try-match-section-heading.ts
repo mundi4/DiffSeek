@@ -1,6 +1,6 @@
 import type { TextNodeCursor } from "./text-node-cursor";
 import { CHAR_META } from "../char-meta";
-import { CM_LETTER, CM_NUMBER, CM_WS } from "../char-meta-flags";
+import { CM_LETTER, CM_WS } from "../char-meta-flags";
 import { TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE, TOKEN_FLAGS_SECTION_HEADING_TYPE1, TOKEN_FLAGS_SECTION_HEADING_TYPE2, TOKEN_FLAGS_SECTION_HEADING_TYPE3, TOKEN_FLAGS_SECTION_HEADING_TYPE4, TOKEN_FLAGS_SECTION_HEADING_TYPE5, TOKEN_FLAGS_SECTION_HEADING_TYPE6 } from "./types";
 
 export const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
@@ -175,12 +175,12 @@ function tryMatchNumberWithSuffix(cursor: TextNodeCursor): NumberingMatch | null
 function scanHasWordLike(cursor: TextNodeCursor): boolean {
     while (cursor.moveNext()) {
         const meta = CHAR_META[cursor.current];
-        if (meta & (CM_LETTER | CM_NUMBER)) return true;
+        if (meta & CM_LETTER) return true;
     }
     return false;
 }
 
-export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number): SectionHeadingMatch | null {
+export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number, allowStandaloneLawArticle = false): SectionHeadingMatch | null {
     const start = cursor.getPos();
     let match: NumberingMatch | null = null;
 
@@ -196,10 +196,14 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
 
     if (match) {
         const headingEndPos = cursor.getPos();
-        const hasWordLike = scanHasWordLike(cursor);
-        if (!hasWordLike) {
-            cursor.moveTo(start);
-            return null;
+        // LAW_ARTICLE(제N조)은 줄 시작에 나오는 것 자체가 강한 신호이므로
+        // allowStandaloneLawArticle 옵션이 켜져 있으면 word-like 검사를 건너뛴다.
+        if (!(allowStandaloneLawArticle && match.type === TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE)) {
+            const hasWordLike = scanHasWordLike(cursor);
+            if (!hasWordLike) {
+                cursor.moveTo(start);
+                return null;
+            }
         }
         cursor.moveTo(headingEndPos);
         return {

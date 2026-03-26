@@ -30,6 +30,7 @@ export type TokenizerOptions = {
     mergeNonWordLikeTokens?: boolean;
     enableStructuralTokens?: boolean;
     mergeLetterNumberBoundary?: boolean;
+    allowStandaloneLawArticle?: boolean;
 };
 
 export type TokenizeResult = {

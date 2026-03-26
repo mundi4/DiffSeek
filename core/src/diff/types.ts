@@ -11,6 +11,7 @@ export type DiffOptions = {
     whitespace: "collapse" | "ignore";
     mergeNonWordTokens: boolean;
     mergeLetterNumberBoundary: boolean;
+    allowStandaloneLawArticle: boolean;
     usePatience: boolean;
     patienceMinLines: number;
     patienceMinTokens: number;

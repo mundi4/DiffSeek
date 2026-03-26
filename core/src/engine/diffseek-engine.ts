@@ -132,6 +132,7 @@ export class DiffseekEngine {
             const tokOptions = {
                 mergeNonWordLikeTokens: newDiffOptions.mergeNonWordTokens,
                 mergeLetterNumberBoundary: newDiffOptions.mergeLetterNumberBoundary,
+                allowStandaloneLawArticle: newDiffOptions.allowStandaloneLawArticle,
             };
             this.leftEditor.tokenizeOptions = tokOptions;
             this.rightEditor.tokenizeOptions = tokOptions;

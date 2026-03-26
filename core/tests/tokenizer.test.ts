@@ -99,13 +99,31 @@ describe('section heading tokenization', () => {
         expect(texts[0]).toBe('제1조');
         expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE).toBeTruthy();
         expect(tokens[1].flags & HEADING_MASK).toBe(0);
-        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].ordinal).toBe(10000);
     });
 
-    it('LAW_ARTICLE: "제32조 내용" — ordinal=32', async () => {
+    it('LAW_ARTICLE: "제32조 내용" — ordinal=320000', async () => {
         const { sectionHeadings } = await tok('<div>제32조 내용</div>');
-        expect(sectionHeadings[0].ordinal).toBe(32);
+        expect(sectionHeadings[0].ordinal).toBe(320000);
         expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+    });
+
+    // ─── 조의N (부조) ─────────────────────────────────────────────────────────
+
+    it('LAW_ARTICLE: "제1조의2 내용" — 부조 헤딩', async () => {
+        const { texts, sectionHeadings } = await tok('<div>제1조의2 내용</div>');
+        expect(texts[0]).toBe('제1조의2');
+        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].ordinal).toBe(10002);
+        expect(sectionHeadings[0].text).toBe('제1조의2');
+    });
+
+    it('LAW_ARTICLE: "제1조의 2 내용" — 공백 있는 부조 헤딩', async () => {
+        const { texts, sectionHeadings } = await tok('<div>제1조의 2 내용</div>');
+        expect(texts[0]).toBe('제1조의2');
+        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].ordinal).toBe(10002);
+        expect(sectionHeadings[0].text).toBe('제1조의2');
     });
 
     // ─── 공백 normalize ───────────────────────────────────────────────────────
@@ -114,7 +132,7 @@ describe('section heading tokenization', () => {
         const { texts, sectionHeadings } = await tok('<div>제 1 조 제목</div>');
         expect(texts[0]).toBe('제1조');
         expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
-        expect(sectionHeadings[0].ordinal).toBe(1);
+        expect(sectionHeadings[0].ordinal).toBe(10000);
         expect(sectionHeadings[0].text).toBe('제1조');
     });
 

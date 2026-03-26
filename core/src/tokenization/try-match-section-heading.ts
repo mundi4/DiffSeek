@@ -60,23 +60,43 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
 
     code = cursor.peek();
 
-    if (code !== -1) {
-        // code = cursor.current;
-        if (code === 46 // 제1조.
-            || code === 40 // 제1조(
-            || CHAR_META[code] & CM_WS) { // "제1조 "
-            // good
+    // 제1조의2 형식 처리
+    let subNumber: number | null = null;
+    if (code === 0xc758) { // 의
+        cursor.moveNext(); // cursor: 조 → 의
+        code = skipWs(cursor); // 의 소비, 공백 건너뜀 ("조의 2" 허용)
+        if (code >= 0x30 && code <= 0x39) {
+            // cursor는 이미 첫 숫자에 위치 (skipWs가 전진함)
+            subNumber = parseAsciiNumber(cursor, code);
+            if (!subNumber) return null;
+            code = cursor.current; // parseAsciiNumber가 종결자까지 전진함
         } else {
             return null;
         }
+        // 종결자 검증
+        if (code !== -1 && !(code === 46 || code === 40 || CHAR_META[code] & CM_WS)) {
+            return null;
+        }
+        // '의N'까지 이미 소비됨 — 추가 moveNext 불필요
+    } else {
+        if (code !== -1) {
+            if (code === 46 // 제1조.
+                || code === 40 // 제1조(
+                || CHAR_META[code] & CM_WS) { // "제1조 "
+                // good
+            } else {
+                return null;
+            }
+        }
+        // '조'를 소비하여 cursor를 종결자 위치로 이동
+        cursor.moveNext();
     }
 
-    // '조'를 실제로 소비하여 다음 토큰에서 중복으로 다시 나오지 않게 한다.
-    cursor.moveNext();
-
+    const text = subNumber !== null ? `제${number}조의${subNumber}` : `제${number}조`;
+    const ordinal = subNumber !== null ? number * 10000 + subNumber : number * 10000;
     return {
-        text: `제${number}조`,
-        ordinal: number,
+        text,
+        ordinal,
         type: TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE,
     };
 }

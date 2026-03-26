@@ -509,11 +509,17 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                 collapsable = false;
 
                 if (!tokenStartPos && (nextTokenFlags & TOKEN_FLAGS_LINE_START) && (meta & CM_HEADING_START)) {
+                    const headingStartPos = cursor.getPos();
                     const match = tryMatchSectionHeading(cursor, code);
                     if (match) {
+                        const headingEndPos = cursor.getPos();
                         nextTokenFlags |= match.type;
-                        sectionHeadings.push({ ...match, tokenIndex: tokens.length });
-                        // cursor는 복구됨. 그대로 일반 토큰화 진행.
+                        addToken("text", match.text, TOKEN_FLAGS_WORD_LIKE,
+                            textNodeBuf[headingStartPos.nodeIndex], headingStartPos.charIndex,
+                            textNodeBuf[headingEndPos.nodeIndex], headingEndPos.charIndex,
+                        );
+                        sectionHeadings.push({ ...match, tokenIndex: tokens.length - 1 });
+                        continue;
                     }
                 }
 

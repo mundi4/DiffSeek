@@ -31,7 +31,6 @@ export type SectionHeadingMatch = {
     type: number;
     text: string;
     ordinal: number;
-    tokenCount: number;
 };
 
 function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
@@ -152,24 +151,13 @@ function tryMatchNumberWithSuffix(cursor: TextNodeCursor): NumberingMatch | null
     return null;
 }
 
-/** 현재 커서 위치부터 줄 끝까지 word-like 문자가 하나라도 있으면 true. 커서 위치는 변경하지 않는다. */
+/** 현재 커서 위치부터 줄 끝까지 word-like 문자가 하나라도 있으면 true. */
 function scanHasWordLike(cursor: TextNodeCursor): boolean {
     while (cursor.moveNext()) {
         const meta = CHAR_META[cursor.current];
         if (meta & (CM_LETTER | CM_NUMBER)) return true;
     }
     return false;
-}
-
-function getTokenCount(type: number): number {
-    switch (type) {
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE3:
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE4:
-        case TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE:
-            return 3;
-        default:
-            return 2;
-    }
 }
 
 export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number): SectionHeadingMatch | null {
@@ -187,14 +175,17 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
     }
 
     if (match) {
+        const headingEndPos = cursor.getPos();
         const hasWordLike = scanHasWordLike(cursor);
-        cursor.moveTo(start);
-        if (!hasWordLike) return null;
+        if (!hasWordLike) {
+            cursor.moveTo(start);
+            return null;
+        }
+        cursor.moveTo(headingEndPos);
         return {
             type: match.type,
             text: match.text,
             ordinal: match.ordinal,
-            tokenCount: getTokenCount(match.type),
         };
     }
 

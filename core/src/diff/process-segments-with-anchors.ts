@@ -84,6 +84,7 @@ export async function processSegmentsWithAnchors(
             }
         }
 
+        console.log(`Marking anchor as unchanged: lhs[${lhsPos}, ${lhsEnd}), rhs[${rhsPos}, ${rhsEnd})`);
         markUnchanged(lhs, rhs, lhsPos, lhsEnd, rhsPos, rhsEnd);
 
         lastL = lhsEnd;

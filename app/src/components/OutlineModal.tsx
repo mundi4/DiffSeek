@@ -17,20 +17,19 @@ export function OutlineModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 <Table.Th w={56}>#</Table.Th>
                                 <Table.Th>왼쪽</Table.Th>
                                 <Table.Th>오른쪽</Table.Th>
-                                <Table.Th w={96}>L Line</Table.Th>
-                                <Table.Th w={96}>R Line</Table.Th>
                             </Table.Tr>
                         </Table.Thead>
                         <Table.Tbody>
                             {outline.map((item) => (
-                                <Table.Tr key={`${item.leftTokenIndex}:${item.rightTokenIndex}:${item.index}`}>
+                                <Table.Tr key={`${item.leftTokenIndex}:${item.rightTokenIndex}:${item.index}`}
+
+                                >
                                     <Table.Td>{item.index + 1}</Table.Td>
                                     <Table.Td>
                                         <Stack gap={4}>
                                             <Text size="sm" fw={500} lineClamp={1}>{item.leftLabel || "(empty)"}</Text>
                                             <Group gap={6}>
                                                 <Badge size="xs" variant="light">token {item.leftTokenIndex}</Badge>
-                                                <Badge size="xs" variant="light">span {item.leftSpan.start}-{item.leftSpan.end}</Badge>
                                             </Group>
                                         </Stack>
                                     </Table.Td>
@@ -39,12 +38,9 @@ export function OutlineModal({ opened, onClose }: { opened: boolean; onClose: ()
                                             <Text size="sm" fw={500} lineClamp={1}>{item.rightLabel || "(empty)"}</Text>
                                             <Group gap={6}>
                                                 <Badge size="xs" variant="light">token {item.rightTokenIndex}</Badge>
-                                                <Badge size="xs" variant="light">span {item.rightSpan.start}-{item.rightSpan.end}</Badge>
                                             </Group>
                                         </Stack>
                                     </Table.Td>
-                                    <Table.Td>{item.leftLineNumber}</Table.Td>
-                                    <Table.Td>{item.rightLineNumber}</Table.Td>
                                 </Table.Tr>
                             ))}
                         </Table.Tbody>

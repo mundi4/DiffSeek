@@ -8,17 +8,13 @@ import type { DiffOptions } from "../diff";
 import type { DiffVisibilityChangeEntry } from "../renderer";
 import type { DiffEntry, Palette, Span } from "..";
 import type { EditorName } from "../editor";
+import type { SectionHeadingType } from "../constants/section-heading";
 
 export type CommonOutlineHeading = {
     index: number;
     leftTokenIndex: number;
     rightTokenIndex: number;
-    leftLineNumber: number;
-    rightLineNumber: number;
-    leftHeadingFlags: number;
-    rightHeadingFlags: number;
-    leftSpan: { start: number; end: number };
-    rightSpan: { start: number; end: number };
+    headingType: SectionHeadingType;
     leftLabel: string;
     rightLabel: string;
 };

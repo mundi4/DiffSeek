@@ -94,3 +94,4 @@ artifacts/
 
 # secrets and local config
 secrets.json
+.claude/settings.local.json

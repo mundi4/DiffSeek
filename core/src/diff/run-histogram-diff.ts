@@ -296,13 +296,8 @@ export async function runHistogramDiff(
                         let policyGrade = 0;
                         const rf = _rhsFlags[r];
                         if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-                            const headingType = headingFlagsToType(lf & HEADING_MASK);
-                            const minH = HEADING_MIN_H[headingType];
-                            if (h >= minH) {
-                                policyGrade = 2;
-                            }
-                        }
-                        if (policyGrade === 0 && (lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
+                            policyGrade = 2;
+                        } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
                             policyGrade = 1;
                         }
 

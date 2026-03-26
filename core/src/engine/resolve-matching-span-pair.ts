@@ -28,23 +28,27 @@ import type { DiffContext } from "./types";
  * // side = "left", sourceSpan = "가"
  * // 결과 => left=["가","나"], right=["가나"]
  */
-export function resolveMatchingSpanPair(diffContext: DiffContext, side: EditorName, sourceSpan: Span): { left: Span; right: Span } {
-    const tokenBuffer = side === "left" ? diffContext.leftTokenBuffer : diffContext.rightTokenBuffer;
-    if (tokenBuffer.length === 0) {
-        return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
+export function resolveMatchingSpanPair(diffContext: DiffContext, side: EditorName, sourceSpan: Span)
+    : { left: Span | null; right: Span | null } {
+    if (sourceSpan.start === sourceSpan.end) {
+        // 빈 스팬인 경우 양쪽 모두 빈 스팬 반환
+        return { left: null, right: null };
     }
 
-    // if (diffContext.entries.length === 0) {
-    //     return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
-    // }
+    const tokenBuffer = side === "left" ? diffContext.leftTokenBuffer : diffContext.rightTokenBuffer;
+
+    if (tokenBuffer.length === 0 || sourceSpan.start === sourceSpan.end) {
+        return { left: null, right: null };
+    }
 
     const start = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 0];
-    const end = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 1];
     const oppStart = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 2];
-    const oppEnd = tokenBuffer[sourceSpan.end * TOKEN_BUFFER_STRIDE - 1 + 3];
 
-    const thisSpan: Span = { start, end };
-    const otherSpan: Span = { start: oppStart, end: oppEnd };
+    const end = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 1];
+    const oppEnd = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 3];
+
+    const thisSpan = end > start ? { start, end } : null;
+    const otherSpan = oppEnd > oppStart ? { start: oppStart, end: oppEnd } : null;
     return side === "left" ? { left: thisSpan, right: otherSpan } : { left: otherSpan, right: thisSpan };
 
     // if (diffContext.entries.length === 0) {

@@ -539,101 +539,91 @@ export class Editor implements EditorContext {
 
     /**
      * 주어진 range에 해당하는 토큰 인덱스를 [start, end)로 반환.
-     * range가 collapsed인 경우 range와 오른쪽으로 붙어있는 토큰만 포함함.
+     * collapsed인 경우 right-sticking: 커서 오른쪽에 닿은 토큰만 포함.
+     * 겹치는 토큰이 없으면 빈 span {i, i} 반환 (커서/선택이 갭에 있는 경우).
+     * range가 contentElement 밖에 있으면 null 반환.
      *
      * @param range DOM Range
-     * @returns 겹치는 구간이 있으면 [start, end)를 객체로 반환, 없으면 null 반환.
+     * @returns 토큰 구간 [start, end), 또는 contentElement 밖이면 null.
      */
     getTokenSpanForRange(range: Range): Span | null {
+        const el = this.contentElement;
+        if (!el.contains(range.startContainer) || !el.contains(range.endContainer)) {
+            return null;
+        }
+
         const tokens = this.tokens;
         const n = tokens.length;
-        //if (n === 0) return null;
 
-        // A|B 경계 보정: caret이 텍스트 노드 끝이면 다음 텍스트 시작으로 end 이동
+        // A|B 경계 보정: caret이 텍스트 노드 끝이면 다음 텍스트 시작으로 이동 (collapsed 유지)
         let r = range;
         if (r.collapsed && r.endContainer.nodeType === 3 && r.endOffset === (r.endContainer.nodeValue?.length ?? 0)) {
             const adj = findAdjacentTextNode(r.endContainer, true);
             if (adj) {
-                const clone = r.cloneRange();
+                const clone = document.createRange();
+                clone.setStart(adj, 0);
                 clone.setEnd(adj, 0);
                 r = clone;
             }
         }
 
+        // tokenRange: 이진탐색 재사용 스크래치 range.
+        // START_TO_END 비교(token.end vs r.start)에서는 end만, END_TO_START 비교(token.start vs r.end)에서는 start만 업데이트.
         const tokenRange = document.createRange();
+        tokenRange.setStart(el, 0);
+        tokenRange.setEnd(el, 0);
 
         // collapsed
         if (r.collapsed) {
-            // i = token.end > caret 인 첫 토큰  (START_TO_END: this.end ? other.start)
+            // i = token.end > caret 인 첫 토큰 (START_TO_END: tokenRange.end vs r.start)
             let i = n;
             {
-                let lo = 0,
-                    hi = n - 1;
+                let lo = 0, hi = n - 1;
                 while (lo <= hi) {
                     const mid = (lo + hi) >> 1;
-                    const t = tokens[mid];
-                    SetStartEndFromTokenRange(tokenRange, t);
+                    setEndFromTokenRange(tokenRange, tokens[mid]);
                     const cmp = tokenRange.compareBoundaryPoints(Range.START_TO_END, r);
-                    if (cmp > 0) {
-                        i = mid;
-                        hi = mid - 1;
-                    } else {
-                        lo = mid + 1;
-                    }
+                    if (cmp > 0) { i = mid; hi = mid - 1; }
+                    else lo = mid + 1;
                 }
             }
 
-            if (i === n) return { start: n, end: n }; // 마지막 뒤
+            if (i === n) return { start: n, end: n };
 
             // token.start <= caret 이면 { i, i+1 }, 아니면 { i, i }
-            // END_TO_START: this.start ? other.end
-            const t = tokens[i];
-            SetStartEndFromTokenRange(tokenRange, t);
+            SetStartEndFromTokenRange(tokenRange, tokens[i]);
             const cmpStart = tokenRange.compareBoundaryPoints(Range.END_TO_START, r);
             return cmpStart <= 0 ? { start: i, end: i + 1 } : { start: i, end: i };
         }
 
         // non-collapsed
-        // start = token.end > r.start 인 첫 토큰
+        // start = token.end > r.start 인 첫 토큰 (START_TO_END: tokenRange.end만 업데이트)
         let start = n;
         {
-            let lo = 0,
-                hi = n - 1;
+            let lo = 0, hi = n - 1;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
-                const t = tokens[mid];
-                SetStartEndFromTokenRange(tokenRange, t);
-                const cmp = tokenRange.compareBoundaryPoints(Range.START_TO_END, r); // token.end ? r.start
-                if (cmp > 0) {
-                    start = mid;
-                    hi = mid - 1;
-                } else {
-                    lo = mid + 1;
-                }
+                setEndFromTokenRange(tokenRange, tokens[mid]);
+                const cmp = tokenRange.compareBoundaryPoints(Range.START_TO_END, r);
+                if (cmp > 0) { start = mid; hi = mid - 1; }
+                else lo = mid + 1;
             }
         }
-        if (start === n) return null;
 
-        // end = token.start >= r.end 인 첫 토큰
+        // end = token.start >= r.end 인 첫 토큰 (END_TO_START: tokenRange.start만 업데이트)
+        // end 앵커를 마지막 토큰 끝으로 재설정해서 start 업데이트 시 유효성 유지
+        if (n > 0) setEndFromTokenRange(tokenRange, tokens[n - 1]);
         let end = n;
         {
-            let lo = start,
-                hi = n - 1;
+            let lo = start, hi = n - 1;
             while (lo <= hi) {
                 const mid = (lo + hi) >> 1;
-                const t = tokens[mid];
-                SetStartEndFromTokenRange(tokenRange, t);
-                const cmp = tokenRange.compareBoundaryPoints(Range.END_TO_START, r); // token.start ? r.end
-                if (cmp >= 0) {
-                    end = mid;
-                    hi = mid - 1;
-                } else {
-                    lo = mid + 1;
-                }
+                setStartFromTokenRange(tokenRange, tokens[mid]);
+                const cmp = tokenRange.compareBoundaryPoints(Range.END_TO_START, r);
+                if (cmp >= 0) { end = mid; hi = mid - 1; }
+                else lo = mid + 1;
             }
         }
-
-        if (end <= start) return null;
 
         return { start, end };
     }

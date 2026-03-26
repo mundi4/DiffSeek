@@ -6,7 +6,8 @@
 import type { Token } from "../tokenization";
 import type { DiffOptions } from "../diff";
 import type { DiffVisibilityChangeEntry } from "../renderer";
-import type { DiffEntry, Palette } from "..";
+import type { DiffEntry, Palette, Span } from "..";
+import type { EditorName } from "../editor";
 
 export type CommonOutlineHeading = {
     index: number;
@@ -70,8 +71,15 @@ export interface DiffseekEventMap {
     "paletteChanged": Readonly<Palette>;
     "hoveredDiffIndexChanged": number | null;
     "progress": { progress: number; }
+    "selectionChanged": SelectionChangeData;
 }
 
 export type {
     DiffVisibilityChangeEntry
+}
+
+export type SelectionChangeData = {
+    left: Span | null;
+    right: Span | null;
+    selectedEditor: EditorName | null;
 }

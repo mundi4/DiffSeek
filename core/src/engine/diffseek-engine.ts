@@ -7,7 +7,7 @@ import { createEvent } from "../utils/createEvent";
 import { resolveMatchingSpanPair } from "./resolve-matching-span-pair";
 import { AnchorManager } from "./anchor-manager";
 import { DiffPipeline } from "./diff-pipeline";
-import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus } from "./types";
+import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, SelectionChangeData } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
 import type { Palette, Span } from "../types";
@@ -57,6 +57,7 @@ export class DiffseekEngine {
     readonly paletteChanged = createEvent<Readonly<Palette>>();
     readonly diffHoveredIndexChanged = createEvent<number | null>();
     readonly progressChanged = createEvent<{ progress: number }>();
+    readonly selectionChanged = createEvent<SelectionChangeData>();
 
     private _eventRegistry: Record<keyof InternalDiffseekEventMap, ReturnType<typeof createEvent<any>>> = {
         "syncModeChanged": this.syncModeChanged,
@@ -70,6 +71,7 @@ export class DiffseekEngine {
         "mount": createEvent<{ el: HTMLElement }>(),
         "unmount": createEvent<void>(),
         "progress": this.progressChanged,
+        "selectionChanged": this.selectionChanged,
     };
 
     on<K extends keyof InternalDiffseekEventMap>(event: K, handler: (data: InternalDiffseekEventMap[K]) => void) {
@@ -191,37 +193,50 @@ export class DiffseekEngine {
         });
     }
 
+    private leftSelectionSpan: Span | null = null;
+    private rightSelectionSpan: Span | null = null;
+
     handleSelectionChange() {
-        if (!this.diffContext) {
-            return;
+        if (this.diffContext) {
+            const { editor: selectedEditor, range: selectedRange } = this.getUserSelectionRange();
+            if (selectedEditor) {
+                // 해당 range가 품고 있는 token span을 구함.
+                const sourceSpan = selectedEditor.getTokenSpanForRange(selectedRange);
+                if (sourceSpan && sourceSpan.start !== sourceSpan.end) {
+                    const { left, right } = resolveMatchingSpanPair(this.diffContext, selectedEditor.name, sourceSpan);
+                    if (left && right) {
+                        // left, right가 존재한다면 양쪽 모두 end > start인 유효한 범위임
+                        if (this.leftSelectionSpan?.start !== left.start
+                            || this.leftSelectionSpan?.end !== left.end
+                            || this.rightSelectionSpan?.start !== right.start
+                            || this.rightSelectionSpan?.end !== right.end) {
+                            const targetSpan = selectedEditor.name === "left" ? right : left;
+                            const targetEditor = selectedEditor.name === "left" ? this.rightEditor : this.leftEditor;
+                            const targetRange = targetEditor.getTokenRange(targetSpan.start, targetSpan.end);
+                            this.leftSelectionSpan = left;
+                            this.rightSelectionSpan = right;
+                            this.renderer.setSelectionHighlight(targetEditor.name, targetRange);
+                            this.selectionChanged.emit({
+                                left: left,
+                                right: right,
+                                selectedEditor: selectedEditor.name,
+                            });
+                        }
+                        return;
+                    }
+                }
+            }
         }
 
-        const selection = this.getEditorSelectionRangePair();
-
-        if (selection) {
-            let sourceEditor: Editor, targetEditor: Editor;
-            let sourceSpan: Span, targetSpan: Span;
-            let sourceRange: Range, targetRange: Range;
-
-            if (selection.sourceEditor === "left") {
-                sourceEditor = this.leftEditor, targetEditor = this.rightEditor;
-                sourceSpan = selection.left, targetSpan = selection.right;
-                sourceRange = selection.sourceRange;
-            } else {
-                sourceEditor = this.rightEditor, targetEditor = this.leftEditor;
-                sourceSpan = selection.right, targetSpan = selection.left;
-                sourceRange = selection.sourceRange;
-            }
-
-            if (targetSpan.end >= targetSpan.start) {
-                targetRange = targetEditor.getTokenRange(targetSpan.start, targetSpan.end);
-                this.renderer.setSelectionHighlight(targetEditor.name, targetRange);
-            } else {
-                this.renderer.setSelectionHighlight(targetEditor.name, null);
-            }
-        } else {
-            // 지금 API가 좀 이상해보이지만 한쪽만 null로 만들면 됨!
-            this.renderer.setSelectionHighlight("left", null);
+        if (this.leftSelectionSpan || this.rightSelectionSpan) {
+            this.leftSelectionSpan = null;
+            this.rightSelectionSpan = null;
+            this.renderer.setSelectionHighlight("left", null); // 한쪽만 null로 만들면 됨!
+            this.selectionChanged.emit({
+                left: null,
+                right: null,
+                selectedEditor: null,
+            });
         }
     }
 
@@ -392,7 +407,7 @@ export class DiffseekEngine {
         this.renderer.setHoveredDiffIndex(diffIndex);
     }
 
-    getEditorSelectionRange(): { editor: EditorName; range: Range } | null {
+    getUserSelectionRange(): { editor: Editor; range: Range } | { editor: null; range: null } {
         const selection = window.getSelection();
         let editor: Editor | null = null;
         if (selection && selection.rangeCount > 0) {
@@ -403,38 +418,37 @@ export class DiffseekEngine {
                 editor = this.rightEditor;
             }
             if (editor) {
-                return { editor: editor.name, range };
+                return { editor, range };
             }
         }
-        return null;
+        return { editor: null, range: null };
     }
 
-    getEditorSelectionRangePair(): { left: Span; right: Span; sourceEditor: EditorName; sourceSpan: Span; sourceRange: Range } | null {
-        if (this.diffContext) {
-            const selection = this.getEditorSelectionRange();
-            if (selection) {
-                const editor = selection.editor === "left" ? this.leftEditor : this.rightEditor;
-                let sourceSpan = editor.getTokenSpanForRange(selection.range);
-                if (sourceSpan) {
-                    if (sourceSpan.end === sourceSpan.start) {
-                        //sourceSpan.end += 1;
-                    }
-                    const matchingPair = resolveMatchingSpanPair(this.diffContext, editor.name, sourceSpan);
-                    if (matchingPair) {
-                        return {
-                            left: matchingPair.left,
-                            right: matchingPair.right,
-                            sourceEditor: editor.name,
-                            sourceSpan,
-                            sourceRange: selection.range,
-                        };
-                    }
-                }
-            }
-        }
+    // getEditorSelectionTokenSpanPair()
+    //     : { left: Span; right: Span; sourceEditor: EditorName } | null {
+    //     if (this.diffContext) {
+    //         const selection = this.getUserSelectionRange();
 
-        return null;
-    }
+    //         if (selection && selection.editor) {
+    //             const editor = selection.editor === "left" ? this.leftEditor : this.rightEditor;
+    //             let sourceSpan = editor.getTokenSpanForRange(selection.range);
+    //             if (sourceSpan) {
+
+    //                 const { left, right } = resolveMatchingSpanPair(this.diffContext, editor.name, sourceSpan);
+    //                 if (left && right) {
+    //                     return {
+    //                         left,
+    //                         right,
+    //                         sourceEditor: editor.name,
+    //                     };
+    //                 }
+    //             }
+    //         }
+    //     }
+    //     return null;
+    // }
+
+
 
     private cancelOngoingOperations() {
         this.diffPipeline.cancel();
@@ -475,7 +489,9 @@ export class DiffseekEngine {
     //
     // region Diff Workflow
     private async startDiffWorkflow() {
+        this.handleSelectionChange();
         this.renderer.suspendRendering();
+
         try {
             const diffContext = await this.diffPipeline.run({
                 diffOptions: this._diffOptions,
@@ -487,10 +503,10 @@ export class DiffseekEngine {
                 await this.alignAnchors();
             }
 
+            this.setDiffContext(diffContext);
+            this.handleSelectionChange();
             this.renderer.invalidateAll();
             this.renderer.resumeRendering();
-
-            this.setDiffContext(diffContext);
             //this.statusChanged.emit({ phase: 'idle' });
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {

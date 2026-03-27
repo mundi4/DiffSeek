@@ -1,13 +1,13 @@
-import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
+import { ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
 import type { Editor } from "../editor/editor";
-import { createYieldIfNeeded } from "../utils/createYieldIfNeeded";
+import { nextAnimationFrame } from "../utils/next-animation-frame";
 import type { AnchorPair } from "./types";
-
 
 const MIN_DELTA = 1;
 const MIN_STRIPED_DELTA = 1;
 
 export class AnchorManager {
+
     private leftEditor: Editor;
     private rightEditor: Editor;
     private markerElements: Set<HTMLElement> = new Set();
@@ -132,87 +132,107 @@ export class AnchorManager {
     }
 
     async alignAnchors(signal: AbortSignal) {
-        return new Promise<void>((resolve, reject) => {
-            requestAnimationFrame(() => {
-                const yieldIfNeeded = createYieldIfNeeded(signal);
-                void (async () => {
-                    try {
-                        signal.throwIfAborted();
+        // 다음 AF에서 시작
+        await nextAnimationFrame(signal);
 
-                        const anchorPairs = this.anchorPairs;
+        const IDLE_THRESHOLD = 10;
 
-                        const leftEditor = this.leftEditor;
-                        const rightEditor = this.rightEditor;
+        const startTime = performance.now();
+        let numFrames = 0;
 
-                        for (const pair of anchorPairs) {
-                            pair.delta = 0;
-                            pair.leftEl.classList.remove("padded", "striped");
-                            pair.leftEl.style.removeProperty("--anchor-adjust");
-                            pair.rightEl.classList.remove("padded", "striped");
-                            pair.rightEl.style.removeProperty("--anchor-adjust");
-                        }
+        let t = startTime;
+        const anchorPairs = this.anchorPairs;
+        const leftEditor = this.leftEditor;
+        const rightEditor = this.rightEditor;
 
-                        leftEditor.forceReflow();
-                        rightEditor.forceReflow();
+        let leftScrollTop = leftEditor.rootElement.scrollTop;
+        let rightScrollTop = rightEditor.rootElement.scrollTop;
+        let leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
+        let rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
 
-                        let leftScrollTop = leftEditor.rootElement.scrollTop;
-                        let rightScrollTop = rightEditor.rootElement.scrollTop;
-                        let leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
-                        let rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
+        async function yieldIfNeeded(force = false) {
+            const now = performance.now();
+            if (force || now - t > IDLE_THRESHOLD) {
+                await nextAnimationFrame(signal);
+                numFrames++;
+                t = now;
+                // 찰라의 시간 동안 스크롤 위치가 바뀌었을 수 있다! resize시에는 현재 작업이 취소되니 rect는 바뀌지 않는다고 생각하자.
+                leftScrollTop = leftEditor.rootElement.scrollTop;
+                rightScrollTop = rightEditor.rootElement.scrollTop;
+                return true;
+            }
+            return false;
+        }
 
-                        for (let i = 0; i < anchorPairs.length; i++) {
-                            if ((i & 0x1f) === 0) {
-                                await yieldIfNeeded();
-                            }
+        for (const pair of anchorPairs) {
+            // pair.delta = 0;
+            pair.leftEl.classList.remove("padded", "striped");
+            pair.leftEl.style.removeProperty("--anchor-adjust");
+            pair.rightEl.classList.remove("padded", "striped");
+            pair.rightEl.style.removeProperty("--anchor-adjust");
+        }
 
-                            const pair = anchorPairs[i];
-                            const { leftEl, rightEl } = pair;
-                            let leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
-                            let rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-                            let delta = Math.round(leftY - rightY);
-                            if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                                if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-                                    if (this.applyDeltaToPair(pair, delta, true)) {
-                                        leftScrollTop = leftEditor.rootElement.scrollTop;
-                                        rightScrollTop = rightEditor.rootElement.scrollTop;
-                                    }
-                                }
-                            }
-                        }
+        await nextAnimationFrame(signal);
+        numFrames++;
 
-                        await yieldIfNeeded();
-                        leftEditor.forceReflow();
-                        rightEditor.forceReflow();
+        // 다음 AF로 넘어갔으니까 reflow는 필요 없지 않을까?
+        // leftEditor.forceReflow();
+        // rightEditor.forceReflow();
 
-                        const leftContentHeight = leftEditor.contentElement.offsetHeight;
-                        const rightContentHeight = rightEditor.contentElement.offsetHeight;
-                        if (leftContentHeight > rightContentHeight) {
-                            leftEditor.heightBoostElement.style.height = `0px`;
-                            rightEditor.heightBoostElement.style.height = `${leftContentHeight - rightContentHeight}px`;
-                        } else if (rightContentHeight > leftContentHeight) {
-                            leftEditor.heightBoostElement.style.height = `${rightContentHeight - leftContentHeight}px`;
-                            rightEditor.heightBoostElement.style.height = `0px`;
-                        } else {
-                            leftEditor.heightBoostElement.style.height = `0px`;
-                            rightEditor.heightBoostElement.style.height = `0px`;
-                        }
+        for (let i = 0; i < anchorPairs.length; i++) {
+            // if ((i & 0xf) === 0) {
+            //     await yieldIfNeeded();
+            // }
 
-                        resolve();
-                    } catch (e) {
-                        reject(e);
+            const pair = anchorPairs[i];
+            const { leftEl, rightEl } = pair;
+            let leftY = leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
+            let rightY = rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+            let delta = Math.round(leftY - rightY);
+            if (delta < -MIN_DELTA || delta > MIN_DELTA) {
+                const affectedEl = this.applyDeltaToPair(pair, delta, false);
+                if ((i & 0xf) === 0) {
+                    await yieldIfNeeded();
+                } else {
+                    if (affectedEl) {
+                        affectedEl.offsetHeight; // force reflow
+                        leftScrollTop = leftEditor.rootElement.scrollTop;
+                        rightScrollTop = rightEditor.rootElement.scrollTop;
                     }
-                })();
-            });
-        });
+                }
+            } else {
+                if ((i & 0xf) === 0) {
+                    await yieldIfNeeded();
+                }
+            }
+        }
+
+        await nextAnimationFrame(signal);
+        numFrames++;
+
+        // leftEditor.forceReflow();
+        // rightEditor.forceReflow();
+
+        const leftContentHeight = leftEditor.contentElement.offsetHeight;
+        const rightContentHeight = rightEditor.contentElement.offsetHeight;
+        if (leftContentHeight > rightContentHeight) {
+            leftEditor.heightBoostElement.style.height = `0px`;
+            rightEditor.heightBoostElement.style.height = `${leftContentHeight - rightContentHeight}px`;
+        } else if (rightContentHeight > leftContentHeight) {
+            leftEditor.heightBoostElement.style.height = `${rightContentHeight - leftContentHeight}px`;
+            rightEditor.heightBoostElement.style.height = `0px`;
+        } else {
+            leftEditor.heightBoostElement.style.height = `0px`;
+            rightEditor.heightBoostElement.style.height = `0px`;
+        }
+
+        if (import.meta.env.DEV) {
+            console.debug(`Aligned ${anchorPairs.length} anchor pairs in ${performance.now() - startTime}ms (${numFrames} frames)`);
+        }
     }
 
-    private applyDeltaToPair(pair: AnchorPair, delta: number, reflow: boolean) {
-        let changed = false;
+    private applyDeltaToPair(pair: AnchorPair, delta: number, reflow: boolean): HTMLElement | null {
         if (delta < -MIN_DELTA || delta > MIN_DELTA) {
-            if (pair.delta !== delta) {
-                pair.delta = delta;
-                changed = true;
-            }
             let theEl: HTMLElement;
             if (delta > 0) {
                 theEl = pair.rightEl;
@@ -225,14 +245,13 @@ export class AnchorManager {
             if (theEl.nodeName !== DIFF_TAG_NAME && delta >= MIN_STRIPED_DELTA) {
                 theEl.classList.add("striped");
             }
-            if (reflow) {
-                void theEl.offsetHeight; // force reflow
-            }
+            return theEl;
         }
-        return changed;
+        return null;
     }
 }
 
+// 기존에 앵커를 비활성화/재사용 할 때 쓰던 코드인데...
 function activateAnchorElement(el: HTMLElement, anchorIndex: number, diffIndex: number | null) {
     el.dataset.anchorIndex = anchorIndex.toString();
     if (diffIndex !== null) {

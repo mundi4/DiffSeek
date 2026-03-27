@@ -6,6 +6,11 @@ for (let i = 0; i < NormalizeCharTable.length; i++) {
     NormalizeCharTable[i] = i;
 }
 
+// fullwidth digits -> ascii digits
+for (let i = 0; i <= 9; i++) {
+    NormalizeCharTable[0xFF10 + i] = 0x0030 + i; // '０'~'９' -> '0'~'9'
+}
+
 // hyphen/minus variants -> '-'
 NormalizeCharTable[0x2010] = 0x002D; // '‐' -> '-'
 NormalizeCharTable[0x2012] = 0x002D; // '‒' -> '-'
@@ -81,6 +86,8 @@ NormalizeCharTable[0x2248] = 0x003D; // '≈' -> '='
 // plus variants -> '+'
 NormalizeCharTable[0xFF0B] = 0x002B; // '＋' -> '+'
 NormalizeCharTable[0xFE62] = 0x002B; // '﹢' -> '+'
+NormalizeCharTable[0x2722] = 0x002B; // '✢' (FOUR TEARDROP-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x2723] = 0x002B; // '✣' (FOUR BALLOON-SPOKED ASTERISK) -> '*'
 
 // asterisk/multiply variants -> '*'
 NormalizeCharTable[0xFF0A] = 0x002A; // '＊' -> '*'
@@ -89,6 +96,26 @@ NormalizeCharTable[0x00D7] = 0x002A; // '×' -> '*'
 NormalizeCharTable[0x2217] = 0x002A; // '∗' -> '*'
 NormalizeCharTable[0x2715] = 0x002A; // '✕' -> '*'
 NormalizeCharTable[0x2716] = 0x002A; // '✖' -> '*'
+NormalizeCharTable[0x204E] = 0x002A; // '⁎' (LOW ASTERISK) -> '*'
+NormalizeCharTable[0x2051] = 0x002A; // '⁑' (TWO ASTERISKS ALIGNED VERTICALLY) -> '*'
+NormalizeCharTable[0x2219] = 0x002A; // '∙' (BULLET OPERATOR, sometimes used as asterisk) -> '*'
+NormalizeCharTable[0x2724] = 0x002A; // '✤' (HEAVY FOUR BALLOON-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x2725] = 0x002A; // '✥' (FOUR CLUB-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x2732] = 0x002A; // '✲' (OPEN CENTRE ASTERISK) -> '*'
+NormalizeCharTable[0x2733] = 0x002A; // '✳' (EIGHT SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x273A] = 0x002A; // '✺' (SIXTEEN POINTED ASTERISK) -> '*'
+NormalizeCharTable[0x273B] = 0x002A; // '✻' (TEARDROP-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x273C] = 0x002A; // '✼' (OPEN CENTRE TEARDROP-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x273D] = 0x002A; // '✽' (HEAVY TEARDROP-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x2743] = 0x002A; // '❃' (HEAVY TEARDROP-SPOKED PINWHEEL ASTERISK) -> '*'
+NormalizeCharTable[0x2749] = 0x002A; // '❉' (BALLOON-SPOKED ASTERISK) -> '*'
+NormalizeCharTable[0x274A] = 0x002A; // '❊' (EIGHT TEARDROP-SPOKED PROPELLER ASTERISK) -> '*'
+NormalizeCharTable[0x274B] = 0x002A; // '❋' (HEAVY EIGHT TEARDROP-SPOKED PROPELLER ASTERISK) -> '*'
+NormalizeCharTable[0x29C6] = 0x002A; // '⧆' (SQUARED ASTERISK) -> '*'
+NormalizeCharTable[0x2A6E] = 0x002A; // '⩮' (EQUALS WITH ASTERISK) -> '*'
+NormalizeCharTable[0xA673] = 0x002A; // '꙳' (SLAVONIC ASTERISK) -> '*'
+NormalizeCharTable[0xFE61] = 0x002A; // '﹡' (SMALL ASTERISK) -> '*'
+// Note: U+066D (ARABIC FIVE POINTED STAR) and U+203B (REFERENCE MARK) are visually similar but not used as asterisk/multiply in most contexts, so not mapped here.
 
 // slash/division variants -> '/'
 NormalizeCharTable[0xFF0F] = 0x002F; // '／' -> '/'
@@ -199,27 +226,30 @@ NormalizeCharTable[0x300F] = 0x300D; // '』' -> '」'
 NormalizeCharTable[0x300B] = 0x300D; // '》' -> '」'
 NormalizeCharTable[0x3009] = 0x300D; // '〉' -> '」'
 
-// double quotes -> '"'
-NormalizeCharTable[0x201C] = 0x0022; // '"' -> '"'
-NormalizeCharTable[0x201D] = 0x0022; // '"' -> '"'
-NormalizeCharTable[0x301D] = 0x0022; // '〝' -> '"'
-NormalizeCharTable[0x301E] = 0x0022; // '〞' -> '"'
-NormalizeCharTable[0x201F] = 0x0022; // '‟' -> '"'
-NormalizeCharTable[0x2033] = 0x0022; // '″' -> '"'
-NormalizeCharTable[0x275D] = 0x0022; // '❝' -> '"'
-NormalizeCharTable[0x275E] = 0x0022; // '❞' -> '"'
-NormalizeCharTable[0x2E42] = 0x0022; // '⹂' -> '"'
+// left/right single quotes -> '
+NormalizeCharTable[0x2018] = 0x0027; // ‘ -> '
+NormalizeCharTable[0x2019] = 0x0027; // ’ -> '
+NormalizeCharTable[0x201A] = 0x0027; // ‚ -> '
+NormalizeCharTable[0x201B] = 0x0027; // ‛ -> '
+NormalizeCharTable[0x2032] = 0x0027; // ′ -> '
+NormalizeCharTable[0x2035] = 0x0027; // ‵ -> '
+NormalizeCharTable[0x275B] = 0x0027; // ❛ -> '
+NormalizeCharTable[0x275C] = 0x0027; // ❜ -> '
+NormalizeCharTable[0xA78B] = 0x0027; // Ꞌ -> '
+NormalizeCharTable[0xA78C] = 0x0027; // ꞌ -> '
 
-// single quotes -> '\''
-NormalizeCharTable[0x2018] = 0x0027; // ''' -> '''
-NormalizeCharTable[0x2019] = 0x0027; // ''' -> '''
-NormalizeCharTable[0x201A] = 0x0027; // '‚' -> '''
-NormalizeCharTable[0x201B] = 0x0027; // '‛' -> '''
-NormalizeCharTable[0x2032] = 0x0027; // '′' -> '''
-NormalizeCharTable[0x275B] = 0x0027; // '❛' -> '''
-NormalizeCharTable[0x275C] = 0x0027; // '❜' -> '''
-NormalizeCharTable[0xA78B] = 0x0027; // 'Ꞌ' -> '''
-NormalizeCharTable[0xA78C] = 0x0027; // 'ꞌ' -> '''
+// left/right double quotes -> "
+NormalizeCharTable[0x201C] = 0x0022; // “ -> "
+NormalizeCharTable[0x201D] = 0x0022; // ” -> "
+NormalizeCharTable[0x201E] = 0x0022; // „ -> "
+NormalizeCharTable[0x201F] = 0x0022; // ‟ -> "
+NormalizeCharTable[0x2033] = 0x0022; // ″ -> "
+NormalizeCharTable[0x2036] = 0x0022; // ‶ -> "
+NormalizeCharTable[0x275D] = 0x0022; // ❝ -> "
+NormalizeCharTable[0x275E] = 0x0022; // ❞ -> "
+NormalizeCharTable[0x301D] = 0x0022; // 〝 -> "
+NormalizeCharTable[0x301E] = 0x0022; // 〞 -> "
+NormalizeCharTable[0x2E42] = 0x0022; // ⹂ -> "
 
 export const NormalizeCharTableExt: Readonly<Record<string, string>> = Object.freeze({
     // 필요할까?

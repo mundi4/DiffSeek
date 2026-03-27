@@ -184,6 +184,10 @@
   will-change: transform;
 }
 
+.ds-editor {
+  contain: layout size;
+}
+
 .sync-mode .ds-editor-content {
   min-height: unset;
 }

@@ -52,7 +52,6 @@ export type AnchorPair = {
     leftEl: HTMLElement;
     rightEl: HTMLElement;
     diffIndex: number | null;
-    delta: number;
 }
 
 export interface DiffseekEventMap {

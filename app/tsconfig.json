@@ -1,0 +1,25 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "target": "ES2024",
+    "lib": ["ES2024", "DOM", "DOM.Iterable"],
+    "moduleDetection": "force",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "module": "ESNext",
+    "jsx": "react-jsx",
+
+    /* 모노레포 핵심 설정 */
+    "baseUrl": ".",
+    "paths": {
+      "@/*": ["./src/*"],
+      "@core": ["../core/src"],
+      "@core/*": ["../core/src/*"]
+    },
+
+    /* 타입 정의 합치기 */
+    "types": ["vite/client", "node"]
+  },
+  "include": ["src", "vite.config.ts"]
+}

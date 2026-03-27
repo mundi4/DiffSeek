@@ -262,22 +262,21 @@ export class DiffseekEngine {
             this.scrollingEditor = editor;
         }
 
-        if (this._syncMode) {
-            const otherEditor = editor === this.leftEditor ? this.rightEditor : this.leftEditor;
-            const scrollTop = editor.rootElement.scrollTop;
-            const otherScrollTop = otherEditor.rootElement.scrollTop;
+        if (!this.programmaticScrollInProgress) {
+            this.lastActiveEditor = editor;
+        }
 
-            if (Math.abs(scrollTop - otherScrollTop) >= 1) {
-                if (!this.programmaticScrollInProgress) {
-                    this.programmaticScrollInProgress++;
-                    this.lastActiveEditor = editor;
-                    otherEditor.scrollTo(scrollTop, { behavior: "instant" });
-                    this.programmaticScrollInProgress--;
-                }
-            }
-        } else {
+        if (this._syncMode) {
             if (!this.programmaticScrollInProgress) {
-                this.lastActiveEditor = editor;
+                this._pendingSyncScrollPrimaryEditor = editor;
+                if (!this._pendingSyncScrollTimer) {
+                    this._pendingSyncScrollTimer = requestAnimationFrame(() => {
+                        this._pendingSyncScrollTimer = null;
+                        if (this._syncMode && this._pendingSyncScrollPrimaryEditor) {
+                            this.syncScroll(this._pendingSyncScrollPrimaryEditor);
+                        }
+                    });
+                }
             }
         }
     }
@@ -286,6 +285,20 @@ export class DiffseekEngine {
         // if (this.scrollingEditor === editor) {
         //     this.scrollingEditor = null;
         // }
+    }
+
+    private _pendingSyncScrollTimer: number | null = null;
+    private _pendingSyncScrollPrimaryEditor: Editor | null = null;
+
+    private syncScroll(primaryEditor: Editor) {
+        const otherEditor = primaryEditor === this.leftEditor ? this.rightEditor : this.leftEditor;
+        const scrollTop = primaryEditor.rootElement.scrollTop;
+        const otherScrollTop = otherEditor.rootElement.scrollTop;
+        if (Math.abs(otherScrollTop - scrollTop) >= 1) {
+            this.programmaticScrollInProgress++;
+            otherEditor.rootElement.scrollTop = scrollTop;
+            this.programmaticScrollInProgress--;
+        }
     }
 
     private lastEditorWidth = { left: 0, right: 0 };

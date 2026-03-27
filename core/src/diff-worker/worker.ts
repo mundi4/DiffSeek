@@ -100,11 +100,6 @@ const jobScheduler = (() => {
     return { run, cancel };
 })();
 
-
-
-
-
-
 type WorkItem = {
     reqId: number;
     leftWholeText: string;

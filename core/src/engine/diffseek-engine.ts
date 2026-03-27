@@ -41,8 +41,6 @@ export class DiffseekEngine {
     private workflowRunInProgress = false;
     private workflowRerunRequested = false;
 
-
-
     visibleDiffs: Record<EditorName, Set<number>> = {
         left: new Set(),
         right: new Set(),
@@ -262,22 +260,21 @@ export class DiffseekEngine {
             this.scrollingEditor = editor;
         }
 
-        if (this._syncMode) {
-            const otherEditor = editor === this.leftEditor ? this.rightEditor : this.leftEditor;
-            const scrollTop = editor.rootElement.scrollTop;
-            const otherScrollTop = otherEditor.rootElement.scrollTop;
+        if (!this.programmaticScrollInProgress) {
+            this.lastActiveEditor = editor;
+        }
 
-            if (Math.abs(scrollTop - otherScrollTop) >= 1) {
-                if (!this.programmaticScrollInProgress) {
-                    this.programmaticScrollInProgress++;
-                    this.lastActiveEditor = editor;
-                    otherEditor.scrollTo(scrollTop, { behavior: "instant" });
-                    this.programmaticScrollInProgress--;
-                }
-            }
-        } else {
+        if (this._syncMode) {
             if (!this.programmaticScrollInProgress) {
-                this.lastActiveEditor = editor;
+                this._pendingSyncScrollPrimaryEditor = editor;
+                if (!this._pendingSyncScrollTimer) {
+                    this._pendingSyncScrollTimer = requestAnimationFrame(() => {
+                        this._pendingSyncScrollTimer = null;
+                        if (this._syncMode && this._pendingSyncScrollPrimaryEditor) {
+                            this.syncScroll(this._pendingSyncScrollPrimaryEditor);
+                        }
+                    });
+                }
             }
         }
     }
@@ -285,7 +282,34 @@ export class DiffseekEngine {
     handleEditorScrollEnd(editor: Editor) {
         // if (this.scrollingEditor === editor) {
         //     this.scrollingEditor = null;
+        //     if (this._syncMode) {
+        //         if (!this.programmaticScrollInProgress) {
+        //             this._pendingSyncScrollPrimaryEditor = editor;
+        //             if (!this._pendingSyncScrollTimer) {
+        //                 this._pendingSyncScrollTimer = requestAnimationFrame(() => {
+        //                     this._pendingSyncScrollTimer = null;
+        //                     if (this._syncMode && this._pendingSyncScrollPrimaryEditor) {
+        //                         this.syncScroll(this._pendingSyncScrollPrimaryEditor);
+        //                     }
+        //                 });
+        //             }
+        //         }
+        //     }
         // }
+    }
+
+    private _pendingSyncScrollTimer: number | null = null;
+    private _pendingSyncScrollPrimaryEditor: Editor | null = null;
+
+    private syncScroll(primaryEditor: Editor) {
+        const otherEditor = primaryEditor === this.leftEditor ? this.rightEditor : this.leftEditor;
+        const scrollTop = primaryEditor.rootElement.scrollTop;
+        const otherScrollTop = otherEditor.rootElement.scrollTop;
+        if (Math.abs(otherScrollTop - scrollTop) >= 1) {
+            this.programmaticScrollInProgress++;
+            otherEditor.rootElement.scrollTop = scrollTop;
+            this.programmaticScrollInProgress--;
+        }
     }
 
     private lastEditorWidth = { left: 0, right: 0 };
@@ -392,9 +416,9 @@ export class DiffseekEngine {
             const rect = this.renderer.getDiffRect(s, diffIndex);
             if (rect) {
                 const editor = s === "left" ? this.leftEditor : this.rightEditor;
-                this.programmaticScrollInProgress++;
+                // this.programmaticScrollInProgress++;
                 editor.scrollTo(rect.y, options);
-                this.programmaticScrollInProgress--;
+                // this.programmaticScrollInProgress--;
             }
         }
     }
@@ -617,7 +641,7 @@ export class DiffseekEngine {
         this.renderer.invalidateAll();
     }
 
-    private _editableInSyncMode: boolean = false;
+    private _editableInSyncMode: boolean = true;
 
     get editableInSyncMode(): boolean {
         return this._editableInSyncMode;

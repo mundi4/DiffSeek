@@ -45,9 +45,7 @@ export function App() {
     const [outlineOpened, setOutlineOpened] = useState(false);
 
     useEffect(() => {
-        if (!hostRef.current!.firstElementChild) {
-            hostRef.current!.appendChild(engine.workspaceEl);
-        }
+        hostRef.current!.appendChild(engine.workspaceEl);
 
         const keyDown = (e: KeyboardEvent) => {
             if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
@@ -69,6 +67,7 @@ export function App() {
 
         return () => {
             window.removeEventListener("keydown", keyDown);
+            engine.workspaceEl.remove();
         };
 
     }, []);

@@ -199,7 +199,9 @@ export class DiffseekEngine {
     handleSelectionChange() {
         if (this.diffContext) {
             const { editor: selectedEditor, range: selectedRange } = this.getUserSelectionRange();
-            if (selectedEditor) {
+            if (selectedEditor
+                //&& !selectedRange.collapsed
+            ) {
                 // 해당 range가 품고 있는 token span을 구함.
                 const sourceSpan = selectedEditor.getTokenSpanForRange(selectedRange);
                 if (sourceSpan && sourceSpan.start !== sourceSpan.end) {

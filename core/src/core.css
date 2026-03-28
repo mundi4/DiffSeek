@@ -123,6 +123,13 @@
   /* background: rgba(0, 0, 0, 0.05); */
 }
 
+/* Firefox fallback — ::-webkit-scrollbar 미지원 브라우저에서만 적용 */
+@supports not selector(::-webkit-scrollbar) {
+  .ds-editor {
+    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+  }
+}
+
 /*
   Sync Mode
   */

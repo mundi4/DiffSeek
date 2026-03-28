@@ -314,8 +314,20 @@ export class DiffseekEngine {
     }
 
     private lastEditorWidth = { left: 0, right: 0 };
+    private _scrollbarWidth: number = 15;
+
+    private syncScrollbarWidth() {
+        const el = this.leftEditor.rootElement;
+        const measured = el.offsetWidth - el.clientWidth;
+        const width = measured > 0 ? measured : 15;
+        if (width === this._scrollbarWidth) return;
+        this._scrollbarWidth = width;
+        this.workspaceEl.style.setProperty('--editor-minimap-width', `${width}px`);
+        this.renderer.setOptions({ minimapWidth: width });
+    }
 
     handleEditorResize(editor: Editor) {
+        this.syncScrollbarWidth();
         this.renderer.invalidateAll();
         const width = editor.rootElement.getBoundingClientRect().width;
         if (this.lastEditorWidth[editor.name] !== width) {

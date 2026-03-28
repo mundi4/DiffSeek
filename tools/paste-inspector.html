@@ -310,8 +310,7 @@
         (_, open, tag, attrs, close) => {
           const sa = attrs
             .replace(/([\w:-]+)(\s*=\s*)("(?:[^"]*)"|'(?:[^']*)'|[^\s&>]*)/g,
-              '<span class="hl-attr">$1</span>$2<span class="hl-val">$3</span>')
-            .replace(/(?<!=)\b([\w:-]+)\b(?!\s*=)/g, '<span class="hl-attr">$1</span>');
+              '<span class="hl-attr">$1</span>$2<span class="hl-val">$3</span>');
           return `<span class="hl-tag">${open}${tag}${sa}${close}</span>`;
         }
       );
@@ -491,6 +490,17 @@
   // ── Paste event ───────────────────────────────────────────────────────────
   editor.addEventListener('paste', (e) => {
     populateSelect(e.clipboardData);
+
+    // Cache-busting: file:// img src에 타임스탬프 추가
+    const html = e.clipboardData.getData('text/html');
+    if (html && html.includes('file://')) {
+      e.preventDefault();
+      const busted = html.replace(
+        /(src\s*=\s*["'])(file:\/\/[^"']+)(["'])/gi,
+        (_, pre, url, post) => `${pre}${url}?t=${Date.now()}${post}`
+      );
+      document.execCommand('insertHTML', false, busted);
+    }
   });
 
   // ── MutationObserver: keep innerHTML entry in sync ────────────────────────

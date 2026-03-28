@@ -1,0 +1,556 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Paste Inspector — Dev Tool</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+    background: #1a1a1a;
+    color: #e0e0e0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    background: #111;
+    border-bottom: 1px solid #333;
+    flex-shrink: 0;
+  }
+
+  header h1 { font-size: 14px; font-weight: 600; color: #aaa; letter-spacing: 0.05em; }
+
+  .badge {
+    font-size: 11px;
+    background: #2a2a2a;
+    border: 1px solid #444;
+    color: #888;
+    padding: 2px 8px;
+    border-radius: 3px;
+  }
+
+  .stats {
+    margin-left: auto;
+    font-size: 12px;
+    color: #666;
+    display: flex;
+    gap: 16px;
+  }
+  .stats span { color: #999; }
+  .stats strong { color: #ccc; font-weight: 500; }
+
+  .btn {
+    font-size: 12px;
+    padding: 4px 12px;
+    border-radius: 4px;
+    border: 1px solid #444;
+    background: #2a2a2a;
+    color: #ccc;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .btn:hover { background: #333; color: #fff; }
+  .btn.danger:hover { background: #5c1f1f; border-color: #8b3333; color: #ff8888; }
+
+  /* ── Layout ── */
+  .panels {
+    flex: 1;
+    display: flex;
+    min-height: 0;
+  }
+
+  .panel {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  .panel + .panel { border-left: 3px solid #333; }
+
+  .panel-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 12px;
+    background: #1e1e1e;
+    border-bottom: 1px solid #2a2a2a;
+    flex-shrink: 0;
+    font-size: 12px;
+    color: #777;
+    font-weight: 500;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .panel-header .dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+  #left-panel  .dot { background: #4a90d9; }
+  #right-panel .dot { background: #e8a838; }
+
+  .panel-body {
+    flex: 1;
+    overflow: auto;
+    padding: 12px;
+    min-height: 0;
+  }
+
+  /* ── Editor ── */
+  #editor {
+    min-height: 100%;
+    outline: none;
+    font-size: 13px;
+    line-height: 1.6;
+    color: #ddd;
+    caret-color: #4a90d9;
+  }
+  #editor:empty::before {
+    content: attr(data-placeholder);
+    color: #444;
+    pointer-events: none;
+    display: block;
+    white-space: pre-line;
+  }
+
+  /* ── Right panel header with select ── */
+  #right-panel .panel-header {
+    gap: 10px;
+  }
+
+  #item-select {
+    flex: 1;
+    min-width: 0;
+    background: #252525;
+    border: 1px solid #3a3a3a;
+    color: #ccc;
+    font-size: 12px;
+    font-family: 'Cascadia Code', 'Consolas', monospace;
+    padding: 3px 8px;
+    border-radius: 4px;
+    outline: none;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23666'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 8px center;
+    padding-right: 24px;
+  }
+  #item-select:focus { border-color: #555; }
+  #item-select option { background: #252525; color: #ccc; }
+  #item-select:disabled { opacity: 0.35; cursor: default; }
+
+  .item-meta {
+    font-size: 11px;
+    color: #555;
+    flex-shrink: 0;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
+    white-space: nowrap;
+  }
+
+  /* ── Output area ── */
+  #result-output {
+    font-family: 'Cascadia Code', 'Consolas', 'Fira Code', monospace;
+    font-size: 12px;
+    line-height: 1.6;
+    white-space: pre-wrap;
+    word-break: break-all;
+    color: #c8c8c8;
+    tab-size: 2;
+    min-height: 100%;
+  }
+
+  .hl-tag     { color: #569cd6; }
+  .hl-attr    { color: #9cdcfe; }
+  .hl-val     { color: #ce9178; }
+  .hl-comment { color: #6a9955; }
+
+  .empty-hint {
+    color: #444;
+    font-size: 13px;
+    font-style: italic;
+    padding: 20px 0;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  .truncate-warn {
+    color: #a06020;
+    font-size: 11px;
+    margin-top: 8px;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  #result-output img {
+    max-width: 100%;
+    border: 1px solid #333;
+    border-radius: 3px;
+    display: block;
+    margin-top: 4px;
+  }
+
+  .img-meta {
+    font-size: 11px;
+    color: #666;
+    margin-bottom: 6px;
+    font-family: -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  /* ── Scrollbar ── */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #1a1a1a; }
+  ::-webkit-scrollbar-thumb { background: #383838; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #484848; }
+
+  .copy-toast {
+    position: fixed;
+    bottom: 20px;
+    right: 20px;
+    background: #2d6a2d;
+    border: 1px solid #3d8a3d;
+    color: #aaffaa;
+    padding: 8px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    opacity: 0;
+    transition: opacity 0.2s;
+    pointer-events: none;
+  }
+  .copy-toast.show { opacity: 1; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Paste Inspector</h1>
+  <span class="badge">DEV TOOL</span>
+  <div class="stats">
+    <span>chars: <strong id="stat-chars">0</strong></span>
+    <span>tags: <strong id="stat-tags">0</strong></span>
+    <span>lines: <strong id="stat-lines">0</strong></span>
+  </div>
+  <button class="btn" id="btn-format">Format HTML</button>
+  <button class="btn" id="btn-copy">Copy</button>
+  <button class="btn danger" id="btn-clear">Clear</button>
+</header>
+
+<div class="panels">
+
+  <!-- LEFT: paste area -->
+  <div class="panel" id="left-panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      Paste Area — ctrl+v
+    </div>
+    <div class="panel-body">
+      <div id="editor"
+           contenteditable="true"
+           data-placeholder="여기에 붙여넣으세요 (Word, Excel, 웹페이지 등)&#10;→ 오른쪽 드롭다운에서 항목을 선택해 내용을 확인합니다."></div>
+    </div>
+  </div>
+
+  <!-- RIGHT: result viewer -->
+  <div class="panel" id="right-panel">
+    <div class="panel-header">
+      <div class="dot"></div>
+      <select id="item-select" disabled>
+        <option value="">— 붙여넣기 후 항목 선택 —</option>
+      </select>
+      <span class="item-meta" id="item-meta"></span>
+    </div>
+    <div class="panel-body">
+      <div id="result-output"><span class="empty-hint">← 왼쪽에 붙여넣으면 항목이 채워집니다.</span></div>
+    </div>
+  </div>
+
+</div>
+
+<div class="copy-toast" id="copy-toast">클립보드에 복사됨</div>
+
+<script>
+  const editor       = document.getElementById('editor');
+  const resultOutput = document.getElementById('result-output');
+  const itemSelect   = document.getElementById('item-select');
+  const itemMeta     = document.getElementById('item-meta');
+  const statChars    = document.getElementById('stat-chars');
+  const statTags     = document.getElementById('stat-tags');
+  const statLines    = document.getElementById('stat-lines');
+  const copyToast    = document.getElementById('copy-toast');
+
+  // item store: key → { kind: 'string'|'file'|'innerhtml', data: string|Blob, type: string }
+  const itemStore = new Map();
+  let formatted = false;
+  let currentKey = null;
+
+  // ── Helpers ───────────────────────────────────────────────────────────────
+  function formatBytes(n) {
+    if (n < 1024) return n + ' B';
+    if (n < 1048576) return (n / 1024).toFixed(1) + ' KB';
+    return (n / 1048576).toFixed(1) + ' MB';
+  }
+
+  // ── Syntax highlight ──────────────────────────────────────────────────────
+  function highlightHTML(html) {
+    const esc = html.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    return esc
+      .replace(/(&lt;!--[\s\S]*?--&gt;)/g, '<span class="hl-comment">$1</span>')
+      .replace(
+        /(&lt;\/?)([\w:-]+)((?:\s+[\w:-]+(?:\s*=\s*(?:"[^"]*"|'[^']*'|[^\s&>]*))?)*\s*\/?)(&gt;)/g,
+        (_, open, tag, attrs, close) => {
+          const sa = attrs
+            .replace(/([\w:-]+)(\s*=\s*)("(?:[^"]*)"|'(?:[^']*)'|[^\s&>]*)/g,
+              '<span class="hl-attr">$1</span>$2<span class="hl-val">$3</span>')
+            .replace(/(?<!=)\b([\w:-]+)\b(?!\s*=)/g, '<span class="hl-attr">$1</span>');
+          return `<span class="hl-tag">${open}${tag}${sa}${close}</span>`;
+        }
+      );
+  }
+
+  // ── Format HTML ───────────────────────────────────────────────────────────
+  function formatHTML(html) {
+    const INLINE = new Set(['a','b','i','u','s','em','strong','span','br','wbr',
+      'code','abbr','cite','q','sub','sup','small','time','label']);
+    const tokens = html.match(/<[^>]+>|[^<]+/g) || [];
+    let indent = 0, result = '';
+    for (const tok of tokens) {
+      const t = tok.trim(); if (!t) continue;
+      if (t.startsWith('</')) {
+        const tag = t.slice(2, t.length - 1).toLowerCase().split(/\s/)[0];
+        if (!INLINE.has(tag)) indent = Math.max(0, indent - 1);
+        result += '  '.repeat(indent) + t + '\n';
+      } else if (t.startsWith('<')) {
+        const tag = t.slice(1).split(/[\s>\/]/)[0].toLowerCase();
+        result += '  '.repeat(indent) + t + '\n';
+        if (!t.endsWith('/>') && !INLINE.has(tag)) indent++;
+      } else {
+        const tx = tok.replace(/\s+/g, ' ').trim();
+        if (tx) result += '  '.repeat(indent) + tx + '\n';
+      }
+    }
+    return result.trimEnd();
+  }
+
+  // ── Stats (for current displayed text) ───────────────────────────────────
+  function updateStats(raw) {
+    statChars.textContent = raw.length.toLocaleString();
+    statTags.textContent  = (raw.match(/<[^>]+>/g) || []).length.toLocaleString();
+    statLines.textContent = raw.split('\n').length.toLocaleString();
+  }
+
+  // ── Render selected item ──────────────────────────────────────────────────
+  function renderItem(key) {
+    currentKey = key;
+    formatted = false;
+    const entry = itemStore.get(key);
+    if (!entry) { resultOutput.innerHTML = ''; itemMeta.textContent = ''; return; }
+
+    if (entry.kind === 'file') {
+      const url = URL.createObjectURL(entry.data);
+      itemMeta.textContent = formatBytes(entry.data.size);
+      resultOutput.innerHTML = '';
+      if (entry.type.startsWith('image/')) {
+        const m = document.createElement('div');
+        m.className = 'img-meta';
+        m.textContent = `${entry.data.name || '(unnamed)'} · ${formatBytes(entry.data.size)} · ${entry.type}`;
+        const img = document.createElement('img');
+        img.src = url;
+        resultOutput.append(m, img);
+      } else {
+        const pre = document.createElement('pre');
+        pre.textContent = `[binary]\nname: ${entry.data.name || '(unnamed)'}\nsize: ${formatBytes(entry.data.size)}\ntype: ${entry.type}`;
+        resultOutput.append(pre);
+      }
+      updateStats('');
+      return;
+    }
+
+    // string / innerhtml
+    const raw = entry.data;
+    updateStats(raw);
+    itemMeta.textContent = formatBytes(raw.length);
+
+    const MAX = 200_000;
+    const display = raw.length > MAX ? raw.slice(0, MAX) : raw;
+    const truncated = raw.length > MAX;
+
+    const isHTML = entry.type === 'text/html' || entry.kind === 'innerhtml';
+    resultOutput.innerHTML = isHTML ? highlightHTML(display) : escapeText(display);
+
+    if (truncated) {
+      const w = document.createElement('div');
+      w.className = 'truncate-warn';
+      w.textContent = `※ 너무 길어서 앞 200,000자만 표시 (전체 ${raw.length.toLocaleString()}자)`;
+      resultOutput.appendChild(w);
+    }
+  }
+
+  function escapeText(str) {
+    return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // ── Populate select from clipboard + innerHTML ────────────────────────────
+  function populateSelect(cd) {
+    itemStore.clear();
+
+    // ① clipboard string types
+    for (const type of [...cd.types]) {
+      const data = cd.getData(type);
+      if (data == null) continue;
+      const key = `clip::${type}`;
+      itemStore.set(key, { kind: 'string', type, data });
+    }
+
+    // ② file items
+    let fileIdx = 0;
+    for (const fi of [...cd.items]) {
+      if (fi.kind !== 'file') continue;
+      const file = fi.getAsFile();
+      if (!file) continue;
+      const key = `file::${fi.type}::${fileIdx++}`;
+      itemStore.set(key, { kind: 'file', type: fi.type || 'unknown', data: file });
+    }
+
+    // ③ innerHTML (always last)
+    const html = editor.innerHTML;
+    if (html && html !== '<br>') {
+      itemStore.set('innerhtml', { kind: 'innerhtml', type: 'text/html', data: html });
+    }
+
+    rebuildSelect();
+  }
+
+  function rebuildSelect(updatedInnerHTML) {
+    // Update innerHTML entry if called from MutationObserver
+    if (updatedInnerHTML !== undefined) {
+      if (updatedInnerHTML && updatedInnerHTML !== '<br>') {
+        itemStore.set('innerhtml', { kind: 'innerhtml', type: 'text/html', data: updatedInnerHTML });
+      } else {
+        itemStore.delete('innerhtml');
+      }
+    }
+
+    // Save current selection
+    const prevKey = itemSelect.value;
+
+    itemSelect.innerHTML = '';
+    if (itemStore.size === 0) {
+      itemSelect.add(new Option('— 붙여넣기 후 항목 선택 —', ''));
+      itemSelect.disabled = true;
+      itemMeta.textContent = '';
+      resultOutput.innerHTML = '<span class="empty-hint">← 왼쪽에 붙여넣으면 항목이 채워집니다.</span>';
+      return;
+    }
+
+    itemSelect.disabled = false;
+
+    // Group labels
+    const stringItems = [...itemStore.entries()].filter(([k]) => !k.startsWith('file::') && k !== 'innerhtml');
+    const fileItems   = [...itemStore.entries()].filter(([k]) => k.startsWith('file::'));
+    const htmlItem    = itemStore.has('innerhtml') ? [['innerhtml', itemStore.get('innerhtml')]] : [];
+
+    function addGroup(label, entries) {
+      if (!entries.length) return;
+      const grp = document.createElement('optgroup');
+      grp.label = label;
+      for (const [key, entry] of entries) {
+        const size = typeof entry.data === 'string'
+          ? formatBytes(entry.data.length)
+          : formatBytes(entry.data.size);
+        grp.appendChild(new Option(`${entry.type}  (${size})`, key));
+      }
+      itemSelect.appendChild(grp);
+    }
+
+    addGroup('Clipboard', stringItems);
+    addGroup('Files', fileItems);
+    addGroup('Editor', htmlItem);
+
+    // Restore or pick default
+    if (prevKey && itemStore.has(prevKey)) {
+      itemSelect.value = prevKey;
+    } else {
+      // default: prefer text/html clipboard, else first
+      const htmlKey = [...itemStore.keys()].find(k => k === 'clip::text/html') || itemStore.keys().next().value;
+      itemSelect.value = htmlKey;
+    }
+
+    renderItem(itemSelect.value);
+  }
+
+  // ── Paste event ───────────────────────────────────────────────────────────
+  editor.addEventListener('paste', (e) => {
+    populateSelect(e.clipboardData);
+  });
+
+  // ── MutationObserver: keep innerHTML entry in sync ────────────────────────
+  const observer = new MutationObserver(() => {
+    const raw = editor.innerHTML;
+    // Update innerHTML store entry
+    if (itemStore.size > 0) {
+      rebuildSelect(raw);
+      // If currently viewing innerHTML, re-render
+      if (currentKey === 'innerhtml') renderItem('innerhtml');
+    }
+  });
+  observer.observe(editor, { childList: true, subtree: true, characterData: true, attributes: true });
+
+  // ── Select change ─────────────────────────────────────────────────────────
+  itemSelect.addEventListener('change', () => {
+    formatted = false;
+    renderItem(itemSelect.value);
+  });
+
+  // ── Buttons ───────────────────────────────────────────────────────────────
+  document.getElementById('btn-format').addEventListener('click', () => {
+    const entry = itemStore.get(currentKey);
+    if (!entry) return;
+    const isHTML = entry.type === 'text/html' || entry.kind === 'innerhtml';
+    if (!isHTML) return;
+
+    if (!formatted) {
+      const pretty = formatHTML(entry.data);
+      resultOutput.innerHTML = highlightHTML(pretty);
+      updateStats(pretty);
+      formatted = true;
+    } else {
+      renderItem(currentKey);
+    }
+  });
+
+  document.getElementById('btn-copy').addEventListener('click', async () => {
+    const entry = itemStore.get(currentKey);
+    if (!entry || entry.kind === 'file') return;
+    await navigator.clipboard.writeText(entry.data);
+    showToast();
+  });
+
+  document.getElementById('btn-clear').addEventListener('click', () => {
+    editor.innerHTML = '';
+    itemStore.clear();
+    itemSelect.innerHTML = '<option value="">— 붙여넣기 후 항목 선택 —</option>';
+    itemSelect.disabled = true;
+    resultOutput.innerHTML = '<span class="empty-hint">← 왼쪽에 붙여넣으면 항목이 채워집니다.</span>';
+    itemMeta.textContent = '';
+    statChars.textContent = statTags.textContent = statLines.textContent = '0';
+    currentKey = null;
+    formatted = false;
+  });
+
+  function showToast() {
+    copyToast.classList.add('show');
+    setTimeout(() => copyToast.classList.remove('show'), 1800);
+  }
+</script>
+</body>
+</html>

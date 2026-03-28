@@ -8,12 +8,19 @@
 	},
 	"permissions": ["tabs"],
 	"background": {
-		"service_worker": "background.js"
+		"service_worker": "background.js",
+		"type": "module"
 	},
 	"content_scripts": [
 		{
-			"matches": ["file:///*","http://localhost:5051/*", "http://manual.kbstar.com/*", "http://localhost:8000/*", "http://localhost:5173/*", "*://*/*diffseek.html"],
-			"js": ["rpc.js", "rpc-window.js", "content.js"],
+			"matches": ["http://manual.kbstar.com/*", "http://localhost:8000/*"],
+			"js": ["content-legacy.js"],
+			"run_at": "document_start",
+			"type": "module"
+		},
+		{
+			"matches": ["file:///*", "http://localhost:5051/*", "http://localhost:5173/*", "*://*/*diffseek.html"],
+			"js": ["content-diffseek.js"],
 			"run_at": "document_start",
 			"type": "module"
 		}

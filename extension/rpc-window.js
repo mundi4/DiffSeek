@@ -1,4 +1,4 @@
-function createWindowRPC({ target = window, timeout: defaultTimeout = 3000, source = "rpc" } = {}) {
+export function createWindowRPC({ target = window, timeout: defaultTimeout = 3000, source = "rpc" } = {}) {
 	let id = 1;
 	const pending = new Map();
 

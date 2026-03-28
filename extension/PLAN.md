@@ -1,8 +1,17 @@
 # DiffSeekExt 개선 계획
 
+## 설계 원칙
+
+**익스텐션은 선택적 강화(progressive enhancement)다.**
+DiffSeek의 모든 핵심 기능은 익스텐션 없이도 동작해야 한다.
+익스텐션은 다른 사람에게 설치를 강요할 정당성이 없음! 나만 쓰는 거...
+
+---
+
 ## 현황 파악 (분석 완료)
 
 ### 파일 구성
+
 - `manifest.json` — MV3, permissions: tabs only
 - `background.js` — Service Worker. createRPC 인라인 정의 + fetchImageData + legacyBizContent 핸들러
 - `rpc.js` — content script용 createRPC (background.js와 동일 코드 중복)
@@ -13,7 +22,10 @@
 - `popup.html / popup.js` — 껍데기 (nothing here)
 
 ### 이 익스텐션이 하는 일 (핵심 목적)
-1. **file:// 이미지 fetch** — Word 붙여넣기 시 `file://` 임시 이미지를 SW가 fetch → base64로 변환 → DiffSeek에 전달 (http:// 환경에서 file:// 이미지 표시 문제 해결)
+
+1. **엑박 이미지 해결** — SW가 이미지를 fetch → base64로 변환 → `<img src="data:...">` 로 교체. 두 가지 케이스:
+   - `file://` 임시 이미지: Word 붙여넣기 시 생성되는 임시 경로, http:// 환경에서 직접 로드 불가
+   - 사내 인증 이미지: 쿠키/오리진 없으면 로그인 페이지로 리다이렉트하는 사내 URL. SW는 브라우저 쿠키를 그대로 들고 fetch하므로 인증 통과
 2. **legacyBizContent** — kbstar 같은 레거시 사이트에서 Ctrl+1/2로 HTML을 DiffSeek에 전송
 
 ---
@@ -21,6 +33,7 @@
 ## 문제 목록
 
 ### 버그 (동작 안 함)
+
 - [ ] **#3 [CRITICAL] content scripts `type: "module"` 인데 전역 함수 참조**
   - `rpc.js`의 `createRPC`, `rpc-window.js`의 `createWindowRPC`가 ES 모듈 스코프라서 `content.js`에서 접근 불가
   - 현재 content script 전체가 동작하지 않음
@@ -32,6 +45,7 @@
   - 현재 dev 포트: `8200`
 
 ### 구조 문제
+
 - [ ] **#1 `createRPC` 코드 중복**
   - `background.js`와 `rpc.js`에 동일 코드
 - [ ] **#2 RPC 구현이 두 종류 (port vs window.postMessage)**
@@ -44,6 +58,7 @@
   - MV3 SW는 idle 시 종료됨. port 끊어지면 재연결 로직 없음
 
 ### 지저분한 것
+
 - [ ] **#8 주석 처리된 dead code 다수** (background.js: decodeDataURL, 구버전 fetchImageData)
 - [ ] **#9 `window.DiffSeek` API 연결 확인 필요**
   - `diffseek_inject.js`가 `window.DiffSeek.setExtensionEnabled()`, `setContent()` 호출

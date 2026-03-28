@@ -1,4 +1,4 @@
-function createRPC(port, { timeout: timeout = 3000 } = {}) {
+export function createRPC(port, { timeout: timeout = 3000 } = {}) {
     let id = 1;
     const pending = new Map();
 

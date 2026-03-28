@@ -8,6 +8,7 @@ export default defineConfig({
         react(),
         babel({ presets: [reactCompilerPreset()] })
     ],
+    base: './',
     build: {
         target: 'esnext',
         outDir: 'dist',

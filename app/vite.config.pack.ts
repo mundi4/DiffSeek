@@ -11,16 +11,16 @@ export default defineConfig({
     build: {
         target: 'esnext',
         outDir: 'dist',
+        assetsDir: ".",
         emptyOutDir: true,
+        assetsInlineLimit: 4096 * 4096,
         minify: "esbuild",
-    },
-    server: {
-        port: 8200,
-        open: true,
-        fs: {
-            allow: [
-                '..',
-            ]
+        rolldownOptions: {
+            treeshake: true,
+            output: {
+                format: "iife",
+                codeSplitting: false,
+            }
         }
     },
     resolve: {

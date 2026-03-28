@@ -29,14 +29,9 @@ jobs:
 
       - run: npm run build
 
-      - name: Prepare pages output
-        run: |
-          mkdir -p _site
-          cp dist/diffseek.html _site/index.html
-
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: _site
+          path: app/dist
 
   deploy:
     needs: build

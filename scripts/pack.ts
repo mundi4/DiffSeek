@@ -25,7 +25,7 @@ mkdirSync(distDir, { recursive: true });
 mkdirSync(artifactsDir, { recursive: true });
 
 
-run("npm run build -w app");
+run("npm run build:pack -w app");
 
 cpSync(path.join(appDir, "dist"), distDir, { recursive: true });
 

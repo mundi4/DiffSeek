@@ -8,8 +8,10 @@ const EXCLUDED_TAG_OPTIONS: ElementPolicy = {
 const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
     textAlign: true,
     fontSize: true,
-    fontWeight: true,
     fontStyle: true,
+    fontWeight: true,
+    verticalAlign: true,
+    textDecoration: true,
 };
 
 const DefaultElementOptions: ElementPolicy = {

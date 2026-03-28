@@ -1,4 +1,4 @@
-import { deepMerge } from "../utils/deepMerge";
+import { deepMerge } from "../utils/deep-merge";
 import { Editor } from "../editor/editor";
 import type { DiffRenderItem, DiffVisibilityChangeEntry, Rect } from "./types";
 import { RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GENERAL_MASK, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_REGION_SHIFT, RENDER_FLAGS_REGION_MASK, RENDER_FLAGS_HIT_TEST, RENDER_FLAGS_LAYOUT, RENDER_FLAGS_SCROLL, RENDER_FLAGS_GEOMETRY } from "./types";

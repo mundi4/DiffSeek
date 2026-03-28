@@ -1,17 +1,37 @@
 import '@core/core.css';
-import { DiffseekEngine, type DiffOptions } from '@core';
+import { DiffseekEngine, type DiffOptions, type EditorName } from '@core';
 import '@mantine/core/styles.css';
 import { getDefaultStore, Provider, useAtomValue } from 'jotai';
 import { useEffect, useRef, useState } from 'react';
-import { DiffseekProvider } from './bridge/DiffseekProvider';
-import { AppHeader } from './components/AppHeader';
-import { DiffList } from './components/DiffList';
-import { OutlineModal } from './components/OutlineModal';
-import { BusyIndicator } from "./components/BusyIndicator";
-import { diffWorkflowStatusAtom } from './states/coreAtoms';
-import './App.css';
+import { DiffseekProvider } from './bridge/diffseek-provider';
+import { AppHeader } from './components/app-header';
+import { DiffList } from './components/diff-list';
+import { OutlineModal } from './components/outline-modal';
+import { BusyIndicator } from "./components/busy-indicator";
+import { diffWorkflowStatusAtom, extensionEnabledAtom } from './states/core-atoms';
+import './app.css';
+
+declare global {
+    interface Window {
+        DiffSeek: {
+            setContent(side: EditorName, content: string, asHTML?: boolean): void;
+            setExtensionEnabled(enabled: boolean): void;
+        };
+    }
+}
 
 const engine = new DiffseekEngine();
+
+window.DiffSeek = {
+    setContent(side, content, asHTML = true) {
+        engine.setContent(side, content, asHTML);
+    },
+    setExtensionEnabled(enabled) {
+        engine.setExtensionEnabled(enabled);
+        atomStore.set(extensionEnabledAtom, enabled);
+    },
+};
+
 engine.replaceDiffOptions({
     useCoarseSplit: false,
     whitespace: "collapse",

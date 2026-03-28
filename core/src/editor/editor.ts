@@ -4,7 +4,7 @@ import type { LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization"
 import { tokenize } from "../tokenization/tokenize";
 import type { SectionHeadingInfo } from "../tokenization/types";
 import type { Span } from "../types";
-import { findAdjacentTextNode } from "../utils/findAdjacentTextNode";
+import { findAdjacentTextNode } from "../utils/find-adjacent-text-node";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
 import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions } from "./types";

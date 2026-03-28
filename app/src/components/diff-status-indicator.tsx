@@ -1,4 +1,4 @@
-import { diffContextAtom, diffWorkflowStatusAtom } from "@/states/coreAtoms";
+import { diffContextAtom, diffWorkflowStatusAtom } from "@/states/core-atoms";
 import { Box, Divider, Group, Loader, Popover, Stack, Text, ThemeIcon } from "@mantine/core";
 import { useHover } from "@mantine/hooks";
 import { IconCheck } from "@tabler/icons-react";

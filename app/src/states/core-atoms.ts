@@ -4,6 +4,8 @@ import { atomWithStorage } from "jotai/utils";
 
 export const syncModeAtom = atom<boolean>(false);
 
+export const extensionEnabledAtom = atom<boolean>(false);
+
 export const editableInSyncModeAtom = atomWithStorage<boolean>("diffseek_editableInSyncMode", false);
 
 export const diffOptionsAtom = atomWithStorage("diffseek_diffOptions", getDefaultDiffOptions());

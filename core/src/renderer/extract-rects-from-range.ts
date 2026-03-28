@@ -1,6 +1,6 @@
 // import { DIFF_TAG_NAME } from "../constants";
 import { DIFF_TAG_NAME } from "../constants";
-import { advanceNode } from "../utils/advanceNode";
+import { advanceNode } from "../utils/advance-node";
 import type { Rect } from "./types";
 
 // // diff element

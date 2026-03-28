@@ -1,14 +1,14 @@
-import { useDiffseekActions } from "@/bridge/DiffseekProvider";
-import { diffWorkflowStatusAtom, syncModeAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
+import { useDiffseekActions } from "@/bridge/diffseek-provider";
+import { diffWorkflowStatusAtom, syncModeAtom, whitespaceHandlingAtom } from "@/states/core-atoms";
 import { ActionIcon, Group, Kbd, Popover, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
 import { useAtomValue } from "jotai";
 import { forwardRef, useEffect } from "react";
-import { OptionsModal } from "./OptionsModal";
+import { OptionsModal } from "./options-modal";
 
 import type { DiffOptions } from "@core";
 import { IconBook, IconEqual, IconSettings } from "@tabler/icons-react";
-import { DiffStatusIndicator } from "./DiffStatusIndicator";
+import { DiffStatusIndicator } from "./diff-status-indicator";
 
 function StatusOn() {
     return (

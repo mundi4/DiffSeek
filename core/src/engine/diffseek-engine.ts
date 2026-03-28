@@ -1,9 +1,8 @@
 import { ABORT_REASON_CANCELLED } from "../constants";
 import { initializeDiffWorker, type DiffWorkerStatusEvent } from "../diff-worker/initialize-diff-worker";
 import { Editor, type EditorCallbacks } from "../editor/editor";
-import { Renderer } from "../renderer/renderer";
 import { getDefaultDiffOptions } from "../diff/get-default-diff-options";
-import { createEvent } from "../utils/createEvent";
+import { createEvent } from "../utils/create-event";
 import { resolveMatchingSpanPair } from "./resolve-matching-span-pair";
 import { AnchorManager } from "./anchor-manager";
 import { DiffPipeline } from "./diff-pipeline";
@@ -12,6 +11,7 @@ import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
 import type { Palette, Span } from "../types";
 import { DEFAULT_PALETTE } from "../palette/default-palette";
+import { Renderer } from "../renderer/renderer";
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
     "diffContextChanged": DiffContext | null;
@@ -30,6 +30,7 @@ export class DiffseekEngine {
     diffContext: DiffContext | null = null;
     private diffPipeline: DiffPipeline;
     private _syncMode: boolean = false;
+    private _extensionEnabled: boolean = false;
 
     focusedEditor: Editor | null = null;
     private lastActiveEditor: Editor | null = null;
@@ -426,6 +427,19 @@ export class DiffseekEngine {
     pasteBomb(editorName: EditorName, plaintextOnly: boolean = false) {
         const editor = editorName === "left" ? this.leftEditor : this.rightEditor;
         editor.pasteBomb(plaintextOnly);
+    }
+
+    setContent(editorName: EditorName, text: string, asHTML: boolean = true) {
+        const editor = editorName === "left" ? this.leftEditor : this.rightEditor;
+        editor.setContent({ text, asHTML });
+    }
+
+    get extensionEnabled(): boolean {
+        return this._extensionEnabled;
+    }
+
+    setExtensionEnabled(enabled: boolean) {
+        this._extensionEnabled = enabled;
     }
 
     setHoveredDiff(diffIndex: number | null) {

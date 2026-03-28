@@ -9,7 +9,7 @@ import type { AnchorManager } from "./anchor-manager";
 import { buildCommonOutline } from "./build-common-outline";
 import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
 import type { DiffEntry } from "..";
-import { createYieldIfNeeded } from "../utils/createYieldIfNeeded";
+import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
 
 export class DiffPipeline {
     private abortController: AbortController | null = null;

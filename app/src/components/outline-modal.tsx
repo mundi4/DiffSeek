@@ -1,4 +1,4 @@
-import { commonOutlineAtom } from "@/states/coreAtoms";
+import { commonOutlineAtom } from "@/states/core-atoms";
 import { Badge, Group, Modal, ScrollArea, Stack, Table, Text } from "@mantine/core";
 import { useAtomValue } from "jotai";
 

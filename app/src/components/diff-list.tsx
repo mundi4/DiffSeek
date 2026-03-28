@@ -1,6 +1,6 @@
-import { useDiffseekActions } from "@/bridge/DiffseekProvider";
-import { diffsAtom, hoveredDiffIndexAtom, paletteAtom, visibleDiffIndexesAtom } from "@/states/coreAtoms";
-import { extractTextFromRange } from "@/utils/extractTextFromRange";
+import { useDiffseekActions } from "@/bridge/diffseek-provider";
+import { diffsAtom, hoveredDiffIndexAtom, paletteAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
+import { extractTextFromRange } from "@/utils/extract-text-from-range";
 import { ActionIcon, Box, Stack } from "@mantine/core";
 import { getDiffHue } from "@core";
 import clsx from "clsx";

@@ -1,4 +1,4 @@
-import { diffContextAtom, diffOptionsAtom, diffWorkflowStatusAtom, editableInSyncModeAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/coreAtoms";
+import { diffContextAtom, diffOptionsAtom, diffWorkflowStatusAtom, editableInSyncModeAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/core-atoms";
 import type { DiffseekEngine } from "@core";
 import type { DiffOptions } from "@core";
 import { getDefaultStore, useSetAtom } from "jotai";

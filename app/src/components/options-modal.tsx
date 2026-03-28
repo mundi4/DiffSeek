@@ -1,5 +1,5 @@
-import { useDiffseekActions } from "@/bridge/DiffseekProvider";
-import { diffOptionsAtom, editableInSyncModeAtom } from "@/states/coreAtoms";
+import { useDiffseekActions } from "@/bridge/diffseek-provider";
+import { diffOptionsAtom, editableInSyncModeAtom } from "@/states/core-atoms";
 import { type DiffOptions, getDefaultDiffOptions } from "@core";
 import { Box, Button, Flex, Group, Modal, NumberInput, Radio, Stack, Switch, Text } from "@mantine/core";
 import { useAtomValue } from "jotai";

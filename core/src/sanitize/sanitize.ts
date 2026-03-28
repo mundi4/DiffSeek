@@ -23,6 +23,7 @@ const UNWRAPPABLE_TAGS: Record<string, boolean> = {
 }
 
 export function sanitizeHTML(rawHTML: string): Node {
+	const sessionTs = Date.now();
 	// 보통 복붙을 하면 내용은 <!--StartFragment-->...<!--EndFragment-->로 감싸져 있고 그 앞으로 잡다한 메타데이터들이 포함됨.
 	rawHTML = sliceFragment(rawHTML);
 
@@ -78,6 +79,10 @@ export function sanitizeHTML(rawHTML: string): Node {
 		const isVoidElement = VOID_ELEMENTS[parent.nodeName];
 		const attrs = extractAllowedAttributes(parent as Element, policy.allowedAttrs);
 		const styles = extractAllowedStyles((parent as HTMLElement).style, policy.allowedStyles);
+
+		if (attrs?.src?.startsWith("file://")) {
+			attrs.src = `${attrs.src}?t=${sessionTs}`;
+		}
 
 		if (isVoidElement || parent.childNodes.length === 0) {
 			if (!attrs && !styles && UNWRAPPABLE_TAGS[parent.nodeName]) {

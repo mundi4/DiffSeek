@@ -1,5 +1,5 @@
 import { BLOCK_ELEMENTS } from "../constants";
-import { advanceNode } from "./advanceNode";
+import { advanceNode } from "./advance-node";
 
 export function findAdjacentTextNode(node: Node, skipEmpty = false): Text | null {
     let root: Node = node;

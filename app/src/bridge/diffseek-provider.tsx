@@ -1,7 +1,7 @@
 // bridge/index.tsx
 import { createContext, useContext, type ReactNode } from 'react';
-import { useCoreBinding } from './useCoreBinding';
-import { useCoreActions } from './useCoreActions';
+import { useCoreBinding } from './use-core-binding';
+import { useCoreActions } from './use-core-actions';
 import type { DiffseekActions } from './types';
 import type { DiffseekEngine } from '@core';
 

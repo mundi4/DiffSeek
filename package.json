@@ -9,6 +9,7 @@
   "scripts": {
     "dev": "npm run dev -w app",
     "build": "node scripts/build.ts",
+    "pack": "node scripts/pack.ts",
     "test": "vitest",
     "test:ui": "vitest --ui"
   },

@@ -1,6 +1,6 @@
 import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
-import type { LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
+import type { ContainerInfo, LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
 import type { SectionHeadingInfo } from "../tokenization/types";
 import type { Span } from "../types";
@@ -40,6 +40,7 @@ export type TokenSnapshot = {
     tokens: readonly Token[];
     lineBoundaries: readonly LineBoundaryInfo[];
     sectionHeadings: readonly SectionHeadingInfo[];
+    containers: readonly ContainerInfo[];
     elapsedTime: number;
 }
 
@@ -48,6 +49,7 @@ const NULL_TOKEN_SNAPSHOT: TokenSnapshot = {
     tokens: [],
     lineBoundaries: [],
     sectionHeadings: [],
+    containers: [],
     elapsedTime: 0,
 } as const;
 
@@ -62,6 +64,7 @@ export class Editor implements EditorContext {
     tokens: readonly Token[] = [];
     lineBoundaries: readonly LineBoundaryInfo[] = [];
     sectionHeadings: readonly SectionHeadingInfo[] = [];
+    containers: readonly ContainerInfo[] = [];
 
     options: EditorOptions;
     mutationObserver: MutationObserver;
@@ -318,12 +321,13 @@ export class Editor implements EditorContext {
         this.tokenizeAbortController = controller;
 
         tokenize(this.contentElement, controller.signal, this.tokenizeOptions)
-            .then(({ wholeText, tokens, lineBoundaries, sectionHeadings, elapsed }) => {
+            .then(({ wholeText, tokens, lineBoundaries, sectionHeadings, containers, elapsed }) => {
                 if (this.tokenizeAbortController === controller) {
                     this.wholeText = wholeText;
                     this.tokens = tokens;
                     this.lineBoundaries = lineBoundaries;
                     this.sectionHeadings = sectionHeadings;
+                    this.containers = containers;
                     this._hasPendingPromise = false;
 
                     this._tokenizingPromiseResolver?.({
@@ -331,6 +335,7 @@ export class Editor implements EditorContext {
                         tokens: tokens,
                         lineBoundaries: lineBoundaries,
                         sectionHeadings: sectionHeadings,
+                        containers: containers,
                         elapsedTime: elapsed,
                     });
 

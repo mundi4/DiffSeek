@@ -7,6 +7,12 @@ import type { SectionHeadingMatch } from "./try-match-section-heading";
 
 export type SectionHeadingInfo = SectionHeadingMatch & { tokenIndex: number };
 
+export type ContainerInfo = {
+    el: HTMLElement;
+    firstTokenIndex: number;
+    lastTokenIndex: number;
+};
+
 export type Token = {
     index: number;
     flags: number;
@@ -17,6 +23,7 @@ export type Token = {
     endNode: Node;
     endOffset: number;
     lineNumber: number;
+    containerIndex: number;
 };
 
 export type LineBoundaryInfo = {
@@ -24,6 +31,7 @@ export type LineBoundaryInfo = {
     startWhere: InsertPosition;
     endWhich: Node | null;
     endWhere: InsertPosition | null;
+    containerIndex: number;
 }
 
 export type TokenizerOptions = {
@@ -38,6 +46,7 @@ export type TokenizeResult = {
     tokens: Token[];
     lineBoundaries: LineBoundaryInfo[];
     sectionHeadings: SectionHeadingInfo[];
+    containers: ContainerInfo[];
     elapsed: number;
 }
 

@@ -7,7 +7,7 @@ import { TextNodeCursor, type TextPos } from './text-node-cursor';
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
 import { matchFlatTrieAtCursor } from './trie';
 import { CM_HEADING_START, tryMatchSectionHeading } from './try-match-section-heading';
-import { type LineBoundaryInfo, type SectionHeadingInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
+import { type ContainerInfo, type LineBoundaryInfo, type SectionHeadingInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
 import { CM_WILDCARD_START, wildcardFlatTrie } from './wildcard-trie';
 
 const IGNORED_TAGS: Record<string, boolean> = {
@@ -34,6 +34,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
     const tokens: Token[] = [];
     const lineBoundaries: LineBoundaryInfo[] = [];
     const sectionHeadings: SectionHeadingInfo[] = [];
+    const containers: ContainerInfo[] = [];
     let nextTokenFlags = TOKEN_FLAGS_NONE;
     let lastToken: Token | null = null;
 
@@ -79,7 +80,15 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         numChildren: number;
         isTextless: boolean;
         hasTextNodes: boolean;
+        containerIndex: number;
+        containerInfo: ContainerInfo;
     };
+
+    // container 추적 상태
+    const rootContainerInfo: ContainerInfo = { el: root, firstTokenIndex: 0, lastTokenIndex: -1 };
+    containers.push(rootContainerInfo);
+    let currentContainerIndex: number = 0;
+    let currentContainerInfo: ContainerInfo = rootContainerInfo;
 
     // 재귀 호출 없이 노드를 순회하기 위해...
     const stack: StackFrame[] = [];
@@ -131,6 +140,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
             startWhere: lineStartWhere,
             endWhich: null,
             endWhere: null,
+            containerIndex: currentContainerIndex,
         }
 
         // let data = (lineBoundaries[currentLineNumber] ??= { startWhich: null, startWhere: null, endWhich: lineEndWhich, endWhere: lineEndWhere });
@@ -205,7 +215,15 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
     }
 
     const moveDown = (element: HTMLElement, newParentType: ParentType) => {
+        const savedContainerIndex = currentContainerIndex;
+        const savedContainerInfo = currentContainerInfo;
+
         if (newParentType === PARENT_TYPE_CONTAINER) {
+            const info: ContainerInfo = { el: element, firstTokenIndex: tokens.length, lastTokenIndex: -1 };
+            containers.push(info);
+            currentContainerIndex = containers.length - 1;
+            currentContainerInfo = info;
+
             if (enableStructuralTokens) {
                 addToken("structural", STRUCTURAL_OPEN_TEXT, TOKEN_FLAGS_STRUCTURAL_OPEN, element, 0, element, 0);
             }
@@ -220,10 +238,12 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         stack.push({
             current,
             childIndex: currentChildIndex,
-            numChildren: currentNumChildren, // 그냥 새로 뽑아와도 되는데
-            isTextless: currentIsTextless, // 그냥 새로 뽑아와도 되는데
+            numChildren: currentNumChildren,
+            isTextless: currentIsTextless,
             parentType: currentParentType,
             hasTextNodes: currentHasTextNodes,
+            containerIndex: savedContainerIndex,
+            containerInfo: savedContainerInfo,
         });
 
         current = element as HTMLElement;
@@ -240,17 +260,11 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
             await flushTextNodeBuf();
 
             if (currentParentType === PARENT_TYPE_CONTAINER) {
-                // if (!currentHasTextNodes) {
-                //     // 컨테이너 요소인데 텍스트 노드가 하나도 없었다면, 토큰화에서 누락될 수 있으므로 빈 텍스트 노드를 추가함.
-                //     current.appendChild(document.createTextNode(""));
-                //     currentHasTextNodes = true;
-                //     console.log("Added empty text node to container element to ensure it is represented in the tokenization.", { element: current });
-                // }
-                // console.log("Closing container element.", { tag: current, childHasTextNodes: currentHasTextNodes });
-
                 if (enableStructuralTokens) {
                     addToken("structural", STRUCTURAL_CLOSE_TEXT, TOKEN_FLAGS_STRUCTURAL_CLOSE, current, 0, current, 0);
                 }
+
+                currentContainerInfo.lastTokenIndex = tokens.length - 1;
 
                 markLineEnd(current, "beforeend");
 
@@ -268,7 +282,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
         const childHasTextNodes = currentHasTextNodes;
 
-        ({ current, childIndex: currentChildIndex, numChildren: currentNumChildren, isTextless: currentIsTextless, parentType: currentParentType } = stack.pop()!);
+        ({ current, childIndex: currentChildIndex, numChildren: currentNumChildren, isTextless: currentIsTextless, parentType: currentParentType, containerIndex: currentContainerIndex, containerInfo: currentContainerInfo } = stack.pop()!);
 
         if (childHasTextNodes) {
             currentHasTextNodes = true;
@@ -342,6 +356,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
             endOffset,
             lineNumber: currentLineNumber,
             text,
+            containerIndex: currentContainerIndex,
         };
         tokens.push(token);
 
@@ -676,11 +691,14 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
     const elapsed = performance.now() - startTime;
 
+    rootContainerInfo.lastTokenIndex = tokens.length - 1;
+
     return {
         wholeText: wholeTextBuf.join(""),
         tokens,
         lineBoundaries,
         sectionHeadings,
+        containers,
         elapsed
     };
 }

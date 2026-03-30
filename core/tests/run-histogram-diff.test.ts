@@ -117,4 +117,66 @@ describe('runHistogramDiff structural token case', () => {
             DIFF_TYPE_UNCHANGED,
         ]);
     });
+
+    it('uses occurrence order instead of cross matching when repeated anchors have equal counts', async () => {
+        const lhsTokens = [
+            structuralClose(),
+            structuralOpen(),
+            text('alpha'),
+            structuralClose(),
+            structuralOpen(),
+            text('beta'),
+            structuralClose(),
+            structuralOpen(),
+            structuralClose(),
+            structuralOpen(),
+            text('tail'),
+        ];
+        const rhsTokens = [
+            structuralClose(),
+            structuralOpen(),
+            structuralClose(),
+            structuralOpen(),
+            structuralClose(),
+            structuralOpen(),
+            structuralClose(),
+            structuralOpen(),
+            text('tail'),
+        ];
+
+        const lhs = makeInput(lhsTokens);
+        const rhs = makeInput(rhsTokens);
+
+        await runHistogramDiff({
+            reqId: 1,
+            diffOptions: getDefaultDiffOptions(),
+            score: buildDiffScoreSystem(),
+            signal: new AbortController().signal,
+        }, lhs, rhs);
+
+        expect(readTypes(lhs.resultBuffer, lhs.tokenCount)).toEqual([
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_REMOVED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_REMOVED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+        ]);
+        expect(readTypes(rhs.resultBuffer, rhs.tokenCount)).toEqual([
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+            DIFF_TYPE_UNCHANGED,
+        ]);
+    });
 });

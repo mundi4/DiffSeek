@@ -10,7 +10,8 @@ export function buildPatienceAnchors(
     ignoreWhitespaces: boolean
 ): DiffAnchor[] {
     const HASH_MASK = 0xFFFF;
-    const MIN_TEXT_LEN = 5;
+    const MIN_TOKEN_COUNT = 4;
+    const MIN_TEXT_LEN = 12;
     const LINE_BUFFER_STRIDE = 4;
 
     const HEAD = new Int32Array(HASH_MASK + 1);
@@ -43,6 +44,7 @@ export function buildPatienceAnchors(
         const lineStart = i;
         while (i < lhsTknCount && (lhsFlags[i++] & TOKEN_FLAGS_LINE_END) === 0);
         const lineEnd = i;
+        if (lineEnd - lineStart < MIN_TOKEN_COUNT) continue;
 
         const charPos = lhsOffsets[lineStart];
         const charLen = lhsOffsets[lineEnd] - charPos;

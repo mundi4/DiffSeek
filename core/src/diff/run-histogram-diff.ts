@@ -274,6 +274,41 @@ export async function runHistogramDiff(
             rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
 
         let numCandidates = 0;
+        function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number) {
+            const lf = _lhsFlags[l];
+            const rf = _rhsFlags[r];
+
+            let policyGrade = 0;
+            if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
+                policyGrade = 2;
+            } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
+                policyGrade = 1;
+            }
+
+            let posGrade = 0;
+
+            const lCenterDist2 = (l << 1) + h - lhsCenter2;
+            const rCenterDist2 = (r << 1) + h - rhsCenter2;
+
+            const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
+            const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
+
+            if (absL <= lhsHalf2 && absR <= rhsHalf2) {
+                posGrade = 2;
+            } else if (absL <= lhsBand2 && absR <= rhsBand2) {
+                posGrade = 1;
+            }
+
+            const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
+            const finalScore = baseScore + bonusScore;
+            if (finalScore > bestScore) {
+                bestScore = finalScore;
+                bestAnchorPosL = l;
+                bestAnchorPosR = r;
+                bestAnchorLen = h;
+            }
+        }
+
         function squashAnchorCandidates() {
             for (let i = 0; i < numCandidates; i++) {
                 let numL = 0, numR = 0;
@@ -293,41 +328,24 @@ export async function runHistogramDiff(
                     }
                 }
 
+                if (numL > 1) {
+                    lPosBuf.subarray(0, numL).sort();
+                }
+                if (numR > 1) {
+                    rPosBuf.subarray(0, numR).sort();
+                }
+
+                if (numL === numR) {
+                    for (let x = 0; x < numL; x++) {
+                        tryUpdateBestAnchor(lPosBuf[x]!, rPosBuf[x]!, h, baseScore);
+                    }
+                    continue;
+                }
+
                 for (let x = 0; x < numL; x++) {
-                    const l = lPosBuf[x];
-                    const lf = _lhsFlags[l];
+                    const l = lPosBuf[x]!;
                     for (let y = 0; y < numR; y++) {
-                        const r = rPosBuf[y];
-                        let policyGrade = 0;
-                        const rf = _rhsFlags[r];
-                        if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-                            policyGrade = 2;
-                        } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
-                            policyGrade = 1;
-                        }
-
-                        let posGrade = 0;
-
-                        const lCenterDist2 = (l << 1) + h - lhsCenter2;
-                        const rCenterDist2 = (r << 1) + h - rhsCenter2;
-
-                        const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
-                        const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
-
-                        if (absL <= lhsHalf2 && absR <= rhsHalf2) {
-                            posGrade = 2;
-                        } else if (absL <= lhsBand2 && absR <= rhsBand2) {
-                            posGrade = 1;
-                        }
-
-                        const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
-                        const finalScore = baseScore + bonusScore;
-                        if (finalScore > bestScore) {
-                            bestScore = finalScore;
-                            bestAnchorPosL = l;
-                            bestAnchorPosR = r;
-                            bestAnchorLen = h;
-                        }
+                        tryUpdateBestAnchor(l, rPosBuf[y]!, h, baseScore);
                     }
                 }
             }

@@ -1,5 +1,5 @@
 import { RESULT_BUFFER_STRIDE } from "./constants";
-import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, writeToResultBuffer } from "./helpers";
+import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, tokenRangeToString, writeToResultBuffer } from "./helpers";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffAnchor, type DiffInput, type DiffJobContext } from "./types";
 import { HEADING_MASK, TOKEN_FLAGS_LINE_START } from "../tokenization";
 import { SECTION_HEADING_TYPE_NONE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_PAREN_NUMERIC, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, headingFlagsToType } from "../constants/section-heading";
@@ -121,6 +121,10 @@ export async function runHistogramDiff(
         const anchor = await findAnchor(lhsLower, lhsUpper, rhsLower, rhsUpper);
         if (anchor
         ) {
+            const ltext = tokenRangeToString(_lhsTextBuffer, _lhsOffsets, anchor.lhsStart, anchor.lhsEnd);
+            const rtext = tokenRangeToString(_rhsTextBuffer, _rhsOffsets, anchor.rhsStart, anchor.rhsEnd);
+            console.log("anchor found:", ltext, rtext, anchor);
+
             if (anchor.lhsStart === anchor.lhsEnd || anchor.rhsStart === anchor.rhsEnd) {
                 console.warn(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Ignoring this anchor.`);
             }
@@ -129,6 +133,7 @@ export async function runHistogramDiff(
             }
 
             let [tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart, 2);
+            console.log("consume backward common edges:", { ll: lhsLower, le: anchor.lhsStart, rl: rhsLower, re: anchor.rhsStart }, "=>", { tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper });
             if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
                 await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
             }

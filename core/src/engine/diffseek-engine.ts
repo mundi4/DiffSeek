@@ -100,7 +100,7 @@ export class DiffseekEngine {
         this.workspaceEl.appendChild(this.renderer.rootElement);
         this.applyPaletteToRenderer(this._palette);
         this.anchorManager = new AnchorManager(this.leftEditor, this.rightEditor);
-        this.diffPipeline = new DiffPipeline(this.diffWorker, this.leftEditor, this.rightEditor, this.anchorManager, this.handleDiffPipelineStatusChanged.bind(this));
+        this.diffPipeline = new DiffPipeline(this.diffWorker, this.leftEditor, this.rightEditor, this.handleDiffPipelineStatusChanged.bind(this));
         this.setupCallbacks();
     }
 
@@ -581,7 +581,7 @@ export class DiffseekEngine {
         try {
             this.programmaticScrollInProgress++;
 
-            await this.anchorManager.alignAnchors(controller.signal);
+            await this.anchorManager.alignAnchors(this.diffContext?.anchorPairs ?? [], controller.signal);
             this.renderer.invalidateGeometries();
 
             const lastEditor = this.lastActiveEditor;
@@ -606,6 +606,7 @@ export class DiffseekEngine {
 
     private setDiffContext(diffContext: DiffContext | null) {
         if (this.diffContext !== diffContext) {
+            console.log("Diff context updated:", diffContext);
             if (this.diffContext) {
                 this.diffContext.isValid = false;
             }

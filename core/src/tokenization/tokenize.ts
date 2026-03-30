@@ -25,7 +25,7 @@ type ParentType = typeof PARENT_TYPE_NONE | typeof PARENT_TYPE_BLOCK | typeof PA
 
 export async function tokenize(root: HTMLElement, signal: AbortSignal, options: TokenizerOptions = {}): Promise<TokenizeResult> {
     const mergeNonWordLikeTokens = !!options.mergeNonWordLikeTokens;
-    const enableStructuralTokens = !!options.enableStructuralTokens;
+    const enableStructuralTokens = true; //!!options.enableStructuralTokens;
     const mergeLetterNumberBoundary = !!options.mergeLetterNumberBoundary;
     const allowStandaloneLawArticle = !!options.allowStandaloneLawArticle;
 
@@ -255,6 +255,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
     }
 
     const moveUp = async () => {
+        const wasContainer = currentParentType === PARENT_TYPE_CONTAINER;
 
         if (currentParentType === PARENT_TYPE_BLOCK || currentParentType === PARENT_TYPE_CONTAINER) {
             await flushTextNodeBuf();
@@ -288,11 +289,24 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
             currentHasTextNodes = true;
         }
 
-        // if (currentParentType === PARENT_TYPE_CONTAINER && !currentHasTextNodes) {
-        //     current.appendChild(document.createTextNode(""));
-        //     currentHasTextNodes = true;
-        //     console.log("Added empty text node to container element to ensure it is represented in the tokenization.", { element: current });
-        // }
+        // CONTAINER에서 나온 경우: 부모의 나머지 구간을 새 세그먼트로 시작
+        // 예) root(ci=0) → td(ci=1) → root 재진입(ci=2)
+        // 단, 부모가 textless(TR, TABLE, UL 등)이면 임의 요소 삽입이 불가하므로
+        // continuation과 lineBoundary 모두 생성하지 않음
+        if (wasContainer) {
+            if (currentParentType === PARENT_TYPE_CONTAINER) {
+                // 부모도 container일 때만 continuation 생성
+                // (TR 같은 textless/BLOCK 부모 안에서는 marker 삽입이 불가하므로 제외)
+                const continuationInfo: ContainerInfo = { el: current, firstTokenIndex: tokens.length, lastTokenIndex: -1 };
+                containers.push(continuationInfo);
+                currentContainerIndex = containers.length - 1;
+                currentContainerInfo = continuationInfo;
+            } else {
+                // pending line 취소
+                newLinePending = false;
+                lineStartWhich = null;
+            }
+        }
 
         currentChildIndex++; // 다음 형제로 이동 필요!
 
@@ -691,7 +705,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
     const elapsed = performance.now() - startTime;
 
-    rootContainerInfo.lastTokenIndex = tokens.length - 1;
+    currentContainerInfo.lastTokenIndex = tokens.length - 1;
 
     return {
         wholeText: wholeTextBuf.join(""),

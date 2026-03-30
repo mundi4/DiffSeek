@@ -5,10 +5,11 @@ import type { initializeDiffWorker } from "../diff-worker/initialize-diff-worker
 import type { DiffWorkerResult } from "../diff-worker/types";
 import type { Editor, TokenSnapshot } from "../editor/editor";
 import type { Token } from "../tokenization";
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization";
+import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START } from "../tokenization";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
 import type { AnchorManager } from "./anchor-manager";
 import { buildCommonOutline } from "./build-common-outline";
+import { findEmptyDiffMarkerPosition } from "./find-empty-diff-marker-position";
 import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
 
 export class DiffPipeline {
@@ -26,7 +27,6 @@ export class DiffPipeline {
         private diffWorker: ReturnType<typeof initializeDiffWorker>,
         private leftEditor: Editor,
         private rightEditor: Editor,
-        //        private anchorManager: AnchorManager,
         private onStatus: (status: DiffWorkflowStatus) => void
     ) { }
 
@@ -201,7 +201,6 @@ export class DiffPipeline {
         const rightEditor = this.rightEditor;
         const leftTokens = leftTokenSnapshot.tokens;
         const rightTokens = rightTokenSnapshot.tokens;
-        // const anchorManager = this.anchorManager;
         const diffs: DiffEntry[] = [];
         const anchorPairs: AnchorPair[] = [];
         const leftTokenCount = leftTokens.length;
@@ -213,99 +212,16 @@ export class DiffPipeline {
         let chunkRightEnd = -1;
         let chunkType: number = DIFF_TYPE_UNCHANGED;
 
-        const addAnchorPair = (leftMarker: HTMLElement, rightMarker: HTMLElement) => {
-            let pair = this.prevMarkerElements!.get(leftMarker);
-            if (pair) {
-                if (pair.leftEl !== leftMarker || pair.rightEl !== rightMarker) {
-                    pair = undefined;
-                }
-            }
-
-            if (!pair) {
-                pair = {
-                    index: anchorPairs.length,
-                    leftEl: leftMarker,
-                    rightEl: rightMarker,
-                    diffIndex: null,
-                    leftContainerIndex: -1,
-                    rightContainerIndex: -1,
-                    isBaseline: false
-                }
-            }
-
-            anchorPairs.push(pair);
-            return pair;
-        }
-
         const getDiffMarkerEl = (
             filledSnapshot: TokenSnapshot, filledStart: number, filledEnd: number,
             emptySnapshot: TokenSnapshot, emptyStart: number, emptyEnd: number
         ) => {
+            const pos = findEmptyDiffMarkerPosition(
+                filledSnapshot.tokens, filledStart,
+                emptySnapshot.tokens, emptySnapshot.lineBoundaries, emptyStart,
+            );
 
-            let which: Node | null = null;
-            let where: InsertPosition | null = null;
-            let containerIndex = -1;
-
-            if (emptySnapshot.tokens.length === 0) {
-                ({ startWhich: which, startWhere: where } = emptySnapshot.lineBoundaries[1] || emptySnapshot.lineBoundaries[0]);
-            } else {
-                const { tokens: filledTokens } = filledSnapshot;
-                const { tokens: emptyTokens, lineBoundaries: emptyLineBoundaries } = emptySnapshot;
-
-                const emptyPrevToken = emptyStart > 0 ? emptyTokens[emptyStart - 1] : null;
-                const emptyNextToken = emptyStart < emptyTokens.length ? emptyTokens[emptyStart] : null;
-
-                if (emptyPrevToken && emptyNextToken && emptyPrevToken.endNode === emptyNextToken.startNode && emptyPrevToken.endNode.nodeType === 3) {
-                    return null;
-                }
-
-                const filledStartToken = filledTokens[filledStart];
-
-                if (filledStartToken.flags & TOKEN_FLAGS_LINE_START) {
-                    // filled쪽은 줄의 시작부분이므로 empty쪽도 줄의 시작 위치에 삽입해줘야 자연스럽다.
-
-                    let emptyPrevLineNum = emptyPrevToken ? emptyPrevToken.lineNumber : 0;
-                    let emptyNextLineNum = emptyNextToken ? emptyNextToken.lineNumber : emptyPrevLineNum + 1;
-
-                    if (emptyNextLineNum > emptyPrevLineNum) {
-                        // empty쪽 전/후 토큰의 줄번호가 다르므로 줄의 경계에 있음.
-                        // 이전 토큰의 바로 다음 줄의 시작위치를 삽입 위치로 정함. 만약 이 위치에 줄맞춤 앵커가 존재한다면 그 앵커보다 앞이어야 함.
-                        const line = emptyLineBoundaries[emptyPrevLineNum + 1];
-                        if (line) {
-                            which = line.startWhich;
-                            where = line.startWhere;
-                            containerIndex = line.containerIndex;
-                        }
-                    }
-                }
-
-                if (!which) {
-                    if (emptyPrevToken) {
-                        if (emptyPrevToken.flags & TOKEN_FLAGS_STRUCTURAL_OPEN) {
-                            which = emptyPrevToken.endNode;
-                            where = "afterbegin";
-                            containerIndex = emptyPrevToken.containerIndex;
-                        } else {
-                            which = emptyPrevToken.endNode;
-                            where = "afterend";
-                            containerIndex = emptyPrevToken.containerIndex;
-                        }
-                    }
-                    if (!which) {
-                        if (emptyNextToken!.flags & TOKEN_FLAGS_STRUCTURAL_CLOSE) {
-                            which = emptyNextToken!.startNode;
-                            where = "beforeend";
-                            containerIndex = emptyNextToken!.containerIndex;
-                        } else {
-                            which = emptyNextToken!.startNode;
-                            where = "beforebegin";
-                            containerIndex = emptyNextToken!.containerIndex;
-                        }
-                    }
-                }
-            }
-
-            const el = which && where && this.getOrCreateEmptyDiffMarker(which, where);
+            const el = pos && this.getOrCreateEmptyDiffMarker(pos.which, pos.where);
 
             if (el) {
                 const filledStartToken = filledSnapshot.tokens[filledStart];
@@ -339,11 +255,6 @@ export class DiffPipeline {
             let rightRange: Range | null = null;
             let leftDiffEl: HTMLElement | null = null;
             let rightDiffEl: HTMLElement | null = null;
-            let leftAnchorEl: HTMLElement | null = null;
-            let rightAnchorEl: HTMLElement | null = null;
-            let leftAnchorContainerIndex = 0;
-            let rightAnchorContainerIndex = 0;
-            let anchorEligible = false;
 
             // --- 한쪽이 비어있는 경우 marker 처리 ---
             if (leftCount === 0 || rightCount === 0) {
@@ -378,34 +289,14 @@ export class DiffPipeline {
                     emptyRange.collapse(true);
                 }
 
-                // empty 마커가 삽입된 위치의 컨테이너 = 인접 토큰의 컨테이너
-                const emptyTokens = emptySnapshot.tokens;
-                const emptyPrevToken = emptyStart > 0 ? emptyTokens[emptyStart - 1] : null;
-                const emptyNextToken = emptyStart < emptyTokens.length ? emptyTokens[emptyStart] : null;
-                const emptyContainerIndex = emptyPrevToken?.containerIndex ?? emptyNextToken?.containerIndex ?? 0;
-                anchorEligible = !!((filledSnapshot.tokens[filledStart].flags & TOKEN_FLAGS_LINE_START) && emptyEl);
-
-                // const anchorEligible = !!(filledSnapshot.tokens[filledStart].flags & TOKEN_FLAGS_LINE_START);
                 if (leftCount === 0) {
                     leftDiffEl = emptyEl;
                     leftRange = emptyRange;
                     rightRange = rightEditor.getTokenRange(rightStart, rightEnd);
-                    // if (anchorEligible) {
-                    //     leftAnchorEl = leftDiffEl;
-                    //     rightAnchorEl = getAnchorEl(rightToken!, false);
-                    //     leftAnchorContainerIndex = emptyContainerIndex;
-                    //     rightAnchorContainerIndex = rightToken!.containerIndex;
-                    // }
                 } else {
                     rightDiffEl = emptyEl;
                     rightRange = emptyRange;
                     leftRange = leftEditor.getTokenRange(leftStart, leftEnd);
-                    // if (anchorEligible) {
-                    //     rightAnchorEl = rightDiffEl;
-                    //     leftAnchorEl = getAnchorEl(leftToken!, true);
-                    //     leftAnchorContainerIndex = leftToken!.containerIndex;
-                    //     rightAnchorContainerIndex = emptyContainerIndex;
-                    // }
                 }
             }
             else {
@@ -431,18 +322,6 @@ export class DiffPipeline {
 
             diffs.push(diff);
 
-            if (leftAnchorEl && rightAnchorEl) {
-                const anchorPair = anchorManager.createAnchorPair(
-                    leftAnchorEl,
-                    rightAnchorEl,
-                    diffIndex,
-                    leftAnchorContainerIndex,
-                    rightAnchorContainerIndex,
-                );
-                if (anchorPair) {
-                    anchorPairs.push(anchorPair);
-                }
-            }
         }
 
         const extendOrFlush = (

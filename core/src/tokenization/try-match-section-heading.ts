@@ -1,7 +1,7 @@
 import type { TextNodeCursor } from "./text-node-cursor";
 import { CHAR_META } from "../char-meta";
 import { CM_LETTER, CM_WS } from "../char-meta-flags";
-import { TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE, TOKEN_FLAGS_SECTION_HEADING_TYPE1, TOKEN_FLAGS_SECTION_HEADING_TYPE2, TOKEN_FLAGS_SECTION_HEADING_TYPE3, TOKEN_FLAGS_SECTION_HEADING_TYPE4, TOKEN_FLAGS_SECTION_HEADING_TYPE5, TOKEN_FLAGS_SECTION_HEADING_TYPE6 } from "./types";
+import { SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_PAREN_NUMERIC } from "../constants/section-heading";
 
 export const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
 
@@ -97,7 +97,7 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
     return {
         text,
         ordinal,
-        type: TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE,
+        type: SECTION_HEADING_TYPE_LAW_ARTICLE,
     };
 }
 
@@ -138,7 +138,7 @@ function tryMatchParenthesized(cursor: TextNodeCursor): NumberingMatch | null {
     cursor.moveNext();
 
     number.text = `(${number.text})`;
-    number.type = (number.type === TOKEN_FLAGS_SECTION_HEADING_TYPE1) ? TOKEN_FLAGS_SECTION_HEADING_TYPE3 : TOKEN_FLAGS_SECTION_HEADING_TYPE4;
+    number.type = (number.type === SECTION_HEADING_TYPE_NUMERIC_DOT) ? SECTION_HEADING_TYPE_PAREN_NUMERIC : SECTION_HEADING_TYPE_PAREN_HANGUL;
     return number;
 }
 
@@ -162,7 +162,7 @@ function tryMatchNumberWithSuffix(cursor: TextNodeCursor): NumberingMatch | null
         return number;
     } else if (code === 0x29) { // )
         number.text = `${number.text})`;
-        number.type = (number.type === TOKEN_FLAGS_SECTION_HEADING_TYPE1) ? TOKEN_FLAGS_SECTION_HEADING_TYPE5 : TOKEN_FLAGS_SECTION_HEADING_TYPE6;
+        number.type = (number.type === SECTION_HEADING_TYPE_NUMERIC_DOT) ? SECTION_HEADING_TYPE_NUMERIC_PAREN : SECTION_HEADING_TYPE_HANGUL_PAREN;
         // 접미 문자를 소비해서 중복 토큰 생성을 방지한다.
         cursor.moveNext();
         return number;
@@ -198,7 +198,7 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
         const headingEndPos = cursor.getPos();
         // LAW_ARTICLE(제N조)은 줄 시작에 나오는 것 자체가 강한 신호이므로
         // allowStandaloneLawArticle 옵션이 켜져 있으면 word-like 검사를 건너뛴다.
-        if (!(allowStandaloneLawArticle && match.type === TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE)) {
+        if (!(allowStandaloneLawArticle && match.type === SECTION_HEADING_TYPE_LAW_ARTICLE)) {
             const hasWordLike = scanHasWordLike(cursor);
             if (!hasWordLike) {
                 cursor.moveTo(start);
@@ -223,7 +223,7 @@ function parseOrdinal(cursor: TextNodeCursor, firstCode: number): NumberingMatch
         return {
             ordinal: num,
             text: String(num),
-            type: TOKEN_FLAGS_SECTION_HEADING_TYPE1
+            type: SECTION_HEADING_TYPE_NUMERIC_DOT
         };
     }
 
@@ -233,7 +233,7 @@ function parseOrdinal(cursor: TextNodeCursor, firstCode: number): NumberingMatch
         return {
             ordinal: hangul,
             text: String.fromCharCode(firstCode),
-            type: TOKEN_FLAGS_SECTION_HEADING_TYPE2
+            type: SECTION_HEADING_TYPE_HANGUL_DOT
         };
     }
 

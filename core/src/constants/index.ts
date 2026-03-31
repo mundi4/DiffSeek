@@ -84,6 +84,7 @@ export const BLOCK_ELEMENTS: Record<string, boolean> = {
 export const CONTAINER_TAGS: Record<string, boolean> = {
     TD: true,
     TH: true,
+    TR: true,
     // LI: true,
     // BLOCKQUOTE: true,
     // PRE: true,
@@ -119,6 +120,7 @@ export const ANCHOR_CLASS_NAME = "ds-anchor";
 
 export const TOKEN_BUFFER_STRIDE = 5;
 
-export const STRUCTURAL_OPEN_TEXT = "\uE000open";
-
-export const STRUCTURAL_CLOSE_TEXT = "\uE001clos";
+export const STRUCTURAL_TD_OPEN_TEXT  = "\uE000td";
+export const STRUCTURAL_TD_CLOSE_TEXT = "\uE001td";
+export const STRUCTURAL_TR_OPEN_TEXT  = "\uE000tr";
+export const STRUCTURAL_TR_CLOSE_TEXT = "\uE001tr";

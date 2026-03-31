@@ -16,6 +16,7 @@ export type DiffOptions = {
     patienceMinLines: number;
     patienceMinTokens: number;
     localSAHybridRatio: number;
+    structuralTokenLength: number;
 };
 
 export type DiffInput = {

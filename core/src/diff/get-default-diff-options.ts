@@ -21,6 +21,11 @@ const defaultDiffOptions: DiffOptions = {
     patienceMinTokens: 2000,
     localSAHybridRatio: 0.6,
 
+    // ─────────────────────────────
+    // Structural tokens
+    // ─────────────────────────────
+    structuralTokenLength: 1,
+
 } as const;
 
 export function getDefaultDiffOptions(): DiffOptions {

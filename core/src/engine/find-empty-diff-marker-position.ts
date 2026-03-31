@@ -1,5 +1,5 @@
 import type { LineBoundaryInfo, Token } from "../tokenization/types";
-import { TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization/token-flags";
+import { isStructuralClose, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization/token-flags";
 
 /**
  * empty 쪽에 diff marker를 삽입할 DOM 위치를 결정한다.
@@ -103,7 +103,7 @@ export function findEmptyDiffMarkerPosition(
                 // structural open 바로 뒤 → 컨테이너 안 첫 위치
                 which = emptyPrevToken.endNode;
                 where = "afterbegin";
-            } else if (emptyPrevToken.flags & TOKEN_FLAGS_STRUCTURAL_CLOSE) {
+            } else if (isStructuralClose(emptyPrevToken.flags)) {
                 // structural close 바로 뒤 = 컨테이너가 방금 닫힘.
                 // afterend(containerEl)은 <tr> 안에 비-<td> 삽입 같은 invalid HTML이 될 수 있음.
                 // → 해당 컨테이너 안 마지막 위치(beforeend)에 삽입.
@@ -116,7 +116,7 @@ export function findEmptyDiffMarkerPosition(
         }
         if (!which) {
             // 앞 토큰도 없음 → 뒤 토큰 기준
-            if (emptyNextToken!.flags & TOKEN_FLAGS_STRUCTURAL_CLOSE) {
+            if (isStructuralClose(emptyNextToken!.flags)) {
                 // 구조 토큰(structural close) 바로 앞 → 컨테이너 안 마지막 위치
                 which = emptyNextToken!.startNode;
                 where = "beforeend";

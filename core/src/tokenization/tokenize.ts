@@ -1,10 +1,10 @@
 import { CHAR_META } from '../char-meta';
 import { CM_LETTER, CM_NEEDS_NORM, CM_NUMBER, CM_WS, CM_WS_COLLAPSABLE } from '../char-meta-flags';
-import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../constants';
+import { ANCHOR_CLASS_NAME, BLOCK_ELEMENTS, CONTAINER_TAGS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME, STRUCTURAL_TD_CLOSE_TEXT, STRUCTURAL_TD_OPEN_TEXT, STRUCTURAL_TR_CLOSE_TEXT, STRUCTURAL_TR_OPEN_TEXT, TEXTLESS_ELEMENTS, VOID_ELEMENTS } from '../constants';
 import { hashString } from '../utils/hash-string';
 import { NormalizeCharTable } from './normalize-char-table';
 import { TextNodeCursor, type TextPos } from './text-node-cursor';
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
+import { PAYLOAD_SHIFT, STRUCTURAL_ELEMENT_TD, STRUCTURAL_ELEMENT_TR, TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_IS_HEADING, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_NONE, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_WILDCARD, TOKEN_FLAGS_WORD_LIKE, TOKEN_TYPE_MASK } from './token-flags';
 import { matchFlatTrieAtCursor } from './trie';
 import { CM_HEADING_START, tryMatchSectionHeading } from './try-match-section-heading';
 import { type ContainerInfo, type LineBoundaryInfo, type SectionHeadingInfo, type Token, type TokenizeResult, type TokenizerOptions } from './types';
@@ -20,6 +20,12 @@ const PARENT_TYPE_NONE = 0;
 const PARENT_TYPE_BLOCK = 1;
 const PARENT_TYPE_CONTAINER = 2;
 const PARENT_TYPE_INLINE = 3;
+
+const NODE_NAME_TO_STRUCTURAL_ELEMENT_TYPE: Record<string, number> = {
+    TR: STRUCTURAL_ELEMENT_TR,
+    TD: STRUCTURAL_ELEMENT_TD,
+    TH: STRUCTURAL_ELEMENT_TD,
+};
 
 type ParentType = typeof PARENT_TYPE_NONE | typeof PARENT_TYPE_BLOCK | typeof PARENT_TYPE_CONTAINER | typeof PARENT_TYPE_INLINE;
 
@@ -218,15 +224,18 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         const savedContainerIndex = currentContainerIndex;
         const savedContainerInfo = currentContainerInfo;
 
+        if (enableStructuralTokens) {
+            const elemType = NODE_NAME_TO_STRUCTURAL_ELEMENT_TYPE[element.nodeName]
+            if (elemType) {
+                addToken(TOKEN_FLAGS_TYPE_STRUCTURAL, element.nodeName, TOKEN_FLAGS_STRUCTURAL_OPEN | (elemType << PAYLOAD_SHIFT), element, 0, element, 0);
+            }
+        }
+
         if (newParentType === PARENT_TYPE_CONTAINER) {
             const info: ContainerInfo = { el: element, firstTokenIndex: tokens.length, lastTokenIndex: -1 };
             containers.push(info);
             currentContainerIndex = containers.length - 1;
             currentContainerInfo = info;
-
-            if (enableStructuralTokens) {
-                addToken("structural", STRUCTURAL_OPEN_TEXT, TOKEN_FLAGS_STRUCTURAL_OPEN, element, 0, element, 0);
-            }
 
             markLineStart(element, "afterbegin");
             commitLineStart();
@@ -261,9 +270,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
             await flushTextNodeBuf();
 
             if (currentParentType === PARENT_TYPE_CONTAINER) {
-                if (enableStructuralTokens) {
-                    addToken("structural", STRUCTURAL_CLOSE_TEXT, TOKEN_FLAGS_STRUCTURAL_CLOSE, current, 0, current, 0);
-                }
+
 
                 currentContainerInfo.lastTokenIndex = tokens.length - 1;
 
@@ -274,6 +281,13 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                 markLineEnd(current, "beforeend");
 
                 markLineStart(current, "afterend");
+            }
+        }
+
+        if (enableStructuralTokens) {
+            const elemType = NODE_NAME_TO_STRUCTURAL_ELEMENT_TYPE[current.nodeName];
+            if (elemType) {
+                addToken(TOKEN_FLAGS_TYPE_STRUCTURAL, "/" + current.nodeName, elemType << PAYLOAD_SHIFT, current, 0, current, 0);
             }
         }
 
@@ -313,19 +327,24 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         return false;
     }
 
-    const addToken = (type: "text" | "image" | "structural", text: string, flags: number, startNode: Node, startOffset: number, endNode: Node, endOffset: number) => {
+    const addToken = (type: typeof TOKEN_FLAGS_TYPE_TEXT | typeof TOKEN_FLAGS_TYPE_IMAGE | typeof TOKEN_FLAGS_TYPE_STRUCTURAL, text: string, flags: number, startNode: Node, startOffset: number, endNode: Node, endOffset: number) => {
         const index = tokens.length;
 
         flags &= ~TOKEN_TYPE_MASK;
-        if (type === "text") {
-            flags |= TOKEN_FLAGS_TYPE_TEXT;
-        } else if (type === "image") {
-            flags |= TOKEN_FLAGS_TYPE_IMAGE;
-        } else if (type === "structural") {
-            flags |= TOKEN_FLAGS_TYPE_STRUCTURAL;
-        }
+        flags |= type;
+        // if (type === "text") {
+        //     flags |= TOKEN_FLAGS_TYPE_TEXT;
+        // } else if (type === "image") {
+        //     flags |= TOKEN_FLAGS_TYPE_IMAGE;
+        // } else if (type === "structural") {
+        //     console.log("Adding structural token.", { text, flags });
+        //     flags |= TOKEN_FLAGS_TYPE_STRUCTURAL;
+        // }
 
-        if (type !== "structural") {
+        let textOffset = wholeTextLength;
+        let textLength: number;
+
+        if (type !== TOKEN_FLAGS_TYPE_STRUCTURAL) {
             // 아직까지도 pending 상태인 줄바꿈이 있다면 처리
             if (newLinePending) {
                 commitLineStart();
@@ -348,15 +367,18 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                     wholeTextLength++;
                 }
             }
+
+            textOffset = wholeTextLength;
+            textLength = text.length;
+            if (textLength > 0) {
+                wholeTextBuf.push(text);
+                wholeTextLastChar = text.charCodeAt(text.length - 1);
+                wholeTextLength += textLength;
+            }
+        } else {
+            textLength = 0;
         }
 
-        const textOffset = wholeTextLength;
-        const textLength = text.length;
-        if (textLength > 0) {
-            wholeTextBuf.push(text);
-            wholeTextLastChar = text.charCodeAt(text.length - 1);
-            wholeTextLength += textLength;
-        }
 
         const token = {
             index,
@@ -374,7 +396,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         };
         tokens.push(token);
 
-        if (type !== "structural") {
+        if (type !== TOKEN_FLAGS_TYPE_STRUCTURAL) {
             nextTokenFlags = TOKEN_FLAGS_NONE;
             isTrimMode = false;
             lastToken = token;
@@ -388,7 +410,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         const text = hashString(src);
 
         return addToken(
-            "image",
+            TOKEN_FLAGS_TYPE_IMAGE,
             text,
             0,
             img, 0,
@@ -500,7 +522,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                 flags |= TOKEN_FLAGS_WORD_LIKE;
             }
 
-            addToken("text",
+            addToken(TOKEN_FLAGS_TYPE_TEXT,
                 text,
                 flags,
                 textNodeBuf[startNodeIndex],
@@ -543,8 +565,8 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                     const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle);
                     if (match) {
                         const headingEndPos = cursor.getPos();
-                        nextTokenFlags |= match.type;
-                        addToken("text", match.text, TOKEN_FLAGS_WORD_LIKE,
+                        nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
+                        addToken(TOKEN_FLAGS_TYPE_TEXT, match.text, TOKEN_FLAGS_WORD_LIKE,
                             textNodeBuf[headingStartPos.nodeIndex], headingStartPos.charIndex,
                             textNodeBuf[headingEndPos.nodeIndex], headingEndPos.charIndex,
                         );
@@ -590,7 +612,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                         finalizeToken(startPos);
                         nextTokenFlags |= TOKEN_FLAGS_HAS_PRECEDING_SPACE;
                         addToken(
-                            "text",
+                            TOKEN_FLAGS_TYPE_TEXT,
                             match.word,
                             TOKEN_FLAGS_WILDCARD,
                             textNodeBuf[startPos.nodeIndex],

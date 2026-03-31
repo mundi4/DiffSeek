@@ -1,5 +1,5 @@
 import type { DiffEntry } from "..";
-import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME, STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from "../constants";
+import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, DIFF_TAG_NAME, TOKEN_BUFFER_STRIDE } from "../constants";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_UNCHANGED, type DiffOptions } from "../diff";
 import type { initializeDiffWorker } from "../diff-worker/initialize-diff-worker";
 import type { DiffWorkerResult } from "../diff-worker/types";

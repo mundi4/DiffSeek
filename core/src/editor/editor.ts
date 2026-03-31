@@ -5,7 +5,7 @@ import { tokenize } from "../tokenization/tokenize";
 import type { SectionHeadingInfo } from "../tokenization/types";
 import type { Span } from "../types";
 import { findAdjacentTextNode } from "../utils/find-adjacent-text-node";
-import { TOKEN_FLAGS_STRUCTURAL_CLOSE, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization";
+import { TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
 import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions } from "./types";
@@ -636,8 +636,8 @@ export class Editor implements EditorContext {
 
     getTokenRange(index: number, end: number = index + 1, trimStructural = true): Range {
         if (trimStructural) {
-            while (index < end && (this.tokens[index]?.flags & TOKEN_FLAGS_STRUCTURAL_OPEN)) index++;
-            while (end > index && (this.tokens[end - 1]?.flags & TOKEN_FLAGS_STRUCTURAL_CLOSE)) end--;
+            while (index < end && (this.tokens[index]?.flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) index++;
+            while (end > index && (this.tokens[end - 1]!.flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) end--;
         }
 
         const count = end - index;

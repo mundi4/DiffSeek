@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { STRUCTURAL_CLOSE_TEXT, STRUCTURAL_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from '../src/constants';
+import { STRUCTURAL_TD_CLOSE_TEXT, STRUCTURAL_TD_OPEN_TEXT, TOKEN_BUFFER_STRIDE } from '../src/constants';
 import { buildDiffInput } from '../src/diff/build-diff-input';
 import { buildDiffScoreSystem } from '../src/diff/build-diff-score-system';
 import { getDefaultDiffOptions } from '../src/diff/get-default-diff-options';
@@ -8,7 +8,6 @@ import { DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED } from '../src/diff/types';
 import {
     TOKEN_FLAGS_TYPE_STRUCTURAL,
     TOKEN_FLAGS_TYPE_TEXT,
-    TOKEN_FLAGS_STRUCTURAL_CLOSE,
     TOKEN_FLAGS_STRUCTURAL_OPEN,
 } from '../src/tokenization/token-flags';
 
@@ -18,11 +17,11 @@ type TokenSpec = {
 };
 
 function structuralClose(): TokenSpec {
-    return { text: STRUCTURAL_CLOSE_TEXT, flags: TOKEN_FLAGS_TYPE_STRUCTURAL | TOKEN_FLAGS_STRUCTURAL_CLOSE };
+    return { text: STRUCTURAL_TD_CLOSE_TEXT, flags: TOKEN_FLAGS_TYPE_STRUCTURAL };
 }
 
 function structuralOpen(): TokenSpec {
-    return { text: STRUCTURAL_OPEN_TEXT, flags: TOKEN_FLAGS_TYPE_STRUCTURAL | TOKEN_FLAGS_STRUCTURAL_OPEN };
+    return { text: STRUCTURAL_TD_OPEN_TEXT, flags: TOKEN_FLAGS_TYPE_STRUCTURAL | TOKEN_FLAGS_STRUCTURAL_OPEN };
 }
 
 function text(value: string): TokenSpec {

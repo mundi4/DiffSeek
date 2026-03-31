@@ -4,7 +4,7 @@ import type { LineBoundaryInfo, Token } from '../src/tokenization/types';
 import {
     TOKEN_FLAGS_LINE_START,
     TOKEN_FLAGS_STRUCTURAL_OPEN,
-    TOKEN_FLAGS_STRUCTURAL_CLOSE,
+    TOKEN_FLAGS_TYPE_STRUCTURAL,
     TOKEN_FLAGS_NONE,
 } from '../src/tokenization/token-flags';
 
@@ -285,7 +285,7 @@ describe('structural 토큰 처리', () => {
 
         // emptyPrev: STRUCTURAL_CLOSE(td-생년월일) — 마지막 컨테이너 닫힘
         const emptyTdEl = document.createElement('td');
-        const emptyPrev = makeToken({ flags: TOKEN_FLAGS_STRUCTURAL_CLOSE, startNode: emptyTdEl, endNode: emptyTdEl, containerIndex: 1, lineNumber: 1 });
+        const emptyPrev = makeToken({ flags: TOKEN_FLAGS_TYPE_STRUCTURAL, startNode: emptyTdEl, endNode: emptyTdEl, containerIndex: 1, lineNumber: 1 });
 
         // STRUCTURAL_OPEN skip → content 토큰 사용 → LINE_START + container boundary
         // Case C 진입하지만 gap lineBoundary 없음 → Case D
@@ -300,7 +300,7 @@ describe('structural 토큰 처리', () => {
 
     it('emptyPrev가 STRUCTURAL_CLOSE → afterend 대신 beforeend(컨테이너 안)', () => {
         const tdEl = document.createElement('td');
-        const emptyPrev = makeToken({ flags: TOKEN_FLAGS_STRUCTURAL_CLOSE, startNode: tdEl, endNode: tdEl, containerIndex: 1, lineNumber: 1 });
+        const emptyPrev = makeToken({ flags: TOKEN_FLAGS_TYPE_STRUCTURAL, startNode: tdEl, endNode: tdEl, containerIndex: 1, lineNumber: 1 });
         const filled = makeToken({ flags: TOKEN_FLAGS_NONE, containerIndex: 2, lineNumber: 2 });
 
         const result = call([filled], 0, [emptyPrev], [], 1);
@@ -343,7 +343,7 @@ describe('Case D — DOM 노드 기준 fallback', () => {
 
     it('emptyPrev 없고 emptyNext가 STRUCTURAL_CLOSE → beforeend', () => {
         const containerEl = document.createElement('td');
-        const next = makeToken({ flags: TOKEN_FLAGS_STRUCTURAL_CLOSE, startNode: containerEl, containerIndex: 1, lineNumber: 1 });
+        const next = makeToken({ flags: TOKEN_FLAGS_TYPE_STRUCTURAL, startNode: containerEl, containerIndex: 1, lineNumber: 1 });
         const filled = makeToken({ flags: TOKEN_FLAGS_NONE, containerIndex: 0, lineNumber: 0 });
 
         const result = call([filled], 0, [next], [], 0);

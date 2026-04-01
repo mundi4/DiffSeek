@@ -19,9 +19,7 @@ const RANGES: readonly Range[] = [
     [0x0030, 0x0039, CM_NUMBER], // ASCII digit
     [0x003a, 0x0040, 0],
     [0x0041, 0x005a, CM_LETTER], // ASCII uppercase
-    [0x005b, 0x005e, 0],
-    [0x005f, 0x005f, CM_LETTER],
-    [0x0060, 0x0060, 0],
+    [0x005b, 0x0060, 0], // 0x5f '_' was CM_LETTER (for code); changed to 0 for natural-language docs
     [0x0061, 0x007a, CM_LETTER], // ASCII lowercase
     [0x007b, 0x009f, 0],
     [0x00a0, 0x00a0, CM_WS],

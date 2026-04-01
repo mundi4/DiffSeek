@@ -9,7 +9,7 @@ import { DiffPipeline } from "./diff-pipeline";
 import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, SelectionChangeData } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
-import type { Palette, Span } from "../types";
+import type { DiffseekOptions, Palette, Span } from "../types";
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
 
@@ -153,6 +153,15 @@ export class DiffseekEngine {
     replaceDiffOptions(newOptions: Partial<DiffOptions> | null) {
         newOptions = { ...getDefaultDiffOptions(), ...newOptions };
         this.updateDiffOptions(newOptions || {});
+    }
+
+    /**
+     * DiffseekOptions 전체 적용 (초기화 시 사용).
+     * workflow는 트리거하지 않음 — 아직 content가 없을 수 있으므로.
+     */
+    applyOptions(options: DiffseekOptions) {
+        this.updateDiffOptions(options.diff, false);
+        this.editableInSyncMode = options.editableInSyncMode;
     }
 
     //

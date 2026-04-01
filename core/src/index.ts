@@ -101,6 +101,7 @@ export type { EditorName } from "./editor";
 export type * from "./types";
 
 export { getDefaultDiffOptions } from "./diff/get-default-diff-options";
+export { getDefaultDiffseekOptions } from "./get-default-diffseek-options";
 export { getDiffHue } from "./utils/get-diff-hue";
 export { DEFAULT_PALETTE } from "./palette/default-palette";
 export { NEW_YORK_PALETTE, PALETTE_PRESETS } from "./palette/index";

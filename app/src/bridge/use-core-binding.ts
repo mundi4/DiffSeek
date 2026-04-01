@@ -1,14 +1,12 @@
-import { diffContextAtom, diffOptionsAtom, diffWorkflowStatusAtom, editableInSyncModeAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom, whitespaceHandlingAtom } from "@/states/core-atoms";
+import { diffContextAtom, diffseekOptionsAtom, diffWorkflowStatusAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
 import type { DiffseekEngine } from "@core";
-import type { DiffOptions } from "@core";
 import { getDefaultStore, useSetAtom } from "jotai";
 import { useEffect } from "react";
 
 export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
-    const setDiffOptions = useSetAtom(diffOptionsAtom);
+    const setDiffseekOptions = useSetAtom(diffseekOptionsAtom);
     const setDiffContext = useSetAtom(diffContextAtom);
     const setSyncMode = useSetAtom(syncModeAtom);
-    const setEditableInSyncMode = useSetAtom(editableInSyncModeAtom);
     const setVisibleDiffIndexes = useSetAtom(visibleDiffIndexesAtom);
     const setHoveredDiffIndex = useSetAtom(hoveredDiffIndexAtom);
     const setDiffWorkflowStatus = useSetAtom(diffWorkflowStatusAtom);
@@ -17,25 +15,19 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
     useEffect(() => {
         const unsub: (() => void)[] = [];
 
+        // LS에서 복원된 옵션을 engine에 적용
         const store = getDefaultStore();
-        const diffOptions: Partial<DiffOptions> = {
-            whitespace: store.get(whitespaceHandlingAtom),
-        };
-        const editableInSyncMode = store.get(editableInSyncModeAtom);
+        const options = store.get(diffseekOptionsAtom);
+        engine.applyOptions(options);
 
-        engine.updateDiffOptions(diffOptions);
-        engine.editableInSyncMode = editableInSyncMode;
-
-        setDiffOptions(engine.diffOptions);
         setPalette(engine.palette);
-        setEditableInSyncMode(engine.editableInSyncMode);
 
         unsub.push(engine.on("statusChanged", (status) => {
             setDiffWorkflowStatus(status);
         }));
 
         unsub.push(engine.on("diffOptionsChanged", (diffOptions) => {
-            setDiffOptions(diffOptions);
+            setDiffseekOptions((prev) => ({ ...prev, diff: diffOptions }));
         }));
 
         unsub.push(engine.on("paletteChanged", (palette) => {
@@ -47,7 +39,7 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
         }));
 
         unsub.push(engine.on("editableInSyncModeChanged", ({ editableInSyncMode }) => {
-            setEditableInSyncMode(editableInSyncMode);
+            setDiffseekOptions((prev) => ({ ...prev, editableInSyncMode }));
         }));
 
         unsub.push(engine.on('diffContextChanged', (diffContext) => {

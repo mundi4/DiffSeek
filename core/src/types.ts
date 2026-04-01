@@ -43,6 +43,13 @@
 
 export type { DiffOptions } from "./diff";
 
+import type { DiffOptions } from "./diff";
+
+export type DiffseekOptions = {
+    diff: DiffOptions;
+    editableInSyncMode: boolean;
+};
+
 
 export type Span = {
     start: number;

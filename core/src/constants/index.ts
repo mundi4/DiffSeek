@@ -84,7 +84,7 @@ export const BLOCK_ELEMENTS: Record<string, boolean> = {
 export const CONTAINER_TAGS: Record<string, boolean> = {
     TD: true,
     TH: true,
-    // TR: true,
+    // TR: true,ra
     // LI: true,
     // BLOCKQUOTE: true,
     // PRE: true,

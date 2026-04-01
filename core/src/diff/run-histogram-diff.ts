@@ -1,7 +1,8 @@
 import { RESULT_BUFFER_STRIDE } from "./constants";
 import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, tokenRangeToString, writeToResultBuffer } from "./helpers";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffAnchor, type DiffInput, type DiffJobContext } from "./types";
-import { HEADING_MASK, TOKEN_FLAGS_LINE_START } from "../tokenization";
+import { HEADING_MASK, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
+import { getStructuralElementType } from "../tokenization/token-flags";
 import { SECTION_HEADING_TYPE_NONE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_PAREN_NUMERIC, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, headingFlagsToType } from "../constants/section-heading";
 
 const HASH_SIZE = 0xfffff + 1;
@@ -41,6 +42,8 @@ export async function runHistogramDiff(
 ) {
     const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
     const localSAHybridRatio = ctx.diffOptions.localSAHybridRatio ?? DEFAULT_LOCAL_SA_HYBRID_RATIO;
+    const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
+    const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
     if (ctx.diffOptions.mergeLetterNumberBoundary) {
         HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 1; // "제1조" > "제1조" (single merged token)
     } else {
@@ -189,13 +192,14 @@ export async function runHistogramDiff(
         lo: number,
         hi: number,
         baseScore: number,
-        bestPossibleScore: number
+        bestPossibleScore: number,
+        structuralOnly: boolean
     };
 
     const MAX_NUM_ANCHOR_CANDIDATES = 20;
     const anchorCandidates: AnchorCandidate[] = new Array(MAX_NUM_ANCHOR_CANDIDATES);
     for (let i = 0; i < MAX_NUM_ANCHOR_CANDIDATES; i++) {
-        anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0 };
+        anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0, structuralOnly: false };
     }
 
     let localSaPosScratch = new IndexArray(0);
@@ -274,7 +278,7 @@ export async function runHistogramDiff(
             rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
 
         let numCandidates = 0;
-        function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number) {
+        function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number, structuralOnly: boolean) {
             const lf = _lhsFlags[l];
             const rf = _rhsFlags[r];
 
@@ -287,16 +291,18 @@ export async function runHistogramDiff(
 
             let posGrade = 0;
 
-            const lCenterDist2 = (l << 1) + h - lhsCenter2;
-            const rCenterDist2 = (r << 1) + h - rhsCenter2;
+            if (!structuralOnly) {
+                const lCenterDist2 = (l << 1) + h - lhsCenter2;
+                const rCenterDist2 = (r << 1) + h - rhsCenter2;
 
-            const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
-            const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
+                const absL = lCenterDist2 < 0 ? -lCenterDist2 : lCenterDist2;
+                const absR = rCenterDist2 < 0 ? -rCenterDist2 : rCenterDist2;
 
-            if (absL <= lhsHalf2 && absR <= rhsHalf2) {
-                posGrade = 2;
-            } else if (absL <= lhsBand2 && absR <= rhsBand2) {
-                posGrade = 1;
+                if (absL <= lhsHalf2 && absR <= rhsHalf2) {
+                    posGrade = 2;
+                } else if (absL <= lhsBand2 && absR <= rhsBand2) {
+                    posGrade = 1;
+                }
             }
 
             const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
@@ -312,7 +318,7 @@ export async function runHistogramDiff(
         function squashAnchorCandidates() {
             for (let i = 0; i < numCandidates; i++) {
                 let numL = 0, numR = 0;
-                const { h, lo, hi, baseScore, bestPossibleScore } = anchorCandidates[i];
+                const { h, lo, hi, baseScore, bestPossibleScore, structuralOnly } = anchorCandidates[i];
                 if (bestPossibleScore <= bestScore) {
                     continue;
                 }
@@ -337,7 +343,7 @@ export async function runHistogramDiff(
 
                 if (numL === numR) {
                     for (let x = 0; x < numL; x++) {
-                        tryUpdateBestAnchor(lPosBuf[x]!, rPosBuf[x]!, h, baseScore);
+                        tryUpdateBestAnchor(lPosBuf[x]!, rPosBuf[x]!, h, baseScore, structuralOnly);
                     }
                     continue;
                 }
@@ -345,7 +351,7 @@ export async function runHistogramDiff(
                 for (let x = 0; x < numL; x++) {
                     const l = lPosBuf[x]!;
                     for (let y = 0; y < numR; y++) {
-                        tryUpdateBestAnchor(l, rPosBuf[y]!, h, baseScore);
+                        tryUpdateBestAnchor(l, rPosBuf[y]!, h, baseScore, structuralOnly);
                     }
                 }
             }
@@ -385,6 +391,7 @@ export async function runHistogramDiff(
                 let textLen = -1;
                 let freqGrade: number;
                 let baseScore = 0;
+                let structuralOnlyPenalty = 1;
                 for (let k = lo; k <= hi; k++) {
                     const saIdx = useLocalSaPath ? localSaPos![k] : k;
                     const j = sa[saIdx];
@@ -397,10 +404,28 @@ export async function runHistogramDiff(
                         if (textLen === -1) {
                             textLen = _lhsOffsets[jEnd] - _lhsOffsets[j];
                             lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
+
+                            // structural-only 판정 + max level 추적 (early exit)
+                            let isStructuralOnly = true;
+                            let maxStructuralLevel = 0;
+                            for (let t = j; t < jEnd; t++) {
+                                const f = _lhsFlags[t];
+                                if ((f & TOKEN_TYPE_MASK) !== TOKEN_FLAGS_TYPE_STRUCTURAL) {
+                                    isStructuralOnly = false;
+                                    break;
+                                }
+                                const level = getStructuralElementType(f);
+                                if (level > maxStructuralLevel) maxStructuralLevel = level;
+                            }
+                            if (isStructuralOnly) {
+                                const mIdx = h < _structuralOnlyMultipliers.length ? h : _structuralOnlyMultipliers.length - 1;
+                                structuralOnlyPenalty = _structuralOnlyMultipliers[mIdx] * (_structuralLevelBonuses[maxStructuralLevel] ?? 1);
+                            }
                         }
                         if (freqR > 0) {
                             freqGrade = freqLUT[freqL * fStride + freqR];
                             baseScore = core[fRow[freqGrade] + lengthGrade];
+                            if (structuralOnlyPenalty !== 1) baseScore = Math.round(baseScore * structuralOnlyPenalty) || 1;
                             if (baseScore + MAX_BONUS_SCORE < bestScore) {
                                 // 쓰레기
                                 baseScore = 0;
@@ -414,6 +439,7 @@ export async function runHistogramDiff(
                         if (freqL > 0) {
                             freqGrade = freqLUT[freqL * fStride + freqR];
                             baseScore = core[fRow[freqGrade] + lengthGrade];
+                            if (structuralOnlyPenalty !== 1) baseScore = Math.round(baseScore * structuralOnlyPenalty) || 1;
                             if (baseScore + MAX_BONUS_SCORE < bestScore) {
                                 // 쓰레기
                                 baseScore = 0;
@@ -430,6 +456,7 @@ export async function runHistogramDiff(
                     anchorCandidates[numCandidates].hi = hi;
                     anchorCandidates[numCandidates].baseScore = baseScore;
                     anchorCandidates[numCandidates].bestPossibleScore = baseScore + MAX_BONUS_SCORE;
+                    anchorCandidates[numCandidates].structuralOnly = structuralOnlyPenalty !== 1;
                     numCandidates++;
                     if (numCandidates === MAX_NUM_ANCHOR_CANDIDATES) {
                         squashAnchorCandidates();

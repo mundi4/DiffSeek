@@ -19,6 +19,10 @@ export type DiffOptions = {
     patienceMinTextLen: number;
     localSAHybridRatio: number;
     structuralTokenLength: number;
+    /** structural 토큰만으로 이루어진 앵커 후보의 base score에 곱할 multiplier. index = h (매칭 토큰 수). h가 배열 길이 이상이면 마지막 값 사용. */
+    structuralOnlyMultipliers: number[];
+    /** structural level(TD=1, TR=2, TABLE=3)별 추가 배율. index = max structural element type. 높은 level이 포함될수록 앵커 가치가 높으므로 배율 증가. */
+    structuralLevelBonuses: number[];
     stackEmptyDiffMarkers: boolean;
 };
 

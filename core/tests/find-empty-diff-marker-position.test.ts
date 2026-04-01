@@ -246,26 +246,21 @@ describe('Case C — filled이 container 경계에서 시작', () => {
         expect(result?.where).toBe('afterend');
     });
 
-    it('filledStart=0 (문서 맨 앞)은 container 경계로 취급', () => {
-        const gapNode = document.createElement('span');
+    it('filledStart=0 (문서 맨 앞)은 container 경계로 취급 — contentPrev 없으면 Case D fallback', () => {
         const nextNode = document.createTextNode('body');
 
         // filled는 문서 첫 토큰 (prev 없음)
         const filledStart = makeToken({ flags: TOKEN_FLAGS_LINE_START, containerIndex: 1, lineNumber: 1 });
 
-        // emptyPrev 없음 → emptyPrevLineNum=0, 루프는 lineNum=1 부터 시작
-        // lineBoundaries는 line number로 인덱싱 — lb1을 index 1에 배치해야 함
+        // emptyPrev 없음 → contentPrev=null → Case C 건너뛰고 Case D fallback
         const emptyNext = makeToken({ startNode: nextNode, containerIndex: 2, lineNumber: 2 });
-
-        const lb0 = makeLineBoundary(document.createElement('div'), 'afterbegin', 0);
-        const lb1 = makeLineBoundary(gapNode, 'afterbegin', 1); // ci=1, != -1(prev) != 2(next) → gap
 
         const result = call(
             [filledStart], 0,
-            [emptyNext], [lb0, lb1], 0,
+            [emptyNext], [], 0,
         );
-        expect(result?.which).toBe(gapNode);
-        expect(result?.where).toBe('afterbegin');
+        expect(result?.which).toBe(nextNode);
+        expect(result?.where).toBe('beforebegin');
     });
 });
 
@@ -308,13 +303,15 @@ describe('structural 토큰 처리', () => {
         expect(result?.where).toBe('beforeend');
     });
 
-    it('filled가 STRUCTURAL_OPEN만 있으면 null', () => {
+    it('filled가 STRUCTURAL_OPEN만 있으면 Case D fallback으로 emptyNext 기준 위치 반환', () => {
         const tdEl = document.createElement('td');
         const structOpen = makeToken({ flags: TOKEN_FLAGS_STRUCTURAL_OPEN, startNode: tdEl, endNode: tdEl, containerIndex: 1, lineNumber: 1 });
-        const emptyNext = makeToken({ startNode: document.createTextNode('x'), containerIndex: 0, lineNumber: 0 });
+        const nextTextNode = document.createTextNode('x');
+        const emptyNext = makeToken({ startNode: nextTextNode, containerIndex: 0, lineNumber: 0 });
 
         const result = call([structOpen], 0, [emptyNext], [], 0);
-        expect(result).toBeNull();
+        expect(result?.which).toBe(nextTextNode);
+        expect(result?.where).toBe('beforebegin');
     });
 });
 

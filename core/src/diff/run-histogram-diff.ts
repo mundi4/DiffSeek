@@ -279,15 +279,17 @@ export async function runHistogramDiff(
 
         let numCandidates = 0;
         function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number, structuralOnly: boolean) {
-            const lf = _lhsFlags[l];
-            const rf = _rhsFlags[r];
+            // const lf = _lhsFlags[l];
+            // const rf = _rhsFlags[r];
 
-            let policyGrade = 0;
-            if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-                policyGrade = 2;
-            } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
-                policyGrade = 1;
-            }
+            // policyGrade 비활성화: 앵커 매치 범위 [l, l+h) 중 항상 첫 토큰만
+            // 체크하므로 줄시작/헤딩 판정이 부정확함
+            // let policyGrade = 0;
+            // if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
+            //     policyGrade = 2;
+            // } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
+            //     policyGrade = 1;
+            // }
 
             let posGrade = 0;
 
@@ -305,7 +307,7 @@ export async function runHistogramDiff(
                 }
             }
 
-            const bonusScore = policyTable[policyGrade] + positionalTable[posGrade];
+            const bonusScore = /* policyTable[policyGrade] + */ positionalTable[posGrade];
             const finalScore = baseScore + bonusScore;
             if (finalScore > bestScore) {
                 bestScore = finalScore;

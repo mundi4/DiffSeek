@@ -1,5 +1,5 @@
 import type { LineBoundaryInfo, Token } from "../tokenization/types";
-import { isStructuralClose, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization/token-flags";
+import { getStructuralElementType, isStructuralClose, STRUCTURAL_ELEMENT_TR, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization/token-flags";
 
 /**
  * empty 쪽에 diff marker를 삽입할 DOM 위치를 결정한다.
@@ -51,13 +51,10 @@ export function findEmptyDiffMarkerPosition(
     while (filledStart < filledTokens.length && (filledTokens[filledStart].flags & TOKEN_FLAGS_STRUCTURAL_OPEN)) filledStart++;
 
     const filledStartToken = filledTokens[filledStart];
-    if (!filledStartToken) {
-        // filled diff가 structural 토큰만으로 이루어진 경우 — 위치 잡을 수 없음
-        return null;
-    }
+    // filledStartToken이 null이면 (filled diff가 structural만) Case C 건너뛰고 Case D로
     const filledPrevToken = filledStart > 0 ? filledTokens[filledStart - 1] : null;
 
-    if (filledStartToken.flags & TOKEN_FLAGS_LINE_START) {
+    if (filledStartToken && (filledStartToken.flags & TOKEN_FLAGS_LINE_START)) {
         // [케이스 C] filled 쪽 diff가 줄의 시작에서 시작됨.
         // 단, LINE_START가 container 경계 때문인지(<td> 진입 등) 아니면
         // 같은 container 안의 <br> 때문인지 구분해야 함.
@@ -69,32 +66,37 @@ export function findEmptyDiffMarkerPosition(
             filledPrevToken === null ||
             filledPrevToken.containerIndex !== filledStartToken.containerIndex;
 
-        if (crossesContainerBoundary) {
+        if (crossesContainerBoundary && !(emptyPrevToken && (emptyPrevToken.flags & TOKEN_FLAGS_STRUCTURAL_OPEN))) {
+            // emptyPrevToken이 STRUCTURAL_OPEN이면 컨테이너 안에 막 진입한 상태.
+            // Case D가 afterbegin으로 정확히 처리하므로 lineBoundary 검색 불필요.
+            //
             // structural 토큰은 lineNumber/containerIndex가 의미 없음.
-            // LINE_START/LINE_END 불변식: structural 경계 전후 content 토큰은 반드시 LINE_END/LINE_START.
-            // → structural을 건너뛴 content 토큰의 lineNumber/containerIndex로 탐색 범위와 필터를 결정.
+            // → structural을 건너뛴 content 토큰으로 탐색 범위를 결정.
+            // contentPrev가 null이면 검색 범위의 시작점을 잡을 수 없으므로 Case D로 fallthrough.
             let pi = emptyStart - 1;
             while (pi >= 0 && (emptyTokens[pi].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) pi--;
             const contentPrev = pi >= 0 ? emptyTokens[pi] : null;
 
-            let ni = emptyStart;
-            while (ni < emptyTokens.length && (emptyTokens[ni].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) ni++;
-            const contentNext = ni < emptyTokens.length ? emptyTokens[ni] : null;
+            if (contentPrev) {
+                let ni = emptyStart;
+                while (ni < emptyTokens.length && (emptyTokens[ni].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) ni++;
+                const contentNext = ni < emptyTokens.length ? emptyTokens[ni] : null;
 
-            const emptyPrevLineNum = contentPrev ? contentPrev.lineNumber : 0;
-            const emptyNextLineNum = contentNext ? contentNext.lineNumber : emptyPrevLineNum + 1;
-            const emptyPrevContainerIndex = contentPrev?.containerIndex ?? -1;
-            const emptyNextContainerIndex = contentNext?.containerIndex ?? -1;
+                const emptyPrevLineNum = contentPrev.lineNumber;
+                const emptyNextLineNum = contentNext ? contentNext.lineNumber : emptyPrevLineNum + 1;
+                const emptyPrevContainerIndex = contentPrev.containerIndex;
+                const emptyNextContainerIndex = contentNext?.containerIndex ?? -1;
 
-            if (emptyNextLineNum > emptyPrevLineNum) {
-                for (let lineNum = emptyPrevLineNum + 1; lineNum <= emptyNextLineNum; lineNum++) {
-                    const line = emptyLineBoundaries[lineNum];
-                    if (line &&
-                        line.containerIndex !== emptyPrevContainerIndex &&
-                        line.containerIndex !== emptyNextContainerIndex) {
-                        which = line.startWhich;
-                        where = line.startWhere;
-                        break;
+                if (emptyNextLineNum > emptyPrevLineNum) {
+                    for (let lineNum = emptyPrevLineNum + 1; lineNum <= emptyNextLineNum; lineNum++) {
+                        const line = emptyLineBoundaries[lineNum];
+                        if (line &&
+                            line.containerIndex !== emptyPrevContainerIndex &&
+                            line.containerIndex !== emptyNextContainerIndex) {
+                            which = line.startWhich;
+                            where = line.startWhere;
+                            break;
+                        }
                     }
                 }
             }
@@ -107,27 +109,65 @@ export function findEmptyDiffMarkerPosition(
         if (emptyPrevToken) {
             if (emptyPrevToken.flags & TOKEN_FLAGS_STRUCTURAL_OPEN) {
                 // structural open 바로 뒤 → 컨테이너 안 첫 위치
-                which = emptyPrevToken.endNode;
-                where = "afterbegin";
+                const el = emptyPrevToken.endNode as HTMLElement;
+                if (getStructuralElementType(emptyPrevToken.flags) >= STRUCTURAL_ELEMENT_TR) {
+                    // TR/TABLE level → 직접 삽입 불가, 첫 번째 자식(td/th)으로 이동
+                    const firstChild = el.firstElementChild;
+                    if (firstChild) {
+                        which = firstChild;
+                        where = "afterbegin";
+                    }
+                } else {
+                    which = el;
+                    where = "afterbegin";
+                }
             } else if (isStructuralClose(emptyPrevToken.flags)) {
                 // structural close 바로 뒤 = 컨테이너가 방금 닫힘.
-                // afterend(containerEl)은 <tr> 안에 비-<td> 삽입 같은 invalid HTML이 될 수 있음.
-                // → 해당 컨테이너 안 마지막 위치(beforeend)에 삽입.
-                which = emptyPrevToken.startNode;
-                where = "beforeend";
+                const el = emptyPrevToken.startNode as HTMLElement;
+                if (getStructuralElementType(emptyPrevToken.flags) >= STRUCTURAL_ELEMENT_TR) {
+                    // TR/TABLE level → 마지막 자식(td/th)으로 이동
+                    const lastChild = el.lastElementChild;
+                    if (lastChild) {
+                        which = lastChild;
+                        where = "beforeend";
+                    }
+                } else {
+                    which = el;
+                    where = "beforeend";
+                }
             } else {
                 which = emptyPrevToken.endNode;
                 where = "afterend";
             }
         }
         if (!which) {
-            // 앞 토큰도 없음 → 뒤 토큰 기준
-            if (isStructuralClose(emptyNextToken!.flags)) {
-                // 구조 토큰(structural close) 바로 앞 → 컨테이너 안 마지막 위치
-                which = emptyNextToken!.startNode;
-                where = "beforeend";
-            } else {
-                which = emptyNextToken!.startNode;
+            // 앞 토큰도 없음 (또는 TR-level에서 자식 없음) → 뒤 토큰 기준
+            if (emptyNextToken && (emptyNextToken.flags & TOKEN_FLAGS_STRUCTURAL_OPEN)) {
+                const el = emptyNextToken.startNode as HTMLElement;
+                if (getStructuralElementType(emptyNextToken.flags) >= STRUCTURAL_ELEMENT_TR) {
+                    const firstChild = el.firstElementChild;
+                    if (firstChild) {
+                        which = firstChild;
+                        where = "afterbegin";
+                    }
+                } else {
+                    which = el;
+                    where = "afterbegin";
+                }
+            } else if (emptyNextToken && isStructuralClose(emptyNextToken.flags)) {
+                const el = emptyNextToken.startNode as HTMLElement;
+                if (getStructuralElementType(emptyNextToken.flags) >= STRUCTURAL_ELEMENT_TR) {
+                    const lastChild = el.lastElementChild;
+                    if (lastChild) {
+                        which = lastChild;
+                        where = "beforeend";
+                    }
+                } else {
+                    which = el;
+                    where = "beforeend";
+                }
+            } else if (emptyNextToken) {
+                which = emptyNextToken.startNode;
                 where = "beforebegin";
             }
         }

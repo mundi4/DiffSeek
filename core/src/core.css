@@ -94,6 +94,10 @@
   z-index: 0;
 }
 
+.ds-diff {
+  width: 4px;
+}
+
 .ds-highlight-layer {
   z-index: 1;
 }

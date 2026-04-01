@@ -5,7 +5,7 @@ import type { initializeDiffWorker } from "../diff-worker/initialize-diff-worker
 import type { DiffWorkerResult } from "../diff-worker/types";
 import type { Editor, TokenSnapshot } from "../editor/editor";
 import type { Token } from "../tokenization";
-import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START } from "../tokenization";
+import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
 import type { AnchorManager } from "./anchor-manager";
 import { buildCommonOutline } from "./build-common-outline";
@@ -212,6 +212,13 @@ export class DiffPipeline {
         let chunkRightEnd = -1;
         let chunkType: number = DIFF_TYPE_UNCHANGED;
 
+        const isAllStructural = (tokens: readonly Token[], start: number, end: number) => {
+            for (let i = start; i < end; i++) {
+                if (!(tokens[i].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) return false;
+            }
+            return true;
+        };
+
         const getDiffMarkerEl = (
             filledSnapshot: TokenSnapshot, filledStart: number, filledEnd: number,
             emptySnapshot: TokenSnapshot, emptyStart: number, emptyEnd: number
@@ -221,7 +228,7 @@ export class DiffPipeline {
                 emptySnapshot.tokens, emptySnapshot.lineBoundaries, emptyStart,
             );
 
-            const el = pos && this.getOrCreateEmptyDiffMarker(pos.which, pos.where);
+            const el = pos && this.getOrCreateEmptyDiffMarker(pos.which, pos.where, diffOptions.stackEmptyDiffMarkers);
 
             if (el) {
                 const filledStartToken = filledSnapshot.tokens[filledStart];
@@ -256,11 +263,14 @@ export class DiffPipeline {
             let leftDiffEl: HTMLElement | null = null;
             let rightDiffEl: HTMLElement | null = null;
 
-            // --- 한쪽이 비어있는 경우 marker 처리 ---
-            if (leftCount === 0 || rightCount === 0) {
+            // --- 한쪽이 비어있거나 structural만인 경우 marker 처리 ---
+            const leftStructuralOnly = leftCount > 0 && rightCount > 0 && isAllStructural(leftTokens, leftStart, leftEnd);
+            const rightStructuralOnly = leftCount > 0 && rightCount > 0 && isAllStructural(rightTokens, rightStart, rightEnd);
+
+            if (leftCount === 0 || rightCount === 0 || leftStructuralOnly || rightStructuralOnly) {
                 let filledSnapshot: TokenSnapshot, emptySnapshot: TokenSnapshot;
                 let filledStart: number, filledEnd: number, emptyStart: number, emptyEnd: number;
-                if (leftCount === 0) {
+                if (leftCount === 0 || leftStructuralOnly) {
                     filledSnapshot = rightTokenSnapshot;
                     filledStart = rightStart;
                     filledEnd = rightEnd;
@@ -280,6 +290,29 @@ export class DiffPipeline {
                     filledSnapshot, filledStart, filledEnd,
                     emptySnapshot, emptyStart, emptyEnd
                 );
+
+                if (emptyEl) {
+                    emptyEl.dataset.diffIndex = String(diffIndex);
+                }
+
+                // marker를 못 만들었을 때: 이전 diff에 합치기 (merge) 또는 건너뛰기
+                if (!emptyEl && !diffOptions.stackEmptyDiffMarkers && diffs.length > 0) {
+                    const isLeftEmpty = leftCount === 0;
+                    const prevDiff = diffs[diffs.length - 1];
+                    const prevMarkerEl = isLeftEmpty ? prevDiff.leftMarkerEl : prevDiff.rightMarkerEl;
+
+                    if (prevMarkerEl) {
+                        // 이전 diff의 filled side를 확장
+                        if (isLeftEmpty) {
+                            prevDiff.rightSpan.end = rightEnd;
+                            prevDiff.rightRange = rightEditor.getTokenRange(prevDiff.rightSpan.start, rightEnd);
+                        } else {
+                            prevDiff.leftSpan.end = leftEnd;
+                            prevDiff.leftRange = leftEditor.getTokenRange(prevDiff.leftSpan.start, leftEnd);
+                        }
+                        return;
+                    }
+                }
 
                 const emptyRange = document.createRange();
                 if (emptyEl) {
@@ -506,7 +539,7 @@ export class DiffPipeline {
 
     //     return el;
     // }
-    private getOrCreateEmptyDiffMarker(which: Node, where: InsertPosition): HTMLElement | null {
+    private getOrCreateEmptyDiffMarker(which: Node, where: InsertPosition, allowStacking: boolean = false): HTMLElement | null {
         let foundEl: HTMLElement | null = null;
         if (where === "afterend") {
             foundEl = which.nextSibling as HTMLElement;
@@ -537,8 +570,32 @@ export class DiffPipeline {
         }
 
         if (foundEl && this.markerElements.has(foundEl)) {
-            // 이미 사용 중인 요소임. 이 위치에 두개의 diff 요소가 생기는 건 논리적으로나 시각적으로 문제가 될 수 있음.
-            return null;
+            if (!allowStacking) {
+                return null;
+            }
+            // 이미 사용 중인 marker. 체인 끝으로 이동하여 그 뒤에 새 marker를 쌓는다.
+            // (empty side에 셀이 부족해 여러 diff가 같은 위치를 가리킬 때)
+            let last = foundEl;
+            while (last.nextSibling &&
+                (last.nextSibling as HTMLElement).nodeName === DIFF_TAG_NAME &&
+                this.markerElements.has(last.nextSibling as HTMLElement)) {
+                last = last.nextSibling as HTMLElement;
+            }
+
+            // 체인 끝에 이전 run에서 남은 미사용 DS-DIFF가 있으면 재활용
+            const afterLast = last.nextSibling as HTMLElement | null;
+            if (afterLast?.nodeName === DIFF_TAG_NAME && !this.markerElements.has(afterLast)) {
+                this.markerElements.set(afterLast, null);
+                return afterLast;
+            }
+
+            // 새 marker 생성
+            const el = document.createElement(DIFF_TAG_NAME);
+            el.contentEditable = "false";
+            el.innerText = "\u200B";
+            last.parentNode!.insertBefore(el, last.nextSibling);
+            this.markerElements.set(el, null);
+            return el;
         }
 
         let el: HTMLElement;

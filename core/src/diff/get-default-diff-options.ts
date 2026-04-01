@@ -28,6 +28,11 @@ const defaultDiffOptions: DiffOptions = {
     // ─────────────────────────────
     structuralTokenLength: 1,
 
+    // ─────────────────────────────
+    // Empty diff marker
+    // ─────────────────────────────
+    stackEmptyDiffMarkers: false,
+
 } as const;
 
 export function getDefaultDiffOptions(): DiffOptions {

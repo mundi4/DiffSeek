@@ -19,6 +19,7 @@ export type DiffOptions = {
     patienceMinTextLen: number;
     localSAHybridRatio: number;
     structuralTokenLength: number;
+    stackEmptyDiffMarkers: boolean;
 };
 
 export type DiffInput = {

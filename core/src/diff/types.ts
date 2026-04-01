@@ -15,6 +15,8 @@ export type DiffOptions = {
     usePatience: boolean;
     patienceMinLines: number;
     patienceMinTokens: number;
+    patienceMinTokenCount: number;
+    patienceMinTextLen: number;
     localSAHybridRatio: number;
     structuralTokenLength: number;
 };

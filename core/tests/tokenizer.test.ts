@@ -2,6 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { tokenize } from '../src/tokenization/tokenize';
 import {
     HEADING_MASK,
+    TOKEN_FLAGS_LINE_END,
     TOKEN_FLAGS_LINE_START,
     TOKEN_FLAGS_WORD_LIKE,
     TOKEN_FLAGS_TYPE_STRUCTURAL,
@@ -304,5 +305,32 @@ describe('letter/digit boundary split', () => {
 
     it('순수 숫자 "123" — split 모드에서도 하나로', async () => {
         expect(await tokWithMerge('<div>123</div>', false)).toEqual(['123']);
+    });
+});
+
+// ─── structural 토큰 불변식 ────────────────────────────────────────────────
+
+describe('structural token invariants', () => {
+    it('structural 토큰 전후 content 토큰은 LINE_END/LINE_START이고 lineNumber가 다르다', async () => {
+        const html = '<table><tr><td>셀A</td><td>셀B</td></tr><tr><td>셀C</td><td>셀D</td></tr></table>';
+        const container = makeContainer(html);
+        const signal = new AbortController().signal;
+        const { tokens } = await tokenize(container, signal);
+
+        for (let i = 0; i < tokens.length; i++) {
+            if (!(tokens[i].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) continue;
+
+            let pi = i - 1;
+            while (pi >= 0 && (tokens[pi].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) pi--;
+
+            let ni = i + 1;
+            while (ni < tokens.length && (tokens[ni].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) ni++;
+
+            if (pi >= 0 && ni < tokens.length) {
+                expect(tokens[pi].flags & TOKEN_FLAGS_LINE_END, `token[${pi}] should have LINE_END before structural at ${i}`).toBeTruthy();
+                expect(tokens[ni].flags & TOKEN_FLAGS_LINE_START, `token[${ni}] should have LINE_START after structural at ${i}`).toBeTruthy();
+                expect(tokens[pi].lineNumber, `lineNumber should differ across structural boundary at ${i}`).not.toBe(tokens[ni].lineNumber);
+            }
+        }
     });
 });

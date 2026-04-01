@@ -1,5 +1,5 @@
 import type { LineBoundaryInfo, Token } from "../tokenization/types";
-import { isStructuralClose, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN } from "../tokenization/token-flags";
+import { isStructuralClose, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization/token-flags";
 
 /**
  * empty 쪽에 diff marker를 삽입할 DOM 위치를 결정한다.
@@ -70,15 +70,21 @@ export function findEmptyDiffMarkerPosition(
             filledPrevToken.containerIndex !== filledStartToken.containerIndex;
 
         if (crossesContainerBoundary) {
-            const emptyPrevLineNum = emptyPrevToken ? emptyPrevToken.lineNumber : 0;
-            const emptyNextLineNum = emptyNextToken ? emptyNextToken.lineNumber : emptyPrevLineNum + 1;
-            // Case C에서 쓸 lineBoundary는 emptyPrev와 emptyNext 사이의
-            // "중간" continuation container의 것이어야 함.
-            // emptyPrev container의 <br> 줄경계 → 같은 container → 틀림
-            // emptyNext container의 lineBoundary → next content container → 틀림
-            // 둘 다 아닌 것만 사용. 없으면 Case D로 fallthrough.
-            const emptyPrevContainerIndex = emptyPrevToken?.containerIndex ?? -1;
-            const emptyNextContainerIndex = emptyNextToken?.containerIndex ?? -1;
+            // structural 토큰은 lineNumber/containerIndex가 의미 없음.
+            // LINE_START/LINE_END 불변식: structural 경계 전후 content 토큰은 반드시 LINE_END/LINE_START.
+            // → structural을 건너뛴 content 토큰의 lineNumber/containerIndex로 탐색 범위와 필터를 결정.
+            let pi = emptyStart - 1;
+            while (pi >= 0 && (emptyTokens[pi].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) pi--;
+            const contentPrev = pi >= 0 ? emptyTokens[pi] : null;
+
+            let ni = emptyStart;
+            while (ni < emptyTokens.length && (emptyTokens[ni].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) ni++;
+            const contentNext = ni < emptyTokens.length ? emptyTokens[ni] : null;
+
+            const emptyPrevLineNum = contentPrev ? contentPrev.lineNumber : 0;
+            const emptyNextLineNum = contentNext ? contentNext.lineNumber : emptyPrevLineNum + 1;
+            const emptyPrevContainerIndex = contentPrev?.containerIndex ?? -1;
+            const emptyNextContainerIndex = contentNext?.containerIndex ?? -1;
 
             if (emptyNextLineNum > emptyPrevLineNum) {
                 for (let lineNum = emptyPrevLineNum + 1; lineNum <= emptyNextLineNum; lineNum++) {

@@ -219,7 +219,7 @@ async function runDiffJob(workItem: WorkItem, abortSignal: AbortSignal): Promise
                 rhsInput,
                 lhsLineCount,
                 rhsLineCount,
-                workItem.diffOptions.whitespace === "ignore"
+                workItem.diffOptions
             );
 
             await processSegmentsWithAnchors(

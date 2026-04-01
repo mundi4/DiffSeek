@@ -1,18 +1,20 @@
-import { TOKEN_FLAGS_LINE_END } from "../tokenization";
+import { TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN, isStructuralClose } from "../tokenization";
 import { calculateHash, isTokenRangeTextEqual } from "./helpers";
-import type { DiffAnchor, DiffInput } from "./types";
+import type { DiffAnchor, DiffInput, DiffOptions } from "./types";
 
 export function buildPatienceAnchors(
     lhsInput: DiffInput,
     rhsInput: DiffInput,
     lhsLineCount: number,
     rhsLineCount: number,
-    ignoreWhitespaces: boolean
+    diffOptions: DiffOptions
 ): DiffAnchor[] {
     const HASH_MASK = 0xFFFF;
-    const MIN_TOKEN_COUNT = 4;
-    const MIN_TEXT_LEN = 12;
+    const MIN_TOKEN_COUNT = diffOptions.patienceMinTokenCount;
+    const MIN_TEXT_LEN = diffOptions.patienceMinTextLen;
     const LINE_BUFFER_STRIDE = 4;
+    const MAX_STRUCTURAL_PAIR_EXPANSION = 1; // 0=없음, 1=<td>까지, 2=<tr>+<td>까지
+    const ignoreWhitespaces = diffOptions.whitespace === "ignore";
 
     const HEAD = new Int32Array(HASH_MASK + 1);
 
@@ -41,13 +43,33 @@ export function buildPatienceAnchors(
     // ------------------------
     let i = 0;
     while (i < lhsTknCount) {
+        // LINE_START까지 건너뜀 (structural close 토큰들을 스킵)
+        while (i < lhsTknCount && !(lhsFlags[i] & TOKEN_FLAGS_LINE_START)) i++;
+        if (i >= lhsTknCount) break;
+
         const lineStart = i;
         while (i < lhsTknCount && (lhsFlags[i++] & TOKEN_FLAGS_LINE_END) === 0);
         const lineEnd = i;
+
         if (lineEnd - lineStart < MIN_TOKEN_COUNT) continue;
 
-        const charPos = lhsOffsets[lineStart];
-        const charLen = lhsOffsets[lineEnd] - charPos;
+        // structural OPEN/CLOSE 쌍 확장 (both-or-nothing per level)
+        let extStart = lineStart;
+        let extEnd = lineEnd;
+        for (let depth = 0; depth < MAX_STRUCTURAL_PAIR_EXPANSION; depth++) {
+            if (extStart > 0 &&
+                extEnd < lhsTknCount &&
+                (lhsFlags[extStart - 1] & TOKEN_FLAGS_STRUCTURAL_OPEN) &&
+                isStructuralClose(lhsFlags[extEnd])) {
+                extStart--;
+                extEnd++;
+            } else {
+                break;
+            }
+        }
+
+        const charPos = lhsOffsets[extStart];
+        const charLen = lhsOffsets[extEnd] - charPos;
         if (charLen < MIN_TEXT_LEN) continue;
 
         let h = calculateHash(lhsBuffer, charPos, charLen);
@@ -66,9 +88,9 @@ export function buildPatienceAnchors(
             // 2. 그런데 두 범위의 토큰 수가 같음
             // 3. 그런데 거기에 또 공백이 제거된 문자열까지 완전히 일치함
             // 여기까지 왔는데 실제로 두 줄이 같지 않다면(공백의 위치가 서로 다르다면) 나에게 돌을 던져도 좋다...
-            if (ignoreWhitespaces || (foundEnd - foundStart) === (lineEnd - lineStart)) {
+            if (ignoreWhitespaces || (foundEnd - foundStart) === (extEnd - extStart)) {
                 if (isTokenRangeTextEqual(lhsBuffer, lhsOffsets, foundStart, foundEnd,
-                    lhsBuffer, lhsOffsets, lineStart, lineEnd)) {
+                    lhsBuffer, lhsOffsets, extStart, extEnd)) {
                     foundIdx = curr;
                     break;
                 }
@@ -81,8 +103,8 @@ export function buildPatienceAnchors(
             HEAD[h] = idx;
 
             const base = idx * LINE_BUFFER_STRIDE;
-            lineBuffer[base] = lineStart;
-            lineBuffer[base + 1] = lineEnd;
+            lineBuffer[base] = extStart;
+            lineBuffer[base + 1] = extEnd;
             lineBuffer[base + 2] = -1; // rhsStart
         } else {
             // duplicate
@@ -95,12 +117,31 @@ export function buildPatienceAnchors(
     // ------------------------
     i = 0;
     while (i < rhsTknCount) {
+        // LINE_START까지 건너뜀 (structural close 토큰들을 스킵)
+        while (i < rhsTknCount && !(rhsFlags[i] & TOKEN_FLAGS_LINE_START)) i++;
+        if (i >= rhsTknCount) break;
+
         const lineStart = i;
         while (i < rhsTknCount && (rhsFlags[i++] & TOKEN_FLAGS_LINE_END) === 0);
         const lineEnd = i;
 
-        const charPos = rhsOffsets[lineStart];
-        const charLen = rhsOffsets[lineEnd] - charPos;
+        // structural OPEN/CLOSE 쌍 확장 (both-or-nothing per level)
+        let extStart = lineStart;
+        let extEnd = lineEnd;
+        for (let depth = 0; depth < MAX_STRUCTURAL_PAIR_EXPANSION; depth++) {
+            if (extStart > 0 &&
+                extEnd < rhsTknCount &&
+                (rhsFlags[extStart - 1] & TOKEN_FLAGS_STRUCTURAL_OPEN) &&
+                isStructuralClose(rhsFlags[extEnd])) {
+                extStart--;
+                extEnd++;
+            } else {
+                break;
+            }
+        }
+
+        const charPos = rhsOffsets[extStart];
+        const charLen = rhsOffsets[extEnd] - charPos;
         if (charLen < MIN_TEXT_LEN) continue;
 
         let h = calculateHash(rhsBuffer, charPos, charLen);
@@ -113,9 +154,9 @@ export function buildPatienceAnchors(
 
             const lhsEnd = lineBuffer[base + 1];
 
-            if (ignoreWhitespaces || (lhsEnd - lhsStart) === (lineEnd - lineStart)) {
+            if (ignoreWhitespaces || (lhsEnd - lhsStart) === (extEnd - extStart)) {
                 if (!isTokenRangeTextEqual(lhsBuffer, lhsOffsets, lhsStart, lhsEnd,
-                    rhsBuffer, rhsOffsets, lineStart, lineEnd)) {
+                    rhsBuffer, rhsOffsets, extStart, extEnd)) {
                     continue;
                 }
             } else {
@@ -125,8 +166,8 @@ export function buildPatienceAnchors(
             const rhsStartStored = lineBuffer[base + 2];
 
             if (rhsStartStored === -1) {
-                lineBuffer[base + 2] = lineStart;
-                lineBuffer[base + 3] = lineEnd;
+                lineBuffer[base + 2] = extStart;
+                lineBuffer[base + 3] = extEnd;
             } else {
                 // rhs duplicate
                 lineBuffer[base] = -1;

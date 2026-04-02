@@ -359,6 +359,12 @@ export class Editor implements EditorContext {
         if (this.contentElement.childNodes.length === 0) {
             this.contentElement.appendChild(INITIAL_CONTENT_HTML.cloneNode(true));
         }
+
+        // 기억난다...
+        // 내가 예전에 왜 기존 블럭요소에 패딩을 넣지 않고 앵커 요소를 새로 삽입했었는지...!
+        // 브라우저님이 너무 친절하셔서 새 줄을 만들 때 기존 줄의 attr들을 모조리 복사해주신다.
+        // 너무 황송하고 몸둘 바를 모르겠으니 즉시 제거 필요.
+        // TODO: editor가 이 앵커의 세부 attr까지 알고 있는 건 느낌이 좋지 않다.
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) {
                 if (node.nodeType === Node.ELEMENT_NODE) {

@@ -222,10 +222,16 @@ export class DiffPipeline {
             filledSnapshot: TokenSnapshot, filledStart: number, filledEnd: number,
             emptySnapshot: TokenSnapshot, emptyStart: number, emptyEnd: number
         ) => {
-            const pos = findEmptyDiffMarkerPosition(
+            let pos = findEmptyDiffMarkerPosition(
                 filledSnapshot.tokens, filledStart,
                 emptySnapshot.tokens, emptySnapshot.lineBoundaries, emptyStart,
             );
+
+            // 최후의 fallback: emptyStart === 0이면 editor root의 afterbegin
+            if (!pos && emptyStart === 0) {
+                const emptyEditor = emptySnapshot === leftTokenSnapshot ? leftEditor : rightEditor;
+                pos = { which: emptyEditor.contentElement, where: "afterbegin" };
+            }
 
             const el = pos && this.getOrCreateEmptyDiffMarker(pos.which, pos.where, diffOptions.stackEmptyDiffMarkers);
 

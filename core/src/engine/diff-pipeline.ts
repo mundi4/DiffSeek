@@ -394,6 +394,15 @@ export class DiffPipeline {
                 } else if (emptyStart > 0) {
                     emptyRange.setStart(emptySnapshot.tokens[emptyStart - 1].endNode, emptySnapshot.tokens[emptyStart - 1].endOffset);
                     emptyRange.collapse(true);
+                } else if (emptySnapshot.tokens.length > 0) {
+                    emptyRange.setStart(emptySnapshot.tokens[0].startNode, emptySnapshot.tokens[0].startOffset);
+                    emptyRange.collapse(true);
+                } else {
+                    const line = emptySnapshot.lineBoundaries[1] ?? emptySnapshot.lineBoundaries[0];
+                    if (line?.startWhich) {
+                        emptyRange.setStart(line.startWhich, 0);
+                        emptyRange.collapse(true);
+                    }
                 }
 
                 if (leftCount === 0) {

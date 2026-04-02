@@ -391,7 +391,7 @@ export class DiffPipeline {
                 const emptyRange = document.createRange();
                 if (emptyEl) {
                     emptyRange.selectNode(emptyEl);
-                } else {
+                } else if (emptyStart > 0) {
                     emptyRange.setStart(emptySnapshot.tokens[emptyStart - 1].endNode, emptySnapshot.tokens[emptyStart - 1].endOffset);
                     emptyRange.collapse(true);
                 }

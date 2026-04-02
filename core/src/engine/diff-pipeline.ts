@@ -7,7 +7,6 @@ import type { Editor, TokenSnapshot } from "../editor/editor";
 import type { Token } from "../tokenization";
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
-import type { AnchorManager } from "./anchor-manager";
 import { buildCommonOutline } from "./build-common-outline";
 import { findEmptyDiffMarkerPosition } from "./find-empty-diff-marker-position";
 import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
@@ -242,20 +241,77 @@ export class DiffPipeline {
             return el;
         }
 
+        const peekElementAt = (which: Node, where: InsertPosition): HTMLElement | null => {
+            if (where === "afterend") return which.nextSibling as HTMLElement;
+            if (where === "afterbegin") return which.firstChild as HTMLElement;
+            if (where === "beforeend") return which.lastChild as HTMLElement;
+            if (where === "beforebegin") return which.previousSibling as HTMLElement;
+            return null;
+        };
+
+        const getAnchorElForLine = (token: Token, isLeft: boolean): HTMLElement | null => {
+            const snapshot = isLeft ? leftTokenSnapshot : rightTokenSnapshot;
+            const lb = snapshot.lineBoundaries[token.lineNumber];
+            if (!lb?.startWhich) return null;
+
+            let which: Node = lb.startWhich;
+            let where: InsertPosition = lb.startWhere;
+
+            // line boundary 위치에 diff marker chain이 있으면 그 뒤로 이동
+            let peek = peekElementAt(which, where);
+            while (peek?.nodeName === DIFF_TAG_NAME) {
+                which = peek;
+                where = "afterend";
+                peek = peek.nextSibling as HTMLElement;
+            }
+
+            return this.getOrCreateAnchor(which, where);
+        };
+
+        const activateAnchorEl = (el: HTMLElement, anchorIndex: number, diffIndex: number | null) => {
+            el.dataset.anchorIndex = String(anchorIndex);
+            if (diffIndex !== null) {
+                el.dataset.diffIndex = String(diffIndex);
+            } else {
+                delete el.dataset.diffIndex;
+            }
+        };
+
+        const addAnchorPair = (
+            leftEl: HTMLElement, rightEl: HTMLElement,
+            diffIndex: number | null,
+            leftContainerIndex: number, rightContainerIndex: number,
+        ) => {
+            const index = anchorPairs.length;
+            activateAnchorEl(leftEl, index, diffIndex);
+            activateAnchorEl(rightEl, index, diffIndex);
+            anchorPairs.push({
+                index,
+                leftEl,
+                rightEl,
+                diffIndex,
+                leftContainerIndex,
+                rightContainerIndex,
+                isBaseline: diffIndex === null,
+            });
+        };
+
         const handleCommon = (leftStart: number, leftEnd: number, rightStart: number, rightEnd: number) => {
             const leftToken = leftTokens[leftStart];
             const rightToken = rightTokens[rightStart];
             if (leftToken.flags & rightToken.flags & TOKEN_FLAGS_LINE_START) {
-                //addAnchorPair(leftToken, rightToken);
+                const leftEl = getAnchorElForLine(leftToken, true);
+                const rightEl = leftEl && getAnchorElForLine(rightToken, false);
+                if (leftEl && rightEl) {
+                    addAnchorPair(leftEl, rightEl, null,
+                        leftToken.containerIndex, rightToken.containerIndex);
+                }
             }
         };
 
         const handleDiff = (leftStart: number, leftEnd: number, rightStart: number, rightEnd: number, type: number) => {
             const leftCount = leftEnd - leftStart;
             const rightCount = rightEnd - rightStart;
-            // const leftToken = leftStart < leftTokens.length ? leftTokens[leftStart] : null;
-            // const rightToken = rightStart < rightTokens.length ? rightTokens[rightStart] : null;
-
             const diffIndex = diffs.length;
 
             let leftRange: Range | null = null;
@@ -293,6 +349,24 @@ export class DiffPipeline {
 
                 if (emptyEl) {
                     emptyEl.dataset.diffIndex = String(diffIndex);
+
+                    // anchor pair 생성: filled 쪽은 line boundary, empty 쪽은 diff marker 앞
+                    const filledStartToken = filledSnapshot.tokens[filledStart];
+                    if (filledStartToken.flags & TOKEN_FLAGS_LINE_START) {
+                        const isLeftEmpty = (leftCount === 0 || leftStructuralOnly);
+                        const filledToken = isLeftEmpty ? rightTokens[rightStart] : leftTokens[leftStart];
+                        const filledAnchorEl = getAnchorElForLine(filledToken, !isLeftEmpty);
+                        const emptyAnchorEl = filledAnchorEl && this.getOrCreateAnchor(emptyEl, "beforebegin");
+                        if (filledAnchorEl && emptyAnchorEl) {
+                            addAnchorPair(
+                                isLeftEmpty ? emptyAnchorEl : filledAnchorEl,
+                                isLeftEmpty ? filledAnchorEl : emptyAnchorEl,
+                                diffIndex,
+                                isLeftEmpty ? -1 : filledToken.containerIndex,
+                                isLeftEmpty ? filledToken.containerIndex : -1,
+                            );
+                        }
+                    }
                 }
 
                 // marker를 못 만들었을 때: 이전 diff에 합치기 (merge) 또는 건너뛰기
@@ -335,12 +409,17 @@ export class DiffPipeline {
             else {
                 leftRange = leftEditor.getTokenRange(leftStart, leftEnd);
                 rightRange = rightEditor.getTokenRange(rightStart, rightEnd);
-                // if (leftToken!.flags & rightToken!.flags & TOKEN_FLAGS_LINE_START) {
-                //     leftAnchorEl = getAnchorEl(leftToken!, true);
-                //     rightAnchorEl = leftAnchorEl && getAnchorEl(rightToken!, false);
-                //     leftAnchorContainerIndex = leftToken!.containerIndex;
-                //     rightAnchorContainerIndex = rightToken!.containerIndex;
-                // }
+
+                const leftToken = leftTokens[leftStart];
+                const rightToken = rightTokens[rightStart];
+                if (leftToken.flags & rightToken.flags & TOKEN_FLAGS_LINE_START) {
+                    const leftAnchorEl = getAnchorElForLine(leftToken, true);
+                    const rightAnchorEl = leftAnchorEl && getAnchorElForLine(rightToken, false);
+                    if (leftAnchorEl && rightAnchorEl) {
+                        addAnchorPair(leftAnchorEl, rightAnchorEl, diffIndex,
+                            leftToken.containerIndex, rightToken.containerIndex);
+                    }
+                }
             }
 
             const diff = {
@@ -487,58 +566,32 @@ export class DiffPipeline {
         } satisfies Omit<DiffContext, "timing">;
     }
 
-    // getOrCreateMarkerElement(tagName: typeof ANCHOR_TAG_NAME | typeof DIFF_TAG_NAME, which: Node, where: InsertPosition): HTMLElement | null {
-    //     if (!which || !where) {
-    //         return null;
-    //     }
+    private getOrCreateAnchor(which: Node, where: InsertPosition): HTMLElement | null {
+        let foundEl: HTMLElement | null = null;
+        if (where === "afterend") foundEl = which.nextSibling as HTMLElement;
+        else if (where === "afterbegin") foundEl = which.firstChild as HTMLElement;
+        else if (where === "beforeend") foundEl = which.lastChild as HTMLElement;
+        else if (where === "beforebegin") foundEl = which.previousSibling as HTMLElement;
 
-    //     let foundEl: HTMLElement | null = null;
-    //     if (where === "afterend") {
-    //         foundEl = which.nextSibling as HTMLElement;
-    //     } else if (where === "afterbegin") {
-    //         foundEl = which.firstChild as HTMLElement;
-    //     } else if (where === "beforeend") {
-    //         foundEl = which.lastChild as HTMLElement;
-    //     } else if (where === "beforebegin") {
-    //         foundEl = which.previousSibling as HTMLElement;
-    //     }
+        if (foundEl?.nodeName === ANCHOR_TAG_NAME) {
+            if (this.markerElements.has(foundEl)) return null; // 이미 사용 중 → 실패
+            this.markerElements.set(foundEl, null); // 이전 run 잔여 → 재사용
+            return foundEl;
+        }
 
-    //     let parent: ParentNode | null = null;
-    //     if (foundEl && this.markerElements.has(foundEl)) {
-    //         parent = foundEl.parentNode;
-    //         do {
-    //             // console.warn("getOrCreateMarkerElement: the element at the target position is already being used as a marker, looking for an existing marker element with the correct tag name",
-    //             //     { tagName, which, where, foundEl, parent });
-    //             foundEl = foundEl.nextSibling as HTMLElement;
-    //         } while (foundEl && this.markerElements.has(foundEl));
-    //     }
+        const el = document.createElement(ANCHOR_TAG_NAME);
+        el.contentEditable = "false";
+        if (where === "afterend") {
+            which.parentNode!.insertBefore(el, which.nextSibling);
+        } else if (where === "beforebegin") {
+            which.parentNode!.insertBefore(el, which);
+        } else {
+            (which as HTMLElement).insertAdjacentElement(where, el);
+        }
+        this.markerElements.set(el, null);
+        return el;
+    }
 
-    //     let el: HTMLElement;
-
-    //     if (!foundEl || foundEl.nodeName !== tagName) {
-    //         const beforeMe = foundEl;
-    //         el = document.createElement(tagName);
-    //         el.contentEditable = "false";
-    //         if (tagName === DIFF_TAG_NAME) {
-    //             el.innerText = "\u200B"; // zero-width space
-    //         } else {
-
-    //         }
-    //         if (parent) {
-    //             parent.insertBefore(el, beforeMe);
-    //         } else if (where === "afterend") {
-    //             which.parentNode!.insertBefore(el, which.nextSibling);
-    //         } else {
-    //             (which as HTMLElement).insertAdjacentElement(where, el);
-    //         }
-    //     } else {
-    //         el = foundEl;
-    //     }
-
-    //     this.markerElements.add(el);
-
-    //     return el;
-    // }
     private getOrCreateEmptyDiffMarker(which: Node, where: InsertPosition, allowStacking: boolean = false): HTMLElement | null {
         let foundEl: HTMLElement | null = null;
         if (where === "afterend") {

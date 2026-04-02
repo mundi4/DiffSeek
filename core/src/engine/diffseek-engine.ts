@@ -561,11 +561,13 @@ export class DiffseekEngine {
 
             this.renderer.setDiffs(diffContext.diffs);
 
+
+            this.setDiffContext(diffContext);
+
             if (this._syncMode) {
                 await this.alignAnchors();
             }
 
-            this.setDiffContext(diffContext);
             this.handleSelectionChange();
             this.renderer.invalidateAll();
             this.renderer.resumeRendering();

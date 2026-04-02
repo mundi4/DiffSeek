@@ -13,8 +13,8 @@ import type { AnchorPair, DiffContext, DiffWorkflowStatus } from "./types";
 
 export class DiffPipeline {
     private abortController: AbortController | null = null;
-    private markerElements: Map<HTMLElement, AnchorPair | null> = new Map();
-    private prevMarkerElements: Map<HTMLElement, AnchorPair | null> | null = null;
+    private markerElements: Set<HTMLElement> = new Set();
+    private prevMarkerElements: Set<HTMLElement> | null = null;
 
     private emitStatusForRun(controller: AbortController, status: DiffWorkflowStatus) {
         if (this.abortController === controller) {
@@ -43,7 +43,7 @@ export class DiffPipeline {
             throw new Error("beginUpdate called while a previous update is still in progress");
         }
         this.prevMarkerElements = this.markerElements;
-        this.markerElements = new Map();
+        this.markerElements = new Set();
     }
 
     endUpdate() {
@@ -51,18 +51,26 @@ export class DiffPipeline {
             // beginUpdate가 호출되지 않은 상태에서 endUpdate가 호출됨!
             throw new Error("endUpdate called without a corresponding beginUpdate");
         }
-        this.cleanupUnsuedMarkers();
+        this.cleanupUnusedMarkers();
         this.prevMarkerElements = null;
     }
 
-    cleanupUnsuedMarkers() {
-        for (const [el, pair] of this.prevMarkerElements!.entries()) {
+    cleanupUnusedMarkers() {
+        for (const el of this.prevMarkerElements!) {
             if (this.markerElements.has(el)) {
-                // 여전히 사용 중
                 continue;
             }
-            if (el.isConnected) {
+            if (!el.isConnected) continue;
+            const nodeName = el.nodeName;
+            if (nodeName === ANCHOR_TAG_NAME || nodeName === DIFF_TAG_NAME) {
                 el.remove();
+            } else {
+                // 블록 요소를 앵커로 빌려 쓴 경우 — 속성만 정리
+                el.classList.remove("ds-padded", "ds-striped");
+                el.style.removeProperty("--ds-adjust");
+                delete el.dataset.adjust;
+                delete el.dataset.anchorIndex;
+                delete el.dataset.diffIndex;
             }
         }
     }
@@ -289,6 +297,28 @@ export class DiffPipeline {
             leftContainerIndex: number, rightContainerIndex: number,
         ) => {
             const index = anchorPairs.length;
+
+            const leftAdjustStr = leftEl.dataset.adjust;
+            const rightAdjustStr = rightEl.dataset.adjust;
+            let delta = 0;
+            if (leftAdjustStr && rightAdjustStr) {
+                // 양쪽에 adjust가 있다면 이 둘은 반드시 다른 pair로부터 온 것임
+                delta = 0;
+                delete leftEl.dataset.adjust;
+                leftEl.classList.remove("ds-padded", "ds-striped");
+                leftEl.style.removeProperty("--ds-adjust");
+                delete rightEl.dataset.adjust;
+                rightEl.classList.remove("ds-padded", "ds-striped");
+                rightEl.style.removeProperty("--ds-adjust");
+            } else if (leftAdjustStr) {
+                delta = -parseInt(leftAdjustStr);
+            } else if (rightAdjustStr) {
+                delta = parseInt(rightAdjustStr);
+            }
+
+            // 이 delta를 pair에 넣어야 함.
+
+
             activateAnchorEl(leftEl, index, diffIndex);
             activateAnchorEl(rightEl, index, diffIndex);
             anchorPairs.push({
@@ -298,7 +328,7 @@ export class DiffPipeline {
                 diffIndex,
                 leftContainerIndex,
                 rightContainerIndex,
-                isBaseline: diffIndex === null,
+                delta,
             });
         };
 
@@ -356,17 +386,17 @@ export class DiffPipeline {
                 if (emptyEl) {
                     emptyEl.dataset.diffIndex = String(diffIndex);
 
-                    // anchor pair 생성: filled 쪽은 line boundary, empty 쪽은 diff marker 앞
+                    // anchor pair 생성: filled 쪽은 line boundary, empty 쪽은 ds-diff 자체를 borrow
                     const filledStartToken = filledSnapshot.tokens[filledStart];
                     if (filledStartToken.flags & TOKEN_FLAGS_LINE_START) {
                         const isLeftEmpty = (leftCount === 0 || leftStructuralOnly);
                         const filledToken = isLeftEmpty ? rightTokens[rightStart] : leftTokens[leftStart];
                         const filledAnchorEl = getAnchorElForLine(filledToken, !isLeftEmpty);
-                        const emptyAnchorEl = filledAnchorEl && this.getOrCreateAnchor(emptyEl, "beforebegin");
-                        if (filledAnchorEl && emptyAnchorEl) {
+                        if (filledAnchorEl) {
+                            this.markerElements.add(emptyEl);
                             addAnchorPair(
-                                isLeftEmpty ? emptyAnchorEl : filledAnchorEl,
-                                isLeftEmpty ? filledAnchorEl : emptyAnchorEl,
+                                isLeftEmpty ? emptyEl : filledAnchorEl,
+                                isLeftEmpty ? filledAnchorEl : emptyEl,
                                 diffIndex,
                                 isLeftEmpty ? -1 : filledToken.containerIndex,
                                 isLeftEmpty ? filledToken.containerIndex : -1,
@@ -581,8 +611,14 @@ export class DiffPipeline {
 
         if (foundEl?.nodeName === ANCHOR_TAG_NAME) {
             if (this.markerElements.has(foundEl)) return null; // 이미 사용 중 → 실패
-            this.markerElements.set(foundEl, null); // 이전 run 잔여 → 재사용
+            this.markerElements.add(foundEl); // 이전 run 잔여 → 재사용
             return foundEl;
+        }
+
+        // 블록 요소 borrow: afterbegin이면 which 자체가 블록 컨테이너이므로 DOM 삽입 없이 재사용
+        if (where === "afterbegin" && !this.markerElements.has(which as HTMLElement)) {
+            this.markerElements.add(which as HTMLElement);
+            return which as HTMLElement;
         }
 
         const el = document.createElement(ANCHOR_TAG_NAME);
@@ -594,7 +630,7 @@ export class DiffPipeline {
         } else {
             (which as HTMLElement).insertAdjacentElement(where, el);
         }
-        this.markerElements.set(el, null);
+        this.markerElements.add(el);
         return el;
     }
 
@@ -644,7 +680,7 @@ export class DiffPipeline {
             // 체인 끝에 이전 run에서 남은 미사용 DS-DIFF가 있으면 재활용
             const afterLast = last.nextSibling as HTMLElement | null;
             if (afterLast?.nodeName === DIFF_TAG_NAME && !this.markerElements.has(afterLast)) {
-                this.markerElements.set(afterLast, null);
+                this.markerElements.add(afterLast);
                 return afterLast;
             }
 
@@ -653,7 +689,7 @@ export class DiffPipeline {
             el.contentEditable = "false";
             el.innerText = "\u200B";
             last.parentNode!.insertBefore(el, last.nextSibling);
-            this.markerElements.set(el, null);
+            this.markerElements.add(el);
             return el;
         }
 
@@ -674,7 +710,7 @@ export class DiffPipeline {
             el = foundEl;
         }
 
-        this.markerElements.set(el, null);
+        this.markerElements.add(el);
         return el;
     }
 }

@@ -54,7 +54,7 @@ export type AnchorPair = {
     diffIndex: number | null;
     leftContainerIndex: number;
     rightContainerIndex: number;
-    isBaseline: boolean;
+    delta: number;
 }
 
 export interface DiffseekEventMap {

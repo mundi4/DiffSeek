@@ -147,13 +147,21 @@ export class AnchorManager {
 
     private applyDeltaToPair(pair: AnchorPair, delta: number) {
         let theEl: HTMLElement;
+        let otherEl: HTMLElement;
         pair.delta = delta;
         if (delta > 0) {
             theEl = pair.rightEl;
+            otherEl = pair.leftEl;
         } else {
             delta = -delta;
             theEl = pair.leftEl;
+            otherEl = pair.rightEl;
         }
+        // 반대쪽 이전 패딩 제거
+        otherEl.classList.remove("ds-padded", "ds-striped");
+        otherEl.style.removeProperty("--ds-adjust");
+        delete otherEl.dataset.adjust;
+        // 적용
         theEl.style.setProperty("--ds-adjust", `${delta}px`);
         theEl.dataset.adjust = String(delta);
         theEl.classList.add("ds-padded");

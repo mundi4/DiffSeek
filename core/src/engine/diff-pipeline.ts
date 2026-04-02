@@ -38,8 +38,6 @@ export class DiffPipeline {
 
     beginUpdate() {
         if (this.prevMarkerElements !== null) {
-            // 이미 beginUpdate가 호출된 상태에서 endUpdate 없이 다시 beginUpdate가 호출됨
-            // 즉 내가 영구짓을 하고 있음. 절대적으로 있어서는 안되는 일.
             throw new Error("beginUpdate called while a previous update is still in progress");
         }
         this.prevMarkerElements = this.markerElements;
@@ -48,7 +46,6 @@ export class DiffPipeline {
 
     endUpdate() {
         if (this.prevMarkerElements === null) {
-            // beginUpdate가 호출되지 않은 상태에서 endUpdate가 호출됨!
             throw new Error("endUpdate called without a corresponding beginUpdate");
         }
         this.cleanupUnusedMarkers();

@@ -355,16 +355,30 @@ export class Editor implements EditorContext {
             });
     }
 
-    private onMutation(_mutations: MutationRecord[]) {
+    private onMutation(mutations: MutationRecord[]) {
         if (this.contentElement.childNodes.length === 0) {
             this.contentElement.appendChild(INITIAL_CONTENT_HTML.cloneNode(true));
+        }
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const el = node as HTMLElement;
+                    if (el.dataset.anchorIndex !== undefined) {
+                        el.classList.remove("ds-padded", "ds-striped");
+                        el.style.removeProperty("--ds-adjust");
+                        delete el.dataset.adjust;
+                        delete el.dataset.anchorIndex;
+                        delete el.dataset.diffIndex;
+                    }
+                }
+            }
         }
     }
 
     private observeMutation() {
         this.mutationObserver.observe(this.contentElement, {
             childList: true,
-            // subtree: true,
+            subtree: true,
         });
     }
 

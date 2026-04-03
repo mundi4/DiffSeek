@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { extractRectsFromRange } from "./extract-rects-from-range";
 import { mergeRects } from "./merge-rects";
 import { Renderer } from "./renderer";
-import { RENDER_FLAGS_DIFF_HIGHLIGHT, RENDER_FLAGS_DIFF_LAYER, RENDER_FLAGS_GEOMETRY, RENDER_FLAGS_HIGHLIGHT_LAYER, RENDER_FLAGS_MINIMAP, RENDER_FLAGS_RESIZE, RENDER_FLAGS_SCROLL, type DiffRenderItem, type Rect, type RectSet } from "./types";
+import { DIRTY_DIFF_HIGHLIGHT, DIRTY_GEOMETRY, DIRTY_RESIZE, DIRTY_SCROLL, DIRTY_SELECTION, RENDER_DIFF_LAYER, RENDER_HIGHLIGHT_LAYER, RENDER_MINIMAP, type DiffRenderItem, type Rect, type RectSet } from "./types";
 
 export class EditorRegion {
     readonly renderer: Renderer;
@@ -39,10 +39,10 @@ export class EditorRegion {
         let ret: number = 0;
         if (this.regionX !== x || this.regionY !== y || this.regionWidth !== width || this.regionHeight !== height) {
             renderer.invalidateGeometries(this.editor.name);
-            ret = RENDER_FLAGS_RESIZE;
+            ret = DIRTY_RESIZE;
         } else if (this.#scrollTop !== scrollTop) {
             renderer.invalidateScroll(this.editor.name);
-            ret = RENDER_FLAGS_SCROLL;
+            ret = DIRTY_SCROLL;
         }
 
         this.regionX = x;
@@ -101,8 +101,8 @@ export class EditorRegion {
         this.highlightedDiffIndex = diffIndex;
 
         if (wasShown || shouldShow) {
-            this.renderer.invalidateDiffLayer(this.editor.name);
-            return RENDER_FLAGS_DIFF_HIGHLIGHT;
+            this.renderer.invalidateRegion(DIRTY_DIFF_HIGHLIGHT, this.editor.name);
+            return DIRTY_DIFF_HIGHLIGHT;
         }
 
         return 0;
@@ -128,7 +128,7 @@ export class EditorRegion {
 
         this.#selectionHighlight = range;
         this.#selectionHighlightRects = null;
-        this.renderer.invalidateHighlightLayer(this.editor.name);
+        this.renderer.invalidateRegion(DIRTY_SELECTION, this.editor.name);
     }
 
     prepare(dirtyFlags: number) {
@@ -142,7 +142,7 @@ export class EditorRegion {
 
         visibleDiffIndices.clear();
 
-        if (dirtyFlags & RENDER_FLAGS_GEOMETRY) {
+        if (dirtyFlags & DIRTY_GEOMETRY) {
             diffGeometries.length = 0;
             this.#diffLineRects.length = 0;
             this.#sortedDiffIndices.length = 0;
@@ -223,24 +223,21 @@ export class EditorRegion {
                     diffExpandY,
                     diffs[diffIndex].empty,
                 );
-                // let added = false;
-                for (const rect of rangeRects) {
-                    // rect.x += offsetLeft - DIFF_EXPAND_X;
-                    // rect.y += offsetTop - DIFF_EXPAND_Y;
-                    // rect.width += DIFF_EXPAND_X * 2;
-                    // rect.height += DIFF_EXPAND_Y * 2;
-                    newGeometryRects.push(rect);
 
-                    // 이왕 루프를 도는김에 여기서 visibility 체크를 하려고 했지만..
-                    // 뭐 얼마 차이나지 않을 것 같으니 rects를 완전히 만든 후에 y좌표로 정렬된 배열을 가지고 테스트 하는 걸로..
-                    // if (!added && rect.y + rect.height >= 0 && rect.y <= regionHeight) {
-                    // 	visibleDiffIndices.add(diffIndex);
-                    // 	added = true;
-                    // }
+                if (rangeRects.length > 0) {
+                    for (const rect of rangeRects) {
+                        newGeometryRects.push(rect);
+                    }
+                    diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
+                    geometry = diffGeometries[diffIndex]!;
+                } else {
+                    // extractRectsFromRange가 빈 결과를 반환함 (range가 detach되었거나 일시적 렌더링 이슈).
+                    // rects를 null로 유지하여 다음 prepare에서 재시도하도록 함.
+                    // mergeRects([])는 minY: MAX_SAFE_INTEGER를 반환하여 정렬 순서를 오염시키므로 교체하면 안 됨.
+                    if (import.meta.env.DEV) {
+                        console.warn(`[EditorRegion:${this.editor.name}] extractRectsFromRange returned empty for diff ${diffIndex}`);
+                    }
                 }
-
-                diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
-                geometry = diffGeometries[diffIndex]!;
             }
 
             for (const rect of geometry.rects!) {
@@ -267,11 +264,11 @@ export class EditorRegion {
     }
 
     render(dirtyFlags: number) {
-        if (dirtyFlags & RENDER_FLAGS_DIFF_LAYER) {
+        if (dirtyFlags & RENDER_DIFF_LAYER) {
             this.renderDiffLayer(dirtyFlags);
         }
 
-        if (dirtyFlags & RENDER_FLAGS_HIGHLIGHT_LAYER) {
+        if (dirtyFlags & RENDER_HIGHLIGHT_LAYER) {
             this.renderHighlightLayer(dirtyFlags);
         }
     }
@@ -281,7 +278,7 @@ export class EditorRegion {
         const ctx = this.renderer.ctx;
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
-        if (dirtyFlags & RENDER_FLAGS_MINIMAP) {
+        if (dirtyFlags & RENDER_MINIMAP) {
             ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
         } else {
             ctx.clearRect(0, 0, this.regionWidth - this.renderer.options.minimapWidth, this.regionHeight);
@@ -336,7 +333,7 @@ export class EditorRegion {
             }
         }
 
-        if (dirtyFlags & RENDER_FLAGS_MINIMAP && this.diffGeometries.length > 0) {
+        if (dirtyFlags & RENDER_MINIMAP && this.diffGeometries.length > 0) {
             this.#renderMinimap(ctx);
         }
 
@@ -419,7 +416,7 @@ export class EditorRegion {
         const scrollLeft = 0;
 
         if (this.#selectionHighlight) {
-            if (!this.#selectionHighlightRects || dirtyFlags & RENDER_FLAGS_GEOMETRY) {
+            if (!this.#selectionHighlightRects || dirtyFlags & DIRTY_GEOMETRY) {
                 const offsetX = -this.renderer.x - this.regionX + scrollLeft;
                 const offsetY = -this.renderer.y - this.regionY + scrollTop;
                 const rawRects = extractRectsFromRange(this.#selectionHighlight, offsetX, offsetY, 0, 0, false);

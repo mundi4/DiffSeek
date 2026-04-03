@@ -1,10 +1,11 @@
 import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
-import type { LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
+import type { ContainerInfo, LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
 import type { SectionHeadingInfo } from "../tokenization/types";
 import type { Span } from "../types";
 import { findAdjacentTextNode } from "../utils/find-adjacent-text-node";
+import { TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
 import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions } from "./types";
@@ -40,6 +41,7 @@ export type TokenSnapshot = {
     tokens: readonly Token[];
     lineBoundaries: readonly LineBoundaryInfo[];
     sectionHeadings: readonly SectionHeadingInfo[];
+    containers: readonly ContainerInfo[];
     elapsedTime: number;
 }
 
@@ -48,6 +50,7 @@ const NULL_TOKEN_SNAPSHOT: TokenSnapshot = {
     tokens: [],
     lineBoundaries: [],
     sectionHeadings: [],
+    containers: [],
     elapsedTime: 0,
 } as const;
 
@@ -62,6 +65,7 @@ export class Editor implements EditorContext {
     tokens: readonly Token[] = [];
     lineBoundaries: readonly LineBoundaryInfo[] = [];
     sectionHeadings: readonly SectionHeadingInfo[] = [];
+    containers: readonly ContainerInfo[] = [];
 
     options: EditorOptions;
     mutationObserver: MutationObserver;
@@ -318,12 +322,13 @@ export class Editor implements EditorContext {
         this.tokenizeAbortController = controller;
 
         tokenize(this.contentElement, controller.signal, this.tokenizeOptions)
-            .then(({ wholeText, tokens, lineBoundaries, sectionHeadings, elapsed }) => {
+            .then(({ wholeText, tokens, lineBoundaries, sectionHeadings, containers, elapsed }) => {
                 if (this.tokenizeAbortController === controller) {
                     this.wholeText = wholeText;
                     this.tokens = tokens;
                     this.lineBoundaries = lineBoundaries;
                     this.sectionHeadings = sectionHeadings;
+                    this.containers = containers;
                     this._hasPendingPromise = false;
 
                     this._tokenizingPromiseResolver?.({
@@ -331,6 +336,7 @@ export class Editor implements EditorContext {
                         tokens: tokens,
                         lineBoundaries: lineBoundaries,
                         sectionHeadings: sectionHeadings,
+                        containers: containers,
                         elapsedTime: elapsed,
                     });
 
@@ -349,16 +355,35 @@ export class Editor implements EditorContext {
             });
     }
 
-    private onMutation(_mutations: MutationRecord[]) {
+    private onMutation(mutations: MutationRecord[]) {
         if (this.contentElement.childNodes.length === 0) {
             this.contentElement.appendChild(INITIAL_CONTENT_HTML.cloneNode(true));
+        }
+
+        // 기억난다...
+        // 내가 예전에 왜 기존 블럭요소에 패딩을 넣지 않고 앵커 요소를 새로 삽입했었는지...!
+        // 브라우저님이 너무 친절하셔서 새 줄을 만들 때 기존 줄의 attr들을 모조리 복사해주신다.
+        // 너무 황송하고 몸둘 바를 모르겠으니 즉시 제거 필요.
+        // TODO: editor가 이 앵커의 세부 attr까지 알고 있는 건 느낌이 좋지 않다.
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.nodeType === Node.ELEMENT_NODE) {
+                    const el = node as HTMLElement;
+                    if (el.dataset.anchorIndex !== undefined) {
+                        el.classList.remove("ds-padded", "ds-striped");
+                        el.style.removeProperty("--ds-adjust");
+                        delete el.dataset.anchorIndex;
+                        delete el.dataset.diffIndex;
+                    }
+                }
+            }
         }
     }
 
     private observeMutation() {
         this.mutationObserver.observe(this.contentElement, {
             childList: true,
-            // subtree: true,
+            subtree: true,
         });
     }
 
@@ -628,7 +653,12 @@ export class Editor implements EditorContext {
         return { start, end };
     }
 
-    getTokenRange(index: number, end: number = index + 1): Range {
+    getTokenRange(index: number, end: number = index + 1, trimStructural = true): Range {
+        if (trimStructural) {
+            while (index < end && (this.tokens[index]?.flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) index++;
+            while (end > index && (this.tokens[end - 1]!.flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) end--;
+        }
+
         const count = end - index;
 
         if (count === 1 && index >= 0 && index < this.tokens.length) {

@@ -1,22 +1,13 @@
-import {
-    TOKEN_FLAGS_SECTION_HEADING_TYPE1,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE2,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE3,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE4,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE5,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE6,
-    TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE,
-    HEADING_MASK,
-} from "../tokenization/token-flags";
+import { HEADING_MASK, PAYLOAD_SHIFT, TOKEN_FLAGS_IS_HEADING } from "../tokenization/token-flags";
 
-export const SECTION_HEADING_TYPE_NONE = 0 as const;
-export const SECTION_HEADING_TYPE_NUMERIC_DOT = 1 as const;      // 1.  2.
-export const SECTION_HEADING_TYPE_HANGUL_DOT = 2 as const;       // 가. 나.
+export const SECTION_HEADING_TYPE_NONE          = 0 as const;
+export const SECTION_HEADING_TYPE_NUMERIC_DOT   = 1 as const;      // 1.  2.
+export const SECTION_HEADING_TYPE_HANGUL_DOT    = 2 as const;       // 가. 나.
 export const SECTION_HEADING_TYPE_PAREN_NUMERIC = 3 as const;    // (1) (2)
-export const SECTION_HEADING_TYPE_PAREN_HANGUL = 4 as const;     // (가) (나)
-export const SECTION_HEADING_TYPE_NUMERIC_PAREN = 5 as const;    // 1)  2)
-export const SECTION_HEADING_TYPE_HANGUL_PAREN = 6 as const;     // 가) 나)
-export const SECTION_HEADING_TYPE_LAW_ARTICLE = 7 as const;      // 제1조 제2조
+export const SECTION_HEADING_TYPE_PAREN_HANGUL  = 4 as const;     // (가) (나)
+export const SECTION_HEADING_TYPE_NUMERIC_PAREN = 5 as const;     // 1)  2)
+export const SECTION_HEADING_TYPE_HANGUL_PAREN  = 6 as const;      // 가) 나)
+export const SECTION_HEADING_TYPE_LAW_ARTICLE   = 7 as const;       // 제1조 제2조
 
 export type SectionHeadingType =
     | typeof SECTION_HEADING_TYPE_NONE
@@ -30,29 +21,14 @@ export type SectionHeadingType =
 
 /** token flags → SectionHeadingType (0 if not a heading) */
 export function headingFlagsToType(flags: number): SectionHeadingType {
-    switch (flags & HEADING_MASK) {
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE1: return SECTION_HEADING_TYPE_NUMERIC_DOT;
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE2: return SECTION_HEADING_TYPE_HANGUL_DOT;
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE3: return SECTION_HEADING_TYPE_PAREN_NUMERIC;
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE4: return SECTION_HEADING_TYPE_PAREN_HANGUL;
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE5: return SECTION_HEADING_TYPE_NUMERIC_PAREN;
-        case TOKEN_FLAGS_SECTION_HEADING_TYPE6: return SECTION_HEADING_TYPE_HANGUL_PAREN;
-        case TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE: return SECTION_HEADING_TYPE_LAW_ARTICLE;
-        default: return SECTION_HEADING_TYPE_NONE;
-    }
+    return ((flags >>> PAYLOAD_SHIFT) & 0x7) as SectionHeadingType;
 }
 
 /** SectionHeadingType → token flags (0 for NONE) */
 export function headingTypeToFlags(type: SectionHeadingType): number {
-    switch (type) {
-        case SECTION_HEADING_TYPE_NUMERIC_DOT: return TOKEN_FLAGS_SECTION_HEADING_TYPE1;
-        case SECTION_HEADING_TYPE_HANGUL_DOT: return TOKEN_FLAGS_SECTION_HEADING_TYPE2;
-        case SECTION_HEADING_TYPE_PAREN_NUMERIC: return TOKEN_FLAGS_SECTION_HEADING_TYPE3;
-        case SECTION_HEADING_TYPE_PAREN_HANGUL: return TOKEN_FLAGS_SECTION_HEADING_TYPE4;
-        case SECTION_HEADING_TYPE_NUMERIC_PAREN: return TOKEN_FLAGS_SECTION_HEADING_TYPE5;
-        case SECTION_HEADING_TYPE_HANGUL_PAREN: return TOKEN_FLAGS_SECTION_HEADING_TYPE6;
-        case SECTION_HEADING_TYPE_LAW_ARTICLE: return TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE;
-        default: return 0;
-    }
+    if (type === SECTION_HEADING_TYPE_NONE) return 0;
+    return (type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
 }
 
+// Re-export HEADING_MASK for consumers that compare heading types via flags
+export { HEADING_MASK };

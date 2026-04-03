@@ -1,17 +1,18 @@
 import { ABORT_REASON_CANCELLED } from "../constants";
-import { initializeDiffWorker, type DiffWorkerStatusEvent } from "../diff-worker/initialize-diff-worker";
+import { initializeDiffWorker } from "../diff-worker/initialize-diff-worker";
 import { Editor, type EditorCallbacks } from "../editor/editor";
 import { getDefaultDiffOptions } from "../diff/get-default-diff-options";
 import { createEvent } from "../utils/create-event";
 import { resolveMatchingSpanPair } from "./resolve-matching-span-pair";
-import { AnchorManager } from "./anchor-manager";
-import { DiffPipeline } from "./diff-pipeline";
-import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, SelectionChangeData } from "./types";
+import { alignAnchors as alignAnchorsImpl } from "./align-anchors";
+import { processDiffElements, serializeTokens, cleanupUnusedMarkers } from "./process-diff-elements";
+import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, MarkerElementsMap, SelectionChangeData } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
-import type { Palette, Span } from "../types";
+import type { DiffseekOptions, Palette, Span } from "../types";
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
+import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
     "diffContextChanged": DiffContext | null;
@@ -23,13 +24,15 @@ export class DiffseekEngine {
     readonly leftEditor: Editor;
     readonly rightEditor: Editor;
     readonly renderer: Renderer;
-    readonly anchorManager: AnchorManager;
 
     private diffWorker = initializeDiffWorker();
     private _diffOptions = getDefaultDiffOptions();
     diffContext: DiffContext | null = null;
-    private diffPipeline: DiffPipeline;
     private _syncMode: boolean = false;
+
+    private markerElements: MarkerElementsMap = new Map();
+    private prevMarkerElements: MarkerElementsMap | null = null;
+    private diffAbortController: AbortController | null = null;
     private _extensionEnabled: boolean = false;
 
     focusedEditor: Editor | null = null;
@@ -99,8 +102,6 @@ export class DiffseekEngine {
         this.renderer = new Renderer(this.leftEditor, this.rightEditor);
         this.workspaceEl.appendChild(this.renderer.rootElement);
         this.applyPaletteToRenderer(this._palette);
-        this.anchorManager = new AnchorManager(this.leftEditor, this.rightEditor);
-        this.diffPipeline = new DiffPipeline(this.diffWorker, this.leftEditor, this.rightEditor, this.anchorManager, this.handleDiffPipelineStatusChanged.bind(this));
         this.setupCallbacks();
     }
 
@@ -153,6 +154,15 @@ export class DiffseekEngine {
     replaceDiffOptions(newOptions: Partial<DiffOptions> | null) {
         newOptions = { ...getDefaultDiffOptions(), ...newOptions };
         this.updateDiffOptions(newOptions || {});
+    }
+
+    /**
+     * DiffseekOptions 전체 적용 (초기화 시 사용).
+     * workflow는 트리거하지 않음 — 아직 content가 없을 수 있으므로.
+     */
+    applyOptions(options: DiffseekOptions) {
+        this.updateDiffOptions(options.diff, false);
+        this.editableInSyncMode = options.editableInSyncMode;
     }
 
     //
@@ -347,20 +357,12 @@ export class DiffseekEngine {
     handleEditorMouseLeave(_editor: Editor, _e: MouseEvent) {
     }
 
-    handleDiffWorkerStatus = (_e: DiffWorkerStatusEvent) => {
-        // progress는 pipeline이 emit하는 status에 포함됨
-    }
-
     handleRendererDiffVisibilityChanged = (changes: Record<EditorName, DiffVisibilityChangeEntry[]>) => {
         this.diffVisibilityChanged.emit(changes);
     }
 
     handleRendererHoveredDiffIndexChanged = (diffIndex: number | null) => {
         this.diffHoveredIndexChanged.emit(diffIndex);
-    }
-
-    handleDiffPipelineStatusChanged = (status: DiffWorkflowStatus) => {
-        this.statusChanged.emit(status);
     }
 
     // endregion
@@ -504,7 +506,10 @@ export class DiffseekEngine {
 
 
     private cancelOngoingOperations() {
-        this.diffPipeline.cancel();
+        if (this.diffAbortController) {
+            this.diffAbortController.abort(ABORT_REASON_CANCELLED);
+            this.diffAbortController = null;
+        }
         this.renderer.cancelRender();
         this.alignAnchorsAbortController?.abort(ABORT_REASON_CANCELLED);
         this.alignAnchorsAbortController = null;
@@ -539,28 +544,135 @@ export class DiffseekEngine {
         }
     }
 
+    // ── marker element lifecycle ─────────────────────────────────
+
+    private beginMarkerUpdate() {
+        if (this.prevMarkerElements !== null) {
+            throw new Error("beginMarkerUpdate called while a previous update is still in progress");
+        }
+        this.prevMarkerElements = this.markerElements;
+        this.markerElements = new Map();
+    }
+
+    private endMarkerUpdate() {
+        if (this.prevMarkerElements === null) {
+            throw new Error("endMarkerUpdate called without a corresponding beginMarkerUpdate");
+        }
+        cleanupUnusedMarkers(this.prevMarkerElements, this.markerElements);
+        this.prevMarkerElements = null;
+    }
+
+    private emitStatusForRun(controller: AbortController, status: DiffWorkflowStatus) {
+        if (this.diffAbortController === controller) {
+            this.statusChanged.emit(status);
+        }
+    }
+
     //
     // region Diff Workflow
     private async startDiffWorkflow() {
         this.handleSelectionChange();
         this.renderer.suspendRendering();
 
+        if (this.diffAbortController) {
+            this.diffAbortController.abort(ABORT_REASON_CANCELLED);
+            this.diffAbortController = null;
+            await scheduler.yield();
+        }
+
+        if (this.prevMarkerElements) {
+            throw new Error("DiffseekEngine: previous diff elements have not been cleaned up.");
+        }
+
+        const controller = new AbortController();
+        this.diffAbortController = controller;
+        const signal = controller.signal;
+        const yieldIfNeeded = createYieldIfNeeded(signal);
+
         try {
-            const diffContext = await this.diffPipeline.run({
-                diffOptions: this._diffOptions,
+            // 1. tokenize & serialize
+            const t0 = performance.now();
+            this.emitStatusForRun(controller, { phase: "tokenizing", startedAtMs: t0 });
+
+            const leftTokenSnapshot = await this.leftEditor.waitForTokens(signal);
+            signal.throwIfAborted();
+
+            const rightTokenSnapshot = await this.rightEditor.waitForTokens(signal);
+            signal.throwIfAborted();
+
+            const leftTokensData = serializeTokens(leftTokenSnapshot.tokens);
+            const rightTokensData = serializeTokens(rightTokenSnapshot.tokens);
+            await yieldIfNeeded();
+
+            const t1 = performance.now();
+
+            // 2. run diff worker
+            this.emitStatusForRun(controller, { phase: "diffing", startedAtMs: t1, tokenizingMs: t1 - t0 });
+
+            const workerResult = await this.diffWorker.run({
+                leftWholeText: leftTokenSnapshot.wholeText,
+                rightWholeText: rightTokenSnapshot.wholeText,
+                leftTokenBuffer: leftTokensData,
+                rightTokenBuffer: rightTokensData,
+                leftTokenCount: leftTokenSnapshot.tokens.length,
+                rightTokenCount: rightTokenSnapshot.tokens.length,
+                options: this._diffOptions,
+                abortSignal: signal,
             });
 
-            this.renderer.setDiffs(diffContext.diffs);
+            signal.throwIfAborted();
+
+            const t2 = performance.now();
+
+            // 3. post process
+            this.emitStatusForRun(controller, { phase: "processing", startedAtMs: t2, tokenizingMs: t1 - t0, diffingMs: t2 - t1 });
+            this.beginMarkerUpdate();
+
+            try {
+                const diffResult = await processDiffElements({
+                    leftEditor: this.leftEditor,
+                    rightEditor: this.rightEditor,
+                    leftTokenSnapshot,
+                    rightTokenSnapshot,
+                    diffOptions: this._diffOptions,
+                    result: workerResult,
+                    markerElements: this.markerElements,
+                    prevMarkerElements: this.prevMarkerElements,
+                    signal,
+                });
+                signal.throwIfAborted();
+
+                const t3 = performance.now();
+
+                if (import.meta.env.DEV) {
+                    console.debug(
+                        `[pipeline] tokenizing=${(t1 - t0).toFixed(1)}ms  diffing=${(t2 - t1).toFixed(1)}ms (worker=${workerResult.elapsedTime.toFixed(1)}ms)  processing=${(t3 - t2).toFixed(1)}ms  total=${(t3 - t0).toFixed(1)}ms`
+                    );
+                }
+
+                const diffContext: DiffContext = {
+                    ...diffResult,
+                    timing: {
+                        tokenizingMs: t1 - t0,
+                        diffingMs: t2 - t1,
+                        processingMs: t3 - t2,
+                        totalMs: t3 - t0,
+                    },
+                };
+
+                this.renderer.setDiffs(diffContext.diffs);
+                this.setDiffContext(diffContext);
+            } finally {
+                this.endMarkerUpdate();
+            }
 
             if (this._syncMode) {
                 await this.alignAnchors();
             }
 
-            this.setDiffContext(diffContext);
             this.handleSelectionChange();
             this.renderer.invalidateAll();
             this.renderer.resumeRendering();
-            //this.statusChanged.emit({ phase: 'idle' });
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {
                 if (import.meta.env.DEV) {
@@ -568,6 +680,12 @@ export class DiffseekEngine {
                 }
             } else {
                 console.error("Diff workflow error:", err);
+                this.renderer.resumeRendering();
+            }
+        } finally {
+            if (this.diffAbortController === controller) {
+                this.statusChanged.emit({ phase: "idle" });
+                this.diffAbortController = null;
             }
         }
     }
@@ -581,7 +699,13 @@ export class DiffseekEngine {
         try {
             this.programmaticScrollInProgress++;
 
-            await this.anchorManager.alignAnchors(controller.signal);
+            await alignAnchorsImpl({
+                anchorPairs: this.diffContext?.anchorPairs ?? [],
+                leftEditor: this.leftEditor,
+                rightEditor: this.rightEditor,
+                markerElements: this.markerElements,
+                signal: controller.signal,
+            });
             this.renderer.invalidateGeometries();
 
             const lastEditor = this.lastActiveEditor;
@@ -606,6 +730,7 @@ export class DiffseekEngine {
 
     private setDiffContext(diffContext: DiffContext | null) {
         if (this.diffContext !== diffContext) {
+            console.log("Diff context updated:", diffContext);
             if (this.diffContext) {
                 this.diffContext.isValid = false;
             }
@@ -631,7 +756,6 @@ export class DiffseekEngine {
                 diffLineColor: palette.diffLineColor,
                 highlightedDiffColor: palette.highlightedDiffColor,
                 selectionHighlightColor: palette.selectionHighlightColor,
-                guidelineColor: palette.guidelineColor,
                 minimapDiffColor: palette.minimapDiffColor,
             },
         });
@@ -708,7 +832,6 @@ function isPaletteEqual(a: Readonly<Palette>, b: Readonly<Palette>): boolean {
         && a.diffAlpha === b.diffAlpha
         && a.diffLineColor === b.diffLineColor
         && a.highlightedDiffColor === b.highlightedDiffColor
-        && a.guidelineColor === b.guidelineColor
         && a.selectionHighlightColor === b.selectionHighlightColor
         && a.minimapDiffColor === b.minimapDiffColor;
 }

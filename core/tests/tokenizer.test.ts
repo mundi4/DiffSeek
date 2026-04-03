@@ -2,16 +2,21 @@ import { describe, it, expect } from 'vitest';
 import { tokenize } from '../src/tokenization/tokenize';
 import {
     HEADING_MASK,
+    TOKEN_FLAGS_LINE_END,
     TOKEN_FLAGS_LINE_START,
     TOKEN_FLAGS_WORD_LIKE,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE1,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE2,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE3,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE4,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE5,
-    TOKEN_FLAGS_SECTION_HEADING_TYPE6,
-    TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE,
+    TOKEN_FLAGS_TYPE_STRUCTURAL,
 } from '../src/tokenization/token-flags';
+import {
+    SECTION_HEADING_TYPE_NUMERIC_DOT,
+    SECTION_HEADING_TYPE_HANGUL_DOT,
+    SECTION_HEADING_TYPE_PAREN_NUMERIC,
+    SECTION_HEADING_TYPE_PAREN_HANGUL,
+    SECTION_HEADING_TYPE_NUMERIC_PAREN,
+    SECTION_HEADING_TYPE_HANGUL_PAREN,
+    SECTION_HEADING_TYPE_LAW_ARTICLE,
+    headingFlagsToType,
+} from '../src/constants/section-heading';
 
 function makeContainer(html: string): HTMLElement {
     const div = document.createElement('div');
@@ -37,14 +42,14 @@ describe('section heading tokenization', () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>1. 제목</div>');
         // "1.", "제목"
         expect(texts[0]).toBe('1.');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE1).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_NUMERIC_DOT);
         expect(tokens[0].flags & TOKEN_FLAGS_LINE_START).toBeTruthy();
         expect(tokens[0].flags & TOKEN_FLAGS_WORD_LIKE).toBeTruthy();
         // 나머지 토큰에는 헤딩 플래그 없음
         expect(tokens[1].flags & HEADING_MASK).toBe(0);
 
         expect(sectionHeadings).toHaveLength(1);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE1);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_NUMERIC_DOT);
         expect(sectionHeadings[0].ordinal).toBe(1);
         expect(sectionHeadings[0].tokenIndex).toBe(0);
     });
@@ -52,13 +57,13 @@ describe('section heading tokenization', () => {
     it('TYPE1: "3. 내용" — ordinal=3', async () => {
         const { sectionHeadings } = await tok('<div>3. 내용</div>');
         expect(sectionHeadings[0].ordinal).toBe(3);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE1);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_NUMERIC_DOT);
     });
 
     it('TYPE2: "가. 제목" — 단일 헤딩 토큰 "가."', async () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>가. 제목</div>');
         expect(texts[0]).toBe('가.');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE2).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_HANGUL_DOT);
         expect(sectionHeadings[0].ordinal).toBe(1);
     });
 
@@ -66,7 +71,7 @@ describe('section heading tokenization', () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>(1) 제목</div>');
         // "(1)", "제목"
         expect(texts[0]).toBe('(1)');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE3).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_PAREN_NUMERIC);
         expect(tokens[0].flags & TOKEN_FLAGS_LINE_START).toBeTruthy();
         expect(tokens[1].flags & HEADING_MASK).toBe(0);
         expect(sectionHeadings[0].ordinal).toBe(1);
@@ -75,21 +80,21 @@ describe('section heading tokenization', () => {
     it('TYPE4: "(가) 제목" — 단일 헤딩 토큰 "(가)"', async () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>(가) 제목</div>');
         expect(texts[0]).toBe('(가)');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE4).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_PAREN_HANGUL);
         expect(sectionHeadings[0].ordinal).toBe(1);
     });
 
     it('TYPE5: "1) 제목" — 단일 헤딩 토큰 "1)"', async () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>1) 제목</div>');
         expect(texts[0]).toBe('1)');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE5).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_NUMERIC_PAREN);
         expect(sectionHeadings[0].ordinal).toBe(1);
     });
 
     it('TYPE6: "가) 제목" — 단일 헤딩 토큰 "가)"', async () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>가) 제목</div>');
         expect(texts[0]).toBe('가)');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE6).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_HANGUL_PAREN);
         expect(sectionHeadings[0].ordinal).toBe(1);
     });
 
@@ -97,7 +102,7 @@ describe('section heading tokenization', () => {
         const { tokens, texts, sectionHeadings } = await tok('<div>제1조 제목</div>');
         // "제1조", "제목"
         expect(texts[0]).toBe('제1조');
-        expect(tokens[0].flags & TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE).toBeTruthy();
+        expect(headingFlagsToType(tokens[0].flags)).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
         expect(tokens[1].flags & HEADING_MASK).toBe(0);
         expect(sectionHeadings[0].ordinal).toBe(10000);
     });
@@ -105,7 +110,7 @@ describe('section heading tokenization', () => {
     it('LAW_ARTICLE: "제32조 내용" — ordinal=320000', async () => {
         const { sectionHeadings } = await tok('<div>제32조 내용</div>');
         expect(sectionHeadings[0].ordinal).toBe(320000);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
     });
 
     // ─── 조의N (부조) ─────────────────────────────────────────────────────────
@@ -113,7 +118,7 @@ describe('section heading tokenization', () => {
     it('LAW_ARTICLE: "제1조의2 내용" — 부조 헤딩', async () => {
         const { texts, sectionHeadings } = await tok('<div>제1조의2 내용</div>');
         expect(texts[0]).toBe('제1조의2');
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
         expect(sectionHeadings[0].ordinal).toBe(10002);
         expect(sectionHeadings[0].text).toBe('제1조의2');
     });
@@ -121,7 +126,7 @@ describe('section heading tokenization', () => {
     it('LAW_ARTICLE: "제1조의 2 내용" — 공백 있는 부조 헤딩', async () => {
         const { texts, sectionHeadings } = await tok('<div>제1조의 2 내용</div>');
         expect(texts[0]).toBe('제1조의2');
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
         expect(sectionHeadings[0].ordinal).toBe(10002);
         expect(sectionHeadings[0].text).toBe('제1조의2');
     });
@@ -131,7 +136,7 @@ describe('section heading tokenization', () => {
     it('LAW_ARTICLE: "제 1 조 제목" — 공백 있어도 normalize된 단일 토큰 "제1조"', async () => {
         const { texts, sectionHeadings } = await tok('<div>제 1 조 제목</div>');
         expect(texts[0]).toBe('제1조');
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
         expect(sectionHeadings[0].ordinal).toBe(10000);
         expect(sectionHeadings[0].text).toBe('제1조');
     });
@@ -139,7 +144,7 @@ describe('section heading tokenization', () => {
     it('TYPE3: "( 1 ) 제목" — 내부 공백 있어도 normalize된 단일 토큰 "(1)"', async () => {
         const { texts, sectionHeadings } = await tok('<div>( 1 ) 제목</div>');
         expect(texts[0]).toBe('(1)');
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE3);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_PAREN_NUMERIC);
         expect(sectionHeadings[0].text).toBe('(1)');
     });
 
@@ -161,14 +166,14 @@ describe('section heading tokenization', () => {
         const { texts, sectionHeadings } = await tok('<div>10. 제목</div>');
         expect(texts[0]).toBe('10.');
         expect(sectionHeadings[0].ordinal).toBe(10);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE1);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_NUMERIC_DOT);
     });
 
     it('TYPE5: "12) 제목" — ordinal=12', async () => {
         const { texts, sectionHeadings } = await tok('<div>12) 제목</div>');
         expect(texts[0]).toBe('12)');
         expect(sectionHeadings[0].ordinal).toBe(12);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE5);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_NUMERIC_PAREN);
     });
 
     // ─── 가나다 순서 ──────────────────────────────────────────────────────────
@@ -176,13 +181,13 @@ describe('section heading tokenization', () => {
     it('TYPE2: "나. 제목" — ordinal=2', async () => {
         const { sectionHeadings } = await tok('<div>나. 제목</div>');
         expect(sectionHeadings[0].ordinal).toBe(2);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE2);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_HANGUL_DOT);
     });
 
     it('TYPE6: "하) 제목" — ordinal=14', async () => {
         const { sectionHeadings } = await tok('<div>하) 제목</div>');
         expect(sectionHeadings[0].ordinal).toBe(14);
-        expect(sectionHeadings[0].type).toBe(TOKEN_FLAGS_SECTION_HEADING_TYPE6);
+        expect(sectionHeadings[0].type).toBe(SECTION_HEADING_TYPE_HANGUL_PAREN);
     });
 
     // ─── word-like 없으면 헤딩 아님 ───────────────────────────────────────────
@@ -237,7 +242,7 @@ describe('section heading tokenization', () => {
         expect(sectionHeadings[0].ordinal).toBe(1);
         expect(sectionHeadings[1].ordinal).toBe(2);
         for (const sh of sectionHeadings) {
-            expect(tokens[sh.tokenIndex].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE1).toBeTruthy();
+            expect(headingFlagsToType(tokens[sh.tokenIndex].flags)).toBe(SECTION_HEADING_TYPE_NUMERIC_DOT);
         }
     });
 
@@ -246,9 +251,9 @@ describe('section heading tokenization', () => {
             '<div>제1조 조문</div><div>(1) 항목</div><div>가. 내용</div>'
         );
         expect(sectionHeadings).toHaveLength(3);
-        expect(tokens[sectionHeadings[0].tokenIndex].flags & TOKEN_FLAGS_SECTION_HEADING_LAW_ARTICLE).toBeTruthy();
-        expect(tokens[sectionHeadings[1].tokenIndex].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE3).toBeTruthy();
-        expect(tokens[sectionHeadings[2].tokenIndex].flags & TOKEN_FLAGS_SECTION_HEADING_TYPE2).toBeTruthy();
+        expect(headingFlagsToType(tokens[sectionHeadings[0].tokenIndex].flags)).toBe(SECTION_HEADING_TYPE_LAW_ARTICLE);
+        expect(headingFlagsToType(tokens[sectionHeadings[1].tokenIndex].flags)).toBe(SECTION_HEADING_TYPE_PAREN_NUMERIC);
+        expect(headingFlagsToType(tokens[sectionHeadings[2].tokenIndex].flags)).toBe(SECTION_HEADING_TYPE_HANGUL_DOT);
     });
 });
 
@@ -258,9 +263,9 @@ async function tokWithMerge(html: string, merge: boolean) {
     const container = makeContainer(html);
     const signal = new AbortController().signal;
     const result = await tokenize(container, signal, { mergeLetterNumberBoundary: merge });
-    return result.tokens.map(t =>
-        result.wholeText.slice(t.textOffset, t.textOffset + t.textLength)
-    );
+    return result.tokens
+        .filter(t => (t.flags & TOKEN_FLAGS_TYPE_STRUCTURAL) === 0)
+        .map(t => result.wholeText.slice(t.textOffset, t.textOffset + t.textLength));
 }
 
 describe('letter/digit boundary split', () => {
@@ -300,5 +305,53 @@ describe('letter/digit boundary split', () => {
 
     it('순수 숫자 "123" — split 모드에서도 하나로', async () => {
         expect(await tokWithMerge('<div>123</div>', false)).toEqual(['123']);
+    });
+});
+
+// ─── 특수 문자 토큰 경계 ──────────────────────────────────────────────────
+
+describe('special character token boundaries', () => {
+
+    it('"foo_bar" — underscore splits tokens', async () => {
+        expect(await tokWithMerge('<div>foo_bar</div>', false)).toEqual(['foo', '_', 'bar']);
+    });
+
+    it('"__init__" — underscores split tokens individually', async () => {
+        expect(await tokWithMerge('<div>__init__</div>', false)).toEqual(['_', '_', 'init', '_', '_']);
+    });
+
+    it('"항목ㆍ내용" — U+318D (HANGUL LETTER ARAEA) splits tokens', async () => {
+        expect(await tokWithMerge('<div>항목ㆍ내용</div>', false)).toEqual(['항목', 'ㆍ', '내용']);
+    });
+
+    it('"가ㆍ나ㆍ다" — multiple U+318D split correctly', async () => {
+        expect(await tokWithMerge('<div>가ㆍ나ㆍ다</div>', false)).toEqual(['가', 'ㆍ', '나', 'ㆍ', '다']);
+    });
+});
+
+// ─── structural 토큰 불변식 ────────────────────────────────────────────────
+
+describe('structural token invariants', () => {
+    it('structural 토큰 전후 content 토큰은 LINE_END/LINE_START이고 lineNumber가 다르다', async () => {
+        const html = '<table><tr><td>셀A</td><td>셀B</td></tr><tr><td>셀C</td><td>셀D</td></tr></table>';
+        const container = makeContainer(html);
+        const signal = new AbortController().signal;
+        const { tokens } = await tokenize(container, signal);
+
+        for (let i = 0; i < tokens.length; i++) {
+            if (!(tokens[i].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) continue;
+
+            let pi = i - 1;
+            while (pi >= 0 && (tokens[pi].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) pi--;
+
+            let ni = i + 1;
+            while (ni < tokens.length && (tokens[ni].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) ni++;
+
+            if (pi >= 0 && ni < tokens.length) {
+                expect(tokens[pi].flags & TOKEN_FLAGS_LINE_END, `token[${pi}] should have LINE_END before structural at ${i}`).toBeTruthy();
+                expect(tokens[ni].flags & TOKEN_FLAGS_LINE_START, `token[${ni}] should have LINE_START after structural at ${i}`).toBeTruthy();
+                expect(tokens[pi].lineNumber, `lineNumber should differ across structural boundary at ${i}`).not.toBe(tokens[ni].lineNumber);
+            }
+        }
     });
 });

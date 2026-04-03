@@ -1,0 +1,133 @@
+import { ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
+import type { Editor } from "../editor/editor";
+import { nextAnimationFrame } from "../utils/next-animation-frame";
+import type { AnchorPair, MarkerElementsMap } from "./types";
+
+const MIN_DELTA = 1;
+const MIN_STRIPED_DELTA = 1;
+
+export async function alignAnchors({
+    anchorPairs,
+    leftEditor,
+    rightEditor,
+    markerElements,
+    signal,
+}: {
+    anchorPairs: readonly AnchorPair[];
+    leftEditor: Editor;
+    rightEditor: Editor;
+    markerElements: MarkerElementsMap;
+    signal: AbortSignal;
+}) {
+    await nextAnimationFrame(signal);
+
+    const BATCH_SIZE = 16;
+    const startTime = performance.now();
+    let numFrames = 0;
+
+    const leftEditorTop = leftEditor.rootElement.getBoundingClientRect().y;
+    const rightEditorTop = rightEditor.rootElement.getBoundingClientRect().y;
+
+    let leftScrollTop = leftEditor.rootElement.scrollTop;
+    let rightScrollTop = rightEditor.rootElement.scrollTop;
+
+    await nextAnimationFrame(signal);
+    numFrames++;
+
+    const IDLE_THRESHOLD = 10;
+    let t = performance.now();
+
+    let numAdjusted = 0;
+    let numSkipped = 0;
+
+    for (let batchStart = 0; batchStart < anchorPairs.length; batchStart += BATCH_SIZE) {
+        const batchEnd = Math.min(batchStart + BATCH_SIZE, anchorPairs.length);
+        const batchSize = batchEnd - batchStart;
+
+        for (let j = 0; j < batchSize; j++) {
+            const pair = anchorPairs[batchStart + j];
+            let leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
+            let rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+            if (pair.delta < 0 && pair.leftEl.nodeName === ANCHOR_TAG_NAME) {
+                // DS-ANCHOR는 콘텐츠 앞에 삽입된 별도 요소이므로
+                // ::before 패딩이 후속 콘텐츠를 밀어냄 → 보정 필요
+                // 블록 요소 borrow는 콘텐츠 컨테이너 자체이므로 보정 불필요
+                leftY += pair.delta;
+            } else if (pair.delta > 0 && pair.rightEl.nodeName === ANCHOR_TAG_NAME) {
+                rightY -= pair.delta;
+            }
+            const delta = Math.round(leftY - rightY);
+            const deltadelta = delta - pair.delta;
+            if (deltadelta < -MIN_DELTA || deltadelta > MIN_DELTA) {
+                applyDeltaToPair(pair, delta, markerElements);
+                numAdjusted++;
+                if (delta > 0) {
+                    //rightAccum += delta;
+                } else {
+                    //leftAccum += -delta;
+                }
+            } else {
+                numSkipped++;
+            }
+        }
+
+        const now = performance.now();
+        if (now - t > IDLE_THRESHOLD) {
+            await nextAnimationFrame(signal);
+            numFrames++;
+            t = performance.now();
+            leftScrollTop = leftEditor.rootElement.scrollTop;
+            rightScrollTop = rightEditor.rootElement.scrollTop;
+        }
+    }
+
+    console.debug(`Adjusted ${numAdjusted} anchor pairs, skipped ${numSkipped} pairs that were within the delta threshold of ${MIN_DELTA}px`);
+
+    await nextAnimationFrame(signal);
+    numFrames++;
+
+    const leftContentHeight = leftEditor.contentElement.offsetHeight;
+    const rightContentHeight = rightEditor.contentElement.offsetHeight;
+    if (leftContentHeight > rightContentHeight) {
+        leftEditor.heightBoostElement.style.height = `0px`;
+        rightEditor.heightBoostElement.style.height = `${leftContentHeight - rightContentHeight}px`;
+    } else if (rightContentHeight > leftContentHeight) {
+        leftEditor.heightBoostElement.style.height = `${rightContentHeight - leftContentHeight}px`;
+        rightEditor.heightBoostElement.style.height = `0px`;
+    } else {
+        leftEditor.heightBoostElement.style.height = `0px`;
+        rightEditor.heightBoostElement.style.height = `0px`;
+    }
+
+    if (import.meta.env.DEV) {
+        console.debug(`Aligned ${anchorPairs.length} anchor pairs in ${performance.now() - startTime}ms (${numFrames} frames)`);
+    }
+}
+
+function applyDeltaToPair(pair: AnchorPair, delta: number, markerElements: MarkerElementsMap) {
+    let theEl: HTMLElement;
+    let otherEl: HTMLElement;
+    pair.delta = delta;
+    if (delta > 0) {
+        theEl = pair.rightEl;
+        otherEl = pair.leftEl;
+    } else {
+        delta = -delta;
+        theEl = pair.leftEl;
+        otherEl = pair.rightEl;
+    }
+    // 반대쪽 이전 패딩 제거
+    otherEl.classList.remove("ds-padded", "ds-striped");
+    otherEl.style.removeProperty("--ds-adjust");
+    const otherInfo = markerElements.get(otherEl);
+    if (otherInfo) otherInfo.adjust = 0;
+
+    // 적용
+    theEl.style.setProperty("--ds-adjust", `${delta}px`);
+    theEl.classList.add("ds-padded");
+    if (theEl.nodeName !== DIFF_TAG_NAME && delta >= MIN_STRIPED_DELTA) {
+        theEl.classList.add("ds-striped");
+    }
+    const theInfo = markerElements.get(theEl);
+    if (theInfo) theInfo.adjust = delta;
+}

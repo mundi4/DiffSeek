@@ -60,12 +60,11 @@ export async function alignAnchors({
             const deltadelta = delta - pair.delta;
             if (deltadelta < -MIN_DELTA || deltadelta > MIN_DELTA) {
                 applyDeltaToPair(pair, delta, markerElements);
+                // scroll anchoring 보정: 뷰포트 위 요소에 padding 적용 시
+                // 브라우저가 scrollTop을 자동 조정하므로 즉시 다시 읽어야 함
+                leftScrollTop = leftEditor.rootElement.scrollTop;
+                rightScrollTop = rightEditor.rootElement.scrollTop;
                 numAdjusted++;
-                if (delta > 0) {
-                    //rightAccum += delta;
-                } else {
-                    //leftAccum += -delta;
-                }
             } else {
                 numSkipped++;
             }

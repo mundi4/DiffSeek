@@ -166,19 +166,8 @@ function emitTS(ranges: Range[]): string {
    - high 8 bits: reserved for runtime trie flags (do not set here)
    Edit the generator, not this file.
 */
-export const CM_WS = ${CM_WS} as const;
-export const CM_WS_COLLAPSABLE = ${CM_WS_COLLAPSABLE} as const;
-export const CM_LETTER = ${CM_LETTER} as const;
-export const CM_NUMBER = ${CM_NUMBER} as const;
-export const CM_NEWLINE = ${CM_NEWLINE} as const;
-export const CM_NEEDS_NORM = ${CM_NEEDS_NORM} as const;
-export const CM_SURROGATE = ${CM_SURROGATE} as const;
-export const CM_RESERVED7 = ${CM_RESERVED7} as const;
 
-export const CM_TRIE_SHIFT = ${CM_TRIE_SHIFT} as const;
-export const CM_TRIE_MASK = ${CM_TRIE_MASK} as const;
-
-export type CharMeta = number;
+import { CM_LETTER, CM_NEWLINE, CM_NUMBER, CM_SURROGATE, CM_WS, CM_WS_COLLAPSABLE } from "./char-meta-flags";
 
 type Range = readonly [start: number, endInclusive: number, value: number];
 

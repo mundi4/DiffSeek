@@ -372,7 +372,6 @@ export class Editor implements EditorContext {
                     if (el.dataset.anchorIndex !== undefined) {
                         el.classList.remove("ds-padded", "ds-striped");
                         el.style.removeProperty("--ds-adjust");
-                        delete el.dataset.adjust;
                         delete el.dataset.anchorIndex;
                         delete el.dataset.diffIndex;
                     }

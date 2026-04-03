@@ -47,6 +47,12 @@ export type DiffWorkflowStatus = {
     progress?: number;
 }
 
+export type MarkerInfo = {
+    adjust: number;
+}
+
+export type MarkerElementsMap = Map<HTMLElement, MarkerInfo>;
+
 export type AnchorPair = {
     index: number;
     leftEl: HTMLElement;

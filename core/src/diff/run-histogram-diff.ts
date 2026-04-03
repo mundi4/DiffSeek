@@ -126,7 +126,7 @@ export async function runHistogramDiff(
         ) {
             const ltext = tokenRangeToString(_lhsTextBuffer, _lhsOffsets, anchor.lhsStart, anchor.lhsEnd);
             const rtext = tokenRangeToString(_rhsTextBuffer, _rhsOffsets, anchor.rhsStart, anchor.rhsEnd);
-            console.log("anchor found:", ltext, rtext, anchor);
+            // console.log("anchor found:", ltext, rtext, anchor);
 
             if (anchor.lhsStart === anchor.lhsEnd || anchor.rhsStart === anchor.rhsEnd) {
                 console.warn(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Ignoring this anchor.`);
@@ -136,7 +136,7 @@ export async function runHistogramDiff(
             }
 
             let [tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart, 2);
-            console.log("consume backward common edges:", { ll: lhsLower, le: anchor.lhsStart, rl: rhsLower, re: anchor.rhsStart }, "=>", { tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper });
+            // console.log("consume backward common edges:", { ll: lhsLower, le: anchor.lhsStart, rl: rhsLower, re: anchor.rhsStart }, "=>", { tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper });
             if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
                 await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
             }

@@ -63,7 +63,6 @@ export type Palette = {
     diffAlpha: number;
     diffLineColor: string;
     highlightedDiffColor: string;
-    guidelineColor: string;
     selectionHighlightColor: string;
     minimapDiffColor: string;
 };

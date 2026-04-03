@@ -579,6 +579,8 @@ export class DiffseekEngine {
                 }
             } else {
                 console.error("Diff workflow error:", err);
+                // 에러 시에도 렌더링을 복구하여 suspended 상태가 영구히 남지 않도록 함
+                this.renderer.resumeRendering();
             }
         }
     }

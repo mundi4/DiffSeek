@@ -308,6 +308,27 @@ describe('letter/digit boundary split', () => {
     });
 });
 
+// ─── 특수 문자 토큰 경계 ──────────────────────────────────────────────────
+
+describe('special character token boundaries', () => {
+
+    it('"foo_bar" — underscore splits tokens', async () => {
+        expect(await tokWithMerge('<div>foo_bar</div>', false)).toEqual(['foo', '_', 'bar']);
+    });
+
+    it('"__init__" — underscores split tokens individually', async () => {
+        expect(await tokWithMerge('<div>__init__</div>', false)).toEqual(['_', '_', 'init', '_', '_']);
+    });
+
+    it('"항목ㆍ내용" — U+318D (HANGUL LETTER ARAEA) splits tokens', async () => {
+        expect(await tokWithMerge('<div>항목ㆍ내용</div>', false)).toEqual(['항목', 'ㆍ', '내용']);
+    });
+
+    it('"가ㆍ나ㆍ다" — multiple U+318D split correctly', async () => {
+        expect(await tokWithMerge('<div>가ㆍ나ㆍ다</div>', false)).toEqual(['가', 'ㆍ', '나', 'ㆍ', '다']);
+    });
+});
+
 // ─── structural 토큰 불변식 ────────────────────────────────────────────────
 
 describe('structural token invariants', () => {

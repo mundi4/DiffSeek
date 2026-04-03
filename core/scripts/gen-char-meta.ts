@@ -12,7 +12,7 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const outFileName = "charMeta";
+const outFileName = "char-meta";
 
 const OUT_FILE = resolve(process.cwd(), `src/${outFileName}.ts`);
 
@@ -57,6 +57,12 @@ function isSurrogate(cp: number): boolean {
     return cp >= 0xd800 && cp <= 0xdfff;
 }
 
+// Characters that Unicode classifies as \p{L} but should act as punctuation
+// for tokenization purposes (i.e. they should split tokens).
+const LETTER_EXCLUSIONS = new Set([
+    0x318D, // ㆍ HANGUL LETTER ARAEA — used as middle dot in Korean texts
+]);
+
 function classify(cp: number): number {
     let flags = 0;
 
@@ -80,7 +86,7 @@ function classify(cp: number): number {
         return flags;
     }
 
-    if (reLetter.test(ch)) {
+    if (reLetter.test(ch) && !LETTER_EXCLUSIONS.has(cp)) {
         flags |= CM_LETTER;
         return flags;
     }

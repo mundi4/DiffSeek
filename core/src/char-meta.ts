@@ -4,8 +4,19 @@
    - high 8 bits: reserved for runtime trie flags (do not set here)
    Edit the generator, not this file.
 */
+export const CM_WS = 1 as const;
+export const CM_WS_COLLAPSABLE = 2 as const;
+export const CM_LETTER = 4 as const;
+export const CM_NUMBER = 8 as const;
+export const CM_NEWLINE = 16 as const;
+export const CM_NEEDS_NORM = 32 as const;
+export const CM_SURROGATE = 64 as const;
+export const CM_RESERVED7 = 128 as const;
 
-import { CM_LETTER, CM_NEWLINE, CM_NUMBER, CM_SURROGATE, CM_WS, CM_WS_COLLAPSABLE } from "./char-meta-flags";
+export const CM_TRIE_SHIFT = 8 as const;
+export const CM_TRIE_MASK = 65280 as const;
+
+export type CharMeta = number;
 
 type Range = readonly [start: number, endInclusive: number, value: number];
 
@@ -19,7 +30,9 @@ const RANGES: readonly Range[] = [
     [0x0030, 0x0039, CM_NUMBER], // ASCII digit
     [0x003a, 0x0040, 0],
     [0x0041, 0x005a, CM_LETTER], // ASCII uppercase
-    [0x005b, 0x0060, 0], // 0x5f '_' was CM_LETTER (for code); changed to 0 for natural-language docs
+    [0x005b, 0x005e, 0],
+    [0x005f, 0x005f, CM_LETTER],
+    [0x0060, 0x0060, 0],
     [0x0061, 0x007a, CM_LETTER], // ASCII lowercase
     [0x007b, 0x009f, 0],
     [0x00a0, 0x00a0, CM_WS],
@@ -127,8 +140,8 @@ const RANGES: readonly Range[] = [
     [0x086b, 0x086f, 0],
     [0x0870, 0x0887, CM_LETTER],
     [0x0888, 0x0888, 0],
-    [0x0889, 0x088e, CM_LETTER],
-    [0x088f, 0x0896, 0],
+    [0x0889, 0x088f, CM_LETTER],
+    [0x0890, 0x0896, 0],
     [0x0897, 0x08e1, CM_LETTER],
     [0x08e2, 0x08e2, 0],
     [0x08e3, 0x0963, CM_LETTER],
@@ -311,8 +324,8 @@ const RANGES: readonly Range[] = [
     [0x0c55, 0x0c56, CM_LETTER],
     [0x0c57, 0x0c57, 0],
     [0x0c58, 0x0c5a, CM_LETTER],
-    [0x0c5b, 0x0c5c, 0],
-    [0x0c5d, 0x0c5d, CM_LETTER],
+    [0x0c5b, 0x0c5b, 0],
+    [0x0c5c, 0x0c5d, CM_LETTER],
     [0x0c5e, 0x0c5f, 0],
     [0x0c60, 0x0c63, CM_LETTER],
     [0x0c64, 0x0c65, 0],
@@ -339,8 +352,8 @@ const RANGES: readonly Range[] = [
     [0x0cca, 0x0ccd, CM_LETTER],
     [0x0cce, 0x0cd4, 0],
     [0x0cd5, 0x0cd6, CM_LETTER],
-    [0x0cd7, 0x0cdc, 0],
-    [0x0cdd, 0x0cde, CM_LETTER],
+    [0x0cd7, 0x0cdb, 0],
+    [0x0cdc, 0x0cde, CM_LETTER],
     [0x0cdf, 0x0cdf, 0],
     [0x0ce0, 0x0ce3, CM_LETTER],
     [0x0ce4, 0x0ce5, 0],
@@ -573,8 +586,10 @@ const RANGES: readonly Range[] = [
     [0x1a9a, 0x1aa6, 0],
     [0x1aa7, 0x1aa7, CM_LETTER],
     [0x1aa8, 0x1aaf, 0],
-    [0x1ab0, 0x1ace, CM_LETTER],
-    [0x1acf, 0x1aff, 0],
+    [0x1ab0, 0x1add, CM_LETTER],
+    [0x1ade, 0x1adf, 0],
+    [0x1ae0, 0x1aeb, CM_LETTER],
+    [0x1aec, 0x1aff, 0],
     [0x1b00, 0x1b4c, CM_LETTER],
     [0x1b4d, 0x1b4f, 0],
     [0x1b50, 0x1b59, CM_NUMBER],
@@ -764,7 +779,9 @@ const RANGES: readonly Range[] = [
     [0x3100, 0x3104, 0],
     [0x3105, 0x312f, CM_LETTER],
     [0x3130, 0x3130, 0],
-    [0x3131, 0x318e, CM_LETTER],
+    [0x3131, 0x318c, CM_LETTER],
+    [0x318d, 0x318d, 0],
+    [0x318e, 0x318e, CM_LETTER],
     [0x318f, 0x3191, 0],
     [0x3192, 0x3195, CM_NUMBER],
     [0x3196, 0x319f, 0],
@@ -806,15 +823,9 @@ const RANGES: readonly Range[] = [
     [0xa720, 0xa721, 0],
     [0xa722, 0xa788, CM_LETTER],
     [0xa789, 0xa78a, 0],
-    [0xa78b, 0xa7cd, CM_LETTER],
-    [0xa7ce, 0xa7cf, 0],
-    [0xa7d0, 0xa7d1, CM_LETTER],
-    [0xa7d2, 0xa7d2, 0],
-    [0xa7d3, 0xa7d3, CM_LETTER],
-    [0xa7d4, 0xa7d4, 0],
-    [0xa7d5, 0xa7dc, CM_LETTER],
-    [0xa7dd, 0xa7f1, 0],
-    [0xa7f2, 0xa827, CM_LETTER],
+    [0xa78b, 0xa7dc, CM_LETTER],
+    [0xa7dd, 0xa7f0, 0],
+    [0xa7f1, 0xa827, CM_LETTER],
     [0xa828, 0xa82b, 0],
     [0xa82c, 0xa82c, CM_LETTER],
     [0xa82d, 0xa82f, 0],

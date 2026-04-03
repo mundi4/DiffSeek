@@ -38,6 +38,12 @@ export class EditorRegion {
 
         let ret: number = 0;
         if (this.regionX !== x || this.regionY !== y || this.regionWidth !== width || this.regionHeight !== height) {
+            if (import.meta.env.DEV) {
+                console.debug(
+                    `[EditorRegion:${this.editor.name}] layout changed → DIRTY_RESIZE+GEOMETRY:`,
+                    `x ${this.regionX}→${x}, y ${this.regionY}→${y}, w ${this.regionWidth}→${width}, h ${this.regionHeight}→${height}`,
+                );
+            }
             renderer.invalidateGeometries(this.editor.name);
             ret = DIRTY_RESIZE;
         } else if (this.#scrollTop !== scrollTop) {
@@ -194,11 +200,19 @@ export class EditorRegion {
             });
         }
 
+        let sortDirty = false;
+        let DEV_breakDiffIndex: number | undefined;
+        let DEV_breakReason: string | undefined;
+
         for (const diffIndex of this.#sortedDiffIndices) {
             let geometry = diffGeometries[diffIndex]!;
 
             // minY 정렬 순회이므로, 뷰포트 하단을 넘어가면 이후는 전부 스킵 가능.
             if (geometry.minY - scrollTop > regionHeight) {
+                if (import.meta.env.DEV) {
+                    DEV_breakDiffIndex = diffIndex;
+                    DEV_breakReason = `minY(${geometry.minY}) - scrollTop(${scrollTop}) = ${geometry.minY - scrollTop} > regionHeight(${regionHeight}), rects=${geometry.rects ? 'fine' : 'rough'}`;
+                }
                 break;
             }
 
@@ -207,9 +221,6 @@ export class EditorRegion {
                 geometry.maxX - scrollLeft < 0 ||
                 geometry.minX - scrollLeft > this.regionWidth
             ) {
-                // if (visibleDiffIndices.delete(diffIndex)) {
-                // 	diffVisibilityChangeEntries.push({ item: diffIndex, isVisible: false });
-                // }
                 continue;
             }
 
@@ -228,15 +239,24 @@ export class EditorRegion {
                     for (const rect of rangeRects) {
                         newGeometryRects.push(rect);
                     }
+                    const prevMinY = geometry.minY;
+                    const prevMaxY = geometry.maxY;
                     diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
                     geometry = diffGeometries[diffIndex]!;
+                    if (!sortDirty && (geometry.minY !== prevMinY || geometry.maxY !== prevMaxY)) {
+                        sortDirty = true;
+                        if (import.meta.env.DEV) {
+                            console.warn(
+                                `[EditorRegion:${this.editor.name}] fine geometry shifted for diff ${diffIndex}: minY ${prevMinY} → ${geometry.minY}, maxY ${prevMaxY} → ${geometry.maxY}`
+                            );
+                        }
+                    }
                 } else {
-                    // extractRectsFromRange가 빈 결과를 반환함 (range가 detach되었거나 일시적 렌더링 이슈).
-                    // rects를 null로 유지하여 다음 prepare에서 재시도하도록 함.
-                    // mergeRects([])는 minY: MAX_SAFE_INTEGER를 반환하여 정렬 순서를 오염시키므로 교체하면 안 됨.
                     if (import.meta.env.DEV) {
                         console.warn(`[EditorRegion:${this.editor.name}] extractRectsFromRange returned empty for diff ${diffIndex}`);
                     }
+                    this.renderer.invalidateRegion(DIRTY_SCROLL, this.editor.name);
+                    continue;
                 }
             }
 
@@ -245,6 +265,65 @@ export class EditorRegion {
                 if (rect.y - scrollTop > regionHeight) break; // rect들은 y좌표로 정렬되어 있으므로 조기 탈출 가능.
                 visibleDiffIndices.add(diffIndex);
                 break;
+            }
+        }
+
+        if (sortDirty) {
+            this.#sortedDiffIndices.sort((a, b) => {
+                const ga = diffGeometries[a]!;
+                const gb = diffGeometries[b]!;
+                if (ga.minY !== gb.minY) return ga.minY - gb.minY;
+                if (ga.maxY !== gb.maxY) return ga.maxY - gb.maxY;
+                return a - b;
+            });
+            this.renderer.invalidateRegion(DIRTY_SCROLL, this.editor.name);
+        }
+
+        // DEV: 뷰포트 안에 있는데 visibleDiffIndices에서 누락된 diff 감지
+        if (import.meta.env.DEV && diffs.length > 0) {
+            const missed: number[] = [];
+            for (let i = 0; i < diffs.length; i++) {
+                if (visibleDiffIndices.has(i)) continue;
+                const g = diffGeometries[i];
+                if (!g) continue;
+                // 뷰포트와 겹치는지 직접 확인
+                if (g.maxY - scrollTop < 0) continue;       // 위로 벗어남
+                if (g.minY - scrollTop > regionHeight) continue;  // 아래로 벗어남
+                if (g.rects === null) continue;              // 아직 fine rects 없음 (정상 — 다음 프레임에서 처리)
+                // fine rects로 정밀 검사
+                for (const rect of g.rects) {
+                    if (rect.y + rect.height - scrollTop < 0) continue;
+                    if (rect.y - scrollTop > regionHeight) break;
+                    missed.push(i);
+                    break;
+                }
+            }
+            if (missed.length > 0) {
+                console.error(
+                    `[EditorRegion:${this.editor.name}] RENDER MISS: ${missed.length} diffs in viewport but not in visibleDiffIndices:`,
+                    `\n  missed: [${missed.join(', ')}]`,
+                    `\n  visible: [${[...visibleDiffIndices].join(', ')}]`,
+                    `\n  scrollTop=${scrollTop}, regionHeight=${regionHeight}`,
+                    `\n  sortDirty=${sortDirty}`,
+                    DEV_breakDiffIndex !== undefined
+                        ? `\n  break at diff ${DEV_breakDiffIndex}: ${DEV_breakReason}`
+                        : `\n  no break triggered`,
+                    `\n  sortedDiffIndices: [${this.#sortedDiffIndices.slice(0, 20).join(', ')}${this.#sortedDiffIndices.length > 20 ? '...' : ''}]`,
+                    `\n  dirtyFlags=0x${dirtyFlags.toString(16)} (${[
+                        dirtyFlags & DIRTY_GEOMETRY ? 'GEOMETRY' : '',
+                        dirtyFlags & DIRTY_SCROLL ? 'SCROLL' : '',
+                        dirtyFlags & DIRTY_RESIZE ? 'RESIZE' : '',
+                        dirtyFlags & DIRTY_SELECTION ? 'SELECTION' : '',
+                        dirtyFlags & DIRTY_DIFF_HIGHLIGHT ? 'DIFF_HIGHLIGHT' : '',
+                    ].filter(Boolean).join('|')})`,
+                    `\n  missed geometries:`, missed.map(i => ({
+                        diff: i,
+                        minY: diffGeometries[i]!.minY,
+                        maxY: diffGeometries[i]!.maxY,
+                        hasRects: diffGeometries[i]!.rects !== null,
+                        rectsCount: diffGeometries[i]!.rects?.length ?? 0,
+                    })),
+                );
             }
         }
 

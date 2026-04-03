@@ -11,27 +11,21 @@
 
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
+import {
+    CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER,
+    CM_NEWLINE, CM_NEEDS_NORM, CM_SURROGATE, CM_RESERVED7,
+    CM_TRIE_SHIFT, CM_TRIE_MASK,
+} from "../src/char-meta-flags.ts";
+
+export {
+    CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER,
+    CM_NEWLINE, CM_NEEDS_NORM, CM_SURROGATE, CM_RESERVED7,
+    CM_TRIE_SHIFT, CM_TRIE_MASK,
+};
 
 const outFileName = "char-meta";
 
 const OUT_FILE = resolve(process.cwd(), `src/${outFileName}.ts`);
-
-// --------------------
-// Bit layout (Uint16)
-// low 8 bits: char properties
-// high 8 bits: reserved for runtime trie-start mask (do not set here)
-// --------------------
-export const CM_WS = 1 << 0;
-export const CM_WS_COLLAPSABLE = 1 << 1; // excludes NBSP
-export const CM_LETTER = 1 << 2;
-export const CM_NUMBER = 1 << 3;
-export const CM_NEWLINE = 1 << 4;
-export const CM_NEEDS_NORM = 1 << 5;     // 기준A: normalizedCharMap에 있으면
-export const CM_SURROGATE = 1 << 6;
-export const CM_RESERVED7 = 1 << 7;      // spare
-
-export const CM_TRIE_SHIFT = 8;
-export const CM_TRIE_MASK = 0xff00;
 
 // ---- Unicode tests (Node supports Unicode property escapes) ----
 const reWS = /\s/u;                 // includes NBSP in JS

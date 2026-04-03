@@ -223,24 +223,19 @@ export class EditorRegion {
                     diffExpandY,
                     diffs[diffIndex].empty,
                 );
-                // let added = false;
-                for (const rect of rangeRects) {
-                    // rect.x += offsetLeft - DIFF_EXPAND_X;
-                    // rect.y += offsetTop - DIFF_EXPAND_Y;
-                    // rect.width += DIFF_EXPAND_X * 2;
-                    // rect.height += DIFF_EXPAND_Y * 2;
-                    newGeometryRects.push(rect);
 
-                    // 이왕 루프를 도는김에 여기서 visibility 체크를 하려고 했지만..
-                    // 뭐 얼마 차이나지 않을 것 같으니 rects를 완전히 만든 후에 y좌표로 정렬된 배열을 가지고 테스트 하는 걸로..
-                    // if (!added && rect.y + rect.height >= 0 && rect.y <= regionHeight) {
-                    // 	visibleDiffIndices.add(diffIndex);
-                    // 	added = true;
-                    // }
+                if (rangeRects.length > 0) {
+                    for (const rect of rangeRects) {
+                        newGeometryRects.push(rect);
+                    }
+                    diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
+                    geometry = diffGeometries[diffIndex]!;
+                } else {
+                    // extractRectsFromRange가 빈 결과를 반환함 (range가 detach되었거나 브라우저 이슈).
+                    // rough geometry를 유지하되 rects를 빈 배열로 설정하여 재계산하지 않도록 함.
+                    // mergeRects([])는 minY: MAX_SAFE_INTEGER를 반환하여 정렬 순서를 오염시키므로 교체하면 안 됨.
+                    geometry.rects = [];
                 }
-
-                diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
-                geometry = diffGeometries[diffIndex]!;
             }
 
             for (const rect of geometry.rects!) {

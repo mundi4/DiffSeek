@@ -1,5 +1,5 @@
 /* scripts/gen-char-meta.ts
-   Generates src/charMeta.ts
+   Generates src/char-meta.ts
 
    Run (example):
      node --loader ts-node/esm scripts/gen-char-meta.ts

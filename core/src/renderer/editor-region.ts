@@ -231,10 +231,12 @@ export class EditorRegion {
                     diffGeometries[diffIndex] = mergeRects(rangeRects, 1, 1) as RectSet;
                     geometry = diffGeometries[diffIndex]!;
                 } else {
-                    // extractRectsFromRange가 빈 결과를 반환함 (range가 detach되었거나 브라우저 이슈).
-                    // rough geometry를 유지하되 rects를 빈 배열로 설정하여 재계산하지 않도록 함.
+                    // extractRectsFromRange가 빈 결과를 반환함 (range가 detach되었거나 일시적 렌더링 이슈).
+                    // rects를 null로 유지하여 다음 prepare에서 재시도하도록 함.
                     // mergeRects([])는 minY: MAX_SAFE_INTEGER를 반환하여 정렬 순서를 오염시키므로 교체하면 안 됨.
-                    geometry.rects = [];
+                    if (import.meta.env.DEV) {
+                        console.warn(`[EditorRegion:${this.editor.name}] extractRectsFromRange returned empty for diff ${diffIndex}`);
+                    }
                 }
             }
 

@@ -57,8 +57,8 @@ function isSurrogate(cp: number): boolean {
     return cp >= 0xd800 && cp <= 0xdfff;
 }
 
-// Characters that Unicode classifies as \p{L} but should act as punctuation
-// for tokenization purposes (i.e. they should split tokens).
+// Characters that match reLetter ([\p{L}\p{M}\p{Pc}]) but should act as
+// punctuation for tokenization purposes (i.e. they should split tokens).
 const LETTER_EXCLUSIONS = new Set([
     0x005F, // _ UNDERSCORE — splits tokens for natural-language docs (not code identifiers)
     0x318D, // ㆍ HANGUL LETTER ARAEA — used as middle dot in Korean texts

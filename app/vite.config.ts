@@ -14,6 +14,7 @@ export default defineConfig({
         outDir: 'dist',
         emptyOutDir: true,
         minify: "esbuild",
+        sourcemap: true,
     },
     server: {
         port: 8200,

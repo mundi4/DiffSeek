@@ -316,8 +316,8 @@ describe('special character token boundaries', () => {
         expect(await tokWithMerge('<div>foo_bar</div>', false)).toEqual(['foo', '_', 'bar']);
     });
 
-    it('"__init__" — underscores split tokens', async () => {
-        expect(await tokWithMerge('<div>__init__</div>', false)).toEqual(['__', 'init', '__']);
+    it('"__init__" — underscores split tokens individually', async () => {
+        expect(await tokWithMerge('<div>__init__</div>', false)).toEqual(['_', '_', 'init', '_', '_']);
     });
 
     it('"항목ㆍ내용" — U+318D (HANGUL LETTER ARAEA) splits tokens', async () => {

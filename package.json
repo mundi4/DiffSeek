@@ -13,6 +13,9 @@
     "test": "vitest",
     "test:ui": "vitest --ui"
   },
+  "overrides": {
+    "lodash": "^4.18.0"
+  },
   "devDependencies": {
     "@types/archiver": "^7.0.0",
     "@types/node": "^25.5.0",

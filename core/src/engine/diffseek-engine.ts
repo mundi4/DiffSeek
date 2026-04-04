@@ -763,6 +763,7 @@ export class DiffseekEngine {
                 highlightedDiffColor: palette.highlightedDiffColor,
                 selectionHighlightColor: palette.selectionHighlightColor,
                 minimapDiffColor: palette.minimapDiffColor,
+                minimapHighlightColor: palette.minimapHighlightColor,
             },
         });
         this.renderer.invalidateAll();

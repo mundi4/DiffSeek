@@ -8,5 +8,6 @@ export const DEFAULT_PALETTE: Readonly<Palette> = {
     diffLineColor: "hsl(0 100% 90% / 0.5)",
     highlightedDiffColor: "hsl(0 100% 80%)",
     selectionHighlightColor: "hsl(0 0% 50% / 0.3)",
-    minimapDiffColor: "hsl(0 100% 50% / 0.4)",
+    minimapDiffColor: "hsl(0 100% 50% / 0.3)",
+    minimapHighlightColor: "hsl(0 100% 50% / 0.8)",
 };

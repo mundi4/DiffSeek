@@ -65,6 +65,7 @@ export type Palette = {
     highlightedDiffColor: string;
     selectionHighlightColor: string;
     minimapDiffColor: string;
+    minimapHighlightColor: string;
 };
 
 export type DiffEntry = {

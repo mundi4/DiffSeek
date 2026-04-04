@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { extractRectsFromRange } from "./extract-rects-from-range";
 import { mergeRects } from "./merge-rects";
 import { Renderer } from "./renderer";
-import { DIRTY_DIFF_HIGHLIGHT, DIRTY_GEOMETRY, DIRTY_RESIZE, DIRTY_SCROLL, DIRTY_SELECTION, RENDER_DIFF_LAYER, RENDER_HIGHLIGHT_LAYER, RENDER_MINIMAP, type DiffRenderItem, type Rect, type RectSet } from "./types";
+import { DIRTY_DIFF_HIGHLIGHT, DIRTY_DIFF_HIGHLIGHT_OFFSCREEN, DIRTY_GEOMETRY, DIRTY_RESIZE, DIRTY_SCROLL, DIRTY_SELECTION, RENDER_DIFF_LAYER, RENDER_HIGHLIGHT_LAYER, type DiffRenderItem, type Rect, type RectSet } from "./types";
 
 export class EditorRegion {
     readonly renderer: Renderer;
@@ -11,6 +11,7 @@ export class EditorRegion {
     #diffs: DiffRenderItem[] = [];
     diffGeometries: RectSet[] = [];
     #diffLineRects: Rect[] = [];
+    #minimapSpans: { y: number; h: number }[] = [];
     #selectionHighlight: Range | null = null;
     #selectionHighlightRects: RectSet | null = null;
     #visibleDiffIndices: Set<number> = new Set();
@@ -99,7 +100,7 @@ export class EditorRegion {
 
     setHighlightedDiffIndex(diffIndex: number | null) {
         if (this.highlightedDiffIndex === diffIndex) {
-            //return 0;
+            return 0;
         }
 
         let wasShown = this.highlightedDiffIndex !== null && this.visibleDiffIndices.has(this.highlightedDiffIndex);
@@ -111,10 +112,10 @@ export class EditorRegion {
             return DIRTY_DIFF_HIGHLIGHT;
         }
 
-        return 0;
+        // 화면 밖 diff — diff 레이어 재렌더 없이 highlight 레이어(미니맵)만 갱신
+        this.renderer.invalidateRegion(DIRTY_DIFF_HIGHLIGHT_OFFSCREEN, this.editor.name);
+        return DIRTY_DIFF_HIGHLIGHT_OFFSCREEN;
     }
-
-    ensureGeometries() { }
 
     setSelectionHighlight(range: Range | null) {
         const current = this.#selectionHighlight;
@@ -344,7 +345,11 @@ export class EditorRegion {
 
     render(dirtyFlags: number) {
         if (dirtyFlags & RENDER_DIFF_LAYER) {
-            this.renderDiffLayer(dirtyFlags);
+            this.renderDiffLayer();
+        }
+
+        if (dirtyFlags & (DIRTY_GEOMETRY | DIRTY_RESIZE | DIRTY_DIFF_HIGHLIGHT | DIRTY_DIFF_HIGHLIGHT_OFFSCREEN) && this.diffGeometries.length > 0) {
+            this.#renderMinimap(this.renderer.ctx, dirtyFlags);
         }
 
         if (dirtyFlags & RENDER_HIGHLIGHT_LAYER) {
@@ -352,16 +357,12 @@ export class EditorRegion {
         }
     }
 
-    renderDiffLayer(dirtyFlags: number) {
+    renderDiffLayer() {
         const options = this.renderer.options;
         const ctx = this.renderer.ctx;
         ctx.save();
         ctx.translate(this.regionX, this.regionY);
-        if (dirtyFlags & RENDER_MINIMAP) {
-            ctx.clearRect(0, 0, this.regionWidth, this.regionHeight);
-        } else {
-            ctx.clearRect(0, 0, this.regionWidth - this.renderer.options.minimapWidth, this.regionHeight);
-        }
+        ctx.clearRect(0, 0, this.regionWidth - this.renderer.options.minimapWidth, this.regionHeight);
         ctx.beginPath();
         ctx.rect(0, 0, this.regionWidth, this.regionHeight);
         ctx.clip();
@@ -412,39 +413,13 @@ export class EditorRegion {
             }
         }
 
-        if (dirtyFlags & RENDER_MINIMAP && this.diffGeometries.length > 0) {
-            this.#renderMinimap(ctx);
-        }
-
         ctx.restore();
     }
 
-    #renderMinimap(ctx: CanvasRenderingContext2D) {
-        const minimapWidth = this.renderer.options.minimapWidth;
+    #buildMinimapSpans() {
         const scale = this.regionHeight / this.editor.rootElement.scrollHeight;
-
-        type MiniSpan = {
-            y: number;
-            h: number;
-        }
-
-        //         const diff = diffs[diffIndex];
-        // const wholeRect = diff.range.getBoundingClientRect();
-        // const x = wholeRect.x + offsetLeft - diffExpandX,
-        //     y = wholeRect.y + offsetTop - diffExpandY,
-        //     width = wholeRect.width + diffExpandX * 2,
-        //     height = wholeRect.height + diffExpandY * 2;
-        // diffGeometries[diffIndex] = geometry = {
-        //     minX: x,
-        //     minY: y,
-        //     maxX: x + width,
-        //     maxY: y + height,
-        //     rects: null,
-        //     // fillStyle: null,
-        //     // strokeStyle: null,
-        // };
         const diffExpandY = this.renderer.options.diffExpandY;
-        const roughSpans: MiniSpan[] = [];
+        const roughSpans: { y: number; h: number }[] = [];
         for (const geometry of this.diffGeometries) {
             const h = (geometry.maxY - geometry.minY - diffExpandY * 2) * scale;
             roughSpans.push({
@@ -455,12 +430,9 @@ export class EditorRegion {
         roughSpans.sort((a, b) => a.y - b.y);
 
         const TOLERANCE = 1;
-        ctx.fillStyle = this.renderer.options.palette.minimapDiffColor;
-
+        const merged: { y: number; h: number }[] = [];
         let y0 = -Infinity;
         let h0 = 0;
-        const x = this.regionWidth - minimapWidth;
-
         for (let i = 0; i < roughSpans.length; i++) {
             const { y, h } = roughSpans[i];
             if (y <= y0 + h0 + TOLERANCE) {
@@ -468,16 +440,51 @@ export class EditorRegion {
                 h0 = bottom - y0;
             } else {
                 if (h0 > 0) {
-                    ctx.fillRect(x, y0, minimapWidth, h0);
+                    merged.push({ y: y0, h: h0 });
                 }
                 y0 = y;
                 h0 = h;
             }
         }
-
         if (h0 > 0) {
-            ctx.fillRect(x, y0, minimapWidth, h0);
+            merged.push({ y: y0, h: h0 });
         }
+        this.#minimapSpans = merged;
+    }
+
+    #renderMinimap(ctx: CanvasRenderingContext2D, dirtyFlags: number) {
+        const minimapWidth = this.renderer.options.minimapWidth;
+        const x = this.regionWidth - minimapWidth;
+
+        if (dirtyFlags & (DIRTY_GEOMETRY | DIRTY_RESIZE)) {
+            this.#buildMinimapSpans();
+        }
+
+        ctx.save();
+        ctx.translate(this.regionX, this.regionY);
+        ctx.clearRect(x, 0, minimapWidth, this.regionHeight);
+
+        // base minimap
+        ctx.fillStyle = this.renderer.options.palette.minimapDiffColor;
+        for (const span of this.#minimapSpans) {
+            ctx.fillRect(x, span.y, minimapWidth, span.h);
+        }
+
+        // highlight
+        const hoveredDiffIndex = this.renderer.hoveredDiffIndex;
+        if (hoveredDiffIndex !== null && this.diffGeometries[hoveredDiffIndex]) {
+            const scale = this.regionHeight / this.editor.rootElement.scrollHeight;
+            const diffExpandY = this.renderer.options.diffExpandY;
+            const geometry = this.diffGeometries[hoveredDiffIndex];
+            const h = (geometry.maxY - geometry.minY - diffExpandY * 2) * scale;
+            const y = (geometry.minY + diffExpandY) * scale;
+            const MIN_HIGHLIGHT_H = 4;
+            const drawH = h < MIN_HIGHLIGHT_H ? MIN_HIGHLIGHT_H : h;
+            ctx.fillStyle = this.renderer.options.palette.minimapHighlightColor;
+            ctx.fillRect(x, y - (drawH - h) / 2, minimapWidth, drawH);
+        }
+
+        ctx.restore();
     }
 
     renderHighlightLayer(dirtyFlags: number) {

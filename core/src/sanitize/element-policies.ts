@@ -88,7 +88,7 @@ const ELEMENT_POLICIES: Record<string, ElementPolicy> = {
     DIV: DefaultElementOptions,
     BLOCKQUOTE: DefaultElementOptions,
     ADDRESS: DefaultElementOptions,
-    FIELDSET: DefaultElementOptions,
+    FIELDSET: AsDivElementOptions,
     LEGEND: DefaultElementOptions,
     CODE: DefaultElementOptions,
     PRE: DefaultElementOptions,
@@ -130,12 +130,11 @@ export function getElementPolicy(node: Node): ElementPolicy {
     const direct = ELEMENT_POLICIES[nodeName];
     if (direct) return direct;
 
-    if (
-        nodeName === "O:P" &&
-        (node.childNodes.length === 0 ||
-            (node.childNodes.length === 1 && node.firstChild?.nodeType === Node.TEXT_NODE && (node.firstChild as Text).nodeValue === "\u00A0"))
-    ) {
-        return ELEMENT_POLICIES["BR"]; // <o:p>&nbsp;</o:p> => <br>
+    if (nodeName === "O:P") {
+        if (node.childNodes.length === 1 && node.firstChild?.nodeType === Node.TEXT_NODE && (node.firstChild as Text).nodeValue === "\u00A0") {
+            return { replaceTag: "BR" }; // <o:p>&nbsp;</o:p> (빈 문단) => <br>
+        }
+        return EXCLUDED_TAG_OPTIONS; // <o:p></o:p> (문단 끝 마커) => 제거
     }
 
     if (nodeName.startsWith("ST1:")) {

@@ -20,6 +20,7 @@ const UNWRAPPABLE_TAGS: Record<string, boolean> = {
 	TFOOT: true,
 	SPAN: true,
 	FONT: true,
+	FIELDSET: true,
 }
 
 export function sanitizeHTML(rawHTML: string): Node {
@@ -205,6 +206,7 @@ export function sanitizeHTML(rawHTML: string): Node {
 		childIndex++;
 	}
 
+	currentSanitized.normalize();
 	return currentSanitized;
 }
 

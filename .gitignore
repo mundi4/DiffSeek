@@ -92,6 +92,9 @@ out/
 
 artifacts/
 
+# Scratch / temp reference files
+scratch/
+
 # secrets and local config
 secrets.json
 .claude/settings.local.json

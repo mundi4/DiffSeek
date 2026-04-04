@@ -458,6 +458,12 @@ export class DiffseekEngine {
         this._extensionEnabled = enabled;
     }
 
+    setImageFetchFn(fn: ((url: string) => Promise<string | null>) | null) {
+        const cachedFn = fn ? createCachedImageFetch(fn) : null;
+        this.leftEditor.imageFetchFn = cachedFn;
+        this.rightEditor.imageFetchFn = cachedFn;
+    }
+
     setHoveredDiff(diffIndex: number | null) {
         this.renderer.setHoveredDiffIndex(diffIndex);
     }
@@ -834,4 +840,21 @@ function isPaletteEqual(a: Readonly<Palette>, b: Readonly<Palette>): boolean {
         && a.highlightedDiffColor === b.highlightedDiffColor
         && a.selectionHighlightColor === b.selectionHighlightColor
         && a.minimapDiffColor === b.minimapDiffColor;
+}
+
+type ImageFetchFn = (url: string) => Promise<string | null>;
+
+function createCachedImageFetch(fn: ImageFetchFn): ImageFetchFn {
+    const httpCache = new Map<string, Promise<string | null>>();
+    return (url: string) => {
+        if (/^https?:\/\//.test(url)) {
+            let cached = httpCache.get(url);
+            if (!cached) {
+                cached = fn(url);
+                httpCache.set(url, cached);
+            }
+            return cached;
+        }
+        return fn(url);
+    };
 }

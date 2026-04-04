@@ -10,6 +10,21 @@ import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, set
 import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions } from "./types";
 
+function caretRangeFromPoint(x: number, y: number): Range | null {
+    if (document.caretRangeFromPoint) {
+        return document.caretRangeFromPoint(x, y);
+    }
+    // Firefox
+    const pos = (document as any).caretPositionFromPoint(x, y);
+    if (pos) {
+        const range = document.createRange();
+        range.setStart(pos.offsetNode, pos.offset);
+        range.collapse(true);
+        return range;
+    }
+    return null;
+}
+
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000 as const;
 const TOKENIZE_DEBOUNCE_DELAY_MS = 200 as const;
 
@@ -77,6 +92,9 @@ export class Editor implements EditorContext {
     tokenizeAbortController: AbortController | null = null;
     tokenizeOptions: TokenizerOptions = {};
 
+    private _imageFetchFn: ((url: string) => Promise<string | null>) | null = null;
+    private _imageResolveGen = 0;
+
     private savedScroll: { ref: HTMLElement; targetTop: number } | null = null;
     private _hasPendingPromise: boolean = false;
     private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve(NULL_TOKEN_SNAPSHOT);
@@ -120,6 +138,8 @@ export class Editor implements EditorContext {
 
         this.contentElement.addEventListener("copy", (e) => this.onCopy(e));
         this.contentElement.addEventListener("paste", (e) => this.onPaste(e));
+        this.contentElement.addEventListener("drop", (e) => this.onDrop(e));
+        this.contentElement.addEventListener("dragover", (e) => e.preventDefault());
         this.contentElement.addEventListener("input", () => this.handleContentChangedInternal());
         this.contentElement.addEventListener("click", (e) => {
             this.callbacks.click?.(this, e);
@@ -425,6 +445,23 @@ export class Editor implements EditorContext {
         });
     }
 
+    private onDrop(e: DragEvent) {
+        e.preventDefault();
+        const html = e.dataTransfer?.getData("text/html");
+        const text = html || e.dataTransfer?.getData("text/plain") || "";
+        if (!text) return;
+
+        const range = caretRangeFromPoint(e.clientX, e.clientY);
+        if (!range || !this.contentElement.contains(range.startContainer)) return;
+
+        this.setContent({
+            text,
+            asHTML: !!html,
+            targetRange: range,
+            allowLegacyExecCommand: text.length <= MAX_LENGTH_FOR_EXECCOMMAND_PASTE,
+        });
+    }
+
     getSelectionRange(): Range | null {
         const selection = document.getSelection();
         if (!selection || selection.rangeCount === 0) {
@@ -489,6 +526,10 @@ export class Editor implements EditorContext {
         }
     }
 
+    set imageFetchFn(fn: ((url: string) => Promise<string | null>) | null) {
+        this._imageFetchFn = fn;
+    }
+
     setContent({
         text,
         asHTML = true,
@@ -500,6 +541,7 @@ export class Editor implements EditorContext {
         targetRange?: Range;
         allowLegacyExecCommand?: boolean;
     }) {
+        this._imageResolveGen++;
         let sanitized: Node;
 
         if (asHTML) {
@@ -547,6 +589,58 @@ export class Editor implements EditorContext {
             }
         } finally {
             this.observeMutation();
+        }
+
+        this.resolveFailedImages(this.contentElement.querySelectorAll("img"));
+    }
+
+    private async resolveFailedImages(images: NodeListOf<HTMLImageElement>) {
+        const fetchFn = this._imageFetchFn;
+        if (!fetchFn || images.length === 0) return;
+
+        const generation = this._imageResolveGen;
+        const localCache = new Map<string, Promise<string | null>>();
+
+        const promises = Array.from(images).map(async (img) => {
+            const src = img.getAttribute("src");
+            if (!src || src.startsWith("data:") || img.hasAttribute("data-ds-resolved")) return false;
+
+            try {
+                await img.decode();
+                return false; // 정상 로드됨
+            } catch {
+                // 깨진 이미지 → 확장으로 fetch
+            }
+
+            if (this._imageResolveGen !== generation) return false;
+
+            let fetchPromise = localCache.get(src);
+            if (!fetchPromise) {
+                fetchPromise = fetchFn(src);
+                localCache.set(src, fetchPromise);
+            }
+
+            try {
+                const dataUrl = await fetchPromise;
+                if (this._imageResolveGen !== generation) return false;
+                if (dataUrl) {
+                    img.src = dataUrl;
+                    img.setAttribute("data-ds-resolved", "1");
+                    return true;
+                }
+            } catch {
+                // fetch 실패 — 원본 src 유지
+            }
+            img.setAttribute("data-ds-resolved", "1");
+            return false;
+        });
+
+        const results = await Promise.allSettled(promises);
+        if (this._imageResolveGen !== generation) return;
+
+        const anyResolved = results.some(r => r.status === "fulfilled" && r.value === true);
+        if (anyResolved) {
+            this.handleContentChangedInternal();
         }
     }
 

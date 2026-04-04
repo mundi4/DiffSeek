@@ -11,7 +11,6 @@
     "jsx": "react-jsx",
 
     /* 모노레포 핵심 설정 */
-    "baseUrl": ".",
     "paths": {
       "@/*": ["./src/*"],
       "@core": ["../core/src"],

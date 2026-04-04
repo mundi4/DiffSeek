@@ -1,23 +1,37 @@
-console.log("DiffSeekExt: diffseek_inject.js loaded");
-window.extensionEnabled = true;
+// DiffSeek 확장 감지 + 이미지 fetch RPC 클라이언트
+// page world에서 실행됨 (ES module import 불가)
+(function () {
+	window.__diffseekExtEnabled = true;
 
-if (window.DiffSeek) {
-	console.log("DiffSeekExt: window.DiffSeek available, enabling extension features");
-	window.DiffSeek.setExtensionEnabled(true);
-}
+	// content script의 windowRPC(source: "content")와 통신하는 minimal RPC caller
+	let rpcId = 0;
+	window.__diffseekFetchImage = (url) => {
+		return new Promise((resolve, reject) => {
+			const id = ++rpcId;
+			const timeout = setTimeout(() => {
+				window.removeEventListener("message", handler);
+				reject(new Error("fetchImage timeout"));
+			}, 15000);
+			const handler = (event) => {
+				const msg = event.data;
+				if (msg && msg.rpcResponse && msg.id === id) {
+					window.removeEventListener("message", handler);
+					clearTimeout(timeout);
+					if (msg.error) reject(new Error(msg.error));
+					else resolve(msg.result);
+				}
+			};
+			window.addEventListener("message", handler);
+			window.postMessage({
+				rpcRequest: true, id, method: "fetchImageData",
+				params: [url], source: "page"
+			}, "*");
+		});
+	};
 
-window.addEventListener("message", function (event) {
-	if (!event.data || event.source !== window) return;
-	const msg = event.data;
-	if (msg && msg.type === "setContent" && msg.payload) {
-		if (window.DiffSeek) {
-			window.DiffSeek.setContent(msg.payload.side || "left", msg.payload.content, true);
-			console.log("[DiffSeekExt] setContent called:", msg.payload);
-			window.postMessage({ status: "ok", action: "setContent", content: msg.payload.content }, "*");
-		} else {
-			console.log("[DiffSeekExt] window.DiffSeek.setContent not available");
-		}
+	if (window.DiffSeek) {
+		window.DiffSeek.setExtensionEnabled(true);
+	} else {
+		window.dispatchEvent(new CustomEvent("diffseek-extension-ready"));
 	}
-
-});
-
+})();

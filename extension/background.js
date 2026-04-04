@@ -4,31 +4,6 @@ chrome.runtime.onInstalled.addListener(() => {
 	console.log("DiffSeekExt background loaded");
 });
 
-chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-	if (message) {
-		if (message.type === "legacyBizContent") {
-			chrome.tabs.query({}, function (tabs) {
-				for (const tab of tabs) {
-					if (tab.url && (/localhost:5173/.test(tab.url) || /diffseek\.html$/i.test(tab.url))) {
-						chrome.tabs.sendMessage(
-							tab.id,
-							{
-								source: "DiffSeekExt",
-								type: "setContent",
-								payload: { content: message.payload.content, side: message.payload.side || "left" },
-							},
-							function (response) {}
-						);
-					}
-				}
-			});
-			sendResponse({ status: "ok", received: true });
-		} else {
-			sendResponse({ status: "received" });
-		}
-	}
-});
-
 chrome.runtime.onConnect.addListener((port) => {
 	if (port.name === "diffseek") {
 		console.log("DiffSeekExt: diffseek port connected");

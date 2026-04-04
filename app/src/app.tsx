@@ -17,20 +17,43 @@ declare global {
             setContent(side: EditorName, content: string, asHTML?: boolean): void;
             setExtensionEnabled(enabled: boolean): void;
         };
+        __diffseekExtEnabled?: boolean;
+        __diffseekFetchImage?: (url: string) => Promise<{ contentType: string; data: string } | null>;
     }
 }
 
 const engine = new DiffseekEngine();
+const atomStore = getDefaultStore();
+
+function enableExtension() {
+    engine.setExtensionEnabled(true);
+    engine.setImageFetchFn(async (url) => {
+        if (!window.__diffseekFetchImage) return null;
+        try {
+            const result = await window.__diffseekFetchImage(url);
+            return result?.data ?? null;
+        } catch {
+            return null;
+        }
+    });
+    atomStore.set(extensionEnabledAtom, true);
+}
 
 window.DiffSeek = {
     setContent(side, content, asHTML = true) {
         engine.setContent(side, content, asHTML);
     },
     setExtensionEnabled(enabled) {
-        engine.setExtensionEnabled(enabled);
-        atomStore.set(extensionEnabledAtom, enabled);
+        if (enabled) enableExtension();
     },
 };
+
+// 확장 감지: inject가 먼저 로드된 경우 플래그 확인, 나중에 로드되면 이벤트 수신
+if (window.__diffseekExtEnabled) {
+    enableExtension();
+} else {
+    window.addEventListener("diffseek-extension-ready", () => enableExtension(), { once: true });
+}
 
 engine.replaceDiffOptions({
     useCoarseSplit: false,
@@ -38,7 +61,6 @@ engine.replaceDiffOptions({
     // ...
 } as Partial<DiffOptions>);
 
-const atomStore = getDefaultStore();
 export function App() {
     const hostRef = useRef<HTMLDivElement>(null);
     const diffWorkflowStatus = useAtomValue(diffWorkflowStatusAtom);

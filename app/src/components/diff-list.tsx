@@ -42,8 +42,8 @@ export function DiffList() {
         const mapped = _diffs.map((diff) => ({
             diffIndex: diff.diffIndex,
             hue: getDiffHue(diff.diffIndex, palette?.diffHues ?? []),
-            leftText: extractTextFromRange(diff.leftRange, { maxLength: 50 })[0],
-            rightText: extractTextFromRange(diff.rightRange, { maxLength: 50 })[0],
+            leftText: extractTextFromRange(diff.leftRange, { maxLength: 25 })[0],
+            rightText: extractTextFromRange(diff.rightRange, { maxLength: 25 })[0],
             onClick,
             onMouseEnter,
             onMouseLeave,

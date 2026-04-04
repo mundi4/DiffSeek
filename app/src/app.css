@@ -140,6 +140,7 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  font-family: "돋움체", monospace;
 }
 
 .diff-list-item .text:empty::after {

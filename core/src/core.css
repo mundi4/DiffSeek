@@ -218,9 +218,15 @@
   display: inline;
 }
 
+.sync-mode ds-diff.line-start {
+  display: block !important;
+  height: calc(var(--editor-line-height) * 1em) !important;
+  width: 2px;
+}
+
 .sync-mode ds-diff.line-start::before {
   content: "" !important;
-  display: block !important;
+  display: block;
 }
 
 .sync-mode ds-diff.line-end::after {

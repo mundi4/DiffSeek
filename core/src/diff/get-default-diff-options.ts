@@ -21,7 +21,6 @@ const defaultDiffOptions: DiffOptions = {
     patienceMinTokens: 2000,
     patienceMinTokenCount: 4,
     patienceMinTextLen: 12,
-    localSAHybridRatio: 0.6,
 
     // ─────────────────────────────
     // Structural tokens

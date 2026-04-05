@@ -247,23 +247,6 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                     </Stack>
                 );
 
-            case "advanced":
-                return (
-                    <NumberInput
-                        label="Local SA Hybrid Ratio"
-                        description="Local sequence alignment 가중치 (0 ~ 1)"
-                        min={0}
-                        max={1}
-                        step={0.05}
-                        decimalScale={2}
-                        value={draft.diff.localSAHybridRatio}
-                        onChange={(v) => {
-                            const num = Math.max(0, Math.min(1, Number(v) || 0));
-                            setDiff({ localSAHybridRatio: num });
-                        }}
-                    />
-                );
-
             default:
                 return null;
         }

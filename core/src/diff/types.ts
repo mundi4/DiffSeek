@@ -17,7 +17,7 @@ export type DiffOptions = {
     patienceMinTokens: number;
     patienceMinTokenCount: number;
     patienceMinTextLen: number;
-    localSAHybridRatio: number;
+
     structuralTokenLength: number;
     /** structural 토큰만으로 이루어진 앵커 후보의 base score에 곱할 multiplier. index = h (매칭 토큰 수). h가 배열 길이 이상이면 마지막 값 사용. */
     structuralOnlyMultipliers: number[];

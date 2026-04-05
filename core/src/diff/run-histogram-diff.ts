@@ -11,7 +11,7 @@ const YIELD_INTERVAL = 0xff as const;
 const IndexArray = Uint32Array;
 const CENTER_RANGE_RATIO = 0.2 as const; // 중앙의 20% 영역
 const BAND_RANGE_RATIO = 0.5 as const; // 중앙의 50% 영역
-const DEFAULT_LOCAL_SA_HYBRID_RATIO = 0.6;
+
 
 // const HEADING_MIN_H: Record<SectionHeadingType, number> = {
 //     [SECTION_HEADING_TYPE_NONE]: 0,
@@ -41,7 +41,7 @@ export async function runHistogramDiff(
     rhsResultOffset = 0,
 ) {
     const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
-    const localSAHybridRatio = ctx.diffOptions.localSAHybridRatio ?? DEFAULT_LOCAL_SA_HYBRID_RATIO;
+
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
     if (ctx.diffOptions.mergeLetterNumberBoundary) {
@@ -71,28 +71,14 @@ export async function runHistogramDiff(
 
     const { pivot: _pivot, lhsIds: _lhsIds, rhsIds: _rhsIds, numCommonIds, maxId } = buildIdTables(lhsInput, rhsInput);
 
-    const { sa: _sa, rank: _rank, lcp: _lcp } = buildIndexTables(lhsInput, rhsInput, _lhsIds, _rhsIds, _pivot);
-    const { lcpLogTable: _lcpLogTable, lcpSparseTable: _lcpSparseTable } = buildLcpRmqTables(_lcp);
-
-    function queryLcpMin(left: number, right: number) {
-        if (left > right) {
-            return 0;
-        }
-        if (left === right) {
-            return _lcp[left];
-        }
-
-        const len = right - left + 1;
-        const level = _lcpLogTable[len];
-        const span = 1 << level;
-        const tableRow = _lcpSparseTable[level];
-        const a = tableRow[left];
-        const b = tableRow[right - span + 1];
-
-        return a < b ? a : b;
-    }
-
-    async function diffCore(lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number): Promise<void> {
+    async function diffCore(
+        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
+        depth = 0,
+        parentRank?: InstanceType<typeof IndexArray> | null,
+        parentLhsLower?: number,
+        parentRhsLower?: number,
+        parentLhsRange?: number,
+    ): Promise<void> {
         if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
             throw new Error(`Invalid range: lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`);
         }
@@ -121,7 +107,11 @@ export async function runHistogramDiff(
             await yieldIfNeeded();
         }
 
-        const anchor = await findAnchor(lhsLower, lhsUpper, rhsLower, rhsUpper);
+        const { anchor, rank: currentRank } = await findAnchor(
+            lhsLower, lhsUpper, rhsLower, rhsUpper, depth,
+            parentRank, parentLhsLower, parentRhsLower, parentLhsRange,
+        );
+        const childLhsRange = lhsCount;
         if (anchor
         ) {
             if (anchor.lhsStart === anchor.lhsEnd || anchor.rhsStart === anchor.rhsEnd) {
@@ -134,7 +124,8 @@ export async function runHistogramDiff(
             let [tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart, 2);
             // console.log("consume backward common edges:", { ll: lhsLower, le: anchor.lhsStart, rl: rhsLower, re: anchor.rhsStart }, "=>", { tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper });
             if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
-                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
+                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper,
+                    depth + 1, currentRank, lhsLower, rhsLower, childLhsRange);
             }
 
             // 지금 구현에서는 앵커는 반드시 토큰 대 토큰이 정확히 매치되어야 한다.
@@ -149,7 +140,8 @@ export async function runHistogramDiff(
             }
 
             if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
-                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
+                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper,
+                    depth + 1, currentRank, lhsLower, rhsLower, childLhsRange);
             }
 
         } else {
@@ -198,20 +190,52 @@ export async function runHistogramDiff(
         anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0, structuralOnly: false };
     }
 
-    let localSaPosScratch = new IndexArray(0);
+    // Local SA scratch buffers — 서브영역 SA를 스크래치 빌드할 때 재사용
+    let localSaScratch = new IndexArray(0);
+    let localRankScratch = new IndexArray(0);
+    let localTmpRankScratch = new IndexArray(0);
+    let localTmpSaScratch = new IndexArray(0);
+    let localCntScratch = new IndexArray(0);
     let localLcpScratch = new IndexArray(0);
+    let localIdsScratch = new IndexArray(0);
+
+    // depth-indexed rank pool — 재귀 깊이별로 rank 버퍼 재사용
+    const rankPool: InstanceType<typeof IndexArray>[] = [];
+    function getRankBuffer(depth: number, size: number): InstanceType<typeof IndexArray> {
+        if (depth >= rankPool.length) rankPool.length = depth + 1;
+        if (!rankPool[depth] || rankPool[depth].length < size) {
+            rankPool[depth] = new IndexArray(size);
+        }
+        return rankPool[depth];
+    }
+
+    type FindAnchorResult = { anchor: DiffAnchor | null, rank: InstanceType<typeof IndexArray> | null };
 
     function ensureLocalScratchCapacity(requiredSize: number) {
-        if (localSaPosScratch.length < requiredSize) {
-            localSaPosScratch = new IndexArray(requiredSize);
-        }
-        if (localLcpScratch.length < requiredSize) {
+        if (localSaScratch.length < requiredSize) {
+            localSaScratch = new IndexArray(requiredSize);
+            localRankScratch = new IndexArray(requiredSize);
+            localTmpRankScratch = new IndexArray(requiredSize);
+            localTmpSaScratch = new IndexArray(requiredSize);
             localLcpScratch = new IndexArray(requiredSize);
+            localIdsScratch = new IndexArray(requiredSize);
+        }
+        const cntSize = Math.max(requiredSize + 2, maxId + 2);
+        if (localCntScratch.length < cntSize) {
+            localCntScratch = new IndexArray(cntSize);
         }
     }
 
 
-    async function findAnchor(lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number): Promise<DiffAnchor | null> {
+    async function findAnchor(
+        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
+        depth: number,
+        parentRank?: InstanceType<typeof IndexArray> | null,
+        parentLhsLower?: number,
+        parentRhsLower?: number,
+        parentLhsRange?: number,
+    ): Promise<FindAnchorResult> {
+        _findAnchorTotal++;
         const MAX_BONUS_SCORE = maxBonus;
 
         const lhsRange = lhsUpper - lhsLower;
@@ -228,51 +252,146 @@ export async function runHistogramDiff(
 
         let bestScore = -1, bestAnchorPosL = -1, bestAnchorPosR = -1, bestAnchorLen = 0;
 
-        const sa = _sa;
         const rhsLoG = _pivot + rhsLower;
         const rhsHiG = _pivot + rhsUpper;
-        const totalSuffixCount = sa.length;
 
-        const localCapacity = lhsRange + rhsRange;
-        // Local SA path 비활성화: local SA의 LCP는 global 텍스트 기준이라
-        // 서브영역 경계를 초과할 수 있고, 동일 쌍이 LCP=0으로 격리되어
-        // 작은 h의 interval이 생성되지 않아 앵커 탐색이 실패하는 구조적 문제가 있음.
-        // Global SA에서는 중간 suffix들이 interval을 자연 분할하므로 문제없음.
-        const useLocalSaPath = false;
-        let localCount = 0;
-        let localSaPos: InstanceType<typeof IndexArray> | null = null;
-        let localLcp: InstanceType<typeof IndexArray> | null = null;
-        if (useLocalSaPath) {
-            ensureLocalScratchCapacity(localCapacity);
-            const localSaPosRaw = localSaPosScratch;
-            for (let j = lhsLower; j < lhsUpper; j++) {
-                localSaPosRaw[localCount++] = _rank[j] - 1;
+        const m = lhsRange + rhsRange;
+        if (m < 2) return { anchor: null, rank: null };
+
+        // Small-m fast path: m ≤ 3이면 SA 건설 없이 직접 비교
+        if (m <= 3) {
+            for (let li = lhsLower; li < lhsUpper; li++) {
+                for (let ri = rhsLower; ri < rhsUpper; ri++) {
+                    let h = 0;
+                    while (li + h < lhsUpper && ri + h < rhsUpper && _lhsIds[li + h] === _rhsIds[ri + h]) h++;
+                    if (h > 0) {
+                        const textLen = _lhsOffsets[li + h] - _lhsOffsets[li];
+                        const lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
+                        const freqGrade = freqLUT[1 * fStride + 1];
+                        const baseScore = core[fRow[freqGrade] + lengthGrade];
+                        if (baseScore > 0) {
+                            tryUpdateBestAnchor(li, ri, h, baseScore, false);
+                        }
+                    }
+                }
             }
-            for (let j = rhsLoG; j < rhsHiG; j++) {
-                localSaPosRaw[localCount++] = _rank[j] - 1;
+            if (bestAnchorPosL !== -1) {
+                return { anchor: {
+                    lhsStart: bestAnchorPosL, lhsEnd: bestAnchorPosL + bestAnchorLen,
+                    rhsStart: bestAnchorPosR, rhsEnd: bestAnchorPosR + bestAnchorLen,
+                }, rank: null };
+            }
+            return { anchor: null, rank: null };
+        }
+
+        // 서브영역 토큰만으로 SA/LCP를 스크래치 빌드
+        ensureLocalScratchCapacity(m);
+
+        {
+            const sa_l = localSaScratch.subarray(0, m);
+            const rank_l = localRankScratch.subarray(0, m);
+            const tmpRank_l = localTmpRankScratch.subarray(0, m);
+            const tmpSa_l = localTmpSaScratch.subarray(0, m);
+            const cnt_l = localCntScratch;
+            const ids_l = localIdsScratch.subarray(0, m);
+
+            // 1) ID를 연속 배열에 복사 + rank 초기화
+            for (let ii = 0; ii < lhsRange; ii++) ids_l[ii] = _lhsIds[lhsLower + ii];
+            for (let ii = 0; ii < rhsRange; ii++) ids_l[lhsRange + ii] = _rhsIds[rhsLower + ii];
+
+            let maxRank: number;
+            if (parentRank && parentLhsLower !== undefined && parentRhsLower !== undefined && parentLhsRange !== undefined) {
+                // 부모 rank를 초기값으로 사용 → doubling 반복 횟수 대폭 감소
+                for (let ii = 0; ii < lhsRange; ii++) {
+                    rank_l[ii] = parentRank[(lhsLower + ii) - parentLhsLower];
+                }
+                for (let ii = 0; ii < rhsRange; ii++) {
+                    rank_l[lhsRange + ii] = parentRank[parentLhsRange + (rhsLower + ii) - parentRhsLower];
+                }
+                maxRank = 0;
+                for (let ii = 0; ii < m; ii++) {
+                    sa_l[ii] = ii;
+                    if (rank_l[ii] > maxRank) maxRank = rank_l[ii];
+                }
+            } else {
+                // 최초 호출: 원본 ID를 rank로 사용
+                for (let ii = 0; ii < m; ii++) {
+                    sa_l[ii] = ii;
+                    rank_l[ii] = ids_l[ii];
+                }
+                maxRank = maxId;
             }
 
-            if (localCount < 2) {
-                return null;
+            // 2) Doubling + Counting Sort
+            for (let k = 1; k < m; k <<= 1) {
+                const sentinel = maxRank + 1;
+
+                // (A) second key
+                cnt_l.fill(0, 0, maxRank + 2);
+                for (let ii = 0; ii < m; ii++) {
+                    const idx = sa_l[ii];
+                    const key2 = (idx + k < m) ? rank_l[idx + k] : sentinel;
+                    cnt_l[key2]++;
+                }
+                for (let ii = 1; ii <= sentinel; ii++) cnt_l[ii] += cnt_l[ii - 1];
+                for (let ii = m - 1; ii >= 0; ii--) {
+                    const idx = sa_l[ii];
+                    const key2 = (idx + k < m) ? rank_l[idx + k] : sentinel;
+                    tmpSa_l[--cnt_l[key2]] = idx;
+                }
+
+                // (B) first key
+                cnt_l.fill(0, 0, maxRank + 1);
+                for (let ii = 0; ii < m; ii++) cnt_l[rank_l[tmpSa_l[ii]]]++;
+                for (let ii = 1; ii <= maxRank; ii++) cnt_l[ii] += cnt_l[ii - 1];
+                for (let ii = m - 1; ii >= 0; ii--) {
+                    const idx = tmpSa_l[ii];
+                    sa_l[--cnt_l[rank_l[idx]]] = idx;
+                }
+
+                // (C) new ranks + maxRank 추적
+                let r = 1;
+                tmpRank_l[sa_l[0]] = r;
+                for (let ii = 1; ii < m; ii++) {
+                    const a = sa_l[ii - 1], b = sa_l[ii];
+                    const a2 = (a + k < m) ? rank_l[a + k] : sentinel;
+                    const b2 = (b + k < m) ? rank_l[b + k] : sentinel;
+                    if (rank_l[a] !== rank_l[b] || a2 !== b2) r++;
+                    tmpRank_l[b] = r;
+                }
+                for (let ii = 0; ii < m; ii++) rank_l[ii] = tmpRank_l[ii];
+                maxRank = r;
+                if (r === m) break;
             }
 
-            localSaPos = localSaPosRaw.subarray(0, localCount);
-            localSaPos.sort();
+            // 3) Kasai LCP — ids_l로 분기 없이 비교
+            const lcp_l = localLcpScratch.subarray(0, m);
+            lcp_l[0] = 0;
+            let h_k = 0;
+            for (let ii = 0; ii < m; ii++) {
+                const r = rank_l[ii];
+                if (r <= 1) { h_k = 0; continue; }
+                const jj = sa_l[r - 2];
+                if (h_k > 0) h_k--;
+                while (ii + h_k < m && jj + h_k < m) {
+                    if (ids_l[ii + h_k] !== ids_l[jj + h_k]) break;
+                    h_k++;
+                }
+                lcp_l[r - 1] = h_k;
+            }
 
-            localLcp = localLcpScratch.subarray(0, localCount);
-            for (let i = 1; i < localCount; i++) {
-                const prev = localSaPos[i - 1];
-                const curr = localSaPos[i];
-                const lo = prev < curr ? prev + 1 : curr + 1;
-                const hi = prev < curr ? curr : prev;
-                localLcp[i] = queryLcpMin(lo, hi);
+            // 4) local SA → global position 변환
+            for (let ii = 0; ii < m; ii++) {
+                const lp = sa_l[ii];
+                sa_l[ii] = lp < lhsRange
+                    ? lhsLower + lp
+                    : _pivot + rhsLower + (lp - lhsRange);
             }
         }
 
-        const intervalCount = useLocalSaPath ? localCount : totalSuffixCount;
-        if (intervalCount < 2) {
-            return null;
-        }
+        const localSa = localSaScratch;
+        const localLcp = localLcpScratch;
+        const intervalCount = m;
 
         let lPosBuf = _lhsResultBuffer.subarray(lhsLower * RESULT_BUFFER_STRIDE, lhsUpper * RESULT_BUFFER_STRIDE),
             rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
@@ -326,8 +445,7 @@ export async function runHistogramDiff(
                 }
 
                 for (let k = lo; k <= hi; k++) {
-                    const saIdx = useLocalSaPath ? localSaPos![k] : k;
-                    const j = sa[saIdx];
+                    const j = localSa[k];
                     const jEnd = j + h;
                     if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper) {
                         lPosBuf[numL++] = j;
@@ -373,7 +491,7 @@ export async function runHistogramDiff(
             let lastLo = i - 1;
             const currentLCP = (i === intervalCount)
                 ? 0
-                : (useLocalSaPath ? localLcp![i] : _lcp[i]);
+                : (localLcp[i]);
             while (stackSize > 0 && stack[(stackSize - 1) * 2 + 1] > currentLCP) {
                 stackSize--;
                 const lo = stack[stackSize * 2];
@@ -395,8 +513,7 @@ export async function runHistogramDiff(
                 let baseScore = 0;
                 let structuralOnlyPenalty = 1;
                 for (let k = lo; k <= hi; k++) {
-                    const saIdx = useLocalSaPath ? localSaPos![k] : k;
-                    const j = sa[saIdx];
+                    const j = localSa[k];
                     const jEnd = j + h;
                     // 클로저 내의 박스 경계 조건 체크
                     if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper && freqL < fMax) {
@@ -489,16 +606,21 @@ export async function runHistogramDiff(
             squashAnchorCandidates();
         }
 
+        // rank를 depth-indexed pool에 저장하여 자식에게 전달
+        const savedRank = getRankBuffer(depth, m);
+        const rank_l = localRankScratch.subarray(0, m);
+        savedRank.set(rank_l);
+
         if (bestAnchorPosL !== -1) {
-            return {
+            return { anchor: {
                 lhsStart: bestAnchorPosL,
                 lhsEnd: bestAnchorPosL + bestAnchorLen,
                 rhsStart: bestAnchorPosR,
                 rhsEnd: bestAnchorPosR + bestAnchorLen,
-            } satisfies DiffAnchor;
+            }, rank: savedRank };
         }
 
-        return null;
+        return { anchor: null, rank: null };
     }
 
     function consumeCommonEdges(
@@ -607,7 +729,11 @@ export async function runHistogramDiff(
         return [lhsLower, lhsUpper, rhsLower, rhsUpper];
     }
 
+    let _findAnchorTotal = 0;
+
     await diffCore(0, _lhsTokenCount, 0, _rhsTokenCount);
+
+    console.log(`[findAnchor] total=${_findAnchorTotal}`);
 }
 
 function buildIdTables(lhsInput: DiffInput, rhsInput: DiffInput) {
@@ -707,170 +833,4 @@ function buildIdTables(lhsInput: DiffInput, rhsInput: DiffInput) {
         maxId,
         pivot
     };
-}
-
-function buildLcpRmqTables(lcp: InstanceType<typeof IndexArray>) {
-    const lcpLen = lcp.length;
-    const lcpLogTable = new Int32Array(lcpLen + 1);
-    for (let i = 2; i <= lcpLen; i++) {
-        lcpLogTable[i] = lcpLogTable[i >> 1] + 1;
-    }
-
-    const levels = lcpLogTable[lcpLen] + 1;
-    const lcpSparseTable: Array<InstanceType<typeof IndexArray>> = new Array(levels);
-
-    const level0 = new IndexArray(lcpLen);
-    level0.set(lcp);
-    lcpSparseTable[0] = level0;
-
-    for (let level = 1; level < levels; level++) {
-        const span = 1 << level;
-        const half = span >> 1;
-        const prevRow = lcpSparseTable[level - 1];
-        const row = new IndexArray(lcpLen);
-        const limit = lcpLen - span + 1;
-
-        for (let i = 0; i < limit; i++) {
-            const left = prevRow[i];
-            const right = prevRow[i + half];
-            row[i] = left < right ? left : right;
-        }
-
-        lcpSparseTable[level] = row;
-    }
-
-    return {
-        lcpLogTable,
-        lcpSparseTable,
-    };
-}
-
-function buildIndexTables(
-    lhsInput: DiffInput,
-    rhsInput: DiffInput,
-    lhsIds: InstanceType<typeof IndexArray>,
-    rhsIds: InstanceType<typeof IndexArray>,
-    pivot: number
-) {
-    const lhsCnt = lhsInput.tokenCount;
-    const rhsCnt = rhsInput.tokenCount;
-    const n = lhsCnt + rhsCnt;
-
-    const sa = new IndexArray(n);
-    const rank = new IndexArray(n);
-    const tmpRank = new IndexArray(n);
-    const tmpSa = new IndexArray(n);
-    const cnt = new IndexArray(n + 1);
-
-    // --------------------
-    // 0) 초기 rank 설정
-    // 이미 1..maxId dense 상태라고 가정
-    // --------------------
-    for (let i = 0; i < n; i++) {
-        sa[i] = i;
-        rank[i] = i < pivot ? lhsIds[i] : rhsIds[i - pivot];
-    }
-
-    // --------------------
-    // 1) Doubling + Counting Sort
-    // --------------------
-    for (let k = 1; k < n; k <<= 1) {
-
-        // 최대 rank 찾기 (dense이므로 마지막 doubling에서만 증가)
-        let maxRank = 0;
-        for (let i = 0; i < n; i++) {
-            if (rank[i] > maxRank) maxRank = rank[i];
-        }
-
-        // ---------- (A) second key ----------
-        //const sentinel = 0; //(끝난 suffix는 가장 작게)
-        const sentinel = maxRank + 1; //(끝난 suffix는 가장 크게)
-        cnt.fill(0, 0, maxRank + 2);
-
-        for (let i = 0; i < n; i++) {
-            const idx = sa[i];
-            const key2 = (idx + k < n) ? rank[idx + k] : sentinel;
-            cnt[key2]++;
-        }
-
-        for (let i = 1; i <= maxRank + 1; i++) {
-            cnt[i] += cnt[i - 1];
-        }
-
-        for (let i = n - 1; i >= 0; i--) {
-            const idx = sa[i];
-            const key2 = (idx + k < n) ? rank[idx + k] : sentinel;
-            tmpSa[--cnt[key2]] = idx;
-        }
-
-        // ---------- (B) first key ----------
-        cnt.fill(0, 0, maxRank + 1);
-
-        for (let i = 0; i < n; i++) {
-            cnt[rank[tmpSa[i]]]++;
-        }
-
-        for (let i = 1; i <= maxRank; i++) {
-            cnt[i] += cnt[i - 1];
-        }
-
-        for (let i = n - 1; i >= 0; i--) {
-            const idx = tmpSa[i];
-            const key1 = rank[idx];
-            sa[--cnt[key1]] = idx;
-        }
-
-        // ---------- (C) 새 rank 계산 ----------
-        let r = 1; // 0은 sentinel용
-
-        tmpRank[sa[0]] = r;
-
-        for (let i = 1; i < n; i++) {
-            const a = sa[i - 1];
-            const b = sa[i];
-
-            const a1 = rank[a];
-            const b1 = rank[b];
-
-            const a2 = (a + k < n) ? rank[a + k] : sentinel;
-            const b2 = (b + k < n) ? rank[b + k] : sentinel;
-
-            if (a1 !== b1 || a2 !== b2) r++;
-            tmpRank[b] = r;
-        }
-
-        rank.set(tmpRank);
-
-        if (r === n) break; // 모든 rank 유니크
-    }
-
-    // --------------------
-    // 2) Kasai LCP
-    // --------------------
-    const lcp = new IndexArray(n);
-    let h = 0;
-
-    for (let i = 0; i < n; i++) {
-        const r = rank[i];
-        if (r <= 1) continue;
-
-        const j = sa[r - 2];
-
-        if (h > 0) h--;
-
-        while (i + h < n && j + h < n) {
-            const p1 = i + h;
-            const p2 = j + h;
-
-            const v1 = (p1 < pivot) ? lhsIds[p1] : rhsIds[p1 - pivot];
-            const v2 = (p2 < pivot) ? lhsIds[p2] : rhsIds[p2 - pivot];
-
-            if (v1 !== v2) break;
-            h++;
-        }
-
-        lcp[r - 1] = h;
-    }
-
-    return { sa, rank, lcp };
 }

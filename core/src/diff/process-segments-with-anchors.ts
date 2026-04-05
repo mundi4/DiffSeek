@@ -21,8 +21,6 @@ export async function processSegmentsWithAnchors(
     // }
     // console.log("===============");
 
-    const histogramFunc = runHistogramDiff;
-
     // lhs.resultBuffer.fill(0);
     // rhs.resultBuffer.fill(0);
 
@@ -45,11 +43,11 @@ export async function processSegmentsWithAnchors(
             return;
         }
 
-        const ltext = tokenRangeToString(lhs.buffer, lhs.offsets, lhsStart, lhsEnd);
-        const rtext = tokenRangeToString(rhs.buffer, rhs.offsets, rhsStart, rhsEnd);
+        // const ltext = tokenRangeToString(lhs.buffer, lhs.offsets, lhsStart, lhsEnd);
+        // const rtext = tokenRangeToString(rhs.buffer, rhs.offsets, rhsStart, rhsEnd);
         // console.debug(`Diffing segments: lhs[${lhsStart}, ${lhsEnd}) "${ltext}", rhs[${rhsStart}, ${rhsEnd}) "${rtext}"`);
 
-        return histogramFunc(
+        return runHistogramDiff(
             ctx,
             sliceDiffInput(lhs, lhsStart, lhsEnd),
             sliceDiffInput(rhs, rhsStart, rhsEnd),
@@ -65,8 +63,8 @@ export async function processSegmentsWithAnchors(
         const rhsPos = anchor.rhsStart;
         const rhsEnd = anchor.rhsEnd;
 
-        const lText = tokenRangeToString(lhs.buffer, lhs.offsets, lhsPos, lhsEnd);
-        const rText = tokenRangeToString(rhs.buffer, rhs.offsets, rhsPos, rhsEnd);
+        // const lText = tokenRangeToString(lhs.buffer, lhs.offsets, lhsPos, lhsEnd);
+        // const rText = tokenRangeToString(rhs.buffer, rhs.offsets, rhsPos, rhsEnd);
         // console.debug(`Processing anchor: lhs[${lhsPos}, ${lhsEnd}) "${lText}", rhs[${rhsPos}, ${rhsEnd}) "${rText}" (last: lhs[${lastL}], rhs[${lastR}])`);
         // console.debug(`Processing anchor: lhs[${lhsPos}, ${lhsEnd}) "${lText}", rhs[${rhsPos}, ${rhsEnd}) "${rText}" (last: lhs[${lastL}], rhs[${lastR}])`);
 

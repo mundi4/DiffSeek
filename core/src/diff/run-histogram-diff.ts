@@ -124,10 +124,6 @@ export async function runHistogramDiff(
         const anchor = await findAnchor(lhsLower, lhsUpper, rhsLower, rhsUpper);
         if (anchor
         ) {
-            const ltext = tokenRangeToString(_lhsTextBuffer, _lhsOffsets, anchor.lhsStart, anchor.lhsEnd);
-            const rtext = tokenRangeToString(_rhsTextBuffer, _rhsOffsets, anchor.rhsStart, anchor.rhsEnd);
-            // console.log("anchor found:", ltext, rtext, anchor);
-
             if (anchor.lhsStart === anchor.lhsEnd || anchor.rhsStart === anchor.rhsEnd) {
                 console.warn(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Ignoring this anchor.`);
             }
@@ -238,7 +234,11 @@ export async function runHistogramDiff(
         const totalSuffixCount = sa.length;
 
         const localCapacity = lhsRange + rhsRange;
-        const useLocalSaPath = localCapacity >= 2 && localCapacity < (totalSuffixCount * localSAHybridRatio);
+        // Local SA path 비활성화: local SA의 LCP는 global 텍스트 기준이라
+        // 서브영역 경계를 초과할 수 있고, 동일 쌍이 LCP=0으로 격리되어
+        // 작은 h의 interval이 생성되지 않아 앵커 탐색이 실패하는 구조적 문제가 있음.
+        // Global SA에서는 중간 suffix들이 interval을 자연 분할하므로 문제없음.
+        const useLocalSaPath = false;
         let localCount = 0;
         let localSaPos: InstanceType<typeof IndexArray> | null = null;
         let localLcp: InstanceType<typeof IndexArray> | null = null;

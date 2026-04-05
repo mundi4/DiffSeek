@@ -9,6 +9,7 @@ import { processDiffElements, serializeTokens, cleanupUnusedMarkers } from "./pr
 import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, MarkerElementsMap, SelectionChangeData } from "./types";
 import type { EditorName } from "../editor";
 import type { DiffOptions } from "../diff/types";
+import { TOKEN_BUFFER_STRIDE } from "../constants";
 import type { DiffseekOptions, Palette, Span } from "../types";
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
@@ -466,6 +467,120 @@ export class DiffseekEngine {
 
     setHoveredDiff(diffIndex: number | null) {
         this.renderer.setHoveredDiffIndex(diffIndex);
+    }
+
+    getTextForTokenSpan(side: EditorName, span: Span): string | null {
+        if (!this.diffContext) return null;
+        const tokens = side === "left" ? this.diffContext.leftTokens : this.diffContext.rightTokens;
+        if (span.start < 0 || span.end > tokens.length || span.start >= span.end) return null;
+        const editor = side === "left" ? this.leftEditor : this.rightEditor;
+        const wholeText = editor.wholeText;
+        let result = "";
+        for (let i = span.start; i < span.end; i++) {
+            const token = tokens[i];
+            if (token.flags & 0x2 /* TOKEN_FLAGS_TYPE_IMAGE */) continue;
+            const start = token.textOffset;
+            const end = i + 1 < tokens.length
+                ? tokens[i + 1].textOffset
+                : token.textOffset + token.textLength;
+            result += wholeText.slice(start, end);
+        }
+        return result;
+    }
+
+    /**
+     * 좌우 매칭 span을 토큰 단위 최소 매칭 쌍으로 분쇄.
+     * 입력은 resolveMatchingSpanPair의 결과(토큰 인덱스 span)여야 하지만 강제하지 않음.
+     */
+    segmentSpanPair(leftSpan: Span, rightSpan: Span): { left: Span | null; right: Span | null }[] {
+        if (!this.diffContext) return [];
+        const S = TOKEN_BUFFER_STRIDE;
+        const lBuf = this.diffContext.leftTokenBuffer;
+        const rBuf = this.diffContext.rightTokenBuffer;
+        const segments: { left: Span | null; right: Span | null }[] = [];
+
+        let li = leftSpan.start;
+        let ri = rightSpan.start;
+
+        while (li < leftSpan.end || ri < rightSpan.end) {
+            if (li >= leftSpan.end) {
+                // 좌측 소진 — 남은 우측을 하나의 segment로
+                segments.push({ left: null, right: { start: ri, end: rightSpan.end } });
+                break;
+            }
+            if (ri >= rightSpan.end) {
+                // 우측 소진 — 남은 좌측을 하나의 segment로
+                segments.push({ left: { start: li, end: leftSpan.end }, right: null });
+                break;
+            }
+
+            // 현재 좌측 토큰의 반대편 매칭 범위
+            const lOppStart = lBuf[li * S + 2];
+            const lOppEnd = lBuf[li * S + 3];
+
+            // 현재 우측 토큰의 반대편 매칭 범위
+            const rOppStart = rBuf[ri * S + 2];
+            const rOppEnd = rBuf[ri * S + 3];
+
+            // 좌측 토큰이 우측 범위 밖을 가리킴 → 좌측만 있는 segment
+            if (lOppStart >= rightSpan.end || lOppEnd <= ri) {
+                const segStart = li;
+                li++;
+                while (li < leftSpan.end) {
+                    const nextOppStart = lBuf[li * S + 2];
+                    if (nextOppStart >= ri) break;
+                    li++;
+                }
+                segments.push({ left: { start: segStart, end: li }, right: null });
+                continue;
+            }
+
+            // 우측 토큰이 좌측 범위 밖을 가리킴 → 우측만 있는 segment
+            if (rOppStart >= leftSpan.end || rOppEnd <= li) {
+                const segStart = ri;
+                ri++;
+                while (ri < rightSpan.end) {
+                    const nextOppStart = rBuf[ri * S + 2];
+                    if (nextOppStart >= li) break;
+                    ri++;
+                }
+                segments.push({ left: null, right: { start: segStart, end: ri } });
+                continue;
+            }
+
+            // 양쪽 매칭 — 그룹 확장
+            let lEnd = li + 1;
+            let rEnd = Math.max(ri + 1, lOppEnd);
+
+            // 우측 끝에 해당하는 좌측 범위가 더 넓을 수 있으므로 수렴할 때까지 반복
+            let changed = true;
+            while (changed) {
+                changed = false;
+                // 우측 끝까지의 좌측 범위 확장
+                for (let r = ri; r < rEnd && r < rightSpan.end; r++) {
+                    const oppEnd = rBuf[r * S + 3];
+                    if (oppEnd > lEnd) { lEnd = oppEnd; changed = true; }
+                }
+                // 좌측 끝까지의 우측 범위 확장
+                for (let l = li; l < lEnd && l < leftSpan.end; l++) {
+                    const oppEnd = lBuf[l * S + 3];
+                    if (oppEnd > rEnd) { rEnd = oppEnd; changed = true; }
+                }
+            }
+
+            lEnd = Math.min(lEnd, leftSpan.end);
+            rEnd = Math.min(rEnd, rightSpan.end);
+
+            segments.push({
+                left: { start: li, end: lEnd },
+                right: { start: ri, end: rEnd },
+            });
+
+            li = lEnd;
+            ri = rEnd;
+        }
+
+        return segments;
     }
 
     getUserSelectionRange(): { editor: Editor; range: Range } | { editor: null; range: null } {

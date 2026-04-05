@@ -97,9 +97,6 @@ body {
   opacity: 0.3;
 }
 
-.side-tag-button:hover {
-}
-
 .diff-list {
   padding: 2px 2px;
   list-style: none;
@@ -335,6 +332,217 @@ body {
     transform: translateY(0) scale(1);
     opacity: 1;
   }
+}
+
+/* ── Quick Diff Panel (sidebar) ── */
+
+.qdiff-panel {
+  border-top: 1px solid var(--mantine-color-gray-3, #dee2e6);
+  background: #fff;
+  overflow: hidden;
+  animation: qdiff-fade-in 120ms ease-out;
+}
+
+.qdiff-panel-content {
+  padding: 6px 8px;
+  font-size: 12px;
+  font-family: "돋움체", Consolas, monospace;
+  line-height: 1.6;
+  overflow-y: auto;
+  max-height: 200px;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.qdiff-removed {
+  background-color: hsl(340 80% 88%);
+  color: hsl(340 60% 25%);
+}
+
+.qdiff-added {
+  background-color: hsl(160 60% 85%);
+  color: hsl(160 50% 20%);
+}
+
+.qdiff-unchanged {
+  color: #334155;
+}
+
+.qdiff-special {
+  color: #94a3b8;
+  font-size: 10px;
+}
+
+/* ── Quick Diff Menu Popover ── */
+
+.qdiff-menu {
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.45);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.12);
+  padding: 2px;
+  z-index: 10000;
+  animation: qdiff-fade-in 100ms ease-out;
+}
+
+.qdiff-menu-btn {
+  display: block;
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: system-ui, sans-serif;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  color: #334155;
+  white-space: nowrap;
+}
+
+.qdiff-menu-btn:hover {
+  background: #e2e8f0;
+}
+
+/* ── Quick Diff Result Popover ── */
+
+.qdiff-result {
+  resize: both;
+  overflow: hidden;
+  background: #fff;
+  border: 1px solid rgba(148, 163, 184, 0.4);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.15);
+  overflow: hidden;
+  z-index: 9999;
+  animation: qdiff-fade-in 120ms ease-out;
+  display: flex;
+  flex-direction: column;
+}
+
+.qdiff-result-title {
+  font-size: 11px;
+  color: #64748b;
+  flex: 1;
+  margin-left: 4px;
+}
+
+.qdiff-result-titlebar {
+  display: flex;
+  align-items: center;
+  padding: 2px 4px;
+  cursor: grab;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+  background: rgba(248, 250, 252, 0.8);
+  border-radius: 8px 8px 0 0;
+  user-select: none;
+}
+
+.qdiff-result-titlebar:active {
+  cursor: grabbing;
+}
+
+.qdiff-result-close {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  color: #94a3b8;
+  border: none;
+  background: transparent;
+  border-radius: 4px;
+  padding: 0;
+}
+
+.qdiff-result-close:hover {
+  background: rgba(148, 163, 184, 0.2);
+  color: #ef4444;
+}
+
+.qdiff-result-content {
+  padding: 16px 20px;
+  /* font-size: JS에서 동적 설정 */
+  font-family: "바탕체", serif;
+  line-height: 1.6;
+  overflow: auto;
+  flex: 1;
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* ── Quick Diff View Mode Buttons ── */
+
+.qdiff-viewmode-btns {
+  display: flex;
+  gap: 1px;
+  margin-right: 4px;
+}
+
+.qdiff-viewmode-btn {
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  border-radius: 3px;
+  padding: 0;
+  cursor: pointer;
+  color: #94a3b8;
+}
+
+.qdiff-viewmode-btn:hover {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+.qdiff-viewmode-btn.active {
+  color: #334155;
+  background: rgba(148, 163, 184, 0.25);
+}
+
+/* ── Quick Diff Split Layout ── */
+
+.qdiff-split-h {
+  display: flex;
+  gap: 0;
+  height: 100%;
+}
+
+.qdiff-split-h > .qdiff-split-left,
+.qdiff-split-h > .qdiff-split-right {
+  flex: 1;
+  overflow: auto;
+  min-width: 0;
+  font-size: 14px;
+}
+
+.qdiff-split-h > .qdiff-split-left {
+  border-right: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+.qdiff-split-v {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  height: 100%;
+}
+
+.qdiff-split-v > .qdiff-split-left,
+.qdiff-split-v > .qdiff-split-right {
+  flex: 1;
+  overflow: auto;
+  min-height: 0;
+  font-size: 14px;
+}
+
+.qdiff-split-v > .qdiff-split-left {
+  border-bottom: 1px solid rgba(148, 163, 184, 0.2);
+}
+
+@keyframes qdiff-fade-in {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
 }
 
 .app-header progress {

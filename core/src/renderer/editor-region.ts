@@ -39,12 +39,6 @@ export class EditorRegion {
 
         let ret: number = 0;
         if (this.regionX !== x || this.regionY !== y || this.regionWidth !== width || this.regionHeight !== height) {
-            if (import.meta.env.DEV) {
-                console.debug(
-                    `[EditorRegion:${this.editor.name}] layout changed → DIRTY_RESIZE+GEOMETRY:`,
-                    `x ${this.regionX}→${x}, y ${this.regionY}→${y}, w ${this.regionWidth}→${width}, h ${this.regionHeight}→${height}`,
-                );
-            }
             renderer.invalidateGeometries(this.editor.name);
             ret = DIRTY_RESIZE;
         } else if (this.#scrollTop !== scrollTop) {

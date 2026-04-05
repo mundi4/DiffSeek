@@ -1,0 +1,359 @@
+import type { DiffseekEngine } from "@core";
+import { FloatingWindow } from "@mantine/core";
+import { useQuickDiff } from "@/hooks/use-quick-diff";
+import { QuickDiffType, type QuickDiffEntry } from "@/quick-diff";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+const RESULT_MIN_WIDTH = 160;
+const RESULT_MIN_HEIGHT = 60;
+const RESULT_MAX_WIDTH = 420;
+const RESULT_MAX_HEIGHT = 320;
+const RESULT_FONT_MIN = 12;
+const RESULT_FONT_MAX = 72;
+const MARGIN = 8;
+const MENU_GAP = 20;
+
+// ── 뷰 모드 ──
+
+type ViewMode = "inline" | "side-by-side" | "stacked";
+
+// ── 공통 렌더 유틸 ──
+
+function renderSpecialChars(text: string): (string | React.ReactNode)[] {
+    const parts: (string | React.ReactNode)[] = [];
+    let buf = "";
+    let key = 0;
+    for (const ch of text) {
+        if (ch === "\n") {
+            if (buf) { parts.push(buf); buf = ""; }
+            parts.push(<span key={key++} className="qdiff-special">{"↵"}</span>);
+            parts.push(<br key={key++} />);
+        } else if (ch === "\t") {
+            if (buf) { parts.push(buf); buf = ""; }
+            parts.push(<span key={key++} className="qdiff-special">{"→"}</span>);
+        } else {
+            buf += ch;
+        }
+    }
+    if (buf) parts.push(buf);
+    return parts;
+}
+
+function renderInline(entries: QuickDiffEntry[]) {
+    return entries.map((entry, i) => {
+        const className =
+            entry.type === QuickDiffType.Removed ? "qdiff-removed" :
+            entry.type === QuickDiffType.Added ? "qdiff-added" :
+            "qdiff-unchanged";
+        return (
+            <span key={i} className={className}>
+                {renderSpecialChars(entry.text)}
+            </span>
+        );
+    });
+}
+
+function renderSplit(entries: QuickDiffEntry[], layout: "side-by-side" | "stacked") {
+    const leftParts: React.ReactNode[] = [];
+    const rightParts: React.ReactNode[] = [];
+    for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i];
+        const rendered = <span key={i}>{renderSpecialChars(entry.text)}</span>;
+        if (entry.type === QuickDiffType.Unchanged) {
+            leftParts.push(rendered);
+            rightParts.push(rendered);
+        } else if (entry.type === QuickDiffType.Removed) {
+            leftParts.push(<span key={i} className="qdiff-removed">{renderSpecialChars(entry.text)}</span>);
+        } else {
+            rightParts.push(<span key={i} className="qdiff-added">{renderSpecialChars(entry.text)}</span>);
+        }
+    }
+    const cls = layout === "side-by-side" ? "qdiff-split-h" : "qdiff-split-v";
+    return (
+        <div className={cls}>
+            <div className="qdiff-split-left">{leftParts}</div>
+            <div className="qdiff-split-right">{rightParts}</div>
+        </div>
+    );
+}
+
+function renderContent(entries: QuickDiffEntry[], viewMode: ViewMode) {
+    if (viewMode === "inline") return renderInline(entries);
+    return renderSplit(entries, viewMode);
+}
+
+// ── SelectionMenu ──
+
+function SelectionMenu({ x, y, opacity, workspace, onClickDiff }: { x: number; y: number; opacity: number; workspace: HTMLElement; onClickDiff: () => void }) {
+    const ref = useRef<HTMLDivElement>(null);
+    const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
+
+    useEffect(() => {
+        if (!ref.current) return;
+        const w = ref.current.offsetWidth;
+        const h = ref.current.offsetHeight;
+        const vh = window.innerHeight;
+
+        const wsRect = workspace.getBoundingClientRect();
+        const left = Math.max(wsRect.left + MARGIN, Math.min(x, wsRect.right - w - MARGIN));
+        const above = y - MENU_GAP - h >= 0;
+
+        setPos(above
+            ? { left, bottom: vh - y + MENU_GAP }
+            : { left, top: y + MENU_GAP }
+        );
+    }, [x, y, workspace]);
+
+    return (
+        <div
+            ref={ref}
+            className="qdiff-menu"
+            style={{
+                position: "fixed",
+                left: pos?.left ?? x,
+                top: pos?.top,
+                bottom: pos?.bottom,
+                opacity,
+                visibility: pos ? "visible" : "hidden",
+            }}
+            onMouseDown={(e) => e.preventDefault()}
+        >
+            <button className="qdiff-menu-btn" onClick={onClickDiff}>
+                Diff
+            </button>
+        </div>
+    );
+}
+
+// ── ResultPopover (FloatingWindow) ──
+
+function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
+    result: { entries: QuickDiffEntry[] };
+    anchorX: number;
+    anchorY: number;
+    workspace: HTMLElement;
+    onDismiss: (popoverEl?: HTMLElement | null) => void;
+}) {
+    const rootRef = useRef<HTMLDivElement>(null);
+    const contentRef = useRef<HTMLDivElement>(null);
+    const resizeObserverRef = useRef<ResizeObserver | null>(null);
+    const [viewMode, setViewMode] = useState<ViewMode>("inline");
+    const contentCallbackRef = useCallback((node: HTMLDivElement | null) => {
+        if (resizeObserverRef.current) {
+            resizeObserverRef.current.disconnect();
+            resizeObserverRef.current = null;
+        }
+        contentRef.current = node;
+        if (!node) return;
+
+        if (viewMode === "inline") {
+            fitFont(node);
+
+            const container = node.parentElement;
+            if (container) {
+                let rafId: number | null = null;
+                const observer = new ResizeObserver(() => {
+                    if (rafId !== null) return;
+                    rafId = requestAnimationFrame(() => {
+                        rafId = null;
+                        if (contentRef.current) fitFont(contentRef.current);
+                    });
+                });
+                observer.observe(container);
+                resizeObserverRef.current = observer;
+            }
+        } else {
+            node.style.fontSize = "";
+        }
+    }, [result, viewMode]);
+    const setPositionRef = useRef<((pos: { top?: number; left?: number; right?: number; bottom?: number }) => void) | null>(null);
+    const [ready, setReady] = useState(false);
+    const [wsSize, setWsSize] = useState({ width: workspace.offsetWidth, height: workspace.offsetHeight });
+
+    // workspace 리사이즈 추적 + 팝업 위치 viewport clamp + cleanup
+    useEffect(() => {
+        const handleResize = () => {
+            setWsSize({ width: workspace.offsetWidth, height: workspace.offsetHeight });
+
+            // 팝업이 viewport 밖으로 밀려났으면 보정
+            const root = rootRef.current;
+            const setPos = setPositionRef.current;
+            if (root && setPos) {
+                const rect = root.getBoundingClientRect();
+                const vw = window.innerWidth;
+                const vh = window.innerHeight;
+                let left = rect.left;
+                let top = rect.top;
+                let needsUpdate = false;
+
+                if (rect.right > vw) { left = vw - rect.width; needsUpdate = true; }
+                if (rect.bottom > vh) { top = vh - rect.height; needsUpdate = true; }
+                if (left < 0) { left = 0; needsUpdate = true; }
+                if (top < 0) { top = 0; needsUpdate = true; }
+
+                if (needsUpdate) setPos({ left, top });
+            }
+        };
+
+        const wsObserver = new ResizeObserver(handleResize);
+        wsObserver.observe(workspace);
+        window.addEventListener("resize", handleResize);
+        return () => {
+            wsObserver.disconnect();
+            window.removeEventListener("resize", handleResize);
+            resizeObserverRef.current?.disconnect();
+        };
+    }, []);
+
+    // 초기 위치 계산: 워크스페이스 기준
+    const initialPosition = useMemo(() => {
+        const wsRect = workspace.getBoundingClientRect();
+        // 대략적인 초기 위치 (정확한 크기는 모르지만 max 기준으로 추정)
+        const left = Math.max(wsRect.left + MARGIN, Math.min(anchorX, wsRect.right - RESULT_MAX_WIDTH - MARGIN));
+        const top = anchorY + MENU_GAP;
+        return { top, left };
+    }, [anchorX, anchorY, workspace]);
+
+    // 마운트 후 실제 크기로 위치 보정
+    useEffect(() => {
+        if (!rootRef.current || !setPositionRef.current) return;
+        const w = rootRef.current.offsetWidth;
+        const h = rootRef.current.offsetHeight;
+        const wsRect = workspace.getBoundingClientRect();
+
+        const left = Math.max(wsRect.left + MARGIN, Math.min(anchorX, wsRect.right - w - MARGIN));
+        let top: number;
+        if (anchorY + MENU_GAP + h <= wsRect.bottom) {
+            top = anchorY + MENU_GAP;
+        } else if (anchorY - MENU_GAP - h >= wsRect.top) {
+            top = anchorY - MENU_GAP - h;
+        } else {
+            top = Math.max(wsRect.top + MARGIN, wsRect.bottom - h - MARGIN);
+        }
+
+        setPositionRef.current({ top, left });
+        setReady(true);
+    }, [anchorX, anchorY, workspace]);
+
+    // 스크롤바가 안 생기는 최대 폰트 크기 탐색 (동기 reflow, binary search)
+    function fitFont(el: HTMLElement) {
+        let lo = RESULT_FONT_MIN, hi = RESULT_FONT_MAX;
+
+        // max에서 안 넘치면 그대로
+        el.style.fontSize = hi + "px";
+        if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
+
+        // binary search (최대 8회)
+        let bestSize = lo;
+        for (let i = 0; i < 8 && hi - lo > 0.5; i++) {
+            const mid = (lo + hi) / 2;
+            el.style.fontSize = mid + "px";
+            if (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) {
+                hi = mid;
+            } else {
+                bestSize = mid;
+                lo = mid;
+            }
+        }
+        // 서브픽셀 반올림으로 미세하게 넘칠 수 있으므로 0.5px 여유
+        el.style.fontSize = (bestSize > RESULT_FONT_MIN ? bestSize - 0.5 : bestSize) + "px";
+    }
+
+    // ESC로 닫기
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.key === "Escape") {
+                e.preventDefault();
+                onDismiss(rootRef.current);
+            }
+        };
+        document.addEventListener("keydown", handleKeyDown);
+        return () => document.removeEventListener("keydown", handleKeyDown);
+    }, [onDismiss]);
+
+    const handleClose = useCallback(() => {
+        onDismiss(rootRef.current);
+    }, [onDismiss]);
+
+    return (
+        <FloatingWindow
+            ref={rootRef}
+            setPositionRef={setPositionRef}
+            className="qdiff-result"
+            enabled
+            constrainToViewport
+            constrainOffset={MARGIN}
+            dragHandleSelector=".qdiff-result-grip"
+            excludeDragHandleSelector=".qdiff-result-close, .qdiff-viewmode-btn"
+            initialPosition={initialPosition}
+            zIndex={9999}
+            onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
+            style={{
+                width: RESULT_MAX_WIDTH,
+                height: RESULT_MAX_HEIGHT,
+                minWidth: RESULT_MIN_WIDTH,
+                minHeight: RESULT_MIN_HEIGHT,
+                maxWidth: wsSize.width,
+                maxHeight: wsSize.height,
+            }}
+        >
+            <div className="qdiff-result-titlebar qdiff-result-grip">
+                <span className="qdiff-result-title">선택 영역 비교</span>
+                <div className="qdiff-viewmode-btns">
+                    <button className={`qdiff-viewmode-btn${viewMode === "stacked" ? " active" : ""}`} onClick={() => setViewMode("stacked")} title="위아래">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="4" rx="1" fill="currentColor" /><rect x="1" y="7" width="10" height="4" rx="1" fill="currentColor" /></svg>
+                    </button>
+                    <button className={`qdiff-viewmode-btn${viewMode === "side-by-side" ? " active" : ""}`} onClick={() => setViewMode("side-by-side")} title="좌우">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="4" height="10" rx="1" fill="currentColor" /><rect x="7" y="1" width="4" height="10" rx="1" fill="currentColor" /></svg>
+                    </button>
+                    <button className={`qdiff-viewmode-btn${viewMode === "inline" ? " active" : ""}`} onClick={() => setViewMode("inline")} title="인라인">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor" /></svg>
+                    </button>
+                </div>
+                <button className="qdiff-result-close" onClick={handleClose}>
+                    <svg width="10" height="10" viewBox="0 0 10 10">
+                        <path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+                    </svg>
+                </button>
+            </div>
+            <div ref={contentCallbackRef} className="qdiff-result-content">
+                {renderContent(result.entries, viewMode)}
+            </div>
+        </FloatingWindow>
+    );
+}
+
+// ── Root ──
+
+export function InlineDiffPopover({ engine }: { engine: DiffseekEngine }) {
+    const { available, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult } = useQuickDiff(engine);
+
+    // Alt+Q 단축키
+    useEffect(() => {
+        const handleKeyDown = (e: KeyboardEvent) => {
+            if (e.altKey && e.code === "KeyQ") {
+                e.preventDefault();
+                if (available) requestDiff();
+            }
+        };
+        window.addEventListener("keydown", handleKeyDown);
+        return () => window.removeEventListener("keydown", handleKeyDown);
+    }, [available, requestDiff]);
+
+    return (
+        <>
+            {menu && (
+                <SelectionMenu x={menu.x} y={menu.y} opacity={menuOpacity} workspace={engine.workspaceEl} onClickDiff={requestDiff} />
+            )}
+            {result && resultPosition && (
+                <ResultPopover
+                    result={result}
+                    anchorX={resultPosition.x}
+                    anchorY={resultPosition.y}
+                    workspace={engine.workspaceEl}
+                    onDismiss={dismissResult}
+                />
+            )}
+        </>
+    );
+}

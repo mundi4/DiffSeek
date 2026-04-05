@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from 'react';
 import { DiffseekProvider } from './bridge/diffseek-provider';
 import { AppHeader } from './components/app-header';
 import { DiffList } from './components/diff-list';
+import { InlineDiffPopover } from './components/inline-diff-popover';
 import { OutlineModal } from './components/outline-modal';
 import { BusyIndicator } from "./components/busy-indicator";
 import { diffWorkflowStatusAtom, extensionEnabledAtom } from './states/core-atoms';
@@ -114,6 +115,7 @@ export function App() {
                     <DiffList />
                     <AppHeader />
                 </aside>
+                <InlineDiffPopover engine={engine} />
                 <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} />
                 {/* <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} /> */}
             </Provider>

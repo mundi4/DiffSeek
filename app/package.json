@@ -13,8 +13,8 @@
     "test:ui": "vitest --ui"
   },
   "dependencies": {
-    "@mantine/core": "^8.3.13",
-    "@mantine/hooks": "^8.3.13",
+    "@mantine/core": "^9.0.0",
+    "@mantine/hooks": "^9.0.0",
     "@tabler/icons-react": "^3.36.1",
     "clsx": "^2.1.1",
     "diffseek-core": "*",

@@ -102,3 +102,14 @@ export const commonOutlineAtom = atom<CommonOutlineHeading[]>((get) => {
 });
 
 export const visibleDiffIndexesAtom = atom<{ left: number[], right: number[] }>({ left: [], right: [] });
+
+// ──────────────────────────────────────────────
+// Quick Diff
+// ──────────────────────────────────────────────
+
+export type QuickDiffViewMode = "inline" | "side-by-side" | "stacked";
+
+export const quickDiffViewModeAtom = atomWithStorage<QuickDiffViewMode>(
+    "diffseek_quickdiff_viewmode",
+    "inline",
+);

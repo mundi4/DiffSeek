@@ -407,7 +407,8 @@ body {
 .qdiff-result {
   resize: both;
   overflow: hidden;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(8px);
   border: 1px solid rgba(148, 163, 184, 0.4);
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(15, 23, 42, 0.15);

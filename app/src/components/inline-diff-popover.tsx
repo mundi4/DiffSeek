@@ -2,19 +2,19 @@ import type { DiffseekEngine } from "@core";
 import { FloatingWindow } from "@mantine/core";
 import { useQuickDiff } from "@/hooks/use-quick-diff";
 import { QuickDiffType, type QuickDiffEntry } from "@/quick-diff";
+import { useAtom } from "jotai";
+import { quickDiffViewModeAtom, type QuickDiffViewMode } from "@/states/core-atoms";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
-const RESULT_MIN_WIDTH = 160;
-const RESULT_MIN_HEIGHT = 60;
+const RESULT_MIN_WIDTH = 200;
+const RESULT_MIN_HEIGHT = 100;
 const RESULT_MAX_WIDTH = 420;
 const RESULT_MAX_HEIGHT = 320;
 const RESULT_FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72];
 const MARGIN = 8;
 const MENU_GAP = 20;
 
-// ── 뷰 모드 ──
-
-type ViewMode = "inline" | "side-by-side" | "stacked";
+type ViewMode = QuickDiffViewMode;
 
 // ── 공통 렌더 유틸 ──
 
@@ -126,17 +126,18 @@ function SelectionMenu({ x, y, opacity, workspace, onClickDiff }: { x: number; y
 
 // ── ResultPopover (FloatingWindow) ──
 
-function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
+function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, onDismiss }: {
     result: { entries: QuickDiffEntry[] };
     anchorX: number;
     anchorY: number;
     workspace: HTMLElement;
+    lastPositionRef: React.MutableRefObject<{ top: number; left: number } | null>;
     onDismiss: (popoverEl?: HTMLElement | null) => void;
 }) {
     const rootRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
-    const [viewMode, setViewMode] = useState<ViewMode>("inline");
+    const [viewMode, changeViewMode] = useAtom(quickDiffViewModeAtom);
     const contentCallbackRef = useCallback((node: HTMLDivElement | null) => {
         if (resizeObserverRef.current) {
             resizeObserverRef.current.disconnect();
@@ -204,10 +205,10 @@ function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
         };
     }, []);
 
-    // 초기 위치 계산: 워크스페이스 기준
+    // 초기 위치: 저장된 위치가 있으면 사용, 없으면 워크스페이스 기준 계산
     const initialPosition = useMemo(() => {
+        if (lastPositionRef.current) return lastPositionRef.current;
         const wsRect = workspace.getBoundingClientRect();
-        // 대략적인 초기 위치 (정확한 크기는 모르지만 max 기준으로 추정)
         const left = Math.max(wsRect.left + MARGIN, Math.min(anchorX, wsRect.right - RESULT_MAX_WIDTH - MARGIN));
         const top = anchorY + MENU_GAP;
         return { top, left };
@@ -260,9 +261,14 @@ function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
         onDismiss(rootRef.current);
     }, [onDismiss]);
 
+    const handlePositionChange = useCallback((pos: { x: number; y: number }) => {
+        lastPositionRef.current = { top: pos.y, left: pos.x };
+    }, []);
+
     return (
         <FloatingWindow
             ref={rootRef}
+            onPositionChange={handlePositionChange}
             setPositionRef={setPositionRef}
             className="qdiff-result"
             enabled
@@ -285,14 +291,14 @@ function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
             <div className="qdiff-result-titlebar qdiff-result-grip">
                 <span className="qdiff-result-title">선택 영역 비교</span>
                 <div className="qdiff-viewmode-btns">
-                    <button className={`qdiff-viewmode-btn${viewMode === "stacked" ? " active" : ""}`} onClick={() => setViewMode("stacked")} title="위아래">
-                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="4" rx="1" fill="currentColor" /><rect x="1" y="7" width="10" height="4" rx="1" fill="currentColor" /></svg>
+                    <button className={`qdiff-viewmode-btn${viewMode === "inline" ? " active" : ""}`} onClick={() => changeViewMode("inline")} title="인라인">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor" /></svg>
                     </button>
-                    <button className={`qdiff-viewmode-btn${viewMode === "side-by-side" ? " active" : ""}`} onClick={() => setViewMode("side-by-side")} title="좌우">
+                    <button className={`qdiff-viewmode-btn${viewMode === "side-by-side" ? " active" : ""}`} onClick={() => changeViewMode("side-by-side")} title="좌우">
                         <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="4" height="10" rx="1" fill="currentColor" /><rect x="7" y="1" width="4" height="10" rx="1" fill="currentColor" /></svg>
                     </button>
-                    <button className={`qdiff-viewmode-btn${viewMode === "inline" ? " active" : ""}`} onClick={() => setViewMode("inline")} title="인라인">
-                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor" /></svg>
+                    <button className={`qdiff-viewmode-btn${viewMode === "stacked" ? " active" : ""}`} onClick={() => changeViewMode("stacked")} title="위아래">
+                        <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="4" rx="1" fill="currentColor" /><rect x="1" y="7" width="10" height="4" rx="1" fill="currentColor" /></svg>
                     </button>
                 </div>
                 <button className="qdiff-result-close" onClick={handleClose}>
@@ -312,6 +318,7 @@ function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
 
 export function InlineDiffPopover({ engine }: { engine: DiffseekEngine }) {
     const { available, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult } = useQuickDiff(engine);
+    const lastPositionRef = useRef<{ top: number; left: number } | null>(null);
 
     // Alt+Q 단축키
     useEffect(() => {
@@ -336,6 +343,7 @@ export function InlineDiffPopover({ engine }: { engine: DiffseekEngine }) {
                     anchorX={resultPosition.x}
                     anchorY={resultPosition.y}
                     workspace={engine.workspaceEl}
+                    lastPositionRef={lastPositionRef}
                     onDismiss={dismissResult}
                 />
             )}

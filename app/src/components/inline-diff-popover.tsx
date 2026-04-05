@@ -8,8 +8,7 @@ const RESULT_MIN_WIDTH = 160;
 const RESULT_MIN_HEIGHT = 60;
 const RESULT_MAX_WIDTH = 420;
 const RESULT_MAX_HEIGHT = 320;
-const RESULT_FONT_MIN = 12;
-const RESULT_FONT_MAX = 72;
+const RESULT_FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72];
 const MARGIN = 8;
 const MENU_GAP = 20;
 
@@ -235,28 +234,14 @@ function ResultPopover({ result, anchorX, anchorY, workspace, onDismiss }: {
         setReady(true);
     }, [anchorX, anchorY, workspace]);
 
-    // 스크롤바가 안 생기는 최대 폰트 크기 탐색 (동기 reflow, binary search)
+    // 미리 지정된 폰트 크기 중 스크롤바가 안 생기는 최대 크기 탐색 (큰 것부터)
     function fitFont(el: HTMLElement) {
-        let lo = RESULT_FONT_MIN, hi = RESULT_FONT_MAX;
-
-        // max에서 안 넘치면 그대로
-        el.style.fontSize = hi + "px";
-        if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
-
-        // binary search (최대 8회)
-        let bestSize = lo;
-        for (let i = 0; i < 8 && hi - lo > 0.5; i++) {
-            const mid = (lo + hi) / 2;
-            el.style.fontSize = mid + "px";
-            if (el.scrollHeight > el.clientHeight || el.scrollWidth > el.clientWidth) {
-                hi = mid;
-            } else {
-                bestSize = mid;
-                lo = mid;
-            }
+        for (let i = RESULT_FONT_SIZES.length - 1; i >= 0; i--) {
+            el.style.fontSize = RESULT_FONT_SIZES[i] + "px";
+            if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
         }
-        // 서브픽셀 반올림으로 미세하게 넘칠 수 있으므로 0.5px 여유
-        el.style.fontSize = (bestSize > RESULT_FONT_MIN ? bestSize - 0.5 : bestSize) + "px";
+        // 최소 크기에서도 넘치면 최소로 고정 (스크롤 허용)
+        el.style.fontSize = RESULT_FONT_SIZES[0] + "px";
     }
 
     // ESC로 닫기

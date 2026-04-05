@@ -1,37 +1,14 @@
-import { RESULT_BUFFER_STRIDE } from "./constants";
-import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, tokenRangeToString, writeToResultBuffer } from "./helpers";
+import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, writeToResultBuffer } from "./helpers";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffAnchor, type DiffInput, type DiffJobContext } from "./types";
-import { HEADING_MASK, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
+import { TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
 import { getStructuralElementType } from "../tokenization/token-flags";
-import { SECTION_HEADING_TYPE_NONE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_PAREN_NUMERIC, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, headingFlagsToType } from "../constants/section-heading";
+import { TOKEN_BUFFER_STRIDE } from "../constants";
 
 const HASH_SIZE = 0xfffff + 1;
 const HEAD = new Int32Array(HASH_SIZE);
 const YIELD_INTERVAL = 0xff as const;
-const IndexArray = Uint32Array;
-const CENTER_RANGE_RATIO = 0.2 as const; // 중앙의 20% 영역
-const BAND_RANGE_RATIO = 0.5 as const; // 중앙의 50% 영역
-
-
-// const HEADING_MIN_H: Record<SectionHeadingType, number> = {
-//     [SECTION_HEADING_TYPE_NONE]: 0,
-//     [SECTION_HEADING_TYPE_NUMERIC_DOT]: 2,
-//     [SECTION_HEADING_TYPE_HANGUL_DOT]: 2,
-//     [SECTION_HEADING_TYPE_PAREN_NUMERIC]: 3,
-//     [SECTION_HEADING_TYPE_PAREN_HANGUL]: 3,
-//     [SECTION_HEADING_TYPE_NUMERIC_PAREN]: 2,
-//     [SECTION_HEADING_TYPE_HANGUL_PAREN]: 2,
-//     [SECTION_HEADING_TYPE_LAW_ARTICLE]: 1,
-// };
-const HEADING_MIN_H = new Uint8Array(8);
-HEADING_MIN_H[SECTION_HEADING_TYPE_NONE] = 0;
-HEADING_MIN_H[SECTION_HEADING_TYPE_NUMERIC_DOT] = 2; // "1." > "1" + "."
-HEADING_MIN_H[SECTION_HEADING_TYPE_HANGUL_DOT] = 2; // "가." > "가" + "."
-HEADING_MIN_H[SECTION_HEADING_TYPE_PAREN_NUMERIC] = 3; // "(1)" > "(" + "1" + ")"
-HEADING_MIN_H[SECTION_HEADING_TYPE_PAREN_HANGUL] = 3; // "(가)" > "(" + "가" + ")"
-HEADING_MIN_H[SECTION_HEADING_TYPE_NUMERIC_PAREN] = 2; // "1)" > "1" + ")"
-HEADING_MIN_H[SECTION_HEADING_TYPE_HANGUL_PAREN] = 2; // "가)" > "가" + ")"
-HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 1; // "제1조" > "제1조" (single merged token) - mergeLetterNumberBoundary 옵션에 따라 1 또는 3
+const CENTER_RANGE_RATIO = 0.3 as const; // 중앙의 30% 영역
+const BAND_RANGE_RATIO = 0.7 as const; // 중앙의 70% 영역
 
 export async function runHistogramDiff(
     ctx: DiffJobContext,
@@ -44,11 +21,6 @@ export async function runHistogramDiff(
 
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
-    if (ctx.diffOptions.mergeLetterNumberBoundary) {
-        HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 1; // "제1조" > "제1조" (single merged token)
-    } else {
-        HEADING_MIN_H[SECTION_HEADING_TYPE_LAW_ARTICLE] = 3; // "제" "1" "조" > "제1조" (3 tokens)
-    }
 
     const { tokenCount: _lhsTokenCount, buffer: _lhsTextBuffer, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
     const { tokenCount: _rhsTokenCount, buffer: _rhsTextBuffer, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
@@ -74,7 +46,7 @@ export async function runHistogramDiff(
     async function diffCore(
         lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
         depth = 0,
-        parentRank?: InstanceType<typeof IndexArray> | null,
+        parentRank?: InstanceType<typeof Uint32Array> | null,
         parentLhsLower?: number,
         parentRhsLower?: number,
         parentLhsRange?: number,
@@ -174,7 +146,7 @@ export async function runHistogramDiff(
     } = ctx.score;
 
 
-    let stack = new IndexArray(1024 * 2);
+    let stack = new Uint32Array(1024 * 2);
     type AnchorCandidate = {
         h: number,
         lo: number,
@@ -191,46 +163,45 @@ export async function runHistogramDiff(
     }
 
     // Local SA scratch buffers — 서브영역 SA를 스크래치 빌드할 때 재사용
-    let localSaScratch = new IndexArray(0);
-    let localRankScratch = new IndexArray(0);
-    let localTmpRankScratch = new IndexArray(0);
-    let localTmpSaScratch = new IndexArray(0);
-    let localCntScratch = new IndexArray(0);
-    let localLcpScratch = new IndexArray(0);
-    let localIdsScratch = new IndexArray(0);
+    let localSaScratch = new Uint32Array(0);
+    let localRankScratch = new Uint32Array(0);
+    let localTmpRankScratch = new Uint32Array(0);
+    let localTmpSaScratch = new Uint32Array(0);
+    let localCntScratch = new Uint32Array(0);
+    let localLcpScratch = new Uint32Array(0);
+    let localIdsScratch = new Uint32Array(0);
 
     // depth-indexed rank pool — 재귀 깊이별로 rank 버퍼 재사용
-    const rankPool: InstanceType<typeof IndexArray>[] = [];
-    function getRankBuffer(depth: number, size: number): InstanceType<typeof IndexArray> {
+    const rankPool: InstanceType<typeof Uint32Array>[] = [];
+    function getRankBuffer(depth: number, size: number): InstanceType<typeof Uint32Array> {
         if (depth >= rankPool.length) rankPool.length = depth + 1;
         if (!rankPool[depth] || rankPool[depth].length < size) {
-            rankPool[depth] = new IndexArray(size);
+            rankPool[depth] = new Uint32Array(size);
         }
         return rankPool[depth];
     }
 
-    type FindAnchorResult = { anchor: DiffAnchor | null, rank: InstanceType<typeof IndexArray> | null };
+    type FindAnchorResult = { anchor: DiffAnchor | null, rank: InstanceType<typeof Uint32Array> | null };
 
     function ensureLocalScratchCapacity(requiredSize: number) {
         if (localSaScratch.length < requiredSize) {
-            localSaScratch = new IndexArray(requiredSize);
-            localRankScratch = new IndexArray(requiredSize);
-            localTmpRankScratch = new IndexArray(requiredSize);
-            localTmpSaScratch = new IndexArray(requiredSize);
-            localLcpScratch = new IndexArray(requiredSize);
-            localIdsScratch = new IndexArray(requiredSize);
+            localSaScratch = new Uint32Array(requiredSize);
+            localRankScratch = new Uint32Array(requiredSize);
+            localTmpRankScratch = new Uint32Array(requiredSize);
+            localTmpSaScratch = new Uint32Array(requiredSize);
+            localLcpScratch = new Uint32Array(requiredSize);
+            localIdsScratch = new Uint32Array(requiredSize);
         }
         const cntSize = Math.max(requiredSize + 2, maxId + 2);
         if (localCntScratch.length < cntSize) {
-            localCntScratch = new IndexArray(cntSize);
+            localCntScratch = new Uint32Array(cntSize);
         }
     }
-
 
     async function findAnchor(
         lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
         depth: number,
-        parentRank?: InstanceType<typeof IndexArray> | null,
+        parentRank?: InstanceType<typeof Uint32Array> | null,
         parentLhsLower?: number,
         parentRhsLower?: number,
         parentLhsRange?: number,
@@ -257,32 +228,6 @@ export async function runHistogramDiff(
 
         const m = lhsRange + rhsRange;
         if (m < 2) return { anchor: null, rank: null };
-
-        // Small-m fast path: m ≤ 3이면 SA 건설 없이 직접 비교
-        if (m <= 3) {
-            for (let li = lhsLower; li < lhsUpper; li++) {
-                for (let ri = rhsLower; ri < rhsUpper; ri++) {
-                    let h = 0;
-                    while (li + h < lhsUpper && ri + h < rhsUpper && _lhsIds[li + h] === _rhsIds[ri + h]) h++;
-                    if (h > 0) {
-                        const textLen = _lhsOffsets[li + h] - _lhsOffsets[li];
-                        const lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
-                        const freqGrade = freqLUT[1 * fStride + 1];
-                        const baseScore = core[fRow[freqGrade] + lengthGrade];
-                        if (baseScore > 0) {
-                            tryUpdateBestAnchor(li, ri, h, baseScore, false);
-                        }
-                    }
-                }
-            }
-            if (bestAnchorPosL !== -1) {
-                return { anchor: {
-                    lhsStart: bestAnchorPosL, lhsEnd: bestAnchorPosL + bestAnchorLen,
-                    rhsStart: bestAnchorPosR, rhsEnd: bestAnchorPosR + bestAnchorLen,
-                }, rank: null };
-            }
-            return { anchor: null, rank: null };
-        }
 
         // 서브영역 토큰만으로 SA/LCP를 스크래치 빌드
         ensureLocalScratchCapacity(m);
@@ -393,8 +338,8 @@ export async function runHistogramDiff(
         const localLcp = localLcpScratch;
         const intervalCount = m;
 
-        let lPosBuf = _lhsResultBuffer.subarray(lhsLower * RESULT_BUFFER_STRIDE, lhsUpper * RESULT_BUFFER_STRIDE),
-            rPosBuf = _rhsResultBuffer.subarray(rhsLower * RESULT_BUFFER_STRIDE, rhsUpper * RESULT_BUFFER_STRIDE);
+        let lPosBuf = _lhsResultBuffer.subarray(lhsLower * TOKEN_BUFFER_STRIDE, lhsUpper * TOKEN_BUFFER_STRIDE),
+            rPosBuf = _rhsResultBuffer.subarray(rhsLower * TOKEN_BUFFER_STRIDE, rhsUpper * TOKEN_BUFFER_STRIDE);
 
         let numCandidates = 0;
         function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number, structuralOnly: boolean) {
@@ -504,9 +449,8 @@ export async function runHistogramDiff(
 
                 const hi = i - 1;
 
-                // 이 구간(lo~hi)이 우리 박스 안에서 유효한지 확인
+                // lhs/rhs 분류 + 이어붙인 배열의 lhs↔rhs 경계 초과 매치 제외
                 let freqL = 0, freqR = 0;
-                // let minPosL = lhsUpper, minPosR = rhsUpper;
                 let lengthGrade = 0;
                 let textLen = -1;
                 let freqGrade: number;
@@ -515,7 +459,6 @@ export async function runHistogramDiff(
                 for (let k = lo; k <= hi; k++) {
                     const j = localSa[k];
                     const jEnd = j + h;
-                    // 클로저 내의 박스 경계 조건 체크
                     if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper && freqL < fMax) {
                         // lPosBuf[freqL] = j;
                         freqL++;
@@ -588,7 +531,7 @@ export async function runHistogramDiff(
             if (stackSize === 0 || stack[(stackSize - 1) * 2 + 1] < currentLCP) {
                 if (stackSize >= stack.length / 2) {
                     // double the stack size
-                    const newStack = new IndexArray(stack.length * 2);
+                    const newStack = new Uint32Array(stack.length * 2);
                     newStack.set(stack);
                     stack = newStack;
                 }
@@ -612,12 +555,14 @@ export async function runHistogramDiff(
         savedRank.set(rank_l);
 
         if (bestAnchorPosL !== -1) {
-            return { anchor: {
-                lhsStart: bestAnchorPosL,
-                lhsEnd: bestAnchorPosL + bestAnchorLen,
-                rhsStart: bestAnchorPosR,
-                rhsEnd: bestAnchorPosR + bestAnchorLen,
-            }, rank: savedRank };
+            return {
+                anchor: {
+                    lhsStart: bestAnchorPosL,
+                    lhsEnd: bestAnchorPosL + bestAnchorLen,
+                    rhsStart: bestAnchorPosR,
+                    rhsEnd: bestAnchorPosR + bestAnchorLen,
+                }, rank: savedRank
+            };
         }
 
         return { anchor: null, rank: null };
@@ -746,8 +691,8 @@ function buildIdTables(lhsInput: DiffInput, rhsInput: DiffInput) {
     const LINKS = new Int32Array(n);
     LINKS.fill(-1);
 
-    const lhsIds = new IndexArray(lhsCnt);
-    const rhsIds = new IndexArray(rhsCnt);
+    const lhsIds = new Uint32Array(lhsCnt);
+    const rhsIds = new Uint32Array(rhsCnt);
     let nextId = 1;
 
     const lhsBuffer = lhsInput.buffer;

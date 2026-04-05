@@ -118,7 +118,7 @@ export const ANCHOR_TAG_NAME = "DS-ANCHOR";
 export const ANCHOR_CLASS_NAME = "ds-anchor";
 
 
-export const TOKEN_BUFFER_STRIDE = 5;
+export const TOKEN_BUFFER_STRIDE = 5 as const;
 
 export const STRUCTURAL_TD_OPEN_TEXT = "\uE000td";
 export const STRUCTURAL_TD_CLOSE_TEXT = "\uE001td";

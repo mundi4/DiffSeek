@@ -1,6 +1,6 @@
 import type { DiffInput } from "./types";
-import { RESULT_BUFFER_STRIDE } from "./constants";
 import { TOKEN_FLAGS_TYPE_IMAGE } from "../tokenization";
+import { TOKEN_BUFFER_STRIDE } from "../constants";
 
 export function calculateHash(buffer: Uint16Array, start: number, len: number): number {
     let h = 2166136261 >>> 0;
@@ -101,20 +101,20 @@ export function sliceDiffInput(input: DiffInput, lower: number, upper: number): 
         buffer: input.buffer, // 그대로
         offsets: input.offsets.subarray(lower, upper + 1),
         flags: input.flags.subarray(lower, upper),
-        resultBuffer: input.resultBuffer.subarray(lower * RESULT_BUFFER_STRIDE, upper * RESULT_BUFFER_STRIDE),
+        resultBuffer: input.resultBuffer.subarray(lower * TOKEN_BUFFER_STRIDE, upper * TOKEN_BUFFER_STRIDE),
         tokenCount: upper - lower,
     } satisfies DiffInput;
 }
 
 export function writeToResultBuffer(lhsResultBuffer: Int32Array, rhsResultBuffer: Int32Array, lhsPos: number, lhsEnd: number, rhsPos: number, rhsEnd: number, diffType: number, lhsBase = 0, rhsBase = 0) {
-    for (let i = lhsPos, lo = lhsPos * RESULT_BUFFER_STRIDE; i < lhsEnd; i++, lo += RESULT_BUFFER_STRIDE) {
+    for (let i = lhsPos, lo = lhsPos * TOKEN_BUFFER_STRIDE; i < lhsEnd; i++, lo += TOKEN_BUFFER_STRIDE) {
         lhsResultBuffer[lo + 0] = lhsPos + lhsBase;
         lhsResultBuffer[lo + 1] = lhsEnd + lhsBase;
         lhsResultBuffer[lo + 2] = rhsPos + rhsBase;
         lhsResultBuffer[lo + 3] = rhsEnd + rhsBase;
         lhsResultBuffer[lo + 4] = diffType;
     }
-    for (let i = rhsPos, lo = rhsPos * RESULT_BUFFER_STRIDE; i < rhsEnd; i++, lo += RESULT_BUFFER_STRIDE) {
+    for (let i = rhsPos, lo = rhsPos * TOKEN_BUFFER_STRIDE; i < rhsEnd; i++, lo += TOKEN_BUFFER_STRIDE) {
         rhsResultBuffer[lo + 0] = rhsPos + rhsBase;
         rhsResultBuffer[lo + 1] = rhsEnd + rhsBase;
         rhsResultBuffer[lo + 2] = lhsPos + lhsBase;

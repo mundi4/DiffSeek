@@ -224,49 +224,49 @@ describe('UNWRAPPABLE_TAGS 언래핑', () => {
     });
 });
 
-// ─── 색상 처리 (color → color-red / color-normal 클래스) ─────────────────────
+// ─── 색상 처리 (color → ds-color-red / ds-color-normal 클래스) ─────────────────────
 
 describe('색상 처리', () => {
-    it('빨간색 텍스트에 color-red 클래스를 추가한다', () => {
+    it('빨간색 텍스트에 ds-color-red 클래스를 추가한다', () => {
         const result = sanitize('<p style="color:red">빨간 텍스트</p>');
-        expect(result).toContain('color-red');
+        expect(result).toContain('ds-color-red');
         expect(result).toContain('빨간 텍스트');
     });
 
-    it('#ff0000 색상에 color-red 클래스를 추가한다', () => {
+    it('#ff0000 색상에 ds-color-red 클래스를 추가한다', () => {
         const result = sanitize('<p style="color:#ff0000">빨간 텍스트</p>');
-        expect(result).toContain('color-red');
+        expect(result).toContain('ds-color-red');
     });
 
-    it('#c00000 색상에 color-red 클래스를 추가한다', () => {
+    it('#c00000 색상에 ds-color-red 클래스를 추가한다', () => {
         const result = sanitize('<p style="color:#c00000">빨간 텍스트</p>');
-        expect(result).toContain('color-red');
+        expect(result).toContain('ds-color-red');
     });
 
     it('파란색 텍스트는 color 클래스를 추가하지 않는다 (초기 색상이 이미 NORMAL이므로 변화 없음)', () => {
         // 초기 color 상태가 "NORMAL"이므로 blue → NORMAL은 변화가 아님
-        // color-normal 클래스는 red → NORMAL 변화 시에만 추가됨
+        // ds-color-normal 클래스는 red → NORMAL 변화 시에만 추가됨
         const result = sanitize('<p style="color:blue">파란 텍스트</p>');
-        expect(result).not.toContain('color-red');
+        expect(result).not.toContain('ds-color-red');
         expect(result).toContain('파란 텍스트');
     });
 
-    it('빨간 부모에서 파란 자식으로 변하면 color-normal 클래스가 추가된다', () => {
-        // color-normal은 red → NORMAL 상태 전환 시에만 추가됨
+    it('빨간 부모에서 파란 자식으로 변하면 ds-color-normal 클래스가 추가된다', () => {
+        // ds-color-normal은 red → NORMAL 상태 전환 시에만 추가됨
         const result = sanitize('<p style="color:red"><span style="color:blue">파란 자식</span></p>');
-        expect(result).toContain('color-red');
-        expect(result).toContain('color-normal');
+        expect(result).toContain('ds-color-red');
+        expect(result).toContain('ds-color-normal');
     });
 
     it('color 스타일이 없으면 color 클래스를 추가하지 않는다', () => {
         const result = sanitize('<p>일반 텍스트</p>');
-        expect(result).not.toContain('color-red');
-        expect(result).not.toContain('color-normal');
+        expect(result).not.toContain('ds-color-red');
+        expect(result).not.toContain('ds-color-normal');
     });
 
-    it('color-red 클래스가 있는 요소는 color-red를 전파한다', () => {
-        const result = sanitize('<p class="color-red"><span>내용</span></p>');
-        expect(result).toContain('color-red');
+    it('ds-color-red 클래스가 있는 요소는 ds-color-red를 전파한다', () => {
+        const result = sanitize('<p class="ds-color-red"><span>내용</span></p>');
+        expect(result).toContain('ds-color-red');
     });
 });
 
@@ -449,7 +449,7 @@ describe('중첩 구조', () => {
 
     it('색상이 중첩된 자식 요소에 전파된다', () => {
         const result = sanitize('<p style="color:red"><b>빨간 굵은 텍스트</b></p>');
-        expect(result).toContain('color-red');
+        expect(result).toContain('ds-color-red');
         expect(result).toContain('빨간 굵은 텍스트');
     });
 

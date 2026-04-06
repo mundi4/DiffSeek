@@ -123,11 +123,11 @@ export function sanitizeHTML(rawHTML: string): Node {
 			}
 
 			if (colorChanged) {
-				// (newElement as HTMLElement).classList.remove("color-red", "color-normal");
+				// (newElement as HTMLElement).classList.remove("ds-color-red", "ds-color-normal");
 				if (newColor === "red") {
-					(sanitizedNode as HTMLElement).classList.add("color-red");
+					(sanitizedNode as HTMLElement).classList.add("ds-color-red");
 				} else {//if (states.color === "normal") {
-					(sanitizedNode as HTMLElement).classList.add("color-normal");
+					(sanitizedNode as HTMLElement).classList.add("ds-color-normal");
 				}
 			}
 		}

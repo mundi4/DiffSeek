@@ -47,7 +47,7 @@ const INITIAL_CONTENT_HTML = document.createElement("P");
 INITIAL_CONTENT_HTML.appendChild(document.createElement("BR"));
 
 const DEFAULT_EDITOR_OPTIONS: EditorOptions = {
-    lineHeight: 1.5,
+    lineHeight: 1.4,
     altArrowScrollLines: 3,
 };
 
@@ -224,7 +224,7 @@ export class Editor implements EditorContext {
 
         const manualAnchor = document.createElement(MANUAL_ANCHOR_TAG_NAME);
         manualAnchor.dataset.manualAnchor = type;
-        manualAnchor.classList.add("manual-anchor");
+        manualAnchor.classList.add("ds-manual-anchor");
         const html = manualAnchor.outerHTML;
         document.execCommand("insertHTML", false, html);
     }
@@ -522,7 +522,7 @@ export class Editor implements EditorContext {
             console.debug(this.name, "Paste bomb operation took", endTime - startTime, "ms");
             return true;
         } finally {
-            this.contentElement.classList.remove("busy");
+            this.contentElement.classList.remove("ds-busy");
         }
     }
 
@@ -835,9 +835,9 @@ export class Editor implements EditorContext {
             return;
         }
         if (delta > 0) {
-            this.heightBoostElement.style.setProperty("--height-boost", delta + "px");
+            this.heightBoostElement.style.setProperty("--ds-height-boost", delta + "px");
         } else {
-            this.heightBoostElement.style.removeProperty("--height-boost");
+            this.heightBoostElement.style.removeProperty("--ds-height-boost");
         }
     }
 

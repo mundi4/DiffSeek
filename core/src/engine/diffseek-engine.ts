@@ -334,7 +334,7 @@ export class DiffseekEngine {
         const width = measured > 0 ? measured : 15;
         if (width === this._scrollbarWidth) return;
         this._scrollbarWidth = width;
-        this.workspaceEl.style.setProperty('--editor-minimap-width', `${width}px`);
+        this.workspaceEl.style.setProperty('--ds-minimap-width', `${width}px`);
         this.renderer.setOptions({ minimapWidth: width });
     }
 
@@ -392,7 +392,7 @@ export class DiffseekEngine {
         this.leftEditor.isReadOnly = !this._editableInSyncMode && value;
         this.rightEditor.isReadOnly = !this._editableInSyncMode && value;
         this.renderer.isSyncMode = value;
-        this.workspaceEl.classList.toggle("sync-mode", value);
+        this.workspaceEl.classList.toggle("ds-sync-mode", value);
 
         if (value) {
             // const scrollTop = Math.min(this.leftEditor.scrollTop, this.rightEditor.scrollTop);

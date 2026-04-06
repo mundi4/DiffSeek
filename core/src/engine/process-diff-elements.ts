@@ -243,10 +243,10 @@ export async function processDiffElements({
         if (el) {
             const filledStartToken = filledSnapshot.tokens[filledStart];
             const filledEndToken = filledSnapshot.tokens[filledEnd - 1];
-            el.classList.toggle("has-preceding-space", !!(filledStartToken.flags & TOKEN_FLAGS_HAS_PRECEDING_SPACE));
-            el.classList.toggle("has-following-space", !!(filledEndToken.flags & TOKEN_FLAGS_HAS_FOLLOWING_SPACE));
-            el.classList.toggle("line-start", !!(filledStartToken.flags & TOKEN_FLAGS_LINE_START));
-            el.classList.toggle("line-end", !!(filledEndToken.flags & TOKEN_FLAGS_LINE_END));
+            el.classList.toggle("ds-has-preceding-space", !!(filledStartToken.flags & TOKEN_FLAGS_HAS_PRECEDING_SPACE));
+            el.classList.toggle("ds-has-following-space", !!(filledEndToken.flags & TOKEN_FLAGS_HAS_FOLLOWING_SPACE));
+            el.classList.toggle("ds-line-start", !!(filledStartToken.flags & TOKEN_FLAGS_LINE_START));
+            el.classList.toggle("ds-line-end", !!(filledEndToken.flags & TOKEN_FLAGS_LINE_END));
         }
 
         return el;

@@ -55,10 +55,15 @@ export function createJobScheduler<T>(options: JobSchedulerOptions<T>): JobSched
         if (startTimer !== null) {
             return;
         }
-        startTimer = _setTimeout(() => {
+        const pendingTimer = -1;
+        startTimer = pendingTimer;
+        const timerId = _setTimeout(() => {
             startTimer = null;
             tryStartNext();
         }, options.coalesceMs);
+        if (startTimer === pendingTimer) {
+            startTimer = timerId;
+        }
     }
 
     function run(item: T) {

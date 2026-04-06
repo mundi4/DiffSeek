@@ -12,6 +12,11 @@
   --ds-fg-sync: #2f2a24;
   --ds-minimap-width: 15px;
   --ds-font-family: inherit;
+  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --ds-scrollbar-border: rgba(128, 128, 128, 0.2);
+  --ds-stripe-color: hsl(0 0% 88% / 0.95);
+  --ds-stripe-boost-color: hsl(0 0% 88% / 0.4);
+  --ds-color-red: red;
 }
 
 /* ===== Workspace ===== */
@@ -110,11 +115,11 @@
 
 .ds-editor::-webkit-scrollbar {
   width: var(--ds-minimap-width, 15px);
-  border-inline: 1px solid rgba(128, 128, 128, 0.2);
+  border-inline: 1px solid var(--ds-scrollbar-border);
 }
 
 .ds-editor::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--ds-scrollbar-thumb);
   border-radius: 0px;
   background-clip: content-box;
 }
@@ -124,7 +129,7 @@
 
 @supports not selector(::-webkit-scrollbar) {
   .ds-editor {
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+    scrollbar-color: var(--ds-scrollbar-thumb) transparent;
   }
 }
 
@@ -197,7 +202,7 @@
 /* ===== Color markers (sanitize) ===== */
 
 .ds-editor-content .ds-color-red {
-  color: red;
+  color: var(--ds-color-red);
 }
 
 .ds-editor-content .ds-color-normal {
@@ -285,8 +290,8 @@ ds-anchor {
   background: transparent
     repeating-linear-gradient(
       135deg,
-      hsl(0 0% 88% / 0.95) 0px,
-      hsl(0 0% 88% / 0.95) 3px,
+      var(--ds-stripe-color) 0px,
+      var(--ds-stripe-color) 3px,
       transparent 3px,
       transparent 6px
     );
@@ -304,8 +309,8 @@ ds-anchor {
   flex: 0 0 auto;
   background: repeating-linear-gradient(
     0deg,
-    hsl(0 0% 88% / 0.4) 0px,
-    hsl(0 0% 88% / 0.4) 3px,
+    var(--ds-stripe-boost-color) 0px,
+    var(--ds-stripe-boost-color) 3px,
     transparent 3px,
     transparent 6px
   );

@@ -11,7 +11,7 @@ export class WorkflowScheduler {
 
     constructor(
         private readonly _execute: () => Promise<void>,
-        private readonly _queueMicrotask: (fn: () => void) => void = queueMicrotask,
+        private readonly _queueMicrotask: (fn: () => void) => void = (fn) => queueMicrotask(fn),
     ) {}
 
     /** Request a workflow run. Coalesces multiple calls within the same microtask. */

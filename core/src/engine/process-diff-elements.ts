@@ -332,6 +332,12 @@ export async function processDiffElements({
     const handleDiff = (leftStart: number, leftEnd: number, rightStart: number, rightEnd: number, type: number) => {
         const leftCount = leftEnd - leftStart;
         const rightCount = rightEnd - rightStart;
+
+        // 양쪽 다 structural-only이거나, 한쪽 empty + 반대쪽 structural-only → skip
+        const leftAllStructural = leftCount > 0 && isAllStructural(leftTokens, leftStart, leftEnd);
+        const rightAllStructural = rightCount > 0 && isAllStructural(rightTokens, rightStart, rightEnd);
+        if ((leftCount === 0 || leftAllStructural) && (rightCount === 0 || rightAllStructural)) return;
+
         const diffIndex = diffs.length;
 
         let leftRange: Range | null = null;
@@ -536,8 +542,16 @@ export async function processDiffElements({
         }
 
         if (type === DIFF_TYPE_UNCHANGED) {
-            flushChunk();
-            handleCommon(leftStart, leftEnd, rightStart, rightEnd);
+            if (chunkLeftStart !== -1
+                && isAllStructural(leftTokens, leftStart, leftEnd)
+                && isAllStructural(rightTokens, rightStart, rightEnd)) {
+                // structural-only UNCHANGED는 진행 중인 diff chunk에 흡수
+                chunkLeftEnd = leftEnd;
+                chunkRightEnd = rightEnd;
+            } else {
+                flushChunk();
+                handleCommon(leftStart, leftEnd, rightStart, rightEnd);
+            }
         } else {
             extendOrFlush(leftStart, leftEnd, rightStart, rightEnd, type);
         }

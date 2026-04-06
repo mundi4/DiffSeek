@@ -52,12 +52,36 @@ describe("shouldUsePatience", () => {
     });
 
     it("uses default thresholds when options are 0/falsy", () => {
+        const defaultOpts = getDefaultDiffOptions();
+        const defaultMinTokens = defaultOpts.patienceMinTokens;
+        const defaultMinLines = defaultOpts.patienceMinLines;
+
         const opts = getDefaultDiffOptions();
         opts.usePatience = true;
         opts.patienceMinTokens = 0;
         opts.patienceMinLines = 0;
-        // Defaults: minTokens=200, minLines=50
-        expect(shouldUsePatience(makeMockInput(500), makeMockInput(500), opts, 100, 100)).toBe(true);
-        expect(shouldUsePatience(makeMockInput(50), makeMockInput(50), opts, 100, 100)).toBe(false);
+
+        const aboveDefaultPerSide = Math.max(1, Math.ceil(defaultMinTokens / 2));
+        const belowDefaultPerSide = Math.max(0, Math.floor((defaultMinTokens - 1) / 2));
+        const enoughLines = Math.max(100, defaultMinLines);
+
+        expect(
+            shouldUsePatience(
+                makeMockInput(aboveDefaultPerSide),
+                makeMockInput(aboveDefaultPerSide),
+                opts,
+                enoughLines,
+                enoughLines,
+            ),
+        ).toBe(true);
+        expect(
+            shouldUsePatience(
+                makeMockInput(belowDefaultPerSide),
+                makeMockInput(belowDefaultPerSide),
+                opts,
+                enoughLines,
+                enoughLines,
+            ),
+        ).toBe(false);
     });
 });

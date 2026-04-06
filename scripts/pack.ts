@@ -101,6 +101,16 @@ const output = createWriteStream(zipPath);
 const archive = archiver("zip", { zlib: { level: 9 } });
 archive.pipe(output);
 archive.file(htmlPath, { name: "diffseek.html" });
+
+// extension 폴더 추가 (문서 파일 제외)
+const extensionDir = path.join(root, "extension");
+const extensionFiles = readdirSync(extensionDir).filter(
+    (f) => !f.endsWith(".md"),
+);
+for (const f of extensionFiles) {
+    archive.file(path.join(extensionDir, f), { name: `extension/${f}` });
+}
+
 await archive.finalize();
 await new Promise<void>((resolve, reject) => {
     output.on("close", () => resolve());

@@ -10,8 +10,8 @@ export function shouldUsePatience(
 
     if (!options.usePatience) return false;
 
-    const minLines = options.patienceMinLines || 50;
-    const minTokens = options.patienceMinTokens || 200;
+    const minLines = options.patienceMinLines ?? 50;
+    const minTokens = options.patienceMinTokens ?? 200;
 
     const totalTokens = lhs.tokenCount + rhs.tokenCount;
 

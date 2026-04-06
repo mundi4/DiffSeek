@@ -7,7 +7,7 @@ import { useAtomValue, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 
 const MIN_VISIBLE_MS = 500;
-const POPOVER_FADE_DELAY_MS = 2000;
+const POPOVER_FADE_DELAY_MS = 1000;
 
 const PHASE_KEYS = ["tokenizing", "diffing", "processing"] as const;
 

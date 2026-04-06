@@ -8,7 +8,9 @@ export type { Locale, Messages } from "./types";
 
 const bundles: Record<Locale, Messages> = { ko, en };
 
-export const localeAtom = atomWithStorage<Locale>("diffseek_locale", "ko");
+const defaultLocale: Locale = navigator.language.startsWith("ko") ? "ko" : "en";
+
+export const localeAtom = atomWithStorage<Locale>("diffseek_locale", defaultLocale);
 
 export const messagesAtom = atom<Messages>((get) => bundles[get(localeAtom)]);
 

@@ -6,7 +6,6 @@ import type { Editor, TokenSnapshot } from "../editor/editor";
 import type { Token } from "../tokenization";
 import { TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_HAS_PRECEDING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
-import { buildCommonOutline } from "./build-common-outline";
 import { findEmptyDiffMarkerPosition } from "./find-empty-diff-marker-position";
 import type { AnchorPair, DiffContext, MarkerElementsMap } from "./types";
 
@@ -199,7 +198,7 @@ export async function processDiffElements({
     markerElements: MarkerElementsMap;
     prevMarkerElements: MarkerElementsMap | null;
     signal?: AbortSignal;
-}): Promise<Omit<DiffContext, "timing">> {
+}): Promise<DiffContext> {
 
     const yieldIfNeeded = createYieldIfNeeded(signal);
 
@@ -576,23 +575,14 @@ export async function processDiffElements({
 
     flushChunk();
 
-    const commonOutline = buildCommonOutline({
-        leftWholeText: leftTokenSnapshot.wholeText,
-        rightWholeText: rightTokenSnapshot.wholeText,
-        leftTokens,
-        rightTokens,
-        leftResultBuffer,
-    });
-
     return {
         isValid: true,
         leftTokens,
         rightTokens,
-        commonOutline,
         leftTokenBuffer: leftResultBuffer,
         rightTokenBuffer: rightResultBuffer,
         diffOptions,
         diffs,
         anchorPairs,
-    } satisfies Omit<DiffContext, "timing">;
+    };
 }

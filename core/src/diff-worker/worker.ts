@@ -69,7 +69,6 @@ function handleDiffResult(reqId: number, result: DiffResult) {
     self.postMessage({
         type: "done",
         reqId,
-        //diffs: result.diffs,
         leftResultBuffer: result.leftResultBuffer,
         rightResultBuffer: result.rightResultBuffer,
         elapsedTime: result.elapsedTime,

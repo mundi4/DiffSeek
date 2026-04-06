@@ -21,7 +21,6 @@ export type DiffWorkerResponse =
     | { type: "start"; reqId: number; start: number; }
 
 export type DiffWorkerResult = {
-    //diffs: DiffEntry[];
     leftResultBuffer: Int32Array;
     rightResultBuffer: Int32Array;
     elapsedTime: number;

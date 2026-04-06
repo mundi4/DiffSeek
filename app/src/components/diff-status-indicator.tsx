@@ -1,27 +1,41 @@
 import { diffContextAtom, diffWorkflowStatusAtom } from "@/states/core-atoms";
-import { Box, Divider, Group, Loader, Popover, Stack, Text, ThemeIcon } from "@mantine/core";
+import { Divider, Group, Loader, Popover, Stack, Text, ThemeIcon } from "@mantine/core";
 import { useHover } from "@mantine/hooks";
 import { IconCheck } from "@tabler/icons-react";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useStore } from "jotai";
 import { useEffect, useRef, useState } from "react";
 
 const MIN_VISIBLE_MS = 500;
+const POPOVER_FADE_DELAY_MS = 2000;
 
-const PHASES = [
-    { key: "tokenizing", label: "Tokenizing" },
-    { key: "diffing", label: "Diffing" },
-    { key: "processing", label: "Processing" },
-] as const;
+const PHASE_KEYS = ["tokenizing", "diffing", "processing"] as const;
+const PHASE_LABELS: Record<typeof PHASE_KEYS[number], string> = {
+    tokenizing: "Tokenizing",
+    diffing: "Diffing",
+    processing: "Processing",
+};
 
 function formatMs(ms: number) {
     return ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(1)}s`;
 }
 
+type TimingSnapshot = {
+    tokenizingMs?: number;
+    diffingMs?: number;
+    processingMs?: number;
+    totalMs?: number;
+    leftTokenCount?: number;
+    rightTokenCount?: number;
+};
+
 export function DiffStatusIndicator() {
     const status = useAtomValue(diffWorkflowStatusAtom);
     const diffContext = useAtomValue(diffContextAtom);
+    const store = useStore();
 
     const busy = status.phase !== "idle";
+
+    // --- loader visibility (min display time) ---
     const [visible, setVisible] = useState(false);
     const visibleRef = useRef(false);
     const visibleSinceRef = useRef(0);
@@ -60,6 +74,7 @@ export function DiffStatusIndicator() {
         };
     }, [busy]);
 
+    // --- live clock for elapsed display ---
     const [now, setNow] = useState(() => performance.now());
     useEffect(() => {
         if (!busy) return;
@@ -67,33 +82,118 @@ export function DiffStatusIndicator() {
         return () => clearInterval(id);
     }, [busy]);
 
+    // --- popover auto open/close ---
+    const [popoverFading, setPopoverFading] = useState(false);
+    const popoverTimerRef = useRef<number | null>(null);
+
+    const popoverOpen = busy || popoverFading;
+
+    useEffect(() => {
+        if (busy) {
+            if (popoverTimerRef.current !== null) {
+                clearTimeout(popoverTimerRef.current);
+                popoverTimerRef.current = null;
+            }
+            setPopoverFading(true);
+        } else if (popoverFading) {
+            popoverTimerRef.current = window.setTimeout(() => {
+                setPopoverFading(false);
+                popoverTimerRef.current = null;
+            }, POPOVER_FADE_DELAY_MS);
+        }
+        return () => {
+            if (popoverTimerRef.current !== null) {
+                clearTimeout(popoverTimerRef.current);
+                popoverTimerRef.current = null;
+            }
+        };
+    }, [busy]);
+
+    // --- phase timing: 동기적 store subscription으로 추적 (React 배치 우회) ---
+    const phaseStartsRef = useRef<Record<string, number>>({});
+    const [snapshot, setSnapshot] = useState<TimingSnapshot>({});
+
+    useEffect(() => {
+        const unsub = store.sub(diffWorkflowStatusAtom, () => {
+            const s = store.get(diffWorkflowStatusAtom);
+            const phase = s.phase;
+            const starts = phaseStartsRef.current;
+
+            if (phase === "tokenizing" && !starts.tokenizing) {
+                phaseStartsRef.current = { tokenizing: s.startedAtMs ?? performance.now() };
+                setSnapshot({
+                    leftTokenCount: s.leftTokenCount,
+                    rightTokenCount: s.rightTokenCount,
+                });
+            } else if (phase === "tokenizing") {
+                // progressive token count update
+                setSnapshot(prev => ({
+                    ...prev,
+                    leftTokenCount: s.leftTokenCount ?? prev.leftTokenCount,
+                    rightTokenCount: s.rightTokenCount ?? prev.rightTokenCount,
+                }));
+            } else if (phase === "diffing" && !starts.diffing) {
+                const t = s.startedAtMs ?? performance.now();
+                starts.diffing = t;
+                setSnapshot(prev => ({
+                    ...prev,
+                    tokenizingMs: t - (starts.tokenizing ?? t),
+                    leftTokenCount: s.leftTokenCount ?? prev.leftTokenCount,
+                    rightTokenCount: s.rightTokenCount ?? prev.rightTokenCount,
+                }));
+            } else if (phase === "processing" && !starts.processing) {
+                const t = s.startedAtMs ?? performance.now();
+                starts.processing = t;
+                setSnapshot(prev => ({
+                    ...prev,
+                    diffingMs: t - (starts.diffing ?? t),
+                }));
+            } else if (phase === "idle" && starts.tokenizing) {
+                const t = performance.now();
+                setSnapshot(prev => ({
+                    ...prev,
+                    processingMs: starts.processing ? t - starts.processing : undefined,
+                    totalMs: t - starts.tokenizing,
+                }));
+                phaseStartsRef.current = {};
+            }
+        });
+        return unsub;
+    }, [store]);
+
+    const leftTokenCount = snapshot.leftTokenCount;
+    const rightTokenCount = snapshot.rightTokenCount;
+    const diffEntryCount = !busy ? diffContext?.diffs.length : undefined;
+
+    const tokensKnown = leftTokenCount != null && rightTokenCount != null;
+    const diffsKnown = diffEntryCount != null;
+
     const color = busy ? undefined : "gray";
     const { hovered, ref } = useHover();
 
-    const currentPhaseIndex = busy ? PHASES.findIndex(p => p.key === status.phase) : -1;
-
+    const currentPhaseIndex = busy ? PHASE_KEYS.indexOf(status.phase as typeof PHASE_KEYS[number]) : -1;
     const doneColor = "green.8";
 
     return (
-        <Popover opened={hovered && (busy || diffContext != null)} position="top-end" withArrow offset={6}>
+        <Popover opened={(popoverOpen || hovered) && (busy || diffContext != null)} position="top-end" withArrow offset={6} transitionProps={{ duration: 0, exitDuration: 300 }}>
             <Popover.Target>
                 <Group ref={ref} style={{ cursor: "default" }}>
                     {visible && <Loader type="dots" size="xs" color={color} />}
                     {!visible && <ThemeIcon style={{ display: "inline" }} variant="transparent" size="xs" color={color}><IconCheck size={16} /></ThemeIcon>}
                 </Group>
             </Popover.Target>
-            <Popover.Dropdown p="xs">
+            <Popover.Dropdown p="xs" bg="rgba(255,255,255,0.6)" miw={180} style={{ backdropFilter: "blur(8px)" }}>
                 <Stack gap={3}>
-                    {PHASES.map(({ key, label }, phaseIndex) => {
+                    {PHASE_KEYS.map((key, phaseIndex) => {
                         const isCurrent = phaseIndex === currentPhaseIndex;
                         const isPast = busy ? phaseIndex < currentPhaseIndex : true;
-                        const isFuture = busy && phaseIndex > currentPhaseIndex;
+                        const isFuture = busy ? phaseIndex > currentPhaseIndex : false;
 
                         let elapsedMs: number | null = null;
                         if (isPast) {
-                            if (key === "tokenizing") elapsedMs = busy ? (status.tokenizingMs ?? null) : (diffContext?.timingTokenizingMs ?? null);
-                            else if (key === "diffing") elapsedMs = busy ? (status.diffingMs ?? null) : (diffContext?.timingDiffingMs ?? null);
-                            else if (key === "processing") elapsedMs = !busy ? (diffContext?.timingProcessingMs ?? null) : null;
+                            if (key === "tokenizing") elapsedMs = snapshot.tokenizingMs ?? null;
+                            else if (key === "diffing") elapsedMs = snapshot.diffingMs ?? null;
+                            else if (key === "processing") elapsedMs = snapshot.processingMs ?? null;
                         } else if (isCurrent && status.startedAtMs != null) {
                             elapsedMs = Math.max(0, now - status.startedAtMs);
                         }
@@ -101,7 +201,7 @@ export function DiffStatusIndicator() {
                         return (
                             <Group key={key} gap={16} wrap="nowrap" justify="space-between">
                                 <Text size="xs" c={isFuture ? "dimmed" : isCurrent ? "blue" : doneColor} fw={isCurrent ? 500 : undefined}>
-                                    {label}
+                                    {PHASE_LABELS[key]}
                                 </Text>
                                 <Text ff="monospace" size="xs" c={isPast ? doneColor : "dimmed"} style={{ minWidth: 36, textAlign: "right" }}>
                                     {isFuture ? "" : elapsedMs != null ? formatMs(elapsedMs) : ""}
@@ -110,24 +210,25 @@ export function DiffStatusIndicator() {
                         );
                     })}
 
-                    {!busy && (
-                        <>
-                            <Group gap={16} wrap="nowrap" justify="space-between">
-                                <Text size="xs" c={doneColor}>Total</Text>
-                                <Text ff="monospace" c={doneColor} size="xs" style={{ minWidth: 36, textAlign: "right" }}>{diffContext ? formatMs(diffContext.timingTotalMs) : ""}</Text>
-                            </Group>
-                            <Divider my={4} />
-                            <Group gap={16} wrap="nowrap" justify="space-between">
-                                <Text size="xs" c="dimmed">Tokens</Text>
-                                <Text ff="monospace" size="xs">{(diffContext?.leftTokenCount ?? 0).toLocaleString()} | {(diffContext?.rightTokenCount ?? 0).toLocaleString()}</Text>
-                            </Group>
-
-                            <Group gap={16} wrap="nowrap" justify="space-between">
-                                <Text size="xs" c="dimmed">Diffs</Text>
-                                <Text ff="monospace" size="xs">{(diffContext?.diffs.length ?? 0).toLocaleString()}</Text>
-                            </Group>
-                        </>
-                    )}
+                    <Group gap={16} wrap="nowrap" justify="space-between">
+                        <Text size="xs" c={busy ? "dimmed" : doneColor}>Total</Text>
+                        <Text ff="monospace" c={busy ? "dimmed" : doneColor} size="xs" style={{ minWidth: 36, textAlign: "right" }}>{!busy && snapshot.totalMs != null ? formatMs(snapshot.totalMs) : ""}</Text>
+                    </Group>
+                    <Divider my={4} />
+                    <Group gap={16} wrap="nowrap" justify="space-between">
+                        <Text size="xs" c={tokensKnown ? undefined : "dimmed"}>Tokens</Text>
+                        <Text ff="monospace" size="xs">
+                            {leftTokenCount != null ? leftTokenCount.toLocaleString() : <Text span c="dimmed">...</Text>}
+                            {<Text span c="dimmed"> | </Text>}
+                            {rightTokenCount != null ? rightTokenCount.toLocaleString() : <Text span c="dimmed">...</Text>}
+                        </Text>
+                    </Group>
+                    <Group gap={16} wrap="nowrap" justify="space-between">
+                        <Text size="xs" c={diffsKnown ? undefined : "dimmed"}>Diffs</Text>
+                        <Text ff="monospace" size="xs">
+                            {diffsKnown ? diffEntryCount.toLocaleString() : ""}
+                        </Text>
+                    </Group>
 
                 </Stack>
             </Popover.Dropdown>

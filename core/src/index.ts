@@ -108,4 +108,4 @@ export { NEW_YORK_PALETTE, PALETTE_PRESETS } from "./palette/index";
 export type { PalettePresetKey } from "./palette/index";
 
 export { type DiffWorkflowStatus } from "./engine/types";
-export type { CommonOutlineHeading } from "./engine/types";
+// export type { CommonOutlineHeading } from "./engine/types";

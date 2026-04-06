@@ -127,7 +127,7 @@ Test results are written to `test-results.json`. Tests use a jsdom environment t
 | `app/src/bridge/useCoreBinding.ts` | Subscribes to engine events and syncs them into Jotai atoms |
 | `app/src/bridge/useCoreActions.ts` | Action dispatch layer (calls engine methods from UI) |
 | `app/src/states/coreAtoms.ts` | All Jotai atoms (sync mode, diff options, diff context, etc.) |
-| `app/src/components/AppHeader.tsx` | Top header bar |
+| `app/src/components/sidebar-footer.tsx` | Sidebar footer bar (sync/whitespace toggles, diff status) |
 | `app/src/components/OptionsModal.tsx` | Diff algorithm options dialog |
 | `app/src/components/DiffList.tsx` | Sidebar list of all diffs |
 | `app/src/components/OutlineModal.tsx` | Document outline (F9) |

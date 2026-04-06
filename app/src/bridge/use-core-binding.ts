@@ -46,13 +46,6 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
             if (diffContext) {
                 setDiffContext({
                     diffs: diffContext.diffs.slice(),
-                    commonOutline: diffContext.commonOutline.slice(),
-                    leftTokenCount: diffContext.leftTokens.length,
-                    rightTokenCount: diffContext.rightTokens.length,
-                    timingTokenizingMs: diffContext.timing.tokenizingMs,
-                    timingDiffingMs: diffContext.timing.diffingMs,
-                    timingProcessingMs: diffContext.timing.processingMs,
-                    timingTotalMs: diffContext.timing.totalMs,
                 });
             }
             else {

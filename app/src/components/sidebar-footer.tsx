@@ -22,7 +22,7 @@ function StatusOff() {
     )
 }
 
-export function AppHeader() {
+export function SidebarFooter() {
     const syncMode = useAtomValue(syncModeAtom);
     const whitespaceHandling = useAtomValue(whitespaceHandlingAtom);
     const { setSyncMode, setWhitespaceMode } = useDiffseekActions();
@@ -42,7 +42,7 @@ export function AppHeader() {
 
     return (
         <>
-            <header className="app-header">
+            <header className="sidebar-footer">
                 <Group justify="space-between" align="center" px={4}>
                     <Group align="center" px={0} gap={4}>
                         <MiniSyncButton isSync={syncMode} onClick={() => setSyncMode(!syncMode)} />

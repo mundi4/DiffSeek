@@ -19,32 +19,23 @@ export type CommonOutlineHeading = {
     rightLabel: string;
 };
 
-export type DiffPhaseTiming = {
-    readonly tokenizingMs: number;
-    readonly diffingMs: number;
-    readonly processingMs: number;
-    readonly totalMs: number;
-};
-
 export type DiffContext = {
     readonly leftTokens: readonly Token[];
     readonly rightTokens: readonly Token[];
-    readonly commonOutline: readonly CommonOutlineHeading[];
+    // readonly commonOutline: readonly CommonOutlineHeading[];
     readonly diffOptions: DiffOptions;
     readonly diffs: DiffEntry[];
     readonly anchorPairs: AnchorPair[];
     readonly leftTokenBuffer: Readonly<Int32Array>;
     readonly rightTokenBuffer: Readonly<Int32Array>;
-    readonly timing: DiffPhaseTiming;
     isValid: boolean;
 }
 
 export type DiffWorkflowStatus = {
     phase: "idle" | "tokenizing" | "diffing" | "processing";
     startedAtMs?: number;
-    tokenizingMs?: number;
-    diffingMs?: number;
-    progress?: number;
+    leftTokenCount?: number;
+    rightTokenCount?: number;
 }
 
 export type MarkerInfo = {

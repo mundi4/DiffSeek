@@ -691,9 +691,13 @@ export class DiffseekEngine {
 
             const leftTokenSnapshot = await this.leftEditor.waitForTokens(signal);
             signal.throwIfAborted();
+            const leftTokenCount = leftTokenSnapshot.tokens.length;
+            this.emitStatusForRun(controller, { phase: "tokenizing", startedAtMs: t0, leftTokenCount });
 
             const rightTokenSnapshot = await this.rightEditor.waitForTokens(signal);
             signal.throwIfAborted();
+            const rightTokenCount = rightTokenSnapshot.tokens.length;
+            this.emitStatusForRun(controller, { phase: "tokenizing", startedAtMs: t0, leftTokenCount, rightTokenCount });
 
             const leftTokensData = serializeTokens(leftTokenSnapshot.tokens);
             const rightTokensData = serializeTokens(rightTokenSnapshot.tokens);
@@ -702,15 +706,15 @@ export class DiffseekEngine {
             const t1 = performance.now();
 
             // 2. run diff worker
-            this.emitStatusForRun(controller, { phase: "diffing", startedAtMs: t1, tokenizingMs: t1 - t0 });
+            this.emitStatusForRun(controller, { phase: "diffing", startedAtMs: t1, leftTokenCount, rightTokenCount });
 
             const workerResult = await this.diffWorker.run({
                 leftWholeText: leftTokenSnapshot.wholeText,
                 rightWholeText: rightTokenSnapshot.wholeText,
                 leftTokenBuffer: leftTokensData,
                 rightTokenBuffer: rightTokensData,
-                leftTokenCount: leftTokenSnapshot.tokens.length,
-                rightTokenCount: rightTokenSnapshot.tokens.length,
+                leftTokenCount,
+                rightTokenCount,
                 options: this._diffOptions,
                 abortSignal: signal,
             });
@@ -720,7 +724,7 @@ export class DiffseekEngine {
             const t2 = performance.now();
 
             // 3. post process
-            this.emitStatusForRun(controller, { phase: "processing", startedAtMs: t2, tokenizingMs: t1 - t0, diffingMs: t2 - t1 });
+            this.emitStatusForRun(controller, { phase: "processing", startedAtMs: t2, leftTokenCount, rightTokenCount });
             this.beginMarkerUpdate();
 
             try {
@@ -747,12 +751,6 @@ export class DiffseekEngine {
 
                 const diffContext: DiffContext = {
                     ...diffResult,
-                    timing: {
-                        tokenizingMs: t1 - t0,
-                        diffingMs: t2 - t1,
-                        processingMs: t3 - t2,
-                        totalMs: t3 - t0,
-                    },
                 };
 
                 this.renderer.setDiffs(diffContext.diffs);

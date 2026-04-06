@@ -1,4 +1,4 @@
-import { getDefaultDiffseekOptions, type CommonOutlineHeading, type DiffWorkflowStatus, type DiffEntry, type DiffseekOptions, type Palette } from "@core";
+import { getDefaultDiffseekOptions, type DiffWorkflowStatus, type DiffEntry, type DiffseekOptions, type Palette } from "@core";
 import { atom } from "jotai";
 import { atomWithStorage, createJSONStorage } from "jotai/utils";
 
@@ -82,23 +82,12 @@ export const paletteAtom = atom<Readonly<Palette> | null>(null);
 
 type DiffContextState = {
     diffs: DiffEntry[];
-    commonOutline: CommonOutlineHeading[];
-    leftTokenCount: number;
-    rightTokenCount: number;
-    timingTokenizingMs: number;
-    timingDiffingMs: number;
-    timingProcessingMs: number;
-    timingTotalMs: number;
 } | null;
 
 export const diffContextAtom = atom<DiffContextState>(null);
 
 export const diffsAtom = atom<DiffEntry[] | null>((get) => {
     return get(diffContextAtom)?.diffs ?? null;
-});
-
-export const commonOutlineAtom = atom<CommonOutlineHeading[]>((get) => {
-    return get(diffContextAtom)?.commonOutline ?? [];
 });
 
 export const visibleDiffIndexesAtom = atom<{ left: number[], right: number[] }>({ left: [], right: [] });

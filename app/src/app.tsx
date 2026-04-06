@@ -4,10 +4,10 @@ import '@mantine/core/styles.css';
 import { getDefaultStore, Provider, useAtomValue } from 'jotai';
 import { useEffect, useRef, useState } from 'react';
 import { DiffseekProvider } from './bridge/diffseek-provider';
-import { AppHeader } from './components/app-header';
+import { SidebarFooter } from './components/sidebar-footer';
 import { DiffList } from './components/diff-list';
 import { InlineDiffPopover } from './components/inline-diff-popover';
-import { OutlineModal } from './components/outline-modal';
+// import { OutlineModal } from './components/outline-modal';
 import { BusyIndicator } from "./components/busy-indicator";
 import { diffWorkflowStatusAtom, extensionEnabledAtom } from './states/core-atoms';
 import './app.css';
@@ -65,16 +65,17 @@ engine.replaceDiffOptions({
 export function App() {
     const hostRef = useRef<HTMLDivElement>(null);
     const diffWorkflowStatus = useAtomValue(diffWorkflowStatusAtom);
-    const [outlineOpened, setOutlineOpened] = useState(false);
+    // const [outlineOpened, setOutlineOpened] = useState(false);
 
     useEffect(() => {
         hostRef.current!.appendChild(engine.workspaceEl);
 
         const keyDown = (e: KeyboardEvent) => {
-            if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                setOutlineOpened(true);
-            } else if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
+            // if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
+            //     e.preventDefault();
+            //     setOutlineOpened(true);
+            // } else
+            if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 engine.syncMode = !engine.syncMode;
             } else if ((e.key === "1" || e.key === "2") && e.altKey) {
@@ -109,14 +110,14 @@ export function App() {
     return (
         <DiffseekProvider engine={engine}>
             <Provider store={atomStore}>
-                {/* <div className="app-header-container"><AppHeader /></div> */}
+                {/* <div className="sidebar-footer-container"><SidebarFooter /></div> */}
                 <main id="diffseek-host" ref={hostRef} />
                 <aside>
                     <DiffList />
-                    <AppHeader />
+                    <SidebarFooter />
                 </aside>
                 <InlineDiffPopover engine={engine} />
-                <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} />
+                {/* <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} /> */}
                 {/* <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} /> */}
             </Provider>
         </DiffseekProvider>

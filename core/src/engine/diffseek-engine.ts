@@ -14,6 +14,7 @@ import type { DiffseekOptions, Palette, Span } from "../types";
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
+import { WorkflowScheduler } from "./workflow-scheduler";
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
     "diffContextChanged": DiffContext | null;
@@ -42,9 +43,7 @@ export class DiffseekEngine {
     private programmaticScrollInProgress = 0;
 
     private alignAnchorsAbortController: AbortController | null = null;
-    private workflowRunScheduled = false;
-    private workflowRunInProgress = false;
-    private workflowRerunRequested = false;
+    private readonly workflowScheduler = new WorkflowScheduler(() => this.startDiffWorkflow());
 
     visibleDiffs: Record<EditorName, Set<number>> = {
         left: new Set(),
@@ -637,32 +636,7 @@ export class DiffseekEngine {
     }
 
     private requestDiffWorkflowRun() {
-        this.workflowRerunRequested = true;
-        if (this.workflowRunScheduled) {
-            return;
-        }
-
-        this.workflowRunScheduled = true;
-        queueMicrotask(() => {
-            this.workflowRunScheduled = false;
-            void this.drainDiffWorkflowRuns();
-        });
-    }
-
-    private async drainDiffWorkflowRuns() {
-        if (this.workflowRunInProgress) {
-            return;
-        }
-
-        this.workflowRunInProgress = true;
-        try {
-            while (this.workflowRerunRequested) {
-                this.workflowRerunRequested = false;
-                await this.startDiffWorkflow();
-            }
-        } finally {
-            this.workflowRunInProgress = false;
-        }
+        this.workflowScheduler.request();
     }
 
     // ── marker element lifecycle ─────────────────────────────────

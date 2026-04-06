@@ -14,7 +14,7 @@ import type { DiffInput, DiffJobContext } from "../diff/types";
 import type { DiffWorkerRequest, DiffWorkerResponse } from "./types";
 
 const jobScheduler = createJobScheduler<WorkItem>({
-    coalesceMs: 100,
+    coalesceMs: 0,
     abortReason: ABORT_REASON_CANCELLED,
     setTimeout: self.setTimeout.bind(self),
     clearTimeout: self.clearTimeout.bind(self),

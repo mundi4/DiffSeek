@@ -1,5 +1,6 @@
 import { ABORT_REASON_CANCELLED } from "../constants";
-import type { DiffOptions } from "../diff/types";
+import { DIFF_TYPE_ADDED, DIFF_TYPE_REMOVED, type DiffOptions } from "../diff/types";
+import { writeToResultBuffer } from "../diff/helpers";
 import type { DiffWorkerResult, DiffWorkerResponse, DiffWorkerRequest } from "./types";
 import DiffWorker from "./worker.ts?worker&inline";
 
@@ -83,6 +84,23 @@ export function initializeDiffWorker() {
             if (currentCtx) {
                 currentCtx.reject(ABORT_REASON_CANCELLED);
                 currentCtx = null;
+            }
+
+            // Trivial case: one or both sides have 0 tokens — skip worker entirely
+            if (leftTokenCount === 0 || rightTokenCount === 0) {
+                const t0 = performance.now();
+                if (leftTokenCount === 0 && rightTokenCount === 0) {
+                    // nothing to do
+                } else if (leftTokenCount === 0) {
+                    writeToResultBuffer(leftTokenBuffer, rightTokenBuffer, 0, 0, 0, rightTokenCount, DIFF_TYPE_ADDED);
+                } else {
+                    writeToResultBuffer(leftTokenBuffer, rightTokenBuffer, 0, leftTokenCount, 0, 0, DIFF_TYPE_REMOVED);
+                }
+                return {
+                    leftResultBuffer: leftTokenBuffer,
+                    rightResultBuffer: rightTokenBuffer,
+                    elapsedTime: performance.now() - t0,
+                };
             }
 
             const reqId = ++currentReqId;

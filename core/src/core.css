@@ -18,7 +18,7 @@
 /* ===== Customizable variables (override via :root) ===== */
 :root {
   --ds-base-font-size: 14px;
-  --ds-line-height: 1.4;
+  --ds-line-height: 1.6;
   --ds-content-padding: 8px;
   --ds-td-padding: 4px;
   --ds-td-border-color: #666666;

@@ -8,97 +8,33 @@ import { writeToResultBuffer } from "../diff/helpers";
 import { buildPatienceAnchors } from "../diff/patience-diff";
 import { processSegmentsWithAnchors } from "../diff/process-segments-with-anchors";
 import { runHistogramDiff } from "../diff/run-histogram-diff";
+import { shouldUsePatience } from "../diff/should-use-patience";
+import { createJobScheduler } from "./job-scheduler";
 import type { DiffInput, DiffJobContext } from "../diff/types";
 import type { DiffWorkerRequest, DiffWorkerResponse } from "./types";
 
-const jobScheduler = (() => {
-    const START_COALESCE_MS = 100;
-
-    type RunningSlot = {
-        controller: AbortController;
-        promise: Promise<void>;
-    };
-
-    let running: RunningSlot | null = null;
-    let pending: WorkItem | null = null;
-    let startTimer: number | null = null;
-
-    function clearStartTimer() {
-        if (startTimer !== null) {
-            clearTimeout(startTimer);
-            startTimer = null;
-        }
-    }
-
-    function scheduleTryStartNext() {
-        if (running || !pending) {
-            return;
-        }
-
-        if (startTimer !== null) {
-            return;
-        }
-
-        startTimer = self.setTimeout(() => {
-            startTimer = null;
-            tryStartNext();
-        }, START_COALESCE_MS);
-    }
-
-    function run(item: WorkItem) {
-        pending = item;
-
-        if (running) {
-            running.controller.abort(ABORT_REASON_CANCELLED);
-            return;
-        }
-
-        scheduleTryStartNext();
-    }
-
-    function cancel() {
-        clearStartTimer();
-
-        if (pending) {
-            postAborted(pending.reqId);
-            pending = null;
-        }
-        if (running) running.controller.abort(ABORT_REASON_CANCELLED);
-    }
-
-    function tryStartNext() {
-        if (running || !pending) return;
-
-        const item = pending;
-        pending = null;
-
-        const controller = new AbortController();
-        const slot: RunningSlot = { controller, promise: Promise.resolve() };
-
-        running = slot;
-
-        slot.promise = (async () => {
-            try {
-                let result = await runDiffJob(item, controller.signal);
-                handleDiffResult(item.reqId, result);
-                result = null!;
-            } catch (err) {
-                if (err == ABORT_REASON_CANCELLED) {
-                    postAborted(item.reqId);
-                } else {
-                    throw err;
-                }
-            } finally {
-                if (running === slot) {
-                    running = null;
-                }
-                scheduleTryStartNext();
+const jobScheduler = createJobScheduler<WorkItem>({
+    coalesceMs: 100,
+    abortReason: ABORT_REASON_CANCELLED,
+    setTimeout: self.setTimeout.bind(self),
+    clearTimeout: self.clearTimeout.bind(self),
+    async execute(item, signal) {
+        try {
+            let result = await runDiffJob(item, signal);
+            handleDiffResult(item.reqId, result);
+            result = null!;
+        } catch (err) {
+            if (err == ABORT_REASON_CANCELLED) {
+                postAborted(item.reqId);
+            } else {
+                throw err;
             }
-        })();
-    }
-
-    return { run, cancel };
-})();
+        }
+    },
+    onCancelled(item) {
+        postAborted(item.reqId);
+    },
+});
 
 type WorkItem = {
     reqId: number;
@@ -249,26 +185,4 @@ async function runDiffJob(workItem: WorkItem, abortSignal: AbortSignal): Promise
         elapsedTime,
     };
 }
-
-function shouldUsePatience(
-    lhs: DiffInput,
-    rhs: DiffInput,
-    options: DiffOptions,
-    lhsLineCount: number,
-    rhsLineCount: number
-): boolean {
-
-    if (!options.usePatience) return false;
-
-    const minLines = options.patienceMinLines || 50;
-    const minTokens = options.patienceMinTokens || 200;
-
-    const totalTokens = lhs.tokenCount + rhs.tokenCount;
-
-    if (totalTokens < minTokens) return false;
-    if (Math.min(lhsLineCount, rhsLineCount) < minLines) return false;
-
-    return true;
-}
-
 

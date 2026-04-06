@@ -463,7 +463,7 @@ body {
 .qdiff-result-content {
   padding: 16px 20px;
   /* font-size: JS에서 동적 설정 */
-  font-family: "바탕체", serif;
+  font-family: "DotumChe", "BatangChe", "Courier New", monospace;
   line-height: 1.6;
   overflow: auto;
   flex: 1;
@@ -542,18 +542,12 @@ body {
 }
 
 @keyframes qdiff-fade-in {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0); }
-}
-
-.sidebar-footer progress {
-  position: absolute;
-  bottom: -4px;
-  left: 0;
-  right: 0;
-  width: 100%;
-  border-radius: 0;
-  height: 4px;
-  z-index: 999;
-  background-color: #fff;
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }

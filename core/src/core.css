@@ -29,7 +29,7 @@
   --ds-fg-sync: #2f2a24;
   --ds-minimap-width: 15px;
   --ds-font-family: inherit;
-  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.4);
   --ds-scrollbar-border: rgba(128, 128, 128, 0.2);
   --ds-stripe-color: hsl(0 0% 88% / 0.95);
   --ds-stripe-boost-color: hsl(0 0% 88% / 0.4);

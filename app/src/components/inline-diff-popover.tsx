@@ -11,7 +11,7 @@ const RESULT_MIN_WIDTH = 200;
 const RESULT_MIN_HEIGHT = 100;
 const RESULT_MAX_WIDTH = 420;
 const RESULT_MAX_HEIGHT = 320;
-const RESULT_FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36, 42, 48, 56, 64, 72];
+const RESULT_FONT_SIZES = [14, 16, 18, 20, 24, 28, 32, 36, 42, 48];
 const MARGIN = 8;
 const MENU_GAP = 20;
 
@@ -43,8 +43,8 @@ function renderInline(entries: QuickDiffEntry[]) {
     return entries.map((entry, i) => {
         const className =
             entry.type === QuickDiffType.Removed ? "qdiff-removed" :
-            entry.type === QuickDiffType.Added ? "qdiff-added" :
-            "qdiff-unchanged";
+                entry.type === QuickDiffType.Added ? "qdiff-added" :
+                    "qdiff-unchanged";
         return (
             <span key={i} className={className}>
                 {renderSpecialChars(entry.text)}

@@ -69,9 +69,9 @@ function isReddish(color: string): boolean {
 
 export function resolveColor(node: HTMLElement): "red" | "NORMAL" | null {
     let color: "red" | "NORMAL" | null = null;
-    if ((node as HTMLElement).classList.contains("color-red")) {
+    if ((node as HTMLElement).classList.contains("ds-color-red")) {
         color = "red";
-    } else if ((node as HTMLElement).classList.contains("color-normal")) {
+    } else if ((node as HTMLElement).classList.contains("ds-color-normal")) {
         color = "NORMAL";
     } else {
         const colorValue = (node as HTMLElement).style?.color || "inherit";

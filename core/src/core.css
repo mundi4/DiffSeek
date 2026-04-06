@@ -1,45 +1,69 @@
+/*
+ * Dark mode example — override :root vars:
+ *
+ * :root {
+ *   --ds-bg: #1e1e1e;
+ *   --ds-bg-sync: #2a2520;
+ *   --ds-fg: #d4d4d4;
+ *   --ds-fg-sync: #c8c0b0;
+ *   --ds-td-border-color: #444;
+ *   --ds-scrollbar-thumb: rgba(255, 255, 255, 0.25);
+ *   --ds-scrollbar-border: rgba(255, 255, 255, 0.1);
+ *   --ds-stripe-color: hsl(0 0% 30% / 0.95);
+ *   --ds-stripe-boost-color: hsl(0 0% 30% / 0.4);
+ *   --ds-color-red: #ff6b6b;
+ * }
+ */
+
+/* ===== Customizable variables (override via :root) ===== */
 :root {
-  --editor-font-size: 14px;
-  --editor-line-height: 1.4;
-  --editor-padding: 8px;
-  --editor-td-padding: 4px;
-  --editor-td-border-color: #666666;
-  --editor-underline-offset: 0.2em;
-  --bg-normal: #ffffff;
-  --bg-sync-mode: #f5f0e6;
-  --text-normal: #000000;
-  --text-sync-mode: #2f2a24;
-  --sync-mode-scrollbar-width: 10px;
-  --editor-minimap-width: 15px;
+  --ds-base-font-size: 14px;
+  --ds-line-height: 1.4;
+  --ds-content-padding: 8px;
+  --ds-td-padding: 4px;
+  --ds-td-border-color: #666666;
+  --ds-underline-offset: 0.2em;
+  --ds-bg: #ffffff;
+  --ds-bg-sync: #f5f0e6;
+  --ds-fg: #000000;
+  --ds-fg-sync: #2f2a24;
+  --ds-minimap-width: 15px;
+  --ds-font-family: inherit;
+  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.2);
+  --ds-scrollbar-border: rgba(128, 128, 128, 0.2);
+  --ds-stripe-color: hsl(0 0% 88% / 0.95);
+  --ds-stripe-boost-color: hsl(0 0% 88% / 0.4);
+  --ds-color-red: red;
 }
 
+/* ===== Workspace ===== */
+
 .ds-workspace {
+  --_ds-bg: var(--ds-bg);
+  --_ds-fg: var(--ds-fg);
   position: relative;
   isolation: isolate;
   min-width: 0;
-  --editor-bg-color: var(--bg-normal);
-  --editor-fg-color: var(--text-normal);
-  background-color: var(--editor-bg-color);
   height: 100%;
+  background-color: var(--_ds-bg);
 }
 
-/*
-  Editor/Renderer 레이아웃
-  */
+.ds-workspace.ds-sync-mode {
+  --_ds-bg: var(--ds-bg-sync);
+  --_ds-fg: var(--ds-fg-sync);
+}
+
+/* ===== Deck / Editor / Renderer layout ===== */
 
 .ds-deck {
+  z-index: 1;
   min-height: 0;
   height: 100%;
   position: relative;
   display: grid;
   grid-template-areas: "left right minimap";
   grid-template-columns: 1fr 1fr auto;
-  position: relative;
   background-color: transparent;
-}
-
-.ds-minimap {
-  display: none;
 }
 
 .ds-editor {
@@ -51,6 +75,9 @@
   display: flex;
   flex-direction: column;
   background-color: transparent;
+  color: var(--_ds-fg);
+  line-height: var(--ds-line-height);
+  contain: layout size;
 }
 
 .ds-editor-left {
@@ -62,128 +89,30 @@
 }
 
 .ds-minimap {
+  display: none;
   grid-area: minimap;
 }
 
 .ds-renderer {
+  z-index: 0;
   position: absolute;
   top: 0;
   left: 0;
   width: 100%;
   height: 100%;
+  pointer-events: none;
 }
 
 .ds-renderer--suspended {
   opacity: 0.5;
 }
 
-/* z-index 조정 */
-.ds-workspace {
-  z-index: 0;
-}
-
-.ds-deck {
-  z-index: 20;
-}
-
-.ds-renderer {
-  z-index: 10;
-}
-
 .ds-diff-layer {
   z-index: 0;
 }
 
-.ds-diff {
-  width: 4px;
-}
-
 .ds-highlight-layer {
   z-index: 1;
-}
-
-.ds-editor::-webkit-scrollbar-button {
-  display: none;
-}
-
-.ds-editor::-webkit-scrollbar {
-  width: var(--editor-minimap-width, 15px);
-  border-inline: 1px solid rgba(128, 128, 128, 0.2);
-}
-
-/* 2. 움직이는 막대(Thumb)를 그려줘야 보입니다 */
-.ds-editor::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2); /* 막대 색상 */
-
-  border-radius: 0px; /* 둥근 모서리 */
-
-  /* 트랙과의 간격 (선택사항) */
-  /* border: 3px solid transparent; */
-  background-clip: content-box; /* 간격을 위해 필요 */
-}
-
-/* 3. 트랙(Track) 배경 (선택사항) */
-.ds-editor::-webkit-scrollbar-track {
-  /* background: rgba(0, 0, 0, 0.05); */
-}
-
-/* Firefox fallback — ::-webkit-scrollbar 미지원 브라우저에서만 적용 */
-@supports not selector(::-webkit-scrollbar) {
-  .ds-editor {
-    scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
-  }
-}
-
-/*
-  Sync Mode
-  */
-.ds-workspace.sync-mode {
-  --editor-bg-color: var(--bg-sync-mode);
-  --editor-fg-color: var(--text-sync-mode);
-}
-
-.sync-mode .ds-deck {
-}
-
-.sync-mode .ds-editor {
-}
-
-.ds-editor {
-  color: var(--editor-fg-color);
-  line-height: var(--editor-line-height);
-}
-
-.ds-editor-content {
-  flex: 1 0 auto;
-  position: relative;
-  border: 0;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 100%;
-  overflow-x: hidden;
-  overflow-y: visible;
-  font-size: var(--editor-font-size);
-  padding: var(--editor-padding);
-  /* line-height: var(--editor-line-height); */
-  scroll-padding-top: calc(3em * var(--editor-line-height));
-  word-break: break-word;
-  overflow-wrap: anywhere;
-  outline: none;
-  background-color: transparent;
-  font-family: var(--editor-font-family, inherit);
-}
-
-.ds-editor-minimap {
-  position: absolute;
-  pointer-events: none;
-  top: 0;
-  right: calc(var(--editor-minimap-width, 15px) * -1);
-  bottom: 0;
-  width: var(--editor-minimap-width, 15px);
-}
-
-.ds-renderer {
-  pointer-events: none;
 }
 
 .ds-renderer canvas {
@@ -195,106 +124,56 @@
   will-change: transform;
 }
 
-.ds-editor {
-  contain: layout size;
+/* ===== Scrollbar ===== */
+
+.ds-editor::-webkit-scrollbar-button {
+  display: none;
 }
 
-.sync-mode .ds-editor-content {
-  min-height: unset;
+.ds-editor::-webkit-scrollbar {
+  width: var(--ds-minimap-width, 15px);
+  border-inline: 1px solid var(--ds-scrollbar-border);
 }
 
-.sync-mode ds-diff {
-  display: inline-block;
+.ds-editor::-webkit-scrollbar-thumb {
+  background-color: var(--ds-scrollbar-thumb);
+  border-radius: 0px;
+  background-clip: content-box;
+}
+
+.ds-editor::-webkit-scrollbar-track {
+}
+
+@supports not selector(::-webkit-scrollbar) {
+  .ds-editor {
+    scrollbar-color: var(--ds-scrollbar-thumb) transparent;
+  }
+}
+
+/* ===== Editor content ===== */
+
+.ds-editor-content {
+  flex: 1 0 auto;
   position: relative;
+  border: 0;
+  min-width: 0;
+  max-width: 100%;
+  min-height: 100%;
+  overflow-x: hidden;
+  overflow-y: visible;
+  font-size: var(--ds-base-font-size);
+  padding: var(--ds-content-padding);
+  scroll-padding-top: calc(3em * var(--ds-line-height));
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  outline: none;
+  background-color: transparent;
+  font-family: var(--ds-font-family);
 }
 
-.sync-mode ds-diff.has-preceding-space::before {
-  content: " ";
-  display: inline;
-}
-
-.sync-mode ds-diff.has-following-space::after {
-  content: " ";
-  display: inline;
-}
-
-.sync-mode ds-diff.line-start {
-  display: block !important;
-  height: calc(var(--editor-line-height) * 1em) !important;
-  width: 2px;
-}
-
-.sync-mode ds-diff.line-start::before {
-  content: "" !important;
-  display: block;
-}
-
-.sync-mode ds-diff.line-end::after {
-  content: "" !important;
-  display: block !important;
-}
-
-ds-anchor {
-  display: none;
-}
-
-.sync-mode ds-anchor[data-anchor-index] {
-  display: block;
-}
-
-.sync-mode .ds-padded::before {
-  content: "" !important;
-  display: block !important;
-  height: var(--ds-adjust, 0px) !important;
-}
-
-ds-diff {
-  visibility: hidden; /* contenteditable 안에서 걸리적 거리지 않게! */
-  display: inline-block;
-  height: 0;
-  user-select: none;
-  width: 0px;
-}
-
-/* :not(.sync-mode) ds-diff::after {
-    display: inline;
-    content: "\200B";
-  } */
-
-/* ds-diff::after {
-    display: block;
-    width: 4px;
-    content: "\200B";
-  } */
-
-.sync-mode .ds-striped.ds-padded::before {
-  background: transparent
-    repeating-linear-gradient(
-      135deg,
-      hsl(0 0% 88% / 0.95) 0px,
-      hsl(0 0% 88% / 0.95) 3px,
-      transparent 3px,
-      transparent 6px
-    );
-  opacity: 0.75;
-}
-
-.ds-editor-height-boost {
-  display: none;
-}
-
-.sync-mode .ds-editor-height-boost {
-  display: block;
-  flex: 0 0 auto;
-  background: repeating-linear-gradient(
-    0deg,
-    hsl(0 0% 88% / 0.4) 0px,
-    hsl(0 0% 88% / 0.4) 3px,
-    transparent 3px,
-    transparent 6px
-  );
-  height: 0;
-  /* height: var(--height-boost, 0px); */
+.ds-editor-content * {
+  line-height: var(--ds-line-height);
+  max-width: 100%;
 }
 
 .ds-editor-content p {
@@ -314,29 +193,8 @@ ds-diff {
   font-family: monospace;
 }
 
-/* ds-diff::before {
-    content: " ";
-    display: block;
-    position: absolute;
-    width: 4px;
-    height: calc(1.2em + 4px);
-    background-color: red;
-    opacity: 30%;
-    left: 0;
-    margin-top: -2px;
-  } */
-
-.ds-editor-content td,
-.ds-editor-content th {
-  position: relative;
-}
-
-.ds-editor-content * {
-  line-height: var(--editor-line-height);
-}
-
-.ds-editor-content .color-red {
-  color: red;
+.ds-editor-content u {
+  text-underline-offset: var(--ds-underline-offset);
 }
 
 .ds-editor-content table {
@@ -346,20 +204,133 @@ ds-diff {
   width: 100%;
 }
 
-.ds-editor-content td {
-  padding: 4px;
+.ds-editor-content td,
+.ds-editor-content th {
   position: relative;
+}
+
+.ds-editor-content td {
   vertical-align: top;
-  border: 1px solid var(--editor-td-border-color);
-  padding: var(--editor-td-padding);
-  min-height: calc(1em * var(--editor-line-height));
+  border: 1px solid var(--ds-td-border-color);
+  padding: var(--ds-td-padding);
+  min-height: calc(1em * var(--ds-line-height));
 }
 
-.ds-editor-content * {
-  /* 그림 같은게 너무 크면 싫잖아 */
-  max-width: 100%;
+/* ===== Color markers (sanitize) ===== */
+
+.ds-editor-content .ds-color-red {
+  color: var(--ds-color-red);
 }
 
-.ds-editor-content u {
-  text-underline-offset: var(--editor-underline-offset);
+.ds-editor-content .ds-color-normal {
+  color: var(--_ds-fg);
+}
+
+/* ===== Minimap ===== */
+
+.ds-editor-minimap {
+  position: absolute;
+  pointer-events: none;
+  top: 0;
+  right: calc(var(--ds-minimap-width, 15px) * -1);
+  bottom: 0;
+  width: var(--ds-minimap-width, 15px);
+}
+
+/* ===== ds-diff (custom element) ===== */
+
+ds-diff {
+  visibility: hidden;
+  display: inline-block;
+  height: 0;
+  user-select: none;
+  width: 0px;
+}
+
+/* TODO: 용도 확인 필요 — 아래에서 width: 0px로 덮어쓰여짐 */
+/* .ds-diff { width: 4px; } */
+
+/* ===== ds-anchor (custom element) ===== */
+
+ds-anchor {
+  display: none;
+}
+
+/* ===== Sync mode ===== */
+
+.ds-sync-mode .ds-editor-content {
+  min-height: unset;
+}
+
+.ds-sync-mode ds-diff {
+  display: inline-block;
+  position: relative;
+}
+
+.ds-sync-mode ds-diff.ds-has-preceding-space::before {
+  content: " ";
+  display: inline;
+}
+
+.ds-sync-mode ds-diff.ds-has-following-space::after {
+  content: " ";
+  display: inline;
+}
+
+.ds-sync-mode ds-diff.ds-line-start {
+  display: block !important;
+  height: calc(var(--ds-line-height) * 1em) !important;
+  width: 2px;
+}
+
+.ds-sync-mode ds-diff.ds-line-start::before {
+  content: "" !important;
+  display: block;
+}
+
+.ds-sync-mode ds-diff.ds-line-end::after {
+  content: "" !important;
+  display: block !important;
+}
+
+.ds-sync-mode ds-anchor[data-anchor-index] {
+  display: block;
+}
+
+.ds-sync-mode .ds-padded::before {
+  content: "" !important;
+  display: block !important;
+  height: var(--ds-adjust, 0px) !important;
+}
+
+.ds-sync-mode .ds-striped.ds-padded::before {
+  background: transparent
+    repeating-linear-gradient(
+      135deg,
+      var(--ds-stripe-color) 0px,
+      var(--ds-stripe-color) 3px,
+      transparent 3px,
+      transparent 6px
+    );
+  opacity: 0.75;
+}
+
+/* ===== Height boost (sync mode) ===== */
+
+.ds-editor-height-boost {
+  display: none;
+}
+
+.ds-sync-mode .ds-editor-height-boost {
+  display: block;
+  flex: 0 0 auto;
+  background: repeating-linear-gradient(
+    0deg,
+    var(--ds-stripe-boost-color) 0px,
+    var(--ds-stripe-boost-color) 3px,
+    transparent 3px,
+    transparent 6px
+  );
+  height: 0;
+  /* height: var(--ds-height-boost, 0px); */
 }

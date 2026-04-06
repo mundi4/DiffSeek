@@ -119,8 +119,10 @@ export function DiffStatusIndicator() {
             const phase = s.phase;
             const starts = phaseStartsRef.current;
 
-            if (phase === "tokenizing" && !starts.tokenizing) {
-                phaseStartsRef.current = { tokenizing: s.startedAtMs ?? performance.now() };
+            const newStart = s.startedAtMs ?? performance.now();
+
+            if (phase === "tokenizing" && (!starts.tokenizing || starts.tokenizing !== newStart)) {
+                phaseStartsRef.current = { tokenizing: newStart };
                 setSnapshot({
                     leftTokenCount: s.leftTokenCount,
                     rightTokenCount: s.rightTokenCount,

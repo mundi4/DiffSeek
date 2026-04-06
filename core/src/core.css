@@ -1,3 +1,20 @@
+/*
+ * Dark mode example — override :root vars:
+ *
+ * :root {
+ *   --ds-bg: #1e1e1e;
+ *   --ds-bg-sync: #2a2520;
+ *   --ds-fg: #d4d4d4;
+ *   --ds-fg-sync: #c8c0b0;
+ *   --ds-td-border-color: #444;
+ *   --ds-scrollbar-thumb: rgba(255, 255, 255, 0.25);
+ *   --ds-scrollbar-border: rgba(255, 255, 255, 0.1);
+ *   --ds-stripe-color: hsl(0 0% 30% / 0.95);
+ *   --ds-stripe-boost-color: hsl(0 0% 30% / 0.4);
+ *   --ds-color-red: #ff6b6b;
+ * }
+ */
+
 /* ===== Customizable variables (override via :root) ===== */
 :root {
   --ds-base-font-size: 14px;

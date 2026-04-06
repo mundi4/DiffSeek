@@ -2,13 +2,12 @@ import '@core/core.css';
 import { DiffseekEngine, type DiffOptions, type EditorName } from '@core';
 import '@mantine/core/styles.css';
 import { getDefaultStore, Provider, useAtomValue } from 'jotai';
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import { DiffseekProvider } from './bridge/diffseek-provider';
 import { SidebarFooter } from './components/sidebar-footer';
 import { DiffList } from './components/diff-list';
 import { InlineDiffPopover } from './components/inline-diff-popover';
 // import { OutlineModal } from './components/outline-modal';
-import { BusyIndicator } from "./components/busy-indicator";
 import { diffWorkflowStatusAtom, extensionEnabledAtom } from './states/core-atoms';
 import './app.css';
 

@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import { diffContextAtom, diffWorkflowStatusAtom } from "@/states/core-atoms";
 import { Divider, Group, Loader, Popover, Stack, Text, ThemeIcon } from "@mantine/core";
 import { useHover } from "@mantine/hooks";
@@ -9,15 +10,7 @@ const MIN_VISIBLE_MS = 500;
 const POPOVER_FADE_DELAY_MS = 2000;
 
 const PHASE_KEYS = ["tokenizing", "diffing", "processing"] as const;
-const PHASE_LABELS: Record<typeof PHASE_KEYS[number], string> = {
-    tokenizing: "Tokenizing",
-    diffing: "Diffing",
-    processing: "Processing",
-};
 
-function formatMs(ms: number) {
-    return ms < 1000 ? `${ms.toFixed(0)}ms` : `${(ms / 1000).toFixed(1)}s`;
-}
 
 type TimingSnapshot = {
     tokenizingMs?: number;
@@ -29,9 +22,20 @@ type TimingSnapshot = {
 };
 
 export function DiffStatusIndicator() {
+    const t = useT();
     const status = useAtomValue(diffWorkflowStatusAtom);
     const diffContext = useAtomValue(diffContextAtom);
     const store = useStore();
+
+    const PHASE_LABELS: Record<typeof PHASE_KEYS[number], string> = {
+        tokenizing: t.phaseTokenizing,
+        diffing: t.phaseDiffing,
+        processing: t.phaseProcessing,
+    };
+
+    function formatMs(ms: number) {
+        return ms < 1000 ? `${ms.toFixed(0)}${t.unitMs}` : `${(ms / 1000).toFixed(1)}${t.unitS}`;
+    }
 
     const busy = status.phase !== "idle";
 
@@ -184,7 +188,7 @@ export function DiffStatusIndicator() {
                     {!visible && <ThemeIcon style={{ display: "inline" }} variant="transparent" size="xs" color={color}><IconCheck size={16} /></ThemeIcon>}
                 </Group>
             </Popover.Target>
-            <Popover.Dropdown p="xs" bg="rgba(255,255,255,0.6)" miw={180} style={{ backdropFilter: "blur(8px)" }}>
+            <Popover.Dropdown p="xs" bg="rgba(255,255,255,0.6)" miw={200} style={{ backdropFilter: "blur(8px)" }}>
                 <Stack gap={3}>
                     {PHASE_KEYS.map((key, phaseIndex) => {
                         const isCurrent = phaseIndex === currentPhaseIndex;
@@ -213,12 +217,12 @@ export function DiffStatusIndicator() {
                     })}
 
                     <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={busy ? "dimmed" : doneColor}>Total</Text>
+                        <Text size="xs" c={busy ? "dimmed" : doneColor}>{t.total}</Text>
                         <Text ff="monospace" c={busy ? "dimmed" : doneColor} size="xs" style={{ minWidth: 36, textAlign: "right" }}>{!busy && snapshot.totalMs != null ? formatMs(snapshot.totalMs) : ""}</Text>
                     </Group>
                     <Divider my={4} />
                     <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={tokensKnown ? undefined : "dimmed"}>Tokens</Text>
+                        <Text size="xs" c={tokensKnown ? undefined : "dimmed"}>{t.tokens}</Text>
                         <Text ff="monospace" size="xs">
                             {leftTokenCount != null ? leftTokenCount.toLocaleString() : <Text span c="dimmed">...</Text>}
                             {<Text span c="dimmed"> | </Text>}
@@ -226,7 +230,7 @@ export function DiffStatusIndicator() {
                         </Text>
                     </Group>
                     <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={diffsKnown ? undefined : "dimmed"}>Diffs</Text>
+                        <Text size="xs" c={diffsKnown ? undefined : "dimmed"}>{t.diffs}</Text>
                         <Text ff="monospace" size="xs">
                             {diffsKnown ? diffEntryCount.toLocaleString() : ""}
                         </Text>

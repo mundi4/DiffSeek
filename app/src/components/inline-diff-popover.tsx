@@ -1,3 +1,4 @@
+import { useT } from "@/i18n";
 import type { DiffseekEngine } from "@core";
 import { FloatingWindow } from "@mantine/core";
 import { useQuickDiff } from "@/hooks/use-quick-diff";
@@ -84,6 +85,7 @@ function renderContent(entries: QuickDiffEntry[], viewMode: ViewMode) {
 // ── SelectionMenu ──
 
 function SelectionMenu({ x, y, opacity, workspace, onClickDiff }: { x: number; y: number; opacity: number; workspace: HTMLElement; onClickDiff: () => void }) {
+    const t = useT();
     const ref = useRef<HTMLDivElement>(null);
     const [pos, setPos] = useState<{ left: number; top?: number; bottom?: number } | null>(null);
 
@@ -118,7 +120,7 @@ function SelectionMenu({ x, y, opacity, workspace, onClickDiff }: { x: number; y
             onMouseDown={(e) => e.preventDefault()}
         >
             <button className="qdiff-menu-btn" onClick={onClickDiff}>
-                Diff
+                {t.diffButton}
             </button>
         </div>
     );
@@ -134,6 +136,7 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
     lastPositionRef: React.MutableRefObject<{ top: number; left: number } | null>;
     onDismiss: (popoverEl?: HTMLElement | null) => void;
 }) {
+    const t = useT();
     const rootRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
@@ -289,15 +292,15 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
             }}
         >
             <div className="qdiff-result-titlebar qdiff-result-grip">
-                <span className="qdiff-result-title">선택 영역 비교</span>
+                <span className="qdiff-result-title">{t.selectionDiffTitle}</span>
                 <div className="qdiff-viewmode-btns">
-                    <button className={`qdiff-viewmode-btn${viewMode === "inline" ? " active" : ""}`} onClick={() => changeViewMode("inline")} title="인라인">
+                    <button className={`qdiff-viewmode-btn${viewMode === "inline" ? " active" : ""}`} onClick={() => changeViewMode("inline")} title={t.viewModeInline}>
                         <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="10" rx="1" fill="currentColor" /></svg>
                     </button>
-                    <button className={`qdiff-viewmode-btn${viewMode === "side-by-side" ? " active" : ""}`} onClick={() => changeViewMode("side-by-side")} title="좌우">
+                    <button className={`qdiff-viewmode-btn${viewMode === "side-by-side" ? " active" : ""}`} onClick={() => changeViewMode("side-by-side")} title={t.viewModeSideBySide}>
                         <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="4" height="10" rx="1" fill="currentColor" /><rect x="7" y="1" width="4" height="10" rx="1" fill="currentColor" /></svg>
                     </button>
-                    <button className={`qdiff-viewmode-btn${viewMode === "stacked" ? " active" : ""}`} onClick={() => changeViewMode("stacked")} title="위아래">
+                    <button className={`qdiff-viewmode-btn${viewMode === "stacked" ? " active" : ""}`} onClick={() => changeViewMode("stacked")} title={t.viewModeStacked}>
                         <svg width="12" height="12" viewBox="0 0 12 12"><rect x="1" y="1" width="10" height="4" rx="1" fill="currentColor" /><rect x="1" y="7" width="10" height="4" rx="1" fill="currentColor" /></svg>
                     </button>
                 </div>

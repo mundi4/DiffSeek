@@ -1,8 +1,10 @@
 import { useDiffseekActions } from "@/bridge/diffseek-provider";
+import { localeAtom, useT } from "@/i18n";
+import type { Locale, Messages } from "@/i18n";
 import { diffseekOptionsAtom } from "@/states/core-atoms";
 import { type DiffOptions, type DiffseekOptions, getDefaultDiffseekOptions } from "@core";
 import { Box, Button, Flex, Group, Modal, NumberInput, Radio, Stack, Switch, Text, TextInput } from "@mantine/core";
-import { useAtomValue } from "jotai";
+import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 type CategoryKey = "general" | "tokens" | "patience" | "structural" | "advanced";
@@ -13,15 +15,21 @@ interface Category {
     description: string;
 }
 
-const categories: Category[] = [
-    { key: "general", label: "일반", description: "기본 설정" },
-    { key: "tokens", label: "토큰 처리", description: "토큰 병합 옵션" },
-    { key: "patience", label: "Patience Diff", description: "Patience Diff 알고리즘" },
-    { key: "structural", label: "Structural", description: "구조 토큰 (HTML 태그) 설정" },
-    { key: "advanced", label: "고급", description: "추가 알고리즘 설정" },
-];
+function getCategories(t: Messages): Category[] {
+    return [
+        { key: "general", label: t.catGeneral, description: t.catGeneralDesc },
+        { key: "tokens", label: t.catTokens, description: t.catTokensDesc },
+        { key: "patience", label: t.catPatience, description: t.catPatienceDesc },
+        { key: "structural", label: t.catStructural, description: t.catStructuralDesc },
+        { key: "advanced", label: t.catAdvanced, description: t.catAdvancedDesc },
+    ];
+}
 
 export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
+    const t = useT();
+    const locale = useAtomValue(localeAtom);
+    const setLocale = useSetAtom(localeAtom);
+    const categories = getCategories(t);
     const current = useAtomValue(diffseekOptionsAtom);
     const { applyOptions, resetOptions } = useDiffseekActions();
     const [draft, setDraft] = useState<DiffseekOptions>(current);
@@ -69,8 +77,24 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                 return (
                     <Stack gap="lg">
                         <Box>
+                            <Radio.Group
+                                label={t.language}
+                                value={locale}
+                                onChange={(v) => setLocale(v as Locale)}
+                            >
+                                <Group gap="md" mt="xs">
+                                    <Radio value="ko" label="한국어" />
+                                    <Radio value="en" label="English" />
+                                </Group>
+                            </Radio.Group>
+                            <Text size="sm" c="dimmed" mt="xs">
+                                {t.languageDesc}
+                            </Text>
+                        </Box>
+
+                        <Box>
                             <Switch
-                                label="동기 모드에서 편집 활성화"
+                                label={t.editableInSyncMode}
                                 checked={draft.editableInSyncMode}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -78,26 +102,26 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                양쪽 정렬 모드에서도 문서 편집을 허용합니다.
+                                {t.editableInSyncModeDesc}
                             </Text>
                         </Box>
 
                         <Box>
                             <Radio.Group
-                                label="공백 처리"
+                                label={t.whitespace}
                                 value={draft.diff.whitespace}
                                 onChange={(v) => setDiff({ whitespace: v as DiffOptions["whitespace"] })}
                             >
                                 <Stack gap="xs" mt="xs">
-                                    <Radio value="collapse" label="연속된 공백을 하나로 취급" />
-                                    <Radio value="ignore" label="모든 공백 무시" />
+                                    <Radio value="collapse" label={t.whitespaceCollapse} />
+                                    <Radio value="ignore" label={t.whitespaceIgnore} />
                                 </Stack>
                             </Radio.Group>
                         </Box>
 
                         <Box>
                             <Switch
-                                label="빈 diff 마커 쌓기"
+                                label={t.stackEmptyDiffMarkers}
                                 checked={draft.diff.stackEmptyDiffMarkers}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -105,7 +129,7 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                내용 없는 diff 마커를 겹쳐서 표시합니다.
+                                {t.stackEmptyDiffMarkersDesc}
                             </Text>
                         </Box>
                     </Stack>
@@ -116,7 +140,7 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                     <Stack gap="lg">
                         <Box>
                             <Switch
-                                label="비단어 토큰 병합"
+                                label={t.mergeNonWordTokens}
                                 checked={draft.diff.mergeNonWordTokens}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -124,13 +148,13 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                연속된 비단어(문장부호 등)를 하나로 묶어서 비교합니다.
+                                {t.mergeNonWordTokensDesc}
                             </Text>
                         </Box>
 
                         <Box>
                             <Switch
-                                label="문자-숫자 경계 병합"
+                                label={t.mergeLetterNumberBoundary}
                                 checked={draft.diff.mergeLetterNumberBoundary}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -138,13 +162,13 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                문자와 숫자가 붙어있는 경우 하나의 토큰으로 취급합니다. (예: "제1조" → 하나의 토큰)
+                                {t.mergeLetterNumberBoundaryDesc}
                             </Text>
                         </Box>
 
                         <Box>
                             <Switch
-                                label="법조문 번호 독립 토큰"
+                                label={t.allowStandaloneLawArticle}
                                 checked={draft.diff.allowStandaloneLawArticle}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -152,7 +176,7 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                "제○조", "제○항" 등 법조문 번호를 독립된 토큰으로 인식합니다.
+                                {t.allowStandaloneLawArticleDesc}
                             </Text>
                         </Box>
                     </Stack>
@@ -163,7 +187,7 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                     <Stack gap="lg">
                         <Box>
                             <Switch
-                                label="Patience Diff 사용"
+                                label={t.usePatience}
                                 checked={draft.diff.usePatience}
                                 onChange={(e) => {
                                     const checked = e.currentTarget.checked;
@@ -171,13 +195,13 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                                 }}
                             />
                             <Text size="sm" c="dimmed" mt="xs">
-                                고유한 내용을 가진 줄끼리 우선적으로 매칭을 시도합니다. 비교 속도가 향상됩니다.
+                                {t.usePatienceDesc}
                             </Text>
                         </Box>
 
                         <NumberInput
-                            label="최소 줄 수"
-                            description="Patience Diff를 적용할 최소 줄 개수"
+                            label={t.patienceMinLines}
+                            description={t.patienceMinLinesDesc}
                             min={1}
                             step={1}
                             value={draft.diff.patienceMinLines}
@@ -185,8 +209,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                         />
 
                         <NumberInput
-                            label="최소 토큰 수"
-                            description="Patience Diff를 적용할 최소 토큰 개수"
+                            label={t.patienceMinTokens}
+                            description={t.patienceMinTokensDesc}
                             min={1}
                             step={50}
                             value={draft.diff.patienceMinTokens}
@@ -194,8 +218,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                         />
 
                         <NumberInput
-                            label="최소 토큰 카운트"
-                            description="앵커로 인정할 최소 토큰 개수"
+                            label={t.patienceMinTokenCount}
+                            description={t.patienceMinTokenCountDesc}
                             min={1}
                             step={1}
                             value={draft.diff.patienceMinTokenCount}
@@ -203,8 +227,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                         />
 
                         <NumberInput
-                            label="최소 텍스트 길이"
-                            description="앵커로 인정할 최소 텍스트 길이 (char)"
+                            label={t.patienceMinTextLen}
+                            description={t.patienceMinTextLenDesc}
                             min={1}
                             step={1}
                             value={draft.diff.patienceMinTextLen}
@@ -217,8 +241,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                 return (
                     <Stack gap="lg">
                         <NumberInput
-                            label="Structural Token Length"
-                            description="구조 토큰으로 인식할 최소 길이"
+                            label={t.structuralTokenLength}
+                            description={t.structuralTokenLengthDesc}
                             min={0}
                             step={1}
                             value={draft.diff.structuralTokenLength}
@@ -226,8 +250,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                         />
 
                         <TextInput
-                            label="Structural Only Multipliers"
-                            description="structural 토큰만으로 이루어진 앵커의 score multiplier (쉼표 구분). index = 매칭 토큰 수 h"
+                            label={t.structuralOnlyMultipliers}
+                            description={t.structuralOnlyMultipliersDesc}
                             value={draft.diff.structuralOnlyMultipliers.join(", ")}
                             onChange={(e) => {
                                 const arr = parseNumberArray(e.currentTarget.value);
@@ -236,8 +260,8 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
                         />
 
                         <TextInput
-                            label="Structural Level Bonuses"
-                            description="structural level별 추가 배율 (쉼표 구분). index: 0=unused, 1=TD/TH, 2=TR, 3=TABLE"
+                            label={t.structuralLevelBonuses}
+                            description={t.structuralLevelBonusesDesc}
                             value={draft.diff.structuralLevelBonuses.join(", ")}
                             onChange={(e) => {
                                 const arr = parseNumberArray(e.currentTarget.value);
@@ -256,7 +280,7 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
         <Modal
             opened={opened}
             onClose={onClose}
-            title="비교 옵션"
+            title={t.optionsTitle}
             centered
             size="xl"
             styles={{ body: { display: "flex", flexDirection: "column", gap: "1rem" } }}
@@ -309,11 +333,11 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
             {/* Footer */}
             <Group justify="space-between" pt="md" style={{ borderTop: "1px solid var(--mantine-color-gray-3)" }}>
                 <Button variant="subtle" color="gray" onClick={reset}>
-                    기본값 복원
+                    {t.resetDefaults}
                 </Button>
                 <Group>
-                    <Button variant="default" onClick={onClose}>취소</Button>
-                    <Button onClick={apply} disabled={!canApply}>적용</Button>
+                    <Button variant="default" onClick={onClose}>{t.cancel}</Button>
+                    <Button onClick={apply} disabled={!canApply}>{t.apply}</Button>
                 </Group>
             </Group>
         </Modal>

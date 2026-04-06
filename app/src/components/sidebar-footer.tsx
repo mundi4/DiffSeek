@@ -1,4 +1,5 @@
 import { useDiffseekActions } from "@/bridge/diffseek-provider";
+import { useT } from "@/i18n";
 import { diffWorkflowStatusAtom, syncModeAtom, whitespaceHandlingAtom } from "@/states/core-atoms";
 import { ActionIcon, Group, Kbd, Popover, Text } from "@mantine/core";
 import { useDisclosure } from "@mantine/hooks";
@@ -11,14 +12,16 @@ import { IconBook, IconEqual, IconSettings } from "@tabler/icons-react";
 import { DiffStatusIndicator } from "./diff-status-indicator";
 
 function StatusOn() {
+    const t = useT();
     return (
-        <Text span c="teal.8" fw={600}>(켜짐)</Text>
+        <Text span c="teal.8" fw={600}>{t.statusOn}</Text>
     )
 }
 
 function StatusOff() {
+    const t = useT();
     return (
-        <Text span c="dimmed" fw={600}>(꺼짐)</Text>
+        <Text span c="dimmed" fw={600}>{t.statusOff}</Text>
     )
 }
 
@@ -68,13 +71,14 @@ const ToggleIconButton = forwardRef<HTMLButtonElement, { onClick: () => void; on
 });
 
 export function MiniSyncButton({ isSync, onClick }: { isSync: boolean; onClick: () => void }) {
+    const t = useT();
     const tooltipContent = (
         <>
-            <Text size="sm" fw={600}>줄맞춤 모드 {isSync ? <StatusOn /> : <StatusOff />}</Text>
-            <Text size="xs">양쪽 문서를 나란히 정렬하고 스크롤을 동기화합니다.</Text>
-            <Text size="xs"><Text span c="teal.8">켜진</Text> 상태에서는 편집이 불가능합니다.</Text>
+            <Text size="sm" fw={600}>{t.syncModeLabel} {isSync ? <StatusOn /> : <StatusOff />}</Text>
+            <Text size="xs">{t.syncModeDesc}</Text>
+            <Text size="xs">{t.syncModeOnWarn}</Text>
             <Group align="center" gap={8}>
-                <Text size="xs">단축키:</Text><Kbd size="xs">F2</Kbd>
+                <Text size="xs">{t.shortcutLabel}</Text><Kbd size="xs">F2</Kbd>
             </Group>
         </>
     )
@@ -100,11 +104,11 @@ export function MiniSyncButton({ isSync, onClick }: { isSync: boolean; onClick: 
 // ];
 
 export function WhitespaceModeSelector({ mode, onClick }: { mode: DiffOptions["whitespace"]; onClick: () => void }) {
+    const t = useT();
     const tooltipContent = (
         <>
-            <Text size="sm" fw={600}>공백 무시 {mode === "ignore" ? <StatusOn /> : <StatusOff />}</Text>
-            <Text size="xs">공백을 무시하고 비교합니다.</Text>
-            <Text size="xs"><Text span c="dimmed">꺼진</Text> 상태에서는 연속된 공백은 하나로 취급됩니다.</Text>
+            <Text size="sm" fw={600}>{t.whitespaceModeLabel} {mode === "ignore" ? <StatusOn /> : <StatusOff />}</Text>
+            <Text size="xs">{t.whitespaceModeDesc}</Text>
             {/* <Group align="center" >
                 <Text size="xs">단축키: <kbd >F3</kbd></Text>
             </Group> */}

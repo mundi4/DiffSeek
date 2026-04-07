@@ -18,8 +18,11 @@ import type { TokenSnapshot } from "../src/editor/editor";
 import type { MarkerElementsMap } from "../src/engine/types";
 
 beforeAll(() => {
-    if (typeof globalThis.scheduler === "undefined") {
-        (globalThis as any).scheduler = { yield: () => Promise.resolve() };
+    if (typeof (globalThis as any).scheduler?.yield !== "function") {
+        (globalThis as any).scheduler = {
+            ...(globalThis as any).scheduler,
+            yield: () => Promise.resolve(),
+        };
     }
 });
 

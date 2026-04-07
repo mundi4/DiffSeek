@@ -53,7 +53,7 @@ function makeSnapshot(tokens: Token[], el: HTMLElement): TokenSnapshot {
             containerIndex: 0,
         }],
         sectionHeadings: [],
-        containers: [{ el, firstTokenIndex: 0, lastTokenIndex: Math.max(0, tokens.length - 1) }],
+        containers: [{ el, firstTokenIndex: 0, lastTokenIndex: tokens.length - 1 }],
         elapsedTime: 0,
     };
 }

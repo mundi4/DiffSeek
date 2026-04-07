@@ -6,6 +6,42 @@ import type { AnchorPair, MarkerElementsMap } from "./types";
 const MIN_DELTA = 1;
 const MIN_STRIPED_DELTA = 1;
 
+type ScrollRef = { el: HTMLElement; targetTop: number; rootEl: HTMLElement };
+
+function captureScrollRef(editor: Editor): ScrollRef | null {
+    const root = editor.rootElement;
+    const content = editor.contentElement;
+    const rootRect = root.getBoundingClientRect();
+    const probeY = rootRect.top + 20;
+    const steps = Math.max(4, Math.floor(rootRect.width / 80));
+
+    for (let i = 0; i <= steps; i++) {
+        const x = rootRect.left + (rootRect.width * i) / steps;
+        const stack = document.elementsFromPoint(x, probeY);
+        const hit = stack.find(e => e !== content && content.contains(e)) as HTMLElement | undefined;
+        if (hit) {
+            const refRect = hit.getBoundingClientRect();
+            return { el: hit, targetTop: refRect.top - rootRect.top, rootEl: root };
+        }
+    }
+    return null;
+}
+
+function restoreFromRef(ref: ScrollRef): void {
+    if (!ref.el.isConnected) return;
+    const rootRect = ref.rootEl.getBoundingClientRect();
+    const refRect = ref.el.getBoundingClientRect();
+    const currentTop = refRect.top - rootRect.top;
+    const delta = currentTop - ref.targetTop;
+    ref.rootEl.scrollTop += delta;
+}
+
+function refreshRef(ref: ScrollRef): void {
+    const rootRect = ref.rootEl.getBoundingClientRect();
+    const refRect = ref.el.getBoundingClientRect();
+    ref.targetTop = refRect.top - rootRect.top;
+}
+
 export async function alignAnchors({
     anchorPairs,
     leftEditor,
@@ -34,11 +70,15 @@ export async function alignAnchors({
     await nextAnimationFrame(signal);
     numFrames++;
 
+    const leftRef = captureScrollRef(leftEditor);
+    const rightRef = captureScrollRef(rightEditor);
+
     const IDLE_THRESHOLD = 10;
     let t = performance.now();
 
     let numAdjusted = 0;
     let numSkipped = 0;
+    let adjustedAboveViewportBottom = false;
 
     for (let batchStart = 0; batchStart < anchorPairs.length; batchStart += BATCH_SIZE) {
         const batchEnd = Math.min(batchStart + BATCH_SIZE, anchorPairs.length);
@@ -65,6 +105,18 @@ export async function alignAnchors({
                 leftScrollTop = leftEditor.rootElement.scrollTop;
                 rightScrollTop = rightEditor.rootElement.scrollTop;
                 numAdjusted++;
+
+                // 뷰포트 내/위 요소가 조정된 경우에만 restore 필요
+                if (!adjustedAboveViewportBottom) {
+                    const adjustedY = delta > 0 ? rightY : leftY;
+                    const scrollTop = delta > 0 ? rightScrollTop : leftScrollTop;
+                    const viewportHeight = delta > 0
+                        ? rightEditor.rootElement.clientHeight
+                        : leftEditor.rootElement.clientHeight;
+                    if (adjustedY < scrollTop + viewportHeight) {
+                        adjustedAboveViewportBottom = true;
+                    }
+                }
             } else {
                 numSkipped++;
             }
@@ -74,6 +126,11 @@ export async function alignAnchors({
         if (now - t > IDLE_THRESHOLD) {
             await nextAnimationFrame(signal);
             numFrames++;
+            if (adjustedAboveViewportBottom) {
+                if (leftRef) { restoreFromRef(leftRef); refreshRef(leftRef); }
+                if (rightRef) { restoreFromRef(rightRef); refreshRef(rightRef); }
+                adjustedAboveViewportBottom = false;
+            }
             t = performance.now();
             leftScrollTop = leftEditor.rootElement.scrollTop;
             rightScrollTop = rightEditor.rootElement.scrollTop;
@@ -82,6 +139,18 @@ export async function alignAnchors({
 
     console.debug(`Adjusted ${numAdjusted} anchor pairs, skipped ${numSkipped} pairs that were within the delta threshold of ${MIN_DELTA}px`);
 
+    // 최종 RAF: 래퍼(diffseek-engine.ts)의 restoreScrollPosition()을 위해
+    // savedScroll을 채움 (elementsFromPoint 재호출 없이 캐싱된 ref 사용)
+    if (adjustedAboveViewportBottom) {
+        if (leftRef) {
+            refreshRef(leftRef);
+            leftEditor.setSavedScroll(leftRef);
+        }
+        if (rightRef) {
+            refreshRef(rightRef);
+            rightEditor.setSavedScroll(rightRef);
+        }
+    }
     await nextAnimationFrame(signal);
     numFrames++;
 

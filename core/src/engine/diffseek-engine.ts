@@ -7,7 +7,7 @@ import { resolveMatchingSpanPair } from "./resolve-matching-span-pair";
 import { alignAnchors as alignAnchorsImpl } from "./align-anchors";
 import { processDiffElements, serializeTokens, cleanupUnusedMarkers } from "./process-diff-elements";
 import type { DiffContext, DiffseekEventMap, DiffVisibilityChangeEntry, DiffWorkflowStatus, MarkerElementsMap, SelectionChangeData } from "./types";
-import type { EditorName } from "../editor";
+import type { EditorName, SavedScrollRef } from "../editor";
 import type { DiffOptions } from "../diff/types";
 import { TOKEN_BUFFER_STRIDE } from "../constants";
 import type { DiffseekOptions, Palette, Span } from "../types";
@@ -381,8 +381,10 @@ export class DiffseekEngine {
             return;
         }
 
+        // 레이아웃 변경 전에 스크롤 위치 저장
+        let preSaved: SavedScrollRef | null = null;
         if (value) {
-            this.lastActiveEditor?.saveScrollPosition();
+            preSaved = (this.lastActiveEditor ?? this.leftEditor).saveScrollPosition();
         } else {
             this.leftEditor.saveScrollPosition();
             this.rightEditor.saveScrollPosition();
@@ -395,11 +397,9 @@ export class DiffseekEngine {
         this.workspaceEl.classList.toggle("ds-sync-mode", value);
 
         if (value) {
-            // const scrollTop = Math.min(this.leftEditor.scrollTop, this.rightEditor.scrollTop);
-            // this.deckEl.scrollTop = scrollTop;
             requestAnimationFrame(() => {
                 this.renderer.invalidateAll();
-                this.alignAnchors().then(() => {
+                this.alignAnchors(preSaved ?? undefined).then(() => {
                     // 예약된 렌더가 있다면 취소
                     this.renderer.cancelRender();
 
@@ -786,11 +786,15 @@ export class DiffseekEngine {
     //
     // Anchor Alignment
     //
-    private async alignAnchors(): Promise<void> {
+    private async alignAnchors(preSavedScroll?: SavedScrollRef): Promise<void> {
         this.alignAnchorsAbortController?.abort(ABORT_REASON_CANCELLED);
         const controller = this.alignAnchorsAbortController = new AbortController();
         try {
             this.programmaticScrollInProgress++;
+
+            const baseEditor = this.lastActiveEditor ?? this.leftEditor;
+            const otherEditor = baseEditor === this.leftEditor ? this.rightEditor : this.leftEditor;
+            const saved = preSavedScroll ?? baseEditor.saveScrollPosition();
 
             await alignAnchorsImpl({
                 anchorPairs: this.diffContext?.anchorPairs ?? [],
@@ -798,15 +802,13 @@ export class DiffseekEngine {
                 rightEditor: this.rightEditor,
                 markerElements: this.markerElements,
                 signal: controller.signal,
+                scrollRestore: saved ? { saved, editor: baseEditor, otherEditor } : undefined,
             });
             this.renderer.invalidateGeometries();
+            // if (saved) {
 
-            const lastEditor = this.lastActiveEditor;
-            if (lastEditor) {
-                const otherEditor = lastEditor === this.leftEditor ? this.rightEditor : this.leftEditor;
-                lastEditor.restoreScrollPosition();
-                otherEditor.rootElement.scrollTop = lastEditor.rootElement.scrollTop;
-            }
+            //     baseEditor.restoreScrollPosition(saved);
+            // }
         } catch (err) {
             if (err === ABORT_REASON_CANCELLED) {
                 // 무시

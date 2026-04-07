@@ -20,3 +20,8 @@ export type EditorOptions = {
     lineHeight: number;
     altArrowScrollLines: number;
 }
+
+export type SavedScrollRef = {
+    element: HTMLElement;
+    targetTop: number;
+}

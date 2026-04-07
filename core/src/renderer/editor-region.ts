@@ -3,7 +3,7 @@ import { Editor } from "../editor/editor";
 import { extractRectsFromRange } from "./extract-rects-from-range";
 import { mergeRects } from "./merge-rects";
 import { Renderer } from "./renderer";
-import { DIRTY_DIFF_HIGHLIGHT, DIRTY_DIFF_HIGHLIGHT_OFFSCREEN, DIRTY_GEOMETRY, DIRTY_RESIZE, DIRTY_SCROLL, DIRTY_SELECTION, RENDER_DIFF_LAYER, RENDER_HIGHLIGHT_LAYER, type DiffRenderItem, type Rect, type RectSet } from "./types";
+import { DIRTY_DIFF_HIGHLIGHT, DIRTY_DIFF_HIGHLIGHT_OFFSCREEN, DIRTY_GEOMETRY, DIRTY_MINIMAP, DIRTY_RESIZE, DIRTY_SCROLL, DIRTY_SELECTION, RENDER_DIFF_LAYER, RENDER_HIGHLIGHT_LAYER, RENDER_MINIMAP, type DiffRenderItem, type Rect, type RectSet } from "./types";
 
 export class EditorRegion {
     readonly renderer: Renderer;
@@ -199,11 +199,16 @@ export class EditorRegion {
         let DEV_breakDiffIndex: number | undefined;
         let DEV_breakReason: string | undefined;
 
+        // empty diff의 rough rect는 getBoundingClientRect()가 높이≈0을 반환하여
+        // 실제 fine rect(line-height≈20px)보다 훨씬 작을 수 있음.
+        // 뷰포트 경계에서 누락되지 않도록 여유를 둠.
+        const ROUGH_VIEWPORT_MARGIN = 24;
+
         for (const diffIndex of this.#sortedDiffIndices) {
             let geometry = diffGeometries[diffIndex]!;
 
             // minY 정렬 순회이므로, 뷰포트 하단을 넘어가면 이후는 전부 스킵 가능.
-            if (geometry.minY - scrollTop > regionHeight) {
+            if (geometry.minY - scrollTop > regionHeight + ROUGH_VIEWPORT_MARGIN) {
                 if (import.meta.env.DEV) {
                     DEV_breakDiffIndex = diffIndex;
                     DEV_breakReason = `minY(${geometry.minY}) - scrollTop(${scrollTop}) = ${geometry.minY - scrollTop} > regionHeight(${regionHeight}), rects=${geometry.rects ? 'fine' : 'rough'}`;
@@ -212,7 +217,7 @@ export class EditorRegion {
             }
 
             if (
-                geometry.maxY - scrollTop < 0 ||
+                geometry.maxY - scrollTop < -ROUGH_VIEWPORT_MARGIN ||
                 geometry.maxX - scrollLeft < 0 ||
                 geometry.minX - scrollLeft > this.regionWidth
             ) {
@@ -271,7 +276,7 @@ export class EditorRegion {
                 if (ga.maxY !== gb.maxY) return ga.maxY - gb.maxY;
                 return a - b;
             });
-            this.renderer.invalidateRegion(DIRTY_SCROLL, this.editor.name);
+            this.renderer.invalidateRegion(DIRTY_SCROLL | DIRTY_MINIMAP, this.editor.name);
         }
 
         // DEV: 뷰포트 안에 있는데 visibleDiffIndices에서 누락된 diff 감지
@@ -342,7 +347,7 @@ export class EditorRegion {
             this.renderDiffLayer();
         }
 
-        if (dirtyFlags & (DIRTY_GEOMETRY | DIRTY_RESIZE | DIRTY_DIFF_HIGHLIGHT | DIRTY_DIFF_HIGHLIGHT_OFFSCREEN) && this.diffGeometries.length > 0) {
+        if (dirtyFlags & RENDER_MINIMAP && this.diffGeometries.length > 0) {
             this.#renderMinimap(this.renderer.ctx, dirtyFlags);
         }
 
@@ -450,7 +455,7 @@ export class EditorRegion {
         const minimapWidth = this.renderer.options.minimapWidth;
         const x = this.regionWidth - minimapWidth;
 
-        if (dirtyFlags & (DIRTY_GEOMETRY | DIRTY_RESIZE)) {
+        if (dirtyFlags & (DIRTY_GEOMETRY | DIRTY_RESIZE | DIRTY_MINIMAP)) {
             this.#buildMinimapSpans();
         }
 

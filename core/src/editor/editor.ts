@@ -8,7 +8,7 @@ import { findAdjacentTextNode } from "../utils/find-adjacent-text-node";
 import { TOKEN_FLAGS_TYPE_STRUCTURAL } from "../tokenization";
 import { createRangeFromTokenRange, setEndBeforeToken, setEndFromTokenRange, setStartAfterToken, SetStartEndFromTokenRange, setStartFromTokenRange } from "./helpers";
 import { paragraphizePlainText } from "./paragraphize-plain-text";
-import type { EditorContext, EditorName, EditorOptions } from "./types";
+import type { EditorContext, EditorName, EditorOptions, SavedScrollRef } from "./types";
 
 function caretRangeFromPoint(x: number, y: number): Range | null {
     if (document.caretRangeFromPoint) {
@@ -95,7 +95,7 @@ export class Editor implements EditorContext {
     private _imageFetchFn: ((url: string) => Promise<string | null>) | null = null;
     private _imageResolveGen = 0;
 
-    private savedScroll: { ref: HTMLElement; targetTop: number } | null = null;
+    private savedScroll: SavedScrollRef | null = null;
     private _hasPendingPromise: boolean = false;
     private _tokenizingPromise: Promise<Readonly<TokenSnapshot>> = Promise.resolve(NULL_TOKEN_SNAPSHOT);
     private _tokenizingPromiseResolver: ((snapshot: TokenSnapshot) => void) = () => { };
@@ -920,7 +920,7 @@ export class Editor implements EditorContext {
         return range;
     }
 
-    saveScrollPosition(): boolean {
+    saveScrollPosition(): SavedScrollRef | null {
         const root = this.rootElement;
         const content = this.contentElement;
 
@@ -969,41 +969,29 @@ export class Editor implements EditorContext {
         }
 
         if (!ref) {
-            return false;
+            return null;
         }
 
         const refRect = ref.getBoundingClientRect();
         const targetTop = refRect.top - rootRect.top;
 
-        this.savedScroll = {
-            ref,
-            targetTop
-        };
-
-        return true;
+        this.savedScroll = { element: ref, targetTop };
+        return this.savedScroll;
     }
 
-    setSavedScroll(data: { ref: HTMLElement; targetTop: number } | null): void {
-        this.savedScroll = data ? { ref: data.ref, targetTop: data.targetTop } : null;
-    }
-
-    restoreScrollPosition(): boolean {
-        const saved = this.savedScroll;
-        if (!saved) return false;
-
-        const { ref, targetTop } = saved;
-        if (ref.isConnected) {
+    restoreScrollPosition(saved?: SavedScrollRef) {
+        if (!saved) {
+            if (!this.savedScroll) return;
+            saved = this.savedScroll;
+        }
+        const { element, targetTop } = saved;
+        if (element.isConnected) {
             const root = this.rootElement;
             const rootRect = root.getBoundingClientRect();
-            const refRect = ref.getBoundingClientRect();
-
-            const currentTop = refRect.top - rootRect.top;
+            const elementRect = element.getBoundingClientRect();
+            const currentTop = elementRect.top - rootRect.top;
             const delta = currentTop - targetTop;
-
             root.scrollTop += delta;
         }
-
-        this.savedScroll = null;
-        return true;
     }
 }

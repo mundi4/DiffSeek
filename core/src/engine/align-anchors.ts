@@ -1,46 +1,11 @@
 import { ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
 import type { Editor } from "../editor/editor";
+import type { SavedScrollRef } from "../editor/types";
 import { nextAnimationFrame } from "../utils/next-animation-frame";
 import type { AnchorPair, MarkerElementsMap } from "./types";
 
 const MIN_DELTA = 1;
 const MIN_STRIPED_DELTA = 1;
-
-type ScrollRef = { el: HTMLElement; targetTop: number; rootEl: HTMLElement };
-
-function captureScrollRef(editor: Editor): ScrollRef | null {
-    const root = editor.rootElement;
-    const content = editor.contentElement;
-    const rootRect = root.getBoundingClientRect();
-    const probeY = rootRect.top + 20;
-    const steps = Math.max(4, Math.floor(rootRect.width / 80));
-
-    for (let i = 0; i <= steps; i++) {
-        const x = rootRect.left + (rootRect.width * i) / steps;
-        const stack = document.elementsFromPoint(x, probeY);
-        const hit = stack.find(e => e !== content && content.contains(e)) as HTMLElement | undefined;
-        if (hit) {
-            const refRect = hit.getBoundingClientRect();
-            return { el: hit, targetTop: refRect.top - rootRect.top, rootEl: root };
-        }
-    }
-    return null;
-}
-
-function restoreFromRef(ref: ScrollRef): void {
-    if (!ref.el.isConnected) return;
-    const rootRect = ref.rootEl.getBoundingClientRect();
-    const refRect = ref.el.getBoundingClientRect();
-    const currentTop = refRect.top - rootRect.top;
-    const delta = currentTop - ref.targetTop;
-    ref.rootEl.scrollTop += delta;
-}
-
-function refreshRef(ref: ScrollRef): void {
-    const rootRect = ref.rootEl.getBoundingClientRect();
-    const refRect = ref.el.getBoundingClientRect();
-    ref.targetTop = refRect.top - rootRect.top;
-}
 
 export async function alignAnchors({
     anchorPairs,
@@ -48,12 +13,14 @@ export async function alignAnchors({
     rightEditor,
     markerElements,
     signal,
+    scrollRestore,
 }: {
     anchorPairs: readonly AnchorPair[];
     leftEditor: Editor;
     rightEditor: Editor;
     markerElements: MarkerElementsMap;
     signal: AbortSignal;
+    scrollRestore?: { saved: SavedScrollRef; editor: Editor; otherEditor: Editor };
 }) {
     await nextAnimationFrame(signal);
 
@@ -69,9 +36,6 @@ export async function alignAnchors({
 
     await nextAnimationFrame(signal);
     numFrames++;
-
-    const leftRef = captureScrollRef(leftEditor);
-    const rightRef = captureScrollRef(rightEditor);
 
     const IDLE_THRESHOLD = 10;
     let t = performance.now();
@@ -126,9 +90,9 @@ export async function alignAnchors({
         if (now - t > IDLE_THRESHOLD) {
             await nextAnimationFrame(signal);
             numFrames++;
-            if (adjustedAboveViewportBottom) {
-                if (leftRef) { restoreFromRef(leftRef); refreshRef(leftRef); }
-                if (rightRef) { restoreFromRef(rightRef); refreshRef(rightRef); }
+            if (adjustedAboveViewportBottom && scrollRestore) {
+                scrollRestore.editor.restoreScrollPosition(scrollRestore.saved);
+                scrollRestore.otherEditor.rootElement.scrollTop = scrollRestore.editor.rootElement.scrollTop;
                 adjustedAboveViewportBottom = false;
             }
             t = performance.now();
@@ -139,17 +103,9 @@ export async function alignAnchors({
 
     console.debug(`Adjusted ${numAdjusted} anchor pairs, skipped ${numSkipped} pairs that were within the delta threshold of ${MIN_DELTA}px`);
 
-    // 최종 RAF: 래퍼(diffseek-engine.ts)의 restoreScrollPosition()을 위해
-    // savedScroll을 채움 (elementsFromPoint 재호출 없이 캐싱된 ref 사용)
-    if (adjustedAboveViewportBottom) {
-        if (leftRef) {
-            refreshRef(leftRef);
-            leftEditor.setSavedScroll(leftRef);
-        }
-        if (rightRef) {
-            refreshRef(rightRef);
-            rightEditor.setSavedScroll(rightRef);
-        }
+    if (adjustedAboveViewportBottom && scrollRestore) {
+        scrollRestore.editor.restoreScrollPosition(scrollRestore.saved);
+        scrollRestore.otherEditor.rootElement.scrollTop = scrollRestore.editor.rootElement.scrollTop;
     }
     await nextAnimationFrame(signal);
     numFrames++;

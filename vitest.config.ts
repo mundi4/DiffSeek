@@ -5,7 +5,9 @@ export default defineConfig({
     test: {
         globals: true,
         environment: 'jsdom',
+        pool: 'forks',
         setupFiles: [],
+        exclude: ['test/minbeop-bench.test.ts', 'node_modules/**'],
         outputFile: {
             json: './test-results.json'
         }

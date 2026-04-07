@@ -678,7 +678,7 @@ export async function runHistogramDiff(
 
     await diffCore(0, _lhsTokenCount, 0, _rhsTokenCount);
 
-    console.log(`[findAnchor] total=${_findAnchorTotal}`);
+    // console.log(`[findAnchor] total=${_findAnchorTotal}`);
 }
 
 function buildIdTables(lhsInput: DiffInput, rhsInput: DiffInput) {

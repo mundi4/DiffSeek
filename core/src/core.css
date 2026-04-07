@@ -159,8 +159,7 @@
   min-width: 0;
   max-width: 100%;
   min-height: 100%;
-  overflow-x: hidden;
-  overflow-y: visible;
+  overflow: hidden;
   font-size: var(--ds-base-font-size);
   padding: var(--ds-content-padding);
   scroll-padding-top: calc(3em * var(--ds-line-height));

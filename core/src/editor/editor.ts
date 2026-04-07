@@ -983,6 +983,10 @@ export class Editor implements EditorContext {
         return true;
     }
 
+    setSavedScroll(data: { ref: HTMLElement; targetTop: number } | null): void {
+        this.savedScroll = data ? { ref: data.ref, targetTop: data.targetTop } : null;
+    }
+
     restoreScrollPosition(): boolean {
         const saved = this.savedScroll;
         if (!saved) return false;

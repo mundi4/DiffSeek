@@ -238,22 +238,205 @@ describe("diff pipeline end-to-end", () => {
         );
 
         for (const diff of diffContext.diffs) {
-            // Core invariant: ranges reference correct editor DOMs
-            const leftInLeft = leftEl.contains(diff.leftRange.startContainer) || diff.leftRange.startContainer === leftEl;
-            const rightInRight = rightEl.contains(diff.rightRange.startContainer) || diff.rightRange.startContainer === rightEl;
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+});
 
-            expect(leftInLeft, `diff[${diff.diffIndex}] leftRange in left DOM`).toBe(true);
-            expect(rightInRight, `diff[${diff.diffIndex}] rightRange in right DOM`).toBe(true);
+// ── shared invariant checker ─────────────────────────────────────
 
-            // Marker exclusivity
-            expect(
-                diff.leftMarkerEl !== null && diff.rightMarkerEl !== null,
-                `diff[${diff.diffIndex}] both markers non-null`
-            ).toBe(false);
+function assertPipelineDiffInvariants(
+    diff: { diffIndex: number; leftRange: Range; rightRange: Range; leftMarkerEl: HTMLElement | null; rightMarkerEl: HTMLElement | null; leftSpan: { start: number; end: number }; rightSpan: { start: number; end: number } },
+    leftEl: HTMLElement,
+    rightEl: HTMLElement,
+) {
+    const leftInLeft = leftEl.contains(diff.leftRange.startContainer) || diff.leftRange.startContainer === leftEl;
+    const rightInRight = rightEl.contains(diff.rightRange.startContainer) || diff.rightRange.startContainer === rightEl;
 
-            // Span validity
-            expect(diff.leftSpan.end).toBeGreaterThanOrEqual(diff.leftSpan.start);
-            expect(diff.rightSpan.end).toBeGreaterThanOrEqual(diff.rightSpan.start);
+    expect(leftInLeft, `diff[${diff.diffIndex}] leftRange in left DOM`).toBe(true);
+    expect(rightInRight, `diff[${diff.diffIndex}] rightRange in right DOM`).toBe(true);
+    expect(diff.leftMarkerEl !== null && diff.rightMarkerEl !== null, `diff[${diff.diffIndex}] both markers non-null`).toBe(false);
+    expect(diff.leftSpan.end, `diff[${diff.diffIndex}] leftSpan valid`).toBeGreaterThanOrEqual(diff.leftSpan.start);
+    expect(diff.rightSpan.end, `diff[${diff.diffIndex}] rightSpan valid`).toBeGreaterThanOrEqual(diff.rightSpan.start);
+}
+
+// ── pipeline edge case tests ─────────────────────────────────────
+
+describe("diff pipeline: table structure edge cases", () => {
+
+    it("nested tables: invariants hold", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<table><tr><td><table><tr><td>inner</td></tr></table></td></tr></table>",
+            "<table><tr><td><table><tr><td></td></tr></table></td></tr></table>",
+        );
+
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("table row added: right has extra row", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<table><tr><td>A</td></tr></table>",
+            "<table><tr><td>A</td></tr><tr><td>B</td></tr></table>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("table row removed: left has extra row", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<table><tr><td>A</td></tr><tr><td>B</td></tr></table>",
+            "<table><tr><td>A</td></tr></table>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("reverse direction: right filled, left empty cells", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<table><tr><td></td><td></td></tr></table>",
+            "<table><tr><td>내용A</td><td>내용B</td></tr></table>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("multiple cells: some matching, some different", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<table><tr><td>same</td><td>left</td><td>common</td></tr></table>",
+            "<table><tr><td>same</td><td>right</td><td>common</td></tr></table>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+});
+
+describe("diff pipeline: text content edge cases", () => {
+
+    it("whitespace-only differences", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>hello  world</p>",
+            "<p>hello world</p>",
+        );
+
+        // whitespace: "collapse" mode — may or may not produce diffs
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("content added at document start", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>world</p>",
+            "<p>hello world</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("content added at document end", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>hello</p>",
+            "<p>hello world</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("completely different content", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>alpha beta gamma</p>",
+            "<p>delta epsilon zeta</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("multiple paragraphs with mixed changes", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>first paragraph</p><p>second paragraph</p><p>third paragraph</p>",
+            "<p>first paragraph</p><p>changed paragraph</p><p>third paragraph</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("Korean text with special characters", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>제1조 본 계약은 갑과 을 사이에 체결된다.</p>",
+            "<p>제1조 본 계약은 갑과 병 사이에 체결된다.</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+});
+
+describe("diff pipeline: empty document edge cases", () => {
+
+    it("left empty, right has content", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "",
+            "<p>content</p>",
+        );
+
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("right empty, left has content", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>content</p>",
+            "",
+        );
+
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+    });
+
+    it("both empty: no diffs", async () => {
+        const { diffContext } = await runFullPipeline("", "");
+        expect(diffContext.diffs.length).toBe(0);
+    });
+
+    it("single character difference", async () => {
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>a</p>",
+            "<p>b</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
         }
     });
 });

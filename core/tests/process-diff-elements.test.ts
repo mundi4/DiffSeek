@@ -107,14 +107,23 @@ function makeMockEditor(tokens: Token[], contentEl: HTMLElement) {
     } as any;
 }
 
-/** Create a standard 2-token setup for one side */
-function makeEditorWithTokens(flags: number) {
+/** Create a setup with N tokens of given flags */
+function makeEditorWithTokens(flags: number, count = 2) {
     const el = document.createElement("div");
-    el.innerHTML = "<span>a</span><span>b</span>";
-    const tokens = [
-        makeToken(0, flags | TOKEN_FLAGS_LINE_START, el.childNodes[0]!),
-        makeToken(1, flags, el.childNodes[1]!),
-    ];
+    el.innerHTML = Array.from({ length: count }, (_, i) => `<span>${String.fromCharCode(97 + i)}</span>`).join("");
+    const tokens = Array.from({ length: count }, (_, i) =>
+        makeToken(i, (i === 0 ? TOKEN_FLAGS_LINE_START : 0) | flags, el.childNodes[i]!)
+    );
+    return { el, tokens, snapshot: makeSnapshot(tokens, el), editor: makeMockEditor(tokens, el) };
+}
+
+/** Create a setup with mixed flags per token */
+function makeEditorWithMixedTokens(flagsPerToken: number[]) {
+    const el = document.createElement("div");
+    el.innerHTML = flagsPerToken.map((_, i) => `<span>${String.fromCharCode(97 + i)}</span>`).join("");
+    const tokens = flagsPerToken.map((f, i) =>
+        makeToken(i, (i === 0 ? TOKEN_FLAGS_LINE_START : 0) | f, el.childNodes[i]!)
+    );
     return { el, tokens, snapshot: makeSnapshot(tokens, el), editor: makeMockEditor(tokens, el) };
 }
 
@@ -356,5 +365,281 @@ describe("processDiffElements handleDiff branch coverage", () => {
         const ctx = await runProcessDiffElements(left, right, [entry], [entry]);
 
         expect(ctx.diffs.length).toBe(0);
+    });
+});
+
+// ── edge case tests ──────────────────────────────────────────────
+
+describe("processDiffElements edge cases: sequential diff groups", () => {
+
+    it("UNCHANGED → MODIFIED → UNCHANGED produces exactly one diff", async () => {
+        // 4 left tokens: [0,1) UNCHANGED, [1,3) MODIFIED, [3,4) UNCHANGED
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 4);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 4);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 1, tokenEnd: 3, leftStart: 1, leftEnd: 3, rightStart: 1, rightEnd: 3, type: DIFF_TYPE_MODIFIED },
+            { tokenStart: 3, tokenEnd: 4, leftStart: 3, leftEnd: 4, rightStart: 3, rightEnd: 4, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, leftEntries, leftEntries);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftSpan).toEqual({ start: 1, end: 3 });
+        expect(diff.rightSpan).toEqual({ start: 1, end: 3 });
+    });
+
+    it("multiple separate diffs: MODIFIED → UNCHANGED → MODIFIED", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+
+        const entries = [
+            { tokenStart: 0, tokenEnd: 2, leftStart: 0, leftEnd: 2, rightStart: 0, rightEnd: 2, type: DIFF_TYPE_MODIFIED },
+            { tokenStart: 2, tokenEnd: 3, leftStart: 2, leftEnd: 3, rightStart: 2, rightEnd: 3, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 3, tokenEnd: 5, leftStart: 3, leftEnd: 5, rightStart: 3, rightEnd: 5, type: DIFF_TYPE_MODIFIED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, entries, entries);
+
+        expect(ctx.diffs.length).toBe(2);
+        expect(ctx.diffs[0].leftSpan).toEqual({ start: 0, end: 2 });
+        expect(ctx.diffs[1].leftSpan).toEqual({ start: 3, end: 5 });
+        for (const diff of ctx.diffs) {
+            assertDiffEntryInvariants(diff, left.el, right.el);
+        }
+    });
+
+    it("REMOVED then ADDED in sequence (adjacent diff groups)", async () => {
+        // left: 3 tokens. [0,1) UNCHANGED, [1,2) REMOVED, [2,3) UNCHANGED
+        // right: 4 tokens. [0,1) UNCHANGED, [1,3) first two map to UNCHANGED+gap, [3,4) UNCHANGED
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 3);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 4);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 1, tokenEnd: 2, leftStart: 1, leftEnd: 2, rightStart: 1, rightEnd: 1, type: DIFF_TYPE_REMOVED },
+            { tokenStart: 2, tokenEnd: 3, leftStart: 2, leftEnd: 3, rightStart: 3, rightEnd: 4, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 1, tokenEnd: 3, leftStart: 1, leftEnd: 1, rightStart: 1, rightEnd: 3, type: DIFF_TYPE_ADDED },
+            { tokenStart: 3, tokenEnd: 4, leftStart: 2, leftEnd: 3, rightStart: 3, rightEnd: 4, type: DIFF_TYPE_UNCHANGED },
+        ];
+
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        // REMOVED [1,2)↔[1,1) + gap ADDED [1,1)↔[1,3) → merged into one MODIFIED chunk
+        expect(ctx.diffs.length).toBeGreaterThanOrEqual(1);
+        for (const diff of ctx.diffs) {
+            assertDiffEntryInvariants(diff, left.el, right.el);
+        }
+    });
+});
+
+describe("processDiffElements edge cases: tail gap detection", () => {
+
+    it("ADDED tokens at document end via tail gap", async () => {
+        // left: 1 token, right: 3 tokens
+        // left result maps only right[0,1) as UNCHANGED
+        // right[1,3) should be detected as ADDED via tail gap
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 3);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 1, tokenEnd: 3, leftStart: 1, leftEnd: 1, rightStart: 1, rightEnd: 3, type: DIFF_TYPE_ADDED },
+        ];
+
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftSpan.start).toBe(diff.leftSpan.end); // empty left
+        expect(diff.rightSpan).toEqual({ start: 1, end: 3 }); // right tokens added
+    });
+
+    it("ADDED tokens at document start via gap before first left group", async () => {
+        // left: 1 token, right: 3 tokens
+        // left token maps to right[2,3), so right[0,2) is ADDED via gap
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 3);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 2, rightEnd: 3, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 2, leftStart: 0, leftEnd: 0, rightStart: 0, rightEnd: 2, type: DIFF_TYPE_ADDED },
+            { tokenStart: 2, tokenEnd: 3, leftStart: 0, leftEnd: 1, rightStart: 2, rightEnd: 3, type: DIFF_TYPE_UNCHANGED },
+        ];
+
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.rightSpan.end).toBeGreaterThan(diff.rightSpan.start);
+    });
+});
+
+describe("processDiffElements edge cases: mixed structural + content", () => {
+
+    it("left has structural then content, right has content only: only content part diffed", async () => {
+        // left: [structural, text, text], right: [text, text]
+        // diff chunk covers all tokens, but left starts with structural
+        const left = makeEditorWithMixedTokens([TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_TYPE_TEXT]);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 2);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 3, leftStart: 0, leftEnd: 3, rightStart: 0, rightEnd: 2, type: DIFF_TYPE_MODIFIED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 2, leftStart: 0, leftEnd: 3, rightStart: 0, rightEnd: 2, type: DIFF_TYPE_MODIFIED },
+        ];
+
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+    });
+
+    it("single token per side: MODIFIED creates correct DiffEntry", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+
+        const entry = { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_MODIFIED };
+        const ctx = await runProcessDiffElements(left, right, [entry], [entry]);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftMarkerEl).toBeNull();
+        expect(diff.rightMarkerEl).toBeNull();
+    });
+
+    it("single structural token left vs single content token right", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_STRUCTURAL, 1);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+
+        const entry = { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_MODIFIED };
+        const ctx = await runProcessDiffElements(left, right, [entry], [entry]);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        // left is structural-only → treated as empty side
+        expect(diff.rightMarkerEl).toBeNull();
+    });
+});
+
+describe("processDiffElements edge cases: empty documents", () => {
+
+    it("both sides empty: no diffs", async () => {
+        const leftEl = document.createElement("div");
+        const rightEl = document.createElement("div");
+        const left = { el: leftEl, tokens: [] as Token[], snapshot: makeSnapshot([], leftEl), editor: makeMockEditor([], leftEl) };
+        const right = { el: rightEl, tokens: [] as Token[], snapshot: makeSnapshot([], rightEl), editor: makeMockEditor([], rightEl) };
+
+        const ctx = await runProcessDiffElements(left, right, [], []);
+        expect(ctx.diffs.length).toBe(0);
+    });
+
+    it("left empty, right has many tokens: all ADDED", async () => {
+        const leftEl = document.createElement("div");
+        const left = { el: leftEl, tokens: [] as Token[], snapshot: makeSnapshot([], leftEl), editor: makeMockEditor([], leftEl) };
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+
+        const ctx = await runProcessDiffElements(left, right, [], [
+            { tokenStart: 0, tokenEnd: 5, leftStart: 0, leftEnd: 0, rightStart: 0, rightEnd: 5, type: DIFF_TYPE_ADDED },
+        ]);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftSpan.start).toBe(diff.leftSpan.end);
+        expect(diff.rightSpan).toEqual({ start: 0, end: 5 });
+    });
+
+    it("right empty, left has many tokens: all REMOVED", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+        const rightEl = document.createElement("div");
+        const right = { el: rightEl, tokens: [] as Token[], snapshot: makeSnapshot([], rightEl), editor: makeMockEditor([], rightEl) };
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 5, leftStart: 0, leftEnd: 5, rightStart: 0, rightEnd: 0, type: DIFF_TYPE_REMOVED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, leftEntries, []);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftSpan).toEqual({ start: 0, end: 5 });
+        expect(diff.rightSpan.start).toBe(diff.rightSpan.end);
+    });
+});
+
+describe("processDiffElements edge cases: N:M token groups", () => {
+
+    it("asymmetric UNCHANGED: left 2 tokens ↔ right 3 tokens", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 2);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 3);
+
+        // N:M UNCHANGED mapping: left[0,2) ↔ right[0,3)
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 2, leftStart: 0, leftEnd: 2, rightStart: 0, rightEnd: 3, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 3, leftStart: 0, leftEnd: 2, rightStart: 0, rightEnd: 3, type: DIFF_TYPE_UNCHANGED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        // UNCHANGED → no diffs
+        expect(ctx.diffs.length).toBe(0);
+    });
+
+    it("asymmetric MODIFIED: left 1 token ↔ right 3 tokens", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 1);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 3);
+
+        const leftEntries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 3, type: DIFF_TYPE_MODIFIED },
+        ];
+        const rightEntries = [
+            { tokenStart: 0, tokenEnd: 3, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 3, type: DIFF_TYPE_MODIFIED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, leftEntries, rightEntries);
+
+        expect(ctx.diffs.length).toBe(1);
+        const diff = ctx.diffs[0];
+        assertDiffEntryInvariants(diff, left.el, right.el);
+        expect(diff.leftSpan).toEqual({ start: 0, end: 1 });
+        expect(diff.rightSpan).toEqual({ start: 0, end: 3 });
+    });
+});
+
+describe("processDiffElements edge cases: diffIndex consistency", () => {
+
+    it("diffIndex is sequential and matches array position", async () => {
+        const left = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+        const right = makeEditorWithTokens(TOKEN_FLAGS_TYPE_TEXT, 5);
+
+        const entries = [
+            { tokenStart: 0, tokenEnd: 1, leftStart: 0, leftEnd: 1, rightStart: 0, rightEnd: 1, type: DIFF_TYPE_MODIFIED },
+            { tokenStart: 1, tokenEnd: 2, leftStart: 1, leftEnd: 2, rightStart: 1, rightEnd: 2, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 2, tokenEnd: 3, leftStart: 2, leftEnd: 3, rightStart: 2, rightEnd: 3, type: DIFF_TYPE_MODIFIED },
+            { tokenStart: 3, tokenEnd: 4, leftStart: 3, leftEnd: 4, rightStart: 3, rightEnd: 4, type: DIFF_TYPE_UNCHANGED },
+            { tokenStart: 4, tokenEnd: 5, leftStart: 4, leftEnd: 5, rightStart: 4, rightEnd: 5, type: DIFF_TYPE_MODIFIED },
+        ];
+        const ctx = await runProcessDiffElements(left, right, entries, entries);
+
+        expect(ctx.diffs.length).toBe(3);
+        for (let i = 0; i < ctx.diffs.length; i++) {
+            expect(ctx.diffs[i].diffIndex).toBe(i);
+        }
     });
 });

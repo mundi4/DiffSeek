@@ -16,6 +16,7 @@ import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHA
 import { TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_FLAGS_TYPE_TEXT, TOKEN_FLAGS_LINE_START } from "../src/tokenization/token-flags";
 import { processDiffElements } from "../src/engine/process-diff-elements";
 import { getDefaultDiffOptions } from "../src/diff/get-default-diff-options";
+import { ANCHOR_TAG_NAME } from "../src/constants";
 import type { Token } from "../src/tokenization";
 import type { TokenSnapshot } from "../src/editor/editor";
 import type { DiffWorkerResult } from "../src/diff-worker/types";
@@ -304,8 +305,14 @@ describe("processDiffElements handleDiff branch coverage", () => {
 
     // ─── Boundary: emptyStart === 0 fallback ───
 
-    it("emptyStart=0: does not underflow when emptyEl is null", async () => {
+    it("emptyStart=0: falls back to contentElement when marker creation is blocked", async () => {
+        // getDiffMarkerEl → findEmptyDiffMarkerPosition returns {leftEl, "afterbegin"}
+        // for empty documents. To force getOrCreateEmptyDiffMarker to return null,
+        // place an already-used anchor at afterbegin so the marker position is blocked.
         const leftEl = document.createElement("div");
+        const usedAnchor = document.createElement(ANCHOR_TAG_NAME);
+        leftEl.appendChild(usedAnchor); // sits at afterbegin position
+
         const rightEl = document.createElement("div");
         rightEl.innerHTML = "<span>a</span>";
 
@@ -335,6 +342,8 @@ describe("processDiffElements handleDiff branch coverage", () => {
 
         const result: DiffWorkerResult = { leftResultBuffer, rightResultBuffer, elapsedTime: 0 };
         const markerElements: MarkerElementsMap = new Map();
+        // Mark the anchor as already used so getOrCreateEmptyDiffMarker returns null
+        markerElements.set(usedAnchor, { adjust: 0 });
 
         const ctx = await processDiffElements({
             leftEditor: left.editor,
@@ -350,9 +359,10 @@ describe("processDiffElements handleDiff branch coverage", () => {
         expect(ctx.diffs.length).toBe(1);
         const diff = ctx.diffs[0];
 
-        // leftRange should start at leftEditor.contentElement (emptyStart=0 fallback)
+        // emptyEl is null, emptyStart is 0 → fallback to editor root
         expect(diff.leftRange.startContainer).toBe(leftEl);
         expect(diff.leftRange.startOffset).toBe(0);
+        expect(diff.leftRange.collapsed).toBe(true);
     });
 
     // ─── UNCHANGED tokens → no DiffEntry, only anchors ───

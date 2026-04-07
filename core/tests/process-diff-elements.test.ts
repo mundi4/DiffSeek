@@ -3,8 +3,12 @@ import { TOKEN_BUFFER_STRIDE } from "../src/constants";
 
 // jsdom에 scheduler.yield()가 없으므로 polyfill
 beforeAll(() => {
-    if (typeof globalThis.scheduler === "undefined") {
-        (globalThis as any).scheduler = { yield: () => Promise.resolve() };
+    const scheduler = (globalThis as any).scheduler;
+    if (typeof scheduler?.yield !== "function") {
+        (globalThis as any).scheduler = {
+            ...scheduler,
+            yield: () => Promise.resolve(),
+        };
     }
 });
 import { DIFF_TYPE_MODIFIED, DIFF_TYPE_UNCHANGED } from "../src/diff/types";

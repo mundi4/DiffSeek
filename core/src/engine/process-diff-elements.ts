@@ -396,7 +396,7 @@ export async function processDiffElements({
 
             // marker를 못 만들었을 때: 이전 diff에 합치기 (merge) 또는 건너뛰기
             if (!emptyEl && !diffOptions.stackEmptyDiffMarkers && diffs.length > 0) {
-                const isLeftEmpty = leftCount === 0;
+                const isLeftEmpty = (leftCount === 0 || leftStructuralOnly);
                 const prevDiff = diffs[diffs.length - 1];
                 const prevMarkerEl = isLeftEmpty ? prevDiff.leftMarkerEl : prevDiff.rightMarkerEl;
 
@@ -421,7 +421,7 @@ export async function processDiffElements({
                 emptyRange.collapse(true);
             }
 
-            if (leftCount === 0) {
+            if (leftCount === 0 || leftStructuralOnly) {
                 leftDiffEl = emptyEl;
                 leftRange = emptyRange;
                 rightRange = rightEditor.getTokenRange(rightStart, rightEnd);

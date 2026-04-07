@@ -55,10 +55,12 @@ export async function alignAnchors({
             if (pair.delta < 0 && pair.leftEl.nodeName === ANCHOR_TAG_NAME) {
                 // DS-ANCHOR는 콘텐츠 앞에 삽입된 별도 요소이므로
                 // ::before 패딩이 후속 콘텐츠를 밀어냄 → 보정 필요
+                // getBoundingClientRect().y는 요소 top(불변)이지만
+                // 실제 콘텐츠는 ::before height만큼 아래에 있음
                 // 블록 요소 borrow는 콘텐츠 컨테이너 자체이므로 보정 불필요
-                leftY += pair.delta;
+                leftY -= pair.delta;
             } else if (pair.delta > 0 && pair.rightEl.nodeName === ANCHOR_TAG_NAME) {
-                rightY -= pair.delta;
+                rightY += pair.delta;
             }
             const delta = Math.round(leftY - rightY);
             const deltadelta = delta - pair.delta;

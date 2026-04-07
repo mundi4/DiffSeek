@@ -522,6 +522,14 @@ export async function processDiffElements({
     const leftResultBuffer = result.leftResultBuffer;
     const rightResultBuffer = result.rightResultBuffer;
 
+    // ── similarity: count non-structural tokens ──
+    let rightNonStructural = 0;
+    for (let i = 0; i < rightTokens.length; i++) {
+        if (!(rightTokens[i].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) rightNonStructural++;
+    }
+    let leftNonStructural = 0;
+    let matchedNonStructural = 0;
+
     let lastLeftEnd = 0;
     let lastRightEnd = 0;
 
@@ -533,6 +541,11 @@ export async function processDiffElements({
         const rightStart = leftResultBuffer[base + 2];
         const rightEnd = leftResultBuffer[base + 3];
         const type = leftResultBuffer[base + 4] as number;
+
+        if (!(leftTokens[i].flags & TOKEN_FLAGS_TYPE_STRUCTURAL)) {
+            leftNonStructural++;
+            if (type === DIFF_TYPE_UNCHANGED) matchedNonStructural++;
+        }
 
         // 0:N ADDED
         if (lastRightEnd < rightStart) {
@@ -580,12 +593,16 @@ export async function processDiffElements({
 
     flushChunk();
 
+    const maxNonStructural = Math.max(leftNonStructural, rightNonStructural);
+    const similarity = maxNonStructural > 0 ? matchedNonStructural / maxNonStructural : 1;
+
     return {
         isValid: true,
         leftTokens,
         rightTokens,
         leftTokenBuffer: leftResultBuffer,
         rightTokenBuffer: rightResultBuffer,
+        similarity,
         diffOptions,
         diffs,
         anchorPairs,

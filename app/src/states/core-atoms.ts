@@ -82,6 +82,7 @@ export const paletteAtom = atom<Readonly<Palette> | null>(null);
 
 type DiffContextState = {
     diffs: DiffEntry[];
+    similarity: number;
 } | null;
 
 export const diffContextAtom = atom<DiffContextState>(null);

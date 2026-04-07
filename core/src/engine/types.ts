@@ -28,6 +28,7 @@ export type DiffContext = {
     readonly anchorPairs: AnchorPair[];
     readonly leftTokenBuffer: Readonly<Int32Array>;
     readonly rightTokenBuffer: Readonly<Int32Array>;
+    readonly similarity: number;
     isValid: boolean;
 }
 

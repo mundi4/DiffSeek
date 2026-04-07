@@ -46,6 +46,7 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
             if (diffContext) {
                 setDiffContext({
                     diffs: diffContext.diffs.slice(),
+                    similarity: diffContext.similarity,
                 });
             }
             else {

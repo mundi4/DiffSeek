@@ -232,7 +232,7 @@ export function DiffStatusIndicator() {
                     <Group gap={16} wrap="nowrap" justify="space-between">
                         <Text size="xs" c={diffsKnown ? undefined : "dimmed"}>{t.diffs}</Text>
                         <Text ff="monospace" size="xs">
-                            {diffsKnown ? diffEntryCount.toLocaleString() : ""}
+                            {diffsKnown ? `${diffEntryCount.toLocaleString()} (${((1 - diffContext!.similarity) * 100).toFixed(1)}%)` : ""}
                         </Text>
                     </Group>
 

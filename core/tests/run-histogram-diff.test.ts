@@ -184,7 +184,7 @@ describe('runHistogramDiff resultBuffer range values', () => {
         }
     });
 
-    it('range values are self-consistent: selfStart <= tokenIndex < selfEnd', async () => {
+    it('range values are self-consistent: selfStart <= tokenIndex < selfEnd for every token', async () => {
         const lhs = await makeInputFromHtml('<table><tr><td>A</td><td>B</td></tr></table>');
         const rhs = await makeInputFromHtml('<table><tr><td></td><td>B</td></tr></table>');
 
@@ -197,17 +197,18 @@ describe('runHistogramDiff resultBuffer range values', () => {
 
         for (let i = 0; i < lhs.tokenCount; i++) {
             const lr = readRange(lhs.resultBuffer, i);
-            if (lr.type !== DIFF_TYPE_UNCHANGED || lr.selfEnd > lr.selfStart) {
-                expect(i, `lhs token[${i}] should be >= selfStart(${lr.selfStart})`).toBeGreaterThanOrEqual(lr.selfStart);
-                expect(i, `lhs token[${i}] should be < selfEnd(${lr.selfEnd})`).toBeLessThan(lr.selfEnd);
-            }
+            expect(lr.selfEnd, `lhs token[${i}] selfEnd > selfStart`).toBeGreaterThan(lr.selfStart);
+            expect(i, `lhs token[${i}] should be >= selfStart(${lr.selfStart})`).toBeGreaterThanOrEqual(lr.selfStart);
+            expect(i, `lhs token[${i}] should be < selfEnd(${lr.selfEnd})`).toBeLessThan(lr.selfEnd);
+            // otherEnd >= otherStart (may be equal for REMOVED/ADDED)
+            expect(lr.otherEnd, `lhs token[${i}] otherEnd >= otherStart`).toBeGreaterThanOrEqual(lr.otherStart);
         }
         for (let i = 0; i < rhs.tokenCount; i++) {
             const rr = readRange(rhs.resultBuffer, i);
-            if (rr.type !== DIFF_TYPE_UNCHANGED || rr.selfEnd > rr.selfStart) {
-                expect(i, `rhs token[${i}] should be >= selfStart(${rr.selfStart})`).toBeGreaterThanOrEqual(rr.selfStart);
-                expect(i, `rhs token[${i}] should be < selfEnd(${rr.selfEnd})`).toBeLessThan(rr.selfEnd);
-            }
+            expect(rr.selfEnd, `rhs token[${i}] selfEnd > selfStart`).toBeGreaterThan(rr.selfStart);
+            expect(i, `rhs token[${i}] should be >= selfStart(${rr.selfStart})`).toBeGreaterThanOrEqual(rr.selfStart);
+            expect(i, `rhs token[${i}] should be < selfEnd(${rr.selfEnd})`).toBeLessThan(rr.selfEnd);
+            expect(rr.otherEnd, `rhs token[${i}] otherEnd >= otherStart`).toBeGreaterThanOrEqual(rr.otherStart);
         }
     });
 });

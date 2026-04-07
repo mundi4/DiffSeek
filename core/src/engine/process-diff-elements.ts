@@ -33,7 +33,8 @@ function peekElementAt(which: Node, where: InsertPosition): HTMLElement | null {
 
 // ── marker element lifecycle ────────────────────────────────────
 
-function getOrCreateAnchor(
+/** @internal — exported for testing only */
+export function getOrCreateAnchor(
     markerElements: MarkerElementsMap,
     which: Node,
     where: InsertPosition,
@@ -69,7 +70,8 @@ function getOrCreateAnchor(
     return el;
 }
 
-function getOrCreateEmptyDiffMarker(
+/** @internal — exported for testing only */
+export function getOrCreateEmptyDiffMarker(
     markerElements: MarkerElementsMap,
     which: Node,
     where: InsertPosition,

@@ -13,7 +13,7 @@ export async function alignAnchors({
     rightEditor,
     markerElements,
     signal,
-    scrollRestore,
+    scrollRestore: initialScrollRestore,
 }: {
     anchorPairs: readonly AnchorPair[];
     leftEditor: Editor;
@@ -22,6 +22,7 @@ export async function alignAnchors({
     signal: AbortSignal;
     scrollRestore?: { saved: SavedScrollRef; editor: Editor; otherEditor: Editor };
 }) {
+    let scrollRestore = initialScrollRestore;
     await nextAnimationFrame(signal);
 
     const BATCH_SIZE = 16;
@@ -92,6 +93,20 @@ export async function alignAnchors({
         if (now - t > IDLE_THRESHOLD) {
             await nextAnimationFrame(signal);
             numFrames++;
+
+            // yield 전후 scrollTop 비교로 사용자 스크롤 감지
+            if (scrollRestore) {
+                const newLeft = leftEditor.rootElement.scrollTop;
+                const newRight = rightEditor.rootElement.scrollTop;
+                const leftChanged = newLeft !== leftScrollTop;
+                const rightChanged = newRight !== rightScrollTop;
+                if (leftChanged || rightChanged) {
+                    // 사용자가 스크롤함 → restore 포기
+                    scrollRestore = undefined;
+                    adjustedAboveViewportBottom = false;
+                }
+            }
+
             if (adjustedAboveViewportBottom && scrollRestore) {
                 scrollRestore.editor.restoreScrollPosition(scrollRestore.saved);
                 scrollRestore.otherEditor.rootElement.scrollTop = scrollRestore.editor.rootElement.scrollTop;

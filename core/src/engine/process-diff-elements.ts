@@ -347,11 +347,12 @@ export async function processDiffElements({
         // --- 한쪽이 비어있거나 structural만인 경우 marker 처리 ---
         const leftStructuralOnly = leftCount > 0 && rightCount > 0 && isAllStructural(leftTokens, leftStart, leftEnd);
         const rightStructuralOnly = leftCount > 0 && rightCount > 0 && isAllStructural(rightTokens, rightStart, rightEnd);
+        const isLeftEmpty = leftCount === 0 || leftStructuralOnly;
 
         if (leftCount === 0 || rightCount === 0 || leftStructuralOnly || rightStructuralOnly) {
             let filledSnapshot: TokenSnapshot, emptySnapshot: TokenSnapshot;
             let filledStart: number, filledEnd: number, emptyStart: number, emptyEnd: number;
-            if (leftCount === 0 || leftStructuralOnly) {
+            if (isLeftEmpty) {
                 filledSnapshot = rightTokenSnapshot;
                 filledStart = rightStart;
                 filledEnd = rightEnd;
@@ -378,7 +379,6 @@ export async function processDiffElements({
                 // anchor pair 생성: filled 쪽은 line boundary, empty 쪽은 ds-diff 자체를 borrow
                 const filledStartToken = filledSnapshot.tokens[filledStart];
                 if (filledStartToken.flags & TOKEN_FLAGS_LINE_START) {
-                    const isLeftEmpty = (leftCount === 0 || leftStructuralOnly);
                     const filledToken = isLeftEmpty ? rightTokens[rightStart] : leftTokens[leftStart];
                     const filledAnchorEl = getAnchorElForLine(filledToken, !isLeftEmpty);
                     if (filledAnchorEl) {
@@ -396,7 +396,6 @@ export async function processDiffElements({
 
             // marker를 못 만들었을 때: 이전 diff에 합치기 (merge) 또는 건너뛰기
             if (!emptyEl && !diffOptions.stackEmptyDiffMarkers && diffs.length > 0) {
-                const isLeftEmpty = leftCount === 0;
                 const prevDiff = diffs[diffs.length - 1];
                 const prevMarkerEl = isLeftEmpty ? prevDiff.leftMarkerEl : prevDiff.rightMarkerEl;
 
@@ -416,12 +415,16 @@ export async function processDiffElements({
             const emptyRange = document.createRange();
             if (emptyEl) {
                 emptyRange.selectNode(emptyEl);
-            } else {
+            } else if (emptyStart > 0) {
                 emptyRange.setStart(emptySnapshot.tokens[emptyStart - 1].endNode, emptySnapshot.tokens[emptyStart - 1].endOffset);
+                emptyRange.collapse(true);
+            } else {
+                const emptyEditor = emptySnapshot === leftTokenSnapshot ? leftEditor : rightEditor;
+                emptyRange.setStart(emptyEditor.contentElement, 0);
                 emptyRange.collapse(true);
             }
 
-            if (leftCount === 0) {
+            if (isLeftEmpty) {
                 leftDiffEl = emptyEl;
                 leftRange = emptyRange;
                 rightRange = rightEditor.getTokenRange(rightStart, rightEnd);

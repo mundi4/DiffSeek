@@ -1,4 +1,4 @@
-import { ANCHOR_TAG_NAME, DIFF_TAG_NAME } from "../constants";
+import { DIFF_TAG_NAME } from "../constants";
 import type { Editor } from "../editor/editor";
 import type { SavedScrollRef } from "../editor/types";
 import { nextAnimationFrame } from "../utils/next-animation-frame";
@@ -51,18 +51,11 @@ export async function alignAnchors({
 
         for (let j = 0; j < batchSize; j++) {
             const pair = anchorPairs[batchStart + j];
-            let leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
-            let rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
-            if (pair.delta < 0 && pair.leftEl.nodeName === ANCHOR_TAG_NAME) {
-                // DS-ANCHOR는 콘텐츠 앞에 삽입된 별도 요소이므로
-                // ::before 패딩이 후속 콘텐츠를 밀어냄 → 보정 필요
-                // getBoundingClientRect().y는 요소 top(불변)이지만
-                // 실제 콘텐츠는 ::before height만큼 아래에 있음
-                // 블록 요소 borrow는 콘텐츠 컨테이너 자체이므로 보정 불필요
-                leftY -= pair.delta;
-            } else if (pair.delta > 0 && pair.rightEl.nodeName === ANCHOR_TAG_NAME) {
-                rightY += pair.delta;
-            }
+            const leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
+            const rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+            // delta = 패딩 적용 전 두 앵커의 Y 위치 차이.
+            // gBCR.y는 ::before 패딩에 영향받지 않는 요소 top을 반환하므로
+            // 별도 보정 없이 leftY - rightY가 패딩 전 위치 차이가 됨.
             const delta = Math.round(leftY - rightY);
             const deltadelta = delta - pair.delta;
             if (deltadelta < -MIN_DELTA || deltadelta > MIN_DELTA) {

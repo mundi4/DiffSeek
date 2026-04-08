@@ -401,7 +401,12 @@ export async function processDiffElements({
                 const prevDiff = diffs[diffs.length - 1];
                 const prevMarkerEl = isLeftEmpty ? prevDiff.leftMarkerEl : prevDiff.rightMarkerEl;
 
-                if (prevMarkerEl) {
+                // filled side가 연속일 때만 병합 (비연속이면 별개 diff 유지)
+                const isAdjacent = isLeftEmpty
+                    ? prevDiff.rightSpan.end === rightStart
+                    : prevDiff.leftSpan.end === leftStart;
+
+                if (prevMarkerEl && isAdjacent) {
                     // 이전 diff의 filled side를 확장
                     if (isLeftEmpty) {
                         prevDiff.rightSpan.end = rightEnd;

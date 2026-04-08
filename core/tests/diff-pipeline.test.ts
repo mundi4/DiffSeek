@@ -389,6 +389,28 @@ describe("diff pipeline: text content edge cases", () => {
         }
     });
 
+    it("non-adjacent right-side additions should produce separate diffs", async () => {
+        // 버그 재현: 공백 무시 켜짐 상태에서 오른쪽 diff 범위가 "중"부터 "장부가"까지
+        // 하나의 거대한 diff로 잡히는 문제. 올바른 결과는 별개의 diff 2개.
+        const { diffContext, leftEl, rightEl } = await runFullPipeline(
+            "<p>조정<br>발생일 당일에 방식으로 장부가</p>",
+            "<p>조정 중<br>발생일 당일에 방식으로<br>발생일 당일<br>에 방식으로 장부가</p>",
+        );
+
+        expect(diffContext.diffs.length).toBeGreaterThan(0);
+
+        for (const diff of diffContext.diffs) {
+            assertPipelineDiffInvariants(diff, leftEl, rightEl);
+        }
+
+        // 왼쪽이 empty인 순수 추가 diff가 2개 이상이어야 함
+        // (수정 전에는 1개로 병합됨)
+        const addedDiffs = diffContext.diffs.filter(d =>
+            d.leftSpan.start === d.leftSpan.end && d.rightSpan.end > d.rightSpan.start
+        );
+        expect(addedDiffs.length).toBeGreaterThanOrEqual(2);
+    });
+
     it("Korean text with special characters", async () => {
         const { diffContext, leftEl, rightEl } = await runFullPipeline(
             "<p>제1조 본 계약은 갑과 을 사이에 체결된다.</p>",

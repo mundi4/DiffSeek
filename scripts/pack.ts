@@ -88,7 +88,7 @@ ${cssContent}
 ${jsContent.replace(/<\/script>/gi, "<\\/script>")}
     </script>
   </body>
-</html
+</html>
 `
 
 // HTML 파일로 저장

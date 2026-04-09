@@ -3,9 +3,9 @@ import { localeAtom, useT } from "@/i18n";
 import type { Locale, Messages } from "@/i18n";
 import { diffseekOptionsAtom } from "@/states/core-atoms";
 import { type DiffOptions, type DiffseekOptions, getDefaultDiffseekOptions } from "@core";
-import { Box, Button, Flex, Group, Modal, NumberInput, Radio, Stack, Switch, Text, TextInput } from "@mantine/core";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useEffect, useMemo, useRef, useState } from "react";
+import css from "./options-modal.module.css";
 
 type CategoryKey = "general" | "tokens" | "patience" | "structural" | "advanced";
 
@@ -25,6 +25,57 @@ function getCategories(t: Messages): Category[] {
     ];
 }
 
+function OptionSwitch({ label, checked, onChange, description }: {
+    label: string; checked: boolean; onChange: (v: boolean) => void; description?: string;
+}) {
+    return (
+        <div className={css.field}>
+            <label className={css.switchLabel}>
+                <input type="checkbox" className={css.switchInput} checked={checked} onChange={(e) => onChange(e.currentTarget.checked)} />
+                <span className={css.switchTrack} />
+                {label}
+            </label>
+            {description && <span className={css.fieldDesc}>{description}</span>}
+        </div>
+    );
+}
+
+function OptionNumber({ label, description, value, onChange, min, step }: {
+    label: string; description?: string; value: number; onChange: (v: number) => void; min?: number; step?: number;
+}) {
+    return (
+        <div className={css.field}>
+            <label className={css.fieldLabel}>{label}</label>
+            {description && <span className={css.fieldDesc}>{description}</span>}
+            <input
+                type="number"
+                className={css.numberInput}
+                value={value}
+                min={min}
+                step={step}
+                onChange={(e) => onChange(Number(e.currentTarget.value) || (min ?? 0))}
+            />
+        </div>
+    );
+}
+
+function OptionText({ label, description, value, onChange }: {
+    label: string; description?: string; value: string; onChange: (v: string) => void;
+}) {
+    return (
+        <div className={css.field}>
+            <label className={css.fieldLabel}>{label}</label>
+            {description && <span className={css.fieldDesc}>{description}</span>}
+            <input
+                type="text"
+                className={css.textInput}
+                value={value}
+                onChange={(e) => onChange(e.currentTarget.value)}
+            />
+        </div>
+    );
+}
+
 export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: () => void }) {
     const t = useT();
     const locale = useAtomValue(localeAtom);
@@ -35,6 +86,28 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
     const [draft, setDraft] = useState<DiffseekOptions>(current);
     const [activeCategory, setActiveCategory] = useState<CategoryKey>("general");
     const contentRef = useRef<HTMLDivElement>(null);
+    const dialogRef = useRef<HTMLDialogElement>(null);
+
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        if (opened && !dialog.open) {
+            dialog.showModal();
+        } else if (!opened && dialog.open) {
+            dialog.close();
+        }
+    }, [opened]);
+
+    // backdrop 클릭으로 닫기
+    useEffect(() => {
+        const dialog = dialogRef.current;
+        if (!dialog) return;
+        const handleClick = (e: MouseEvent) => {
+            if (e.target === dialog) onClose();
+        };
+        dialog.addEventListener("click", handleClick);
+        return () => dialog.removeEventListener("click", handleClick);
+    }, [onClose]);
 
     useEffect(() => {
         if (opened) {
@@ -58,7 +131,6 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
         setDraft(defaults);
     };
 
-    // draft.diff의 필드를 업데이트하는 헬퍼
     const setDiff = (patch: Partial<DiffOptions>) => {
         setDraft((prev) => ({ ...prev, diff: { ...prev.diff, ...patch } }));
     };
@@ -71,204 +143,115 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
         return nums;
     };
 
+    const activeCat = categories.find((c) => c.key === activeCategory);
+
     const renderContent = () => {
         switch (activeCategory) {
             case "general":
                 return (
-                    <Stack gap="lg">
-                        <Box>
-                            <Radio.Group
-                                label={t.language}
-                                value={locale}
-                                onChange={(v) => setLocale(v as Locale)}
-                            >
-                                <Group gap="md" mt="xs">
-                                    <Radio value="ko" label="한국어" />
-                                    <Radio value="en" label="English" />
-                                </Group>
-                            </Radio.Group>
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.languageDesc}
-                            </Text>
-                        </Box>
+                    <div className={css.stack}>
+                        <div className={css.field}>
+                            <span className={css.fieldLabel}>{t.language}</span>
+                            <div className={css.radioRow}>
+                                <label className={css.radioLabel}>
+                                    <input type="radio" name="locale" value="ko" checked={locale === "ko"} onChange={() => setLocale("ko" as Locale)} />
+                                    한국어
+                                </label>
+                                <label className={css.radioLabel}>
+                                    <input type="radio" name="locale" value="en" checked={locale === "en"} onChange={() => setLocale("en" as Locale)} />
+                                    English
+                                </label>
+                            </div>
+                            <span className={css.fieldDesc}>{t.languageDesc}</span>
+                        </div>
 
-                        <Box>
-                            <Switch
-                                label={t.editableInSyncMode}
-                                checked={draft.editableInSyncMode}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDraft((prev) => ({ ...prev, editableInSyncMode: checked }));
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.editableInSyncModeDesc}
-                            </Text>
-                        </Box>
+                        <OptionSwitch
+                            label={t.editableInSyncMode}
+                            checked={draft.editableInSyncMode}
+                            onChange={(v) => setDraft((prev) => ({ ...prev, editableInSyncMode: v }))}
+                            description={t.editableInSyncModeDesc}
+                        />
 
-                        <Box>
-                            <Radio.Group
-                                label={t.whitespace}
-                                value={draft.diff.whitespace}
-                                onChange={(v) => setDiff({ whitespace: v as DiffOptions["whitespace"] })}
-                            >
-                                <Stack gap="xs" mt="xs">
-                                    <Radio value="collapse" label={t.whitespaceCollapse} />
-                                    <Radio value="ignore" label={t.whitespaceIgnore} />
-                                </Stack>
-                            </Radio.Group>
-                        </Box>
+                        <div className={css.field}>
+                            <span className={css.fieldLabel}>{t.whitespace}</span>
+                            <div className={css.radioGroup}>
+                                <label className={css.radioLabel}>
+                                    <input type="radio" name="whitespace" value="collapse" checked={draft.diff.whitespace === "collapse"} onChange={() => setDiff({ whitespace: "collapse" })} />
+                                    {t.whitespaceCollapse}
+                                </label>
+                                <label className={css.radioLabel}>
+                                    <input type="radio" name="whitespace" value="ignore" checked={draft.diff.whitespace === "ignore"} onChange={() => setDiff({ whitespace: "ignore" })} />
+                                    {t.whitespaceIgnore}
+                                </label>
+                            </div>
+                        </div>
 
-                        <Box>
-                            <Switch
-                                label={t.stackEmptyDiffMarkers}
-                                checked={draft.diff.stackEmptyDiffMarkers}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDiff({ stackEmptyDiffMarkers: checked });
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.stackEmptyDiffMarkersDesc}
-                            </Text>
-                        </Box>
-                    </Stack>
+                        <OptionSwitch
+                            label={t.stackEmptyDiffMarkers}
+                            checked={draft.diff.stackEmptyDiffMarkers}
+                            onChange={(v) => setDiff({ stackEmptyDiffMarkers: v })}
+                            description={t.stackEmptyDiffMarkersDesc}
+                        />
+                    </div>
                 );
 
             case "tokens":
                 return (
-                    <Stack gap="lg">
-                        <Box>
-                            <Switch
-                                label={t.mergeNonWordTokens}
-                                checked={draft.diff.mergeNonWordTokens}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDiff({ mergeNonWordTokens: checked });
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.mergeNonWordTokensDesc}
-                            </Text>
-                        </Box>
-
-                        <Box>
-                            <Switch
-                                label={t.mergeLetterNumberBoundary}
-                                checked={draft.diff.mergeLetterNumberBoundary}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDiff({ mergeLetterNumberBoundary: checked });
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.mergeLetterNumberBoundaryDesc}
-                            </Text>
-                        </Box>
-
-                        <Box>
-                            <Switch
-                                label={t.allowStandaloneLawArticle}
-                                checked={draft.diff.allowStandaloneLawArticle}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDiff({ allowStandaloneLawArticle: checked });
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.allowStandaloneLawArticleDesc}
-                            </Text>
-                        </Box>
-                    </Stack>
+                    <div className={css.stack}>
+                        <OptionSwitch
+                            label={t.mergeNonWordTokens}
+                            checked={draft.diff.mergeNonWordTokens}
+                            onChange={(v) => setDiff({ mergeNonWordTokens: v })}
+                            description={t.mergeNonWordTokensDesc}
+                        />
+                        <OptionSwitch
+                            label={t.mergeLetterNumberBoundary}
+                            checked={draft.diff.mergeLetterNumberBoundary}
+                            onChange={(v) => setDiff({ mergeLetterNumberBoundary: v })}
+                            description={t.mergeLetterNumberBoundaryDesc}
+                        />
+                        <OptionSwitch
+                            label={t.allowStandaloneLawArticle}
+                            checked={draft.diff.allowStandaloneLawArticle}
+                            onChange={(v) => setDiff({ allowStandaloneLawArticle: v })}
+                            description={t.allowStandaloneLawArticleDesc}
+                        />
+                    </div>
                 );
 
             case "patience":
                 return (
-                    <Stack gap="lg">
-                        <Box>
-                            <Switch
-                                label={t.usePatience}
-                                checked={draft.diff.usePatience}
-                                onChange={(e) => {
-                                    const checked = e.currentTarget.checked;
-                                    setDiff({ usePatience: checked });
-                                }}
-                            />
-                            <Text size="sm" c="dimmed" mt="xs">
-                                {t.usePatienceDesc}
-                            </Text>
-                        </Box>
-
-                        <NumberInput
-                            label={t.patienceMinLines}
-                            description={t.patienceMinLinesDesc}
-                            min={1}
-                            step={1}
-                            value={draft.diff.patienceMinLines}
-                            onChange={(v) => setDiff({ patienceMinLines: Number(v) || 1 })}
+                    <div className={css.stack}>
+                        <OptionSwitch
+                            label={t.usePatience}
+                            checked={draft.diff.usePatience}
+                            onChange={(v) => setDiff({ usePatience: v })}
+                            description={t.usePatienceDesc}
                         />
-
-                        <NumberInput
-                            label={t.patienceMinTokens}
-                            description={t.patienceMinTokensDesc}
-                            min={1}
-                            step={50}
-                            value={draft.diff.patienceMinTokens}
-                            onChange={(v) => setDiff({ patienceMinTokens: Number(v) || 1 })}
-                        />
-
-                        <NumberInput
-                            label={t.patienceMinTokenCount}
-                            description={t.patienceMinTokenCountDesc}
-                            min={1}
-                            step={1}
-                            value={draft.diff.patienceMinTokenCount}
-                            onChange={(v) => setDiff({ patienceMinTokenCount: Number(v) || 1 })}
-                        />
-
-                        <NumberInput
-                            label={t.patienceMinTextLen}
-                            description={t.patienceMinTextLenDesc}
-                            min={1}
-                            step={1}
-                            value={draft.diff.patienceMinTextLen}
-                            onChange={(v) => setDiff({ patienceMinTextLen: Number(v) || 1 })}
-                        />
-                    </Stack>
+                        <OptionNumber label={t.patienceMinLines} description={t.patienceMinLinesDesc} value={draft.diff.patienceMinLines} onChange={(v) => setDiff({ patienceMinLines: v })} min={1} step={1} />
+                        <OptionNumber label={t.patienceMinTokens} description={t.patienceMinTokensDesc} value={draft.diff.patienceMinTokens} onChange={(v) => setDiff({ patienceMinTokens: v })} min={1} step={50} />
+                        <OptionNumber label={t.patienceMinTokenCount} description={t.patienceMinTokenCountDesc} value={draft.diff.patienceMinTokenCount} onChange={(v) => setDiff({ patienceMinTokenCount: v })} min={1} step={1} />
+                        <OptionNumber label={t.patienceMinTextLen} description={t.patienceMinTextLenDesc} value={draft.diff.patienceMinTextLen} onChange={(v) => setDiff({ patienceMinTextLen: v })} min={1} step={1} />
+                    </div>
                 );
 
             case "structural":
                 return (
-                    <Stack gap="lg">
-                        <NumberInput
-                            label={t.structuralTokenLength}
-                            description={t.structuralTokenLengthDesc}
-                            min={0}
-                            step={1}
-                            value={draft.diff.structuralTokenLength}
-                            onChange={(v) => setDiff({ structuralTokenLength: Number(v) || 0 })}
-                        />
-
-                        <TextInput
+                    <div className={css.stack}>
+                        <OptionNumber label={t.structuralTokenLength} description={t.structuralTokenLengthDesc} value={draft.diff.structuralTokenLength} onChange={(v) => setDiff({ structuralTokenLength: v })} min={0} step={1} />
+                        <OptionText
                             label={t.structuralOnlyMultipliers}
                             description={t.structuralOnlyMultipliersDesc}
                             value={draft.diff.structuralOnlyMultipliers.join(", ")}
-                            onChange={(e) => {
-                                const arr = parseNumberArray(e.currentTarget.value);
-                                if (arr) setDiff({ structuralOnlyMultipliers: arr });
-                            }}
+                            onChange={(v) => { const arr = parseNumberArray(v); if (arr) setDiff({ structuralOnlyMultipliers: arr }); }}
                         />
-
-                        <TextInput
+                        <OptionText
                             label={t.structuralLevelBonuses}
                             description={t.structuralLevelBonusesDesc}
                             value={draft.diff.structuralLevelBonuses.join(", ")}
-                            onChange={(e) => {
-                                const arr = parseNumberArray(e.currentTarget.value);
-                                if (arr) setDiff({ structuralLevelBonuses: arr });
-                            }}
+                            onChange={(v) => { const arr = parseNumberArray(v); if (arr) setDiff({ structuralLevelBonuses: arr }); }}
                         />
-                    </Stack>
+                    </div>
                 );
 
             default:
@@ -277,69 +260,42 @@ export function OptionsModal({ opened, onClose }: { opened: boolean; onClose: ()
     };
 
     return (
-        <Modal
-            opened={opened}
-            onClose={onClose}
-            title={t.optionsTitle}
-            centered
-            size="xl"
-            styles={{ body: { display: "flex", flexDirection: "column", gap: "1rem" } }}
-        >
-            <Flex gap="md" style={{ flex: 1, minHeight: "400px" }}>
-                {/* Left Sidebar */}
-                <Stack gap={0} style={{ width: "150px", flexShrink: 0, borderRight: "1px solid var(--mantine-color-gray-3)" }}>
+        <dialog ref={dialogRef} className={css.dialog} onClose={onClose}>
+            <div className={css.header}>
+                <span className={css.title}>{t.optionsTitle}</span>
+                <button type="button" className={css.closeBtn} onClick={onClose}>
+                    <svg width="14" height="14" viewBox="0 0 14 14"><path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" /></svg>
+                </button>
+            </div>
+
+            <div className={css.body}>
+                <nav className={css.nav}>
                     {categories.map((cat) => (
-                        <Button
+                        <button
                             key={cat.key}
-                            variant={activeCategory === cat.key ? "filled" : "subtle"}
-                            justify="flex-start"
-                            fullWidth
-                            radius={0}
-                            onClick={() => {
-                                setActiveCategory(cat.key);
-                                contentRef.current?.scrollTo(0, 0);
-                            }}
-                            styles={{ section: { marginRight: "0.5rem" } }}
+                            type="button"
+                            className={`${css.navBtn} ${activeCategory === cat.key ? css.navBtnActive : ""}`}
+                            onClick={() => { setActiveCategory(cat.key); contentRef.current?.scrollTo(0, 0); }}
                         >
                             {cat.label}
-                        </Button>
+                        </button>
                     ))}
-                </Stack>
+                </nav>
 
-                {/* Right Content */}
-                <Box
-                    ref={contentRef}
-                    style={{
-                        flex: 1,
-                        overflowY: "auto",
-                        paddingRight: "1rem",
-                        maxHeight: "400px",
-                    }}
-                >
-                    <Stack gap="md">
-                        <Box>
-                            <Text fw={600} size="lg" mb="xs">
-                                {categories.find((c) => c.key === activeCategory)?.label}
-                            </Text>
-                            <Text size="sm" c="dimmed" mb="md">
-                                {categories.find((c) => c.key === activeCategory)?.description}
-                            </Text>
-                        </Box>
-                        {renderContent()}
-                    </Stack>
-                </Box>
-            </Flex>
+                <div ref={contentRef} className={css.content}>
+                    <div className={css.sectionTitle}>{activeCat?.label}</div>
+                    <div className={css.sectionDesc}>{activeCat?.description}</div>
+                    {renderContent()}
+                </div>
+            </div>
 
-            {/* Footer */}
-            <Group justify="space-between" pt="md" style={{ borderTop: "1px solid var(--mantine-color-gray-3)" }}>
-                <Button variant="subtle" color="gray" onClick={reset}>
-                    {t.resetDefaults}
-                </Button>
-                <Group>
-                    <Button variant="default" onClick={onClose}>{t.cancel}</Button>
-                    <Button onClick={apply} disabled={!canApply}>{t.apply}</Button>
-                </Group>
-            </Group>
-        </Modal>
+            <div className={css.footer}>
+                <button type="button" className={`${css.btn} ${css.btnSubtle}`} onClick={reset}>{t.resetDefaults}</button>
+                <div className={css.footerRight}>
+                    <button type="button" className={css.btn} onClick={onClose}>{t.cancel}</button>
+                    <button type="button" className={`${css.btn} ${css.btnPrimary}`} onClick={apply} disabled={!canApply}>{t.apply}</button>
+                </div>
+            </div>
+        </dialog>
     );
 }

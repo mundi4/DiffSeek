@@ -1,6 +1,5 @@
 import '@core/core.css';
 import { DiffseekEngine, type DiffOptions, type EditorName } from '@core';
-import '@mantine/core/styles.css';
 import { getDefaultStore, Provider, useAtomValue } from 'jotai';
 import { useEffect, useRef } from 'react';
 import { DiffseekProvider } from './bridge/diffseek-provider';

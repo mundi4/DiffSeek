@@ -1,0 +1,277 @@
+.dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 0;
+  max-width: 720px;
+  width: 90vw;
+  margin: auto;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 14px 20px;
+  border-bottom: 1px solid var(--color-gray-3);
+}
+
+.title {
+  font-size: 16px;
+  font-weight: 600;
+}
+
+.closeBtn {
+  all: unset;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  color: var(--color-dimmed);
+}
+
+.closeBtn:hover {
+  background: #f1f3f5;
+}
+
+.body {
+  display: flex;
+  gap: 1rem;
+  padding: 16px 20px;
+  min-height: 400px;
+}
+
+/* Left sidebar nav */
+.nav {
+  display: flex;
+  flex-direction: column;
+  width: 150px;
+  flex-shrink: 0;
+  border-right: 1px solid var(--color-gray-3);
+  overflow: hidden;
+}
+
+.navBtn {
+  all: unset;
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  text-align: left;
+  font-size: 13px;
+  cursor: pointer;
+  border-radius: 0;
+  color: inherit;
+}
+
+.navBtn:hover {
+  background: #f1f3f5;
+}
+
+.navBtnActive {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.navBtnActive:hover {
+  background: var(--color-primary);
+}
+
+/* Right content area */
+.content {
+  flex: 1;
+  overflow-y: auto;
+  padding-right: 1rem;
+  max-height: 400px;
+}
+
+.sectionTitle {
+  font-size: 16px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+
+.sectionDesc {
+  font-size: 13px;
+  color: var(--color-dimmed);
+  margin-bottom: 16px;
+}
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.stackSm {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Form field */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.fieldLabel {
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fieldDesc {
+  font-size: 12px;
+  color: var(--color-dimmed);
+}
+
+/* Switch / Toggle */
+.switchLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.switchTrack {
+  position: relative;
+  width: 34px;
+  height: 18px;
+  background: #ced4da;
+  border-radius: 9px;
+  transition: background 0.15s;
+  flex-shrink: 0;
+}
+
+.switchTrack::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  transition: transform 0.15s;
+}
+
+.switchInput {
+  position: absolute;
+  opacity: 0;
+  width: 0;
+  height: 0;
+}
+
+.switchInput:checked + .switchTrack {
+  background: var(--color-primary);
+}
+
+.switchInput:checked + .switchTrack::after {
+  transform: translateX(16px);
+}
+
+/* Radio */
+.radioGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.radioRow {
+  display: flex;
+  gap: 16px;
+}
+
+.radioLabel {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.radioLabel input[type="radio"] {
+  accent-color: var(--color-primary);
+}
+
+/* Inputs */
+.numberInput,
+.textInput {
+  width: 100%;
+  padding: 6px 10px;
+  border: 1px solid var(--color-gray-3);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  outline: none;
+}
+
+.numberInput:focus,
+.textInput:focus {
+  border-color: var(--color-primary);
+  box-shadow: 0 0 0 1px var(--color-primary);
+}
+
+/* Footer */
+.footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 20px;
+  border-top: 1px solid var(--color-gray-3);
+}
+
+.footerRight {
+  display: flex;
+  gap: 8px;
+}
+
+/* Buttons */
+.btn {
+  padding: 7px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  cursor: pointer;
+  border: 1px solid var(--color-gray-3);
+  background: #fff;
+  color: inherit;
+  transition: background 0.1s;
+}
+
+.btn:hover {
+  background: #f1f3f5;
+}
+
+.btnPrimary {
+  background: var(--color-primary);
+  color: #fff;
+  border-color: var(--color-primary);
+}
+
+.btnPrimary:hover {
+  background: #1c7ed6;
+}
+
+.btnPrimary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.btnSubtle {
+  border: none;
+  background: none;
+  color: var(--color-dimmed);
+}
+
+.btnSubtle:hover {
+  background: #f1f3f5;
+  color: inherit;
+}

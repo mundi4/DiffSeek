@@ -1,6 +1,5 @@
 import { useDiffseekActions } from "@/bridge/diffseek-provider";
 import { diffsAtom, hoveredDiffIndexAtom, paletteAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
-import { ActionIcon, Box, Stack } from "@mantine/core";
 import { getDiffHue } from "@core";
 import clsx from "clsx";
 import { useAtomValue } from "jotai";
@@ -53,7 +52,7 @@ export function DiffList() {
 
     return (
         <div className={`diff-list ${_diffs === null ? "diff-list--disabled" : ""}`}>
-            <Stack gap={2}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 2 }}>
                 {diffs.map((diff) => (
                     <DiffListItem key={diff.diffIndex} {...diff}
                         leftVisible={leftVisibleSet.has(diff.diffIndex)}
@@ -61,7 +60,7 @@ export function DiffList() {
                         highlighted={hoveredDiffIndex === diff.diffIndex}
                     />
                 ))}
-            </Stack>
+            </div>
         </div>
     );
 }
@@ -87,7 +86,7 @@ const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, righ
     };
 
     return (
-        <Box
+        <div
             className={clsx("diff-list-item", highlighted && "diff-list-item--highlighted")}
             style={{ "--diff-hue": hue } as React.CSSProperties}
             onClick={handleClick}
@@ -117,7 +116,7 @@ const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, righ
                 visible={rightVisible}
             />
             <div className="text"><DiffListText text={rightText} /></div>
-        </Box>
+        </div>
     );
 }, (prev, next) => {
     return prev.diffIndex === next.diffIndex
@@ -158,15 +157,12 @@ export function SideTagButton({
 }: SideTagButtonProps) {
 
     return (
-        <ActionIcon
-            variant="filled"
-            size="xs"
-            // onClick={onClick}
-            fz="xs"
+        <button
+            type="button"
             data-side={side}
             className={`side-tag-button side-tag-button--${side} ${visible ? 'side-tag-button--visible' : 'side-tag-button--hidden'}`}
         >
             {side === "left" ? <span>L</span> : <span>R</span>}
-        </ActionIcon>
+        </button>
     );
 }

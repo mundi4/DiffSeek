@@ -1,0 +1,88 @@
+.dialog {
+  border: none;
+  border-radius: 8px;
+  padding: 0;
+  max-width: 800px;
+  width: 90vw;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+}
+
+.dialog::backdrop {
+  background: rgba(0, 0, 0, 0.4);
+}
+
+.header {
+  padding: 16px 20px;
+  font-size: 16px;
+  font-weight: 600;
+  border-bottom: 1px solid var(--color-gray-3);
+}
+
+.body {
+  padding: 16px 20px;
+  max-height: 520px;
+  overflow-y: auto;
+}
+
+.empty {
+  font-size: 18px;
+  color: var(--color-dimmed);
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  padding: 6px 8px;
+  border: 1px solid var(--color-gray-3);
+  text-align: left;
+}
+
+.table th {
+  background: #f8f9fa;
+  font-weight: 600;
+}
+
+.table tbody tr:nth-child(even) {
+  background: #f8f9fa;
+}
+
+.table tbody tr:hover {
+  background: #e9ecef;
+}
+
+.thIndex {
+  width: 56px;
+}
+
+.cellStack {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.cellText {
+  font-size: 13px;
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.badgeGroup {
+  display: flex;
+  gap: 6px;
+}
+
+.badge {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(34, 139, 230, 0.1);
+  color: var(--color-primary);
+}

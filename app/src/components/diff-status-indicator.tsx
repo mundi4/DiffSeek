@@ -1,16 +1,14 @@
 import { useT } from "@/i18n";
 import { diffContextAtom, diffWorkflowStatusAtom } from "@/states/core-atoms";
-import { Divider, Group, Loader, Popover, Stack, Text, ThemeIcon } from "@mantine/core";
-import { useHover } from "@mantine/hooks";
-import { IconCheck } from "@tabler/icons-react";
+import { CheckIcon } from "./icons";
 import { useAtomValue, useStore } from "jotai";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import css from "./diff-status-indicator.module.css";
 
 const MIN_VISIBLE_MS = 500;
 const POPOVER_FADE_DELAY_MS = 1000;
 
 const PHASE_KEYS = ["tokenizing", "diffing", "processing"] as const;
-
 
 type TimingSnapshot = {
     tokenizingMs?: number;
@@ -113,7 +111,10 @@ export function DiffStatusIndicator() {
         };
     }, [busy]);
 
-    // --- phase timing: 동기적 store subscription으로 추적 (React 배치 우회) ---
+    // --- hover ---
+    const [hovered, setHovered] = useState(false);
+
+    // --- phase timing ---
     const phaseStartsRef = useRef<Record<string, number>>({});
     const [snapshot, setSnapshot] = useState<TimingSnapshot>({});
 
@@ -132,7 +133,6 @@ export function DiffStatusIndicator() {
                     rightTokenCount: s.rightTokenCount,
                 });
             } else if (phase === "tokenizing") {
-                // progressive token count update
                 setSnapshot(prev => ({
                     ...prev,
                     leftTokenCount: s.leftTokenCount ?? prev.leftTokenCount,
@@ -174,70 +174,95 @@ export function DiffStatusIndicator() {
     const tokensKnown = leftTokenCount != null && rightTokenCount != null;
     const diffsKnown = diffEntryCount != null;
 
-    const color = busy ? undefined : "gray";
-    const { hovered, ref } = useHover();
-
     const currentPhaseIndex = busy ? PHASE_KEYS.indexOf(status.phase as typeof PHASE_KEYS[number]) : -1;
-    const doneColor = "green.8";
+
+    // --- popover positioning ---
+    const triggerRef = useRef<HTMLDivElement>(null);
+    const hasContent = busy || diffContext != null;
+    const showPopover = (popoverOpen || hovered) && hasContent;
+
+    const getPopoverStyle = useCallback((): React.CSSProperties => {
+        if (!triggerRef.current) return {};
+        const rect = triggerRef.current.getBoundingClientRect();
+        return {
+            bottom: window.innerHeight - rect.top + 12,
+            right: window.innerWidth - rect.right,
+        };
+    }, []);
 
     return (
-        <Popover opened={(popoverOpen || hovered) && (busy || diffContext != null)} position="top-end" withArrow offset={6} transitionProps={{ duration: 0, exitDuration: 300 }}>
-            <Popover.Target>
-                <Group ref={ref} style={{ cursor: "default" }}>
-                    {visible && <Loader type="dots" size="xs" color={color} />}
-                    {!visible && <ThemeIcon style={{ display: "inline" }} variant="transparent" size="xs" color={color}><IconCheck size={16} /></ThemeIcon>}
-                </Group>
-            </Popover.Target>
-            <Popover.Dropdown p="xs" bg="rgba(255,255,255,0.6)" miw={200} style={{ backdropFilter: "blur(8px)" }}>
-                <Stack gap={3}>
-                    {PHASE_KEYS.map((key, phaseIndex) => {
-                        const isCurrent = phaseIndex === currentPhaseIndex;
-                        const isPast = busy ? phaseIndex < currentPhaseIndex : true;
-                        const isFuture = busy ? phaseIndex > currentPhaseIndex : false;
+        <div
+            ref={triggerRef}
+            className={css.trigger}
+            onMouseEnter={() => setHovered(true)}
+            onMouseLeave={() => setHovered(false)}
+        >
+            {visible && (
+                <span className={css.loaderDots}>
+                    <span /><span /><span />
+                </span>
+            )}
+            {!visible && (
+                <span className={css.checkIcon}>
+                    <CheckIcon size={16} />
+                </span>
+            )}
+            {hasContent && (
+                <div className={`${css.popover} ${showPopover ? "" : css.popoverHidden}`} style={getPopoverStyle()}>
+                    <div className={css.stack}>
+                        {PHASE_KEYS.map((key, phaseIndex) => {
+                            const isCurrent = phaseIndex === currentPhaseIndex;
+                            const isPast = busy ? phaseIndex < currentPhaseIndex : true;
+                            const isFuture = busy ? phaseIndex > currentPhaseIndex : false;
 
-                        let elapsedMs: number | null = null;
-                        if (isPast) {
-                            if (key === "tokenizing") elapsedMs = snapshot.tokenizingMs ?? null;
-                            else if (key === "diffing") elapsedMs = snapshot.diffingMs ?? null;
-                            else if (key === "processing") elapsedMs = snapshot.processingMs ?? null;
-                        } else if (isCurrent && status.startedAtMs != null) {
-                            elapsedMs = Math.max(0, now - status.startedAtMs);
-                        }
+                            let elapsedMs: number | null = null;
+                            if (isPast) {
+                                if (key === "tokenizing") elapsedMs = snapshot.tokenizingMs ?? null;
+                                else if (key === "diffing") elapsedMs = snapshot.diffingMs ?? null;
+                                else if (key === "processing") elapsedMs = snapshot.processingMs ?? null;
+                            } else if (isCurrent && status.startedAtMs != null) {
+                                elapsedMs = Math.max(0, now - status.startedAtMs);
+                            }
 
-                        return (
-                            <Group key={key} gap={16} wrap="nowrap" justify="space-between">
-                                <Text size="xs" c={isFuture ? "dimmed" : isCurrent ? "blue" : doneColor} fw={isCurrent ? 500 : undefined}>
-                                    {PHASE_LABELS[key]}
-                                </Text>
-                                <Text ff="monospace" size="xs" c={isPast ? doneColor : "dimmed"} style={{ minWidth: 36, textAlign: "right" }}>
-                                    {isFuture ? "" : elapsedMs != null ? formatMs(elapsedMs) : ""}
-                                </Text>
-                            </Group>
-                        );
-                    })}
+                            const labelColor = isFuture ? css.dimmed : isCurrent ? css.blue : css.green;
+                            const valueColor = isPast ? css.green : css.dimmed;
 
-                    <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={busy ? "dimmed" : doneColor}>{t.total}</Text>
-                        <Text ff="monospace" c={busy ? "dimmed" : doneColor} size="xs" style={{ minWidth: 36, textAlign: "right" }}>{!busy && snapshot.totalMs != null ? formatMs(snapshot.totalMs) : ""}</Text>
-                    </Group>
-                    <Divider my={4} />
-                    <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={tokensKnown ? undefined : "dimmed"}>{t.tokens}</Text>
-                        <Text ff="monospace" size="xs">
-                            {leftTokenCount != null ? leftTokenCount.toLocaleString() : <Text span c="dimmed">...</Text>}
-                            {<Text span c="dimmed"> | </Text>}
-                            {rightTokenCount != null ? rightTokenCount.toLocaleString() : <Text span c="dimmed">...</Text>}
-                        </Text>
-                    </Group>
-                    <Group gap={16} wrap="nowrap" justify="space-between">
-                        <Text size="xs" c={diffsKnown ? undefined : "dimmed"}>{t.diffs}</Text>
-                        <Text ff="monospace" size="xs">
-                            {diffsKnown ? `${diffEntryCount.toLocaleString()} (${((1 - diffContext!.similarity) * 100).toFixed(1)}%)` : ""}
-                        </Text>
-                    </Group>
+                            return (
+                                <div key={key} className={css.row}>
+                                    <span className={`${css.label} ${labelColor} ${isCurrent ? css.bold : ""}`}>
+                                        {PHASE_LABELS[key]}
+                                    </span>
+                                    <span className={`${css.mono} ${valueColor}`}>
+                                        {isFuture ? "" : elapsedMs != null ? formatMs(elapsedMs) : ""}
+                                    </span>
+                                </div>
+                            );
+                        })}
 
-                </Stack>
-            </Popover.Dropdown>
-        </Popover>
+                        <div className={css.row}>
+                            <span className={`${css.label} ${busy ? css.dimmed : css.green}`}>{t.total}</span>
+                            <span className={`${css.mono} ${busy ? css.dimmed : css.green}`}>
+                                {!busy && snapshot.totalMs != null ? formatMs(snapshot.totalMs) : ""}
+                            </span>
+                        </div>
+                        <hr className={css.divider} />
+                        <div className={css.row}>
+                            <span className={`${css.label} ${tokensKnown ? "" : css.dimmed}`}>{t.tokens}</span>
+                            <span className={css.mono}>
+                                {leftTokenCount != null ? leftTokenCount.toLocaleString() : <span className={css.dimmed}>...</span>}
+                                <span className={css.dimmed}> | </span>
+                                {rightTokenCount != null ? rightTokenCount.toLocaleString() : <span className={css.dimmed}>...</span>}
+                            </span>
+                        </div>
+                        <div className={css.row}>
+                            <span className={`${css.label} ${diffsKnown ? "" : css.dimmed}`}>{t.diffs}</span>
+                            <span className={css.mono}>
+                                {diffsKnown ? `${diffEntryCount.toLocaleString()} (${((1 - diffContext!.similarity) * 100).toFixed(1)}%)` : ""}
+                            </span>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
     );
 }

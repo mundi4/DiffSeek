@@ -1,5 +1,13 @@
 :root {
   --sidebar-width: 200px;
+
+  --color-dimmed: #868e96;
+  --color-primary: #228be6;
+  --color-teal: #099268;
+  --color-green: #2b8a3e;
+  --color-gray-3: #dee2e6;
+  --color-gray-6: #868e96;
+  --radius-sm: 4px;
 }
 
 *,
@@ -53,7 +61,7 @@ body {
 
 /* #app > header {
   grid-area: sidebar-footer;
-  border-bottom: var(--mantine-color-gray-3, #e0e0e0) 1px solid;
+  border-bottom: var(--color-gray-3) 1px solid;
 } */
 
 #app > main {
@@ -78,15 +86,24 @@ body {
 }
 
 .side-tag-button {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   font-family: Consolas, monospace;
+  font-size: 12px;
   font-weight: 700;
-  padding-inline: 3px;
-  --ai-bg: hsl(var(--diff-hue, 0) 100% 70%) !important;
-  --ai-hover: hsl(var(--diff-hue, 0) 100% 65%) !important;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--radius-sm);
+  background: hsl(var(--diff-hue, 0) 100% 70%);
   color: hsl(var(--diff-hue, 0) 100% 20%);
   outline: 1px solid hsl(var(--diff-hue, 0) 100% 40%);
-  border: none;
   cursor: pointer;
+}
+
+.side-tag-button:hover {
+  background: hsl(var(--diff-hue, 0) 100% 65%);
 }
 
 .side-tag-button * {
@@ -124,7 +141,7 @@ body {
   padding: 4px 4px;
   align-items: center;
   font-size: 12px;
-  border-radius: var(--mantine-radius-sm);
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 
@@ -155,7 +172,7 @@ body {
   position: relative;
   padding: 4px 4px;
   background-color: #eee;
-  border-top: 1px solid var(--mantine-color-gray-3);
+  border-top: 1px solid var(--color-gray-3);
   height: 32px;
 }
 
@@ -342,7 +359,7 @@ body {
 /* ── Quick Diff Panel (sidebar) ── */
 
 .qdiff-panel {
-  border-top: 1px solid var(--mantine-color-gray-3, #dee2e6);
+  border-top: 1px solid var(--color-gray-3);
   background: #fff;
   overflow: hidden;
   animation: qdiff-fade-in 120ms ease-out;

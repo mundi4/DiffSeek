@@ -1,5 +1,5 @@
 import { useT } from "@/i18n";
-import { FloatingWindow } from "@mantine/core";
+import { useFloatingWindow } from "@/hooks/use-floating-window";
 import { useQuickDiff } from "@/hooks/use-quick-diff";
 import { QuickDiffType, type QuickDiffEntry } from "@/quick-diff";
 import { useAtom } from "jotai";
@@ -125,7 +125,7 @@ function SelectionMenu({ x, y, opacity, workspace, onClickDiff }: { x: number; y
     );
 }
 
-// ── ResultPopover (FloatingWindow) ──
+// ── ResultPopover (custom FloatingWindow) ──
 
 function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, onDismiss }: {
     result: { entries: QuickDiffEntry[] };
@@ -136,7 +136,6 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
     onDismiss: (popoverEl?: HTMLElement | null) => void;
 }) {
     const t = useT();
-    const rootRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const resizeObserverRef = useRef<ResizeObserver | null>(null);
     const [viewMode, changeViewMode] = useAtom(quickDiffViewModeAtom);
@@ -168,33 +167,58 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
             node.style.fontSize = "";
         }
     }, [result, viewMode]);
-    const setPositionRef = useRef<((pos: { top?: number; left?: number; right?: number; bottom?: number }) => void) | null>(null);
+
     const [ready, setReady] = useState(false);
-    const [wsSize, setWsSize] = useState({ width: workspace.offsetWidth, height: workspace.offsetHeight });
+
+    // 초기 위치 계산
+    const initialPosition = useMemo(() => {
+        if (lastPositionRef.current) return lastPositionRef.current;
+        const wsRect = workspace.getBoundingClientRect();
+        const left = Math.max(wsRect.left + MARGIN, Math.min(anchorX, wsRect.right - RESULT_MAX_WIDTH - MARGIN));
+        const top = anchorY + MENU_GAP;
+        return { top, left };
+    }, [anchorX, anchorY, workspace]);
+
+    const handlePositionChange = useCallback((pos: { x: number; y: number }) => {
+        lastPositionRef.current = { top: pos.y, left: pos.x };
+    }, []);
+
+    const { ref: rootRef, setPosition } = useFloatingWindow<HTMLDivElement>({
+        enabled: true,
+        constrainToViewport: true,
+        constrainOffset: MARGIN,
+        dragHandleSelector: ".qdiff-result-grip",
+        excludeDragHandleSelector: ".qdiff-result-close, .qdiff-viewmode-btn",
+        initialPosition,
+        onPositionChange: handlePositionChange,
+    });
 
     // workspace 리사이즈 추적 + 팝업 위치 viewport clamp + cleanup
     useEffect(() => {
         const handleResize = () => {
-            setWsSize({ width: workspace.offsetWidth, height: workspace.offsetHeight });
-
-            // 팝업이 viewport 밖으로 밀려났으면 보정
             const root = rootRef.current;
-            const setPos = setPositionRef.current;
-            if (root && setPos) {
-                const rect = root.getBoundingClientRect();
-                const vw = window.innerWidth;
-                const vh = window.innerHeight;
-                let left = rect.left;
-                let top = rect.top;
-                let needsUpdate = false;
+            if (!root) return;
+            const vw = window.innerWidth;
+            const vh = window.innerHeight;
+            const rect = root.getBoundingClientRect();
 
-                if (rect.right > vw) { left = vw - rect.width; needsUpdate = true; }
-                if (rect.bottom > vh) { top = vh - rect.height; needsUpdate = true; }
-                if (left < 0) { left = 0; needsUpdate = true; }
-                if (top < 0) { top = 0; needsUpdate = true; }
+            // 1) 위치부터 보정: 원래 크기 기준으로 밀기
+            let left = rect.left;
+            let top = rect.top;
+            if (rect.right > vw) left = vw - rect.width;
+            if (rect.bottom > vh) top = vh - rect.height;
+            if (left < MARGIN) left = MARGIN;
+            if (top < MARGIN) top = MARGIN;
 
-                if (needsUpdate) setPos({ left, top });
+            if (left !== rect.left || top !== rect.top) {
+                setPosition({ left, top });
             }
+
+            // 2) 위치 소진 후 남은 공간으로 크기 제한
+            const maxW = vw - left - MARGIN;
+            const maxH = vh - top - MARGIN;
+            root.style.maxWidth = maxW + "px";
+            root.style.maxHeight = maxH + "px";
         };
 
         const wsObserver = new ResizeObserver(handleResize);
@@ -207,18 +231,9 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
         };
     }, []);
 
-    // 초기 위치: 저장된 위치가 있으면 사용, 없으면 워크스페이스 기준 계산
-    const initialPosition = useMemo(() => {
-        if (lastPositionRef.current) return lastPositionRef.current;
-        const wsRect = workspace.getBoundingClientRect();
-        const left = Math.max(wsRect.left + MARGIN, Math.min(anchorX, wsRect.right - RESULT_MAX_WIDTH - MARGIN));
-        const top = anchorY + MENU_GAP;
-        return { top, left };
-    }, [anchorX, anchorY, workspace]);
-
     // 마운트 후 실제 크기로 위치 보정
     useEffect(() => {
-        if (!rootRef.current || !setPositionRef.current) return;
+        if (!rootRef.current) return;
         const w = rootRef.current.offsetWidth;
         const h = rootRef.current.offsetHeight;
         const wsRect = workspace.getBoundingClientRect();
@@ -233,17 +248,15 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
             top = Math.max(wsRect.top + MARGIN, wsRect.bottom - h - MARGIN);
         }
 
-        setPositionRef.current({ top, left });
+        setPosition({ top, left });
         setReady(true);
     }, [anchorX, anchorY, workspace]);
 
-    // 미리 지정된 폰트 크기 중 스크롤바가 안 생기는 최대 크기 탐색 (큰 것부터)
     function fitFont(el: HTMLElement) {
         for (let i = RESULT_FONT_SIZES.length - 1; i >= 0; i--) {
             el.style.fontSize = RESULT_FONT_SIZES[i] + "px";
             if (el.scrollHeight <= el.clientHeight && el.scrollWidth <= el.clientWidth) return;
         }
-        // 최소 크기에서도 넘치면 최소로 고정 (스크롤 허용)
         el.style.fontSize = RESULT_FONT_SIZES[0] + "px";
     }
 
@@ -263,31 +276,18 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
         onDismiss(rootRef.current);
     }, [onDismiss]);
 
-    const handlePositionChange = useCallback((pos: { x: number; y: number }) => {
-        lastPositionRef.current = { top: pos.y, left: pos.x };
-    }, []);
-
     return (
-        <FloatingWindow
+        <div
             ref={rootRef}
-            onPositionChange={handlePositionChange}
-            setPositionRef={setPositionRef}
             className="qdiff-result"
-            enabled
-            constrainToViewport
-            constrainOffset={MARGIN}
-            dragHandleSelector=".qdiff-result-grip"
-            excludeDragHandleSelector=".qdiff-result-close, .qdiff-viewmode-btn"
-            initialPosition={initialPosition}
-            zIndex={9999}
             onMouseDown={(e: React.MouseEvent) => e.stopPropagation()}
             style={{
+                position: "fixed",
+                zIndex: 9999,
                 width: RESULT_MAX_WIDTH,
                 height: RESULT_MAX_HEIGHT,
                 minWidth: RESULT_MIN_WIDTH,
                 minHeight: RESULT_MIN_HEIGHT,
-                maxWidth: wsSize.width,
-                maxHeight: wsSize.height,
             }}
         >
             <div className="qdiff-result-titlebar qdiff-result-grip">
@@ -312,7 +312,7 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
             <div ref={contentCallbackRef} className="qdiff-result-content">
                 {renderContent(result.entries, viewMode)}
             </div>
-        </FloatingWindow>
+        </div>
     );
 }
 

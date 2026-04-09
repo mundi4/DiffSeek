@@ -67,7 +67,7 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
         cursor.moveNext(); // cursor: 조 → 의
         code = skipOptionalWs(cursor); // 의 소비, 공백 최대 1개 건너뜀 ("조의 2" 허용)
         if (code >= 0x30 && code <= 0x39) {
-            // cursor는 이미 첫 숫자에 위치 (skipWs가 전진함)
+            // cursor는 이미 첫 숫자에 위치 (skipOptionalWs가 전진함)
             subNumber = parseAsciiNumber(cursor, code);
             if (!subNumber) return null;
             code = cursor.current; // parseAsciiNumber가 종결자까지 전진함

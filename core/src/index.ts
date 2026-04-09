@@ -97,6 +97,7 @@
 // // This allows external consumers to use the stable public API
 
 export { DiffseekEngine } from "./engine/diffseek-engine";
+export type { GetTextForTokenSpanOptions } from "./engine/diffseek-engine";
 export type { EditorName } from "./editor";
 export type * from "./types";
 

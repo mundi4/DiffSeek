@@ -1,5 +1,4 @@
 import { useT } from "@/i18n";
-import type { DiffseekEngine } from "@core";
 import { FloatingWindow } from "@mantine/core";
 import { useQuickDiff } from "@/hooks/use-quick-diff";
 import { QuickDiffType, type QuickDiffEntry } from "@/quick-diff";
@@ -319,8 +318,8 @@ function ResultPopover({ result, anchorX, anchorY, workspace, lastPositionRef, o
 
 // ── Root ──
 
-export function InlineDiffPopover({ engine }: { engine: DiffseekEngine }) {
-    const { available, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult } = useQuickDiff(engine);
+export function InlineDiffPopover({ hostRef }: { hostRef: React.RefObject<HTMLElement | null> }) {
+    const { available, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult } = useQuickDiff(hostRef);
     const lastPositionRef = useRef<{ top: number; left: number } | null>(null);
 
     // Alt+Q 단축키
@@ -338,14 +337,14 @@ export function InlineDiffPopover({ engine }: { engine: DiffseekEngine }) {
     return (
         <>
             {menu && (
-                <SelectionMenu x={menu.x} y={menu.y} opacity={menuOpacity} workspace={engine.workspaceEl} onClickDiff={requestDiff} />
+                <SelectionMenu x={menu.x} y={menu.y} opacity={menuOpacity} workspace={hostRef.current!} onClickDiff={requestDiff} />
             )}
             {result && resultPosition && (
                 <ResultPopover
                     result={result}
                     anchorX={resultPosition.x}
                     anchorY={resultPosition.y}
-                    workspace={engine.workspaceEl}
+                    workspace={hostRef.current!}
                     lastPositionRef={lastPositionRef}
                     onDismiss={dismissResult}
                 />

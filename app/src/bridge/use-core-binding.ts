@@ -1,4 +1,4 @@
-import { diffContextAtom, diffseekOptionsAtom, diffWorkflowStatusAtom, hoveredDiffIndexAtom, paletteAtom, syncModeAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
+import { diffContextAtom, diffseekOptionsAtom, diffWorkflowStatusAtom, hoveredDiffIndexAtom, paletteAtom, selectionSpanAtom, syncModeAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
 import type { DiffseekEngine } from "@core";
 import { getDefaultStore, useSetAtom } from "jotai";
 import { useEffect } from "react";
@@ -11,6 +11,7 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
     const setHoveredDiffIndex = useSetAtom(hoveredDiffIndexAtom);
     const setDiffWorkflowStatus = useSetAtom(diffWorkflowStatusAtom);
     const setPalette = useSetAtom(paletteAtom);
+    const setSelectionSpan = useSetAtom(selectionSpanAtom);
 
     useEffect(() => {
         const unsub: (() => void)[] = [];
@@ -88,6 +89,14 @@ export function useCoreBinding({ engine }: { engine: DiffseekEngine }) {
 
         unsub.push(engine.on('hoveredDiffIndexChanged', (diffIndex) => {
             setHoveredDiffIndex(diffIndex);
+        }));
+
+        unsub.push(engine.on('selectionChanged', (data) => {
+            if (data.left && data.right) {
+                setSelectionSpan({ left: data.left, right: data.right });
+            } else {
+                setSelectionSpan(null);
+            }
         }));
 
         return () => {

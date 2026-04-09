@@ -1,20 +1,18 @@
-import type { DiffseekEngine } from "@core";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useAtomValue } from "jotai";
 import { computeCharDiff, type QuickDiffEntry, type QuickDiffResult } from "@/quick-diff";
+import { selectionSpanAtom } from "@/states/core-atoms";
+import { useDiffseekActions } from "@/bridge/diffseek-provider";
 
-const CHAR_THRESHOLD = 10000;
+const CHAR_THRESHOLD = 4000;
 const MENU_FADE_START = 40;
 const MENU_FADE_END = 120;
-
-type Span = { start: number; end: number };
 
 type SelectionMenuState = {
     x: number;
     y: number;
     anchorX: number;
     anchorY: number;
-    leftSpan: Span;
-    rightSpan: Span;
 };
 
 export type QuickDiffState = {
@@ -27,14 +25,14 @@ export type QuickDiffState = {
     dismissResult: (popoverEl?: HTMLElement | null) => void;
 };
 
-export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
-    const [available, setAvailable] = useState(false);
+export function useQuickDiff(hostRef: React.RefObject<HTMLElement | null>): QuickDiffState {
+    const selectionSpan = useAtomValue(selectionSpanAtom);
+    const { segmentSpanPair, getTextForTokenSpan } = useDiffseekActions();
     const [menu, setMenu] = useState<SelectionMenuState | null>(null);
     const [menuOpacity, setMenuOpacity] = useState(1);
     const [result, setResult] = useState<QuickDiffResult | null>(null);
     const [resultPosition, setResultPosition] = useState<{ x: number; y: number } | null>(null);
     const savedSelectionRef = useRef<Range | null>(null);
-    const lastSpanRef = useRef<{ left: Span; right: Span } | null>(null);
 
     const menuRef = useRef(menu);
     menuRef.current = menu;
@@ -42,18 +40,14 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
     resultPositionRef.current = resultPosition;
     const hasResultRef = useRef(false);
     hasResultRef.current = result !== null;
+    const selectionSpanRef = useRef(selectionSpan);
+    selectionSpanRef.current = selectionSpan;
 
     useEffect(() => {
-        const updateLastSpan = (span: { left: Span; right: Span } | null) => {
-            lastSpanRef.current = span;
-            setAvailable(span !== null);
-        };
         let isDragging = false;
 
-        const workspace = engine.workspaceEl;
-
         const handleMouseDown = (e: MouseEvent) => {
-            if (!workspace.contains(e.target as Node)) return;
+            if (!hostRef.current?.contains(e.target as Node)) return;
             isDragging = true;
             closeMenu();
         };
@@ -62,7 +56,7 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
             if (!isDragging) return;
             isDragging = false;
 
-            if (lastSpanRef.current) {
+            if (selectionSpanRef.current) {
                 const sel = window.getSelection();
                 if (sel && sel.rangeCount > 0 && !sel.getRangeAt(0).collapsed) {
                     setMenu({
@@ -70,8 +64,6 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
                         y: e.clientY,
                         anchorX: e.clientX,
                         anchorY: e.clientY,
-                        leftSpan: lastSpanRef.current.left,
-                        rightSpan: lastSpanRef.current.right,
                     });
                 }
             }
@@ -104,32 +96,29 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
             }
         };
 
-        const handleSelectionChange = (data: { left: Span | null; right: Span | null }) => {
-            if (data.left && data.right) {
-                updateLastSpan({ left: data.left, right: data.right });
-            } else {
-                updateLastSpan(null);
-                closeMenu();
-            }
-        };
-
         document.addEventListener("mousedown", handleMouseDown);
         document.addEventListener("mouseup", handleMouseUp);
         document.addEventListener("mousemove", handleMouseMove);
         document.addEventListener("scroll", handleScroll, true);
-        const unsub = engine.on("selectionChanged", handleSelectionChange);
 
         return () => {
             document.removeEventListener("mousedown", handleMouseDown);
             document.removeEventListener("mouseup", handleMouseUp);
             document.removeEventListener("mousemove", handleMouseMove);
             document.removeEventListener("scroll", handleScroll, true);
-            unsub();
         };
-    }, [engine]);
+    }, [hostRef]);
+
+    // selectionSpan이 null이 되면 메뉴 닫기
+    useEffect(() => {
+        if (!selectionSpan) {
+            setMenu(null);
+            setMenuOpacity(1);
+        }
+    }, [selectionSpan]);
 
     const requestDiff = useCallback(() => {
-        const span = lastSpanRef.current;
+        const span = selectionSpanRef.current;
         if (!span) return;
 
         const sel = window.getSelection();
@@ -145,7 +134,7 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
         const posY = alreadyOpen ? resultPositionRef.current!.y : (m?.y ?? window.innerHeight / 2);
         setMenu(null);
 
-        const segments = engine.segmentSpanPair(span.left, span.right);
+        const segments = segmentSpanPair(span.left, span.right);
         if (segments.length === 0) {
             setResult(null);
             setResultPosition(null);
@@ -157,8 +146,16 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
 
         for (let si = 0; si < segments.length; si++) {
             const seg = segments[si];
-            let leftText = seg.left ? (engine.getTextForTokenSpan("left", seg.left) ?? "") : "";
-            let rightText = seg.right ? (engine.getTextForTokenSpan("right", seg.right) ?? "") : "";
+            const remaining = CHAR_THRESHOLD * 2 - totalChars;
+
+            let leftText = seg.left ? (getTextForTokenSpan("left", seg.left, { maxLength: remaining + 1 }) ?? "") : "";
+            if (leftText.length > remaining) {
+                setResult(null);
+                setResultPosition(null);
+                return;
+            }
+
+            let rightText = seg.right ? (getTextForTokenSpan("right", seg.right, { maxLength: remaining - leftText.length + 1 }) ?? "") : "";
 
             if (si === segments.length - 1) {
                 leftText = leftText.trimEnd();
@@ -190,7 +187,7 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
             entries: allEntries,
         });
         setResultPosition({ x: posX, y: posY });
-    }, [engine]);
+    }, [segmentSpanPair, getTextForTokenSpan]);
 
     const dismissResult = useCallback((popoverEl?: HTMLElement | null) => {
         const saved = savedSelectionRef.current;
@@ -214,5 +211,5 @@ export function useQuickDiff(engine: DiffseekEngine): QuickDiffState {
         setResultPosition(null);
     }, []);
 
-    return { available, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult };
+    return { available: selectionSpan !== null, menu, menuOpacity, result, resultPosition, requestDiff, dismissResult };
 }

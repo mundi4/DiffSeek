@@ -115,7 +115,7 @@ export function App() {
                     <DiffList />
                     <SidebarFooter />
                 </aside>
-                <InlineDiffPopover engine={engine} />
+                <InlineDiffPopover hostRef={hostRef} />
                 {/* <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} /> */}
                 {/* <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} /> */}
             </Provider>

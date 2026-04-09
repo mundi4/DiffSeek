@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import type { DiffseekActions } from "./types";
-import type { DiffOptions, DiffseekEngine, DiffseekOptions } from "@core";
+import type { DiffOptions, DiffseekEngine, DiffseekOptions, GetTextForTokenSpanOptions, Span } from "@core";
 
 export function useCoreActions({ engine }: { engine: DiffseekEngine }) {
     return useMemo(() => {
@@ -29,7 +29,15 @@ export function useCoreActions({ engine }: { engine: DiffseekEngine }) {
 
             setHoveredDiff(diffIndex: number | null) {
                 engine.setHoveredDiff(diffIndex);
-            }
+            },
+
+            getTextForTokenSpan(side: "left" | "right", span: Span, options?: GetTextForTokenSpanOptions) {
+                return engine.getTextForTokenSpan(side, span, options);
+            },
+
+            segmentSpanPair(leftSpan: Span, rightSpan: Span) {
+                return engine.segmentSpanPair(leftSpan, rightSpan);
+            },
 
         } satisfies DiffseekActions;
 

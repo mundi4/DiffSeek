@@ -1,4 +1,4 @@
-import { getDefaultDiffseekOptions, type DiffWorkflowStatus, type DiffEntry, type DiffseekOptions, type Palette } from "@core";
+import { getDefaultDiffseekOptions, type DiffWorkflowStatus, type DiffEntry, type DiffseekOptions, type Palette, type Span } from "@core";
 import { atom } from "jotai";
 import { atomWithStorage, createJSONStorage } from "jotai/utils";
 
@@ -92,6 +92,13 @@ export const diffsAtom = atom<DiffEntry[] | null>((get) => {
 });
 
 export const visibleDiffIndexesAtom = atom<{ left: number[], right: number[] }>({ left: [], right: [] });
+
+export type SelectionSpanState = {
+    left: Span;
+    right: Span;
+} | null;
+
+export const selectionSpanAtom = atom<SelectionSpanState>(null);
 
 // ──────────────────────────────────────────────
 // Quick Diff

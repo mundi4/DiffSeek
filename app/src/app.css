@@ -140,6 +140,11 @@ body {
   font-family: "돋움체", monospace;
 }
 
+.diff-list-newline {
+  opacity: 0.4;
+  font-size: 0.85em;
+}
+
 .diff-list-item .text:empty::after {
   content: "💭";
   user-select: none;

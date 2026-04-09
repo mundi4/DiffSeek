@@ -11,6 +11,13 @@ import type { EditorName, SavedScrollRef } from "../editor";
 import type { DiffOptions } from "../diff/types";
 import { TOKEN_BUFFER_STRIDE } from "../constants";
 import type { DiffseekOptions, Palette, Span } from "../types";
+import { TOKEN_FLAGS_TYPE_IMAGE, type Token } from "../tokenization";
+
+export type GetTextForTokenSpanOptions = {
+    maxLength?: number;
+    image?: string | ((token: Token) => string);
+    newline?: string;
+};
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
@@ -468,21 +475,36 @@ export class DiffseekEngine {
         this.renderer.setHoveredDiffIndex(diffIndex);
     }
 
-    getTextForTokenSpan(side: EditorName, span: Span): string | null {
+    getTextForTokenSpan(side: EditorName, span: Span, options?: GetTextForTokenSpanOptions): string | null {
         if (!this.diffContext) return null;
         const tokens = side === "left" ? this.diffContext.leftTokens : this.diffContext.rightTokens;
         if (span.start < 0 || span.end > tokens.length || span.start >= span.end) return null;
         const editor = side === "left" ? this.leftEditor : this.rightEditor;
         const wholeText = editor.wholeText;
+        const maxLength = options?.maxLength;
+        const image = options?.image;
+        const newline = options?.newline;
         let result = "";
         for (let i = span.start; i < span.end; i++) {
             const token = tokens[i];
-            if (token.flags & 0x2 /* TOKEN_FLAGS_TYPE_IMAGE */) continue;
+            if (token.flags & TOKEN_FLAGS_TYPE_IMAGE) {
+                if (image != null) {
+                    result += typeof image === "function" ? image(token) : image;
+                }
+                continue;
+            }
             const start = token.textOffset;
             const end = i + 1 < tokens.length
                 ? tokens[i + 1].textOffset
                 : token.textOffset + token.textLength;
-            result += wholeText.slice(start, end);
+            let chunk = wholeText.slice(start, end);
+            if (newline != null) {
+                chunk = chunk.replace(/\n/g, newline);
+            }
+            result += chunk;
+            if (maxLength != null && result.length >= maxLength) {
+                return result.slice(0, maxLength);
+            }
         }
         return result;
     }

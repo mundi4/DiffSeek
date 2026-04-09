@@ -1,6 +1,5 @@
 import { useDiffseekActions } from "@/bridge/diffseek-provider";
 import { diffsAtom, hoveredDiffIndexAtom, paletteAtom, visibleDiffIndexesAtom } from "@/states/core-atoms";
-import { extractTextFromRange } from "@/utils/extract-text-from-range";
 import { ActionIcon, Box, Stack } from "@mantine/core";
 import { getDiffHue } from "@core";
 import clsx from "clsx";
@@ -14,7 +13,7 @@ export function DiffList() {
     const leftVisibleSet = useMemo(() => new Set(leftVisibleDiffsIndices), [leftVisibleDiffsIndices]);
     const rightVisibleSet = useMemo(() => new Set(rightVisibleDiffsIndices), [rightVisibleDiffsIndices]);
     const lastDiffs = useRef<(Omit<DiffListItemProps, "leftVisible" | "rightVisible" | "highlighted">)[]>([]);
-    const { setHoveredDiff, scrollToDiff } = useDiffseekActions();
+    const { setHoveredDiff, scrollToDiff, getTextForTokenSpan } = useDiffseekActions();
     const hoveredDiffIndex = useAtomValue(hoveredDiffIndexAtom);
 
     const onClick = useCallback((e: MouseEvent, diffIndex: number, side?: "left" | "right") => {
@@ -42,15 +41,15 @@ export function DiffList() {
         const mapped = _diffs.map((diff) => ({
             diffIndex: diff.diffIndex,
             hue: getDiffHue(diff.diffIndex, palette?.diffHues ?? []),
-            leftText: extractTextFromRange(diff.leftRange, { maxLength: 25 })[0],
-            rightText: extractTextFromRange(diff.rightRange, { maxLength: 25 })[0],
+            leftText: getTextForTokenSpan("left", diff.leftSpan, { maxLength: 25, image: "🖼️" }) ?? "",
+            rightText: getTextForTokenSpan("right", diff.rightSpan, { maxLength: 25, image: "🖼️" }) ?? "",
             onClick,
             onMouseEnter,
             onMouseLeave,
         }));
         lastDiffs.current = mapped;
         return mapped;
-    }, [_diffs, onClick, onMouseEnter, onMouseLeave, palette]);
+    }, [_diffs, onClick, onMouseEnter, onMouseLeave, palette, getTextForTokenSpan]);
 
     return (
         <div className={`diff-list ${_diffs === null ? "diff-list--disabled" : ""}`}>
@@ -111,13 +110,13 @@ const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, righ
                 side="left"
                 visible={leftVisible}
             />
-            <div className="text">{leftText}</div>
+            <div className="text"><DiffListText text={leftText} /></div>
 
             <SideTagButton
                 side="right"
                 visible={rightVisible}
             />
-            <div className="text">{rightText}</div>
+            <div className="text"><DiffListText text={rightText} /></div>
         </Box>
     );
 }, (prev, next) => {
@@ -129,6 +128,18 @@ const DiffListItem = memo(function DiffListItem({ diffIndex, hue, leftText, righ
         && prev.rightVisible === next.rightVisible
         && prev.highlighted === next.highlighted;
 });
+
+function DiffListText({ text }: { text: string }) {
+    const parts = text.split("\n");
+    if (parts.length === 1) return <>{text}</>;
+    return <>
+        {parts.map((part, i) => (
+            i === 0
+                ? <span key={i}>{part}</span>
+                : <span key={i}><span className="diff-list-newline">↵</span>{part}</span>
+        ))}
+    </>;
+}
 
 export type SideTagButtonProps = {
     side: "left" | "right";

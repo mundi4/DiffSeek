@@ -1,4 +1,4 @@
-import type { DiffOptions, DiffseekOptions } from "@core";
+import type { DiffOptions, DiffseekOptions, GetTextForTokenSpanOptions, Span } from "@core";
 
 export type DiffseekActions = {
 
@@ -13,4 +13,8 @@ export type DiffseekActions = {
     scrollToDiff(diffIndex: number, side: "left" | "right" | "both", options?: ScrollIntoViewOptions): void;
 
     setHoveredDiff(diffIndex: number | null): void;
+
+    getTextForTokenSpan(side: "left" | "right", span: Span, options?: GetTextForTokenSpanOptions): string | null;
+
+    segmentSpanPair(leftSpan: Span, rightSpan: Span): { left: Span | null; right: Span | null }[];
 };

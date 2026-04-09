@@ -560,17 +560,20 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
                 collapsable = false;
 
-                if (!tokenStartPos && (nextTokenFlags & TOKEN_FLAGS_LINE_START) && (meta & CM_HEADING_START)) {
+                if (!tokenStartPos && (meta & CM_HEADING_START)) {
                     const headingStartPos = cursor.getPos();
-                    const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle);
+                    const isLineStart = !!(nextTokenFlags & TOKEN_FLAGS_LINE_START);
+                    const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle, isLineStart);
                     if (match) {
                         const headingEndPos = cursor.getPos();
-                        nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
+                        if (isLineStart) {
+                            nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
+                            sectionHeadings.push({ ...match, tokenIndex: tokens.length });
+                        }
                         addToken(TOKEN_FLAGS_TYPE_TEXT, match.text, TOKEN_FLAGS_WORD_LIKE,
                             textNodeBuf[headingStartPos.nodeIndex], headingStartPos.charIndex,
                             textNodeBuf[headingEndPos.nodeIndex], headingEndPos.charIndex,
                         );
-                        sectionHeadings.push({ ...match, tokenIndex: tokens.length - 1 });
                         continue;
                     }
                 }

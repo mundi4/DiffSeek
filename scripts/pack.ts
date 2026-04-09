@@ -62,9 +62,8 @@ const jsContent = allDistFiles
 const htmlContent = `<!DOCTYPE html>
 <!--
   Diffseek
-  ㅂㄹ지원부 ㅅㅈㅅ - expiration date: 2026
+  법률지원부 ㅅㅈㅅ
   GitHub: https://github.com/mundi4/diffseek
-  이메일: mundi4@gmail.com
 -->
 <html lang="ko">
   <head>

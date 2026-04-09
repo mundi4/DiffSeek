@@ -1,6 +1,6 @@
 import type { TextNodeCursor } from "./text-node-cursor";
 import { CHAR_META } from "../char-meta";
-import { CM_LETTER, CM_WS } from "../char-meta-flags";
+import { CM_LETTER, CM_NUMBER, CM_WS } from "../char-meta-flags";
 import { SECTION_HEADING_TYPE_HANGUL_DOT, SECTION_HEADING_TYPE_HANGUL_PAREN, SECTION_HEADING_TYPE_LAW_ARTICLE, SECTION_HEADING_TYPE_NUMERIC_DOT, SECTION_HEADING_TYPE_NUMERIC_PAREN, SECTION_HEADING_TYPE_PAREN_HANGUL, SECTION_HEADING_TYPE_PAREN_NUMERIC } from "../constants/section-heading";
 
 export const HANGUL_ORDER = "가나다라마바사아자차카타파하거너더러머버서어저처커터퍼허";
@@ -75,19 +75,13 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
             return null;
         }
         // 종결자 검증
-        if (code !== -1 && !(code === 46 || code === 40 || CHAR_META[code] & CM_WS)) {
+        if (code !== -1 && (CHAR_META[code] & (CM_LETTER | CM_NUMBER))) {
             return null;
         }
         // '의N'까지 이미 소비됨 — 추가 moveNext 불필요
     } else {
-        if (code !== -1) {
-            if (code === 46 // 제1조.
-                || code === 40 // 제1조(
-                || CHAR_META[code] & CM_WS) { // "제1조 "
-                // good
-            } else {
-                return null;
-            }
+        if (code !== -1 && (CHAR_META[code] & (CM_LETTER | CM_NUMBER))) {
+            return null;
         }
         // '조'를 소비하여 cursor를 종결자 위치로 이동
         cursor.moveNext();

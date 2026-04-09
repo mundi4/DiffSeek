@@ -560,6 +560,29 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
 
                 collapsable = false;
 
+                // 비-word-like 토큰이 쌓여있는 상태에서 heading 패턴이 매칭되면
+                // headingStartPos까지만 flush하고 heading을 별도 토큰으로 방출한다.
+                // match 실패 시 cursor는 tryMatchSectionHeading이 복원하므로 flush 없이 통과.
+                if (tokenStartPos && currentWordCategory === 0 && (meta & CM_HEADING_START)) {
+                    const headingStartPos = cursor.getPos();
+                    const isLineStart = !!(nextTokenFlags & TOKEN_FLAGS_LINE_START);
+                    const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle, isLineStart);
+                    if (match) {
+                        flushChunkRange(headingStartPos);
+                        flushText(headingStartPos);
+                        const headingEndPos = cursor.getPos();
+                        if (isLineStart) {
+                            nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
+                            sectionHeadings.push({ ...match, tokenIndex: tokens.length });
+                        }
+                        addToken(TOKEN_FLAGS_TYPE_TEXT, match.text, TOKEN_FLAGS_WORD_LIKE,
+                            textNodeBuf[headingStartPos.nodeIndex], headingStartPos.charIndex,
+                            textNodeBuf[headingEndPos.nodeIndex], headingEndPos.charIndex,
+                        );
+                        continue;
+                    }
+                }
+
                 if (!tokenStartPos && (meta & CM_HEADING_START)) {
                     const headingStartPos = cursor.getPos();
                     const isLineStart = !!(nextTokenFlags & TOKEN_FLAGS_LINE_START);

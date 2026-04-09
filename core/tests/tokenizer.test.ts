@@ -252,6 +252,197 @@ describe('section heading tokenization', () => {
         expect(tokens[idx].flags & HEADING_MASK).toBe(0);
     });
 
+    // ─── 선행 텍스트 붙어있으면 병합 안 됨 ─────────────────────────────────────
+
+    it('"텍스트제1조" — 공백 없이 붙으면 섹션헤딩도 아니고 병합도 안 됨', async () => {
+        const { texts, sectionHeadings } = await tok('<div>텍스트제1조 내용</div>');
+        expect(texts).not.toContain('제1조');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('"텍스트 제1조" — 공백으로 분리되면 병합은 되지만 헤딩 아님', async () => {
+        const { texts, sectionHeadings } = await tok('<div>텍스트 제1조 내용</div>');
+        expect(texts).toContain('제1조');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    // ─── 비-word-like 뒤 heading 패턴 병합 ──────────────────────────────────────
+
+    it('"(3)~(5)" — (3)은 헤딩, (3)과 (5) 둘 다 병합', async () => {
+        const { texts, tokens, sectionHeadings } = await tok('<div>(3)~(5) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(5)');
+        expect(sectionHeadings).toHaveLength(1);
+        expect(sectionHeadings[0].text).toBe('(3)');
+        const idx5 = texts.indexOf('(5)');
+        expect(tokens[idx5].flags & HEADING_MASK).toBe(0);
+    });
+
+    it('"(3)-(5)" — 둘 다 병합', async () => {
+        const { texts, sectionHeadings } = await tok('<div>(3)-(5) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(5)');
+        expect(sectionHeadings).toHaveLength(1);
+    });
+
+    it('"(3),(4),(5)" — 셋 다 병합', async () => {
+        const { texts, sectionHeadings } = await tok('<div>(3),(4),(5) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(4)');
+        expect(texts).toContain('(5)');
+        expect(sectionHeadings).toHaveLength(1);
+        expect(sectionHeadings[0].text).toBe('(3)');
+    });
+
+    it('"(3) ~ (5)" — 공백 있어도 둘 다 병합', async () => {
+        const { texts } = await tok('<div>(3) ~ (5) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(5)');
+    });
+
+    it('"(3)과 (4)" — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>(3)과 (4) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(4)');
+    });
+
+    it('"(3)과(4)" — (3)은 병합, ( 분리 후 4)가 병합', async () => {
+        const { texts, sectionHeadings } = await tok('<div>(3)과(4) 내용</div>');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(');
+        expect(texts).toContain('4)');
+        expect(texts).not.toContain('(4)');
+        expect(sectionHeadings).toHaveLength(1);
+    });
+
+    it('"참고한다(4),5),6))" — (에서 실패해도 4), 5), 6) 각각 병합', async () => {
+        const { texts } = await tok('<div>참고한다(4),5),6)) 내용</div>');
+        expect(texts).toContain('4)');
+        expect(texts).toContain('5)');
+        expect(texts).toContain('6)');
+        expect(texts).not.toContain('(4)');
+    });
+
+    it('"참고(제1조)" — 제1조 병합', async () => {
+        const { texts } = await tok('<div>참고(제1조) 내용</div>');
+        expect(texts).toContain('제1조');
+    });
+
+    // ─── 법조문 종결자 ────────────────────────────────────────────────────────
+
+    it('"제1조~제5조" — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>제1조~제5조 내용</div>');
+        expect(texts).toContain('제1조');
+        expect(texts).toContain('제5조');
+    });
+
+    it('"제1조, 제2조" — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>제1조, 제2조 내용</div>');
+        expect(texts).toContain('제1조');
+        expect(texts).toContain('제2조');
+    });
+
+    it('"제1조항" — false positive 방지 (letter 뒤따름)', async () => {
+        const { texts } = await tok('<div>제1조항 내용</div>');
+        expect(texts).not.toContain('제1조');
+    });
+
+    it('"제1조2" — false positive 방지 (number 뒤따름)', async () => {
+        const { texts } = await tok('<div>제1조2 내용</div>');
+        expect(texts).not.toContain('제1조');
+    });
+
+    // ─── 비-word-like 뒤 heading: 다양한 타입 ────────────────────────────────
+
+    it('"1.~3." — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>1.~3. 내용</div>');
+        expect(texts).toContain('1.');
+        expect(texts).toContain('3.');
+    });
+
+    it('"1)~3)" — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>1)~3) 내용</div>');
+        expect(texts).toContain('1)');
+        expect(texts).toContain('3)');
+    });
+
+    it('"가.~다." — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>가.~다. 내용</div>');
+        expect(texts).toContain('가.');
+        expect(texts).toContain('다.');
+    });
+
+    it('"(가)~(다)" — 둘 다 병합', async () => {
+        const { texts } = await tok('<div>(가)~(다) 내용</div>');
+        expect(texts).toContain('(가)');
+        expect(texts).toContain('(다)');
+    });
+
+    it('"(1)~(2)~(3)" — 연속 범위 셋 다 병합', async () => {
+        const { texts } = await tok('<div>(1)~(2)~(3) 내용</div>');
+        expect(texts).toContain('(1)');
+        expect(texts).toContain('(2)');
+        expect(texts).toContain('(3)');
+    });
+
+    it('"(1)/(2)" — 슬래시 구분도 병합', async () => {
+        const { texts } = await tok('<div>(1)/(2) 내용</div>');
+        expect(texts).toContain('(1)');
+        expect(texts).toContain('(2)');
+    });
+
+    it('"제1조(1)" — 법조문 뒤 괄호 번호 각각 병합', async () => {
+        const { texts } = await tok('<div>제1조(1) 내용</div>');
+        expect(texts).toContain('제1조');
+        expect(texts).toContain('(1)');
+    });
+
+    // ─── 비-word-like 뒤 heading: 매치 실패 시 flush 안 함 ───────────────────
+
+    it('"~(abc)" — ( 매치 실패 시 정상 토큰화', async () => {
+        const { texts } = await tok('<div>(1)~(abc) 내용</div>');
+        expect(texts).toContain('(1)');
+        expect(texts).not.toContain('(abc)');
+    });
+
+    it('"~제abc" — 제 매치 실패, 제abc는 letter끼리 병합', async () => {
+        const { texts } = await tok('<div>(1)~제abc 내용</div>');
+        expect(texts).toContain('(1)');
+        expect(texts).toContain('제abc');
+        expect(texts).not.toContain('제1조');
+    });
+
+    // ─── word-like 직후 heading 패턴: 병합 안 됨 ────────────────────────────
+
+    it('"abc(1)" — word-like 직후 (는 heading 시도 안 함', async () => {
+        const { texts } = await tok('<div>abc(1) 내용</div>');
+        expect(texts).not.toContain('(1)');
+        expect(texts).toContain('1)');
+    });
+
+    it('"abc1. 내용" — word-like 직후 숫자는 heading 시도 안 함', async () => {
+        const { texts } = await tok('<div>abc1. 내용</div>');
+        expect(texts).not.toContain('1.');
+    });
+
+    // ─── 법조문 종결자 추가 엣지케이스 ───────────────────────────────────────
+
+    it('"(제1조의2)" — 괄호 안 부조 병합', async () => {
+        const { texts } = await tok('<div>참고(제1조의2) 내용</div>');
+        expect(texts).toContain('제1조의2');
+    });
+
+    it('"제1조의2~제3조" — 부조와 일반조 범위 병합', async () => {
+        const { texts } = await tok('<div>제1조의2~제3조 내용</div>');
+        expect(texts).toContain('제1조의2');
+        expect(texts).toContain('제3조');
+    });
+
+    it('"제1조의2항" — 부조 뒤 letter로 false positive 방지', async () => {
+        const { texts } = await tok('<div>제1조의2항 내용</div>');
+        expect(texts).not.toContain('제1조의2');
+    });
+
     // ─── false positive 보호 ──────────────────────────────────────────────────
 
     it('"1.5" — 소수점이므로 병합하지 않음', async () => {

@@ -495,6 +495,49 @@ describe('section heading tokenization', () => {
     });
 });
 
+// ─── diff 시나리오: "(2) ~ (3) (생략)" 토큰화 확인 ────────────────────────
+
+describe('heading merge in diff scenario', () => {
+
+    it('LEFT: "(1)~(4)" 각 줄 heading 병합', async () => {
+        const html = '<div>(1) 요약</div><div>(2) 제목</div><div>(3) 프로세스</div><div>(4) 기타</div>';
+        const { texts, sectionHeadings } = await tok(html);
+        expect(texts).toContain('(1)');
+        expect(texts).toContain('(2)');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(4)');
+        expect(sectionHeadings).toHaveLength(4);
+    });
+
+    it('RIGHT: "(2) ~ (3) (생략)" — (2), (3), (4) 각각 병합', async () => {
+        const html = '<div>(1) 요약</div><div>(2) ~ (3) (생략)</div><div>(4) </div>';
+        const { texts, sectionHeadings } = await tok(html);
+        expect(texts).toContain('(1)');
+        expect(texts).toContain('(2)');
+        expect(texts).toContain('(3)');
+        expect(texts).toContain('(4)');
+        // (1) heading, (2) heading, (3) 비-줄시작이라 heading 아님
+        // (4) 줄시작이지만 뒤에 word-like 없으므로 heading 아님 — 병합만
+        expect(sectionHeadings).toHaveLength(2);
+        expect(sectionHeadings[0].text).toBe('(1)');
+        expect(sectionHeadings[1].text).toBe('(2)');
+    });
+
+    it('"(4) " — 뒤에 word-like 없으면 병합은 되지만 heading 플래그 없음', async () => {
+        const { texts, tokens, sectionHeadings } = await tok('<div>(4) </div>');
+        expect(texts).toContain('(4)');
+        expect(sectionHeadings).toHaveLength(0);
+        const idx = texts.indexOf('(4)');
+        expect(tokens[idx].flags & HEADING_MASK).toBe(0);
+    });
+
+    it('"(4)" — 뒤에 아무것도 없어도 병합', async () => {
+        const { texts, sectionHeadings } = await tok('<div>(4)</div>');
+        expect(texts).toContain('(4)');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+});
+
 // ─── letter/digit 경계 분리 ────────────────────────────────────────────────
 
 async function tokWithMerge(html: string, merge: boolean) {
@@ -508,12 +551,12 @@ async function tokWithMerge(html: string, merge: boolean) {
 
 describe('letter/digit boundary split', () => {
 
-    it('"제32조" — split(기본값): 3토큰', async () => {
-        expect(await tokWithMerge('<div>제32조</div>', false)).toEqual(['제', '32', '조']);
+    it('"항32목" — split(기본값): 3토큰', async () => {
+        expect(await tokWithMerge('<div>항32목</div>', false)).toEqual(['항', '32', '목']);
     });
 
-    it('"제32조" — merge: 1토큰', async () => {
-        expect(await tokWithMerge('<div>제32조</div>', true)).toEqual(['제32조']);
+    it('"항32목" — merge: 1토큰', async () => {
+        expect(await tokWithMerge('<div>항32목</div>', true)).toEqual(['항32목']);
     });
 
     it('"page3" — split(기본값): 분리', async () => {

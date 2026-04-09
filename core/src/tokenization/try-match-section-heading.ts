@@ -31,6 +31,8 @@ export type SectionHeadingMatch = {
     type: number;
     text: string;
     ordinal: number;
+    /** heading 뒤에 word-like 문자가 있었는지 여부. false면 토큰 병합만 하고 heading 플래그는 부여하지 않는다. */
+    hasFollowingContent: boolean;
 };
 
 function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
@@ -187,15 +189,12 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
 
     if (match) {
         const headingEndPos = cursor.getPos();
+        let hasFollowingContent = true;
         if (requireWordLike) {
             // LAW_ARTICLE(제N조)은 줄 시작에 나오는 것 자체가 강한 신호이므로
             // allowStandaloneLawArticle 옵션이 켜져 있으면 word-like 검사를 건너뛴다.
             if (!(allowStandaloneLawArticle && match.type === SECTION_HEADING_TYPE_LAW_ARTICLE)) {
-                const hasWordLike = scanHasWordLike(cursor);
-                if (!hasWordLike) {
-                    cursor.moveTo(start);
-                    return null;
-                }
+                hasFollowingContent = scanHasWordLike(cursor);
             }
         }
         cursor.moveTo(headingEndPos);
@@ -203,6 +202,7 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
             type: match.type,
             text: match.text,
             ordinal: match.ordinal,
+            hasFollowingContent,
         };
     }
 

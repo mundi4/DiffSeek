@@ -571,7 +571,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                         flushChunkRange(headingStartPos);
                         flushText(headingStartPos);
                         const headingEndPos = cursor.getPos();
-                        if (isLineStart) {
+                        if (isLineStart && match.hasFollowingContent) {
                             nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
                             sectionHeadings.push({ ...match, tokenIndex: tokens.length });
                         }
@@ -589,7 +589,7 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
                     const match = tryMatchSectionHeading(cursor, code, allowStandaloneLawArticle, isLineStart);
                     if (match) {
                         const headingEndPos = cursor.getPos();
-                        if (isLineStart) {
+                        if (isLineStart && match.hasFollowingContent) {
                             nextTokenFlags |= (match.type << PAYLOAD_SHIFT) | TOKEN_FLAGS_IS_HEADING;
                             sectionHeadings.push({ ...match, tokenIndex: tokens.length });
                         }

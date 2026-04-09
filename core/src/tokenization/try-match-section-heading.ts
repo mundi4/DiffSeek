@@ -37,7 +37,7 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
     let code: number = -1;
     let meta: number = 0;
 
-    code = skipWs(cursor);
+    code = skipOptionalWs(cursor);
     if (code < 0x30 || code > 0x39) {
         return null;
     }
@@ -51,7 +51,8 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
     meta = CHAR_META[code];
 
     if (meta & CM_WS) {
-        code = skipWs(cursor);
+        if (!cursor.moveNext()) return null;
+        code = cursor.current;
     }
 
     if (code !== 0xc870) { // 조
@@ -64,9 +65,9 @@ function tryMatchLawArticle(cursor: TextNodeCursor): NumberingMatch | null {
     let subNumber: number | null = null;
     if (code === 0xc758) { // 의
         cursor.moveNext(); // cursor: 조 → 의
-        code = skipWs(cursor); // 의 소비, 공백 건너뜀 ("조의 2" 허용)
+        code = skipOptionalWs(cursor); // 의 소비, 공백 최대 1개 건너뜀 ("조의 2" 허용)
         if (code >= 0x30 && code <= 0x39) {
-            // cursor는 이미 첫 숫자에 위치 (skipWs가 전진함)
+            // cursor는 이미 첫 숫자에 위치 (skipOptionalWs가 전진함)
             subNumber = parseAsciiNumber(cursor, code);
             if (!subNumber) return null;
             code = cursor.current; // parseAsciiNumber가 종결자까지 전진함
@@ -105,13 +106,8 @@ function tryMatchParenthesized(cursor: TextNodeCursor): NumberingMatch | null {
     let code: number = -1;
     let meta: number = 0;
 
-    while (cursor.moveNext()) {
-        code = cursor.current;
-        meta = CHAR_META[code];
-        if (!(meta & CM_WS)) {
-            break;
-        }
-    }
+    code = skipOptionalWs(cursor);
+    if (code === -1) return null;
 
     const number = parseOrdinal(cursor, code);
     if (!number) {
@@ -121,13 +117,8 @@ function tryMatchParenthesized(cursor: TextNodeCursor): NumberingMatch | null {
     code = cursor.current;
     meta = CHAR_META[code];
     if (meta & CM_WS) {
-        while (cursor.moveNext()) {
-            code = cursor.current;
-            meta = CHAR_META[code];
-            if (!(meta & CM_WS)) {
-                break;
-            }
-        }
+        if (!cursor.moveNext()) return null;
+        code = cursor.current;
     }
 
     if (code !== 0x29) { // )
@@ -152,10 +143,16 @@ function tryMatchNumberWithSuffix(cursor: TextNodeCursor): NumberingMatch | null
     let meta: number = CHAR_META[code];
 
     if (meta & CM_WS) {
-        code = skipWs(cursor);
+        if (!cursor.moveNext()) return null;
+        code = cursor.current;
     }
 
     if (code === 0x2e) { // .
+        // false positive 보호: 1.5 같은 소수점 방지
+        const peek = cursor.peek();
+        if (peek >= 0x30 && peek <= 0x39) {
+            return null;
+        }
         number.text = `${number.text}.`;
         // 접미 문자를 소비해서 중복 토큰 생성을 방지한다.
         cursor.moveNext();
@@ -180,7 +177,7 @@ function scanHasWordLike(cursor: TextNodeCursor): boolean {
     return false;
 }
 
-export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number, allowStandaloneLawArticle = false): SectionHeadingMatch | null {
+export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: number, allowStandaloneLawArticle = false, requireWordLike = true): SectionHeadingMatch | null {
     const start = cursor.getPos();
     let match: NumberingMatch | null = null;
 
@@ -196,13 +193,15 @@ export function tryMatchSectionHeading(cursor: TextNodeCursor, firstCharCode: nu
 
     if (match) {
         const headingEndPos = cursor.getPos();
-        // LAW_ARTICLE(제N조)은 줄 시작에 나오는 것 자체가 강한 신호이므로
-        // allowStandaloneLawArticle 옵션이 켜져 있으면 word-like 검사를 건너뛴다.
-        if (!(allowStandaloneLawArticle && match.type === SECTION_HEADING_TYPE_LAW_ARTICLE)) {
-            const hasWordLike = scanHasWordLike(cursor);
-            if (!hasWordLike) {
-                cursor.moveTo(start);
-                return null;
+        if (requireWordLike) {
+            // LAW_ARTICLE(제N조)은 줄 시작에 나오는 것 자체가 강한 신호이므로
+            // allowStandaloneLawArticle 옵션이 켜져 있으면 word-like 검사를 건너뛴다.
+            if (!(allowStandaloneLawArticle && match.type === SECTION_HEADING_TYPE_LAW_ARTICLE)) {
+                const hasWordLike = scanHasWordLike(cursor);
+                if (!hasWordLike) {
+                    cursor.moveTo(start);
+                    return null;
+                }
             }
         }
         cursor.moveTo(headingEndPos);
@@ -257,14 +256,13 @@ function parseAsciiNumber(cursor: TextNodeCursor, firstCode: number): number | n
     return number;
 }
 
-function skipWs(cursor: TextNodeCursor): number {
-    let code = -1;
-    let meta = 0;
-
-    while (cursor.moveNext()) {
+/** 공백을 최대 1개만 건너뜀 (0 or 1). */
+function skipOptionalWs(cursor: TextNodeCursor): number {
+    if (!cursor.moveNext()) return -1;
+    let code = cursor.current;
+    if (CHAR_META[code] & CM_WS) {
+        if (!cursor.moveNext()) return -1;
         code = cursor.current;
-        meta = CHAR_META[code];
-        if (!(meta & CM_WS)) break;
     }
     return code;
 }

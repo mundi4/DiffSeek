@@ -225,10 +225,57 @@ describe('section heading tokenization', () => {
         expect(sectionHeadings).toHaveLength(0);
     });
 
-    // ─── 줄 중간은 헤딩 아님 ─────────────────────────────────────────────────
+    // ─── 줄 중간 패턴 병합 (헤딩 플래그 없음) ──────────────────────────────────
 
-    it('줄 중간에 나오는 "1."은 헤딩 아님', async () => {
-        const { sectionHeadings } = await tok('<div>ABC 1. 내용</div>');
+    it('줄 중간 "1."은 패턴 병합되지만 헤딩 아님', async () => {
+        const { texts, sectionHeadings } = await tok('<div>ABC 1. 내용</div>');
+        expect(texts).toContain('1.');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('줄 중간 "(1)"은 패턴 병합되지만 헤딩 아님', async () => {
+        const { texts, sectionHeadings } = await tok('<div>ABC (1) 내용</div>');
+        expect(texts).toContain('(1)');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('줄 중간 "제1조"는 패턴 병합되지만 헤딩 아님', async () => {
+        const { texts, sectionHeadings } = await tok('<div>ABC 제1조 내용</div>');
+        expect(texts).toContain('제1조');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('줄 중간 병합 토큰에는 HEADING_MASK 없음', async () => {
+        const { tokens, texts } = await tok('<div>ABC (1) 내용</div>');
+        const idx = texts.indexOf('(1)');
+        expect(idx).toBeGreaterThan(0);
+        expect(tokens[idx].flags & HEADING_MASK).toBe(0);
+    });
+
+    // ─── false positive 보호 ──────────────────────────────────────────────────
+
+    it('"1.5" — 소수점이므로 병합하지 않음', async () => {
+        const { texts } = await tok('<div>1.5 내용</div>');
+        expect(texts).not.toContain('1.');
+        expect(texts[0]).toBe('1');
+    });
+
+    it('줄 중간 "1.5" — 소수점이므로 병합하지 않음', async () => {
+        const { texts } = await tok('<div>ABC 1.5 내용</div>');
+        expect(texts).not.toContain('1.');
+    });
+
+    // ─── 공백 규칙 강화 (공백? — 최대 1개) ────────────────────────────────────
+
+    it('"제  1  조" — 공백 2개 이상이면 병합하지 않음', async () => {
+        const { texts, sectionHeadings } = await tok('<div>제  1  조 제목</div>');
+        expect(texts).not.toContain('제1조');
+        expect(sectionHeadings).toHaveLength(0);
+    });
+
+    it('"(  1  )" — 공백 2개 이상이면 병합하지 않음', async () => {
+        const { texts, sectionHeadings } = await tok('<div>(  1  ) 제목</div>');
+        expect(texts).not.toContain('(1)');
         expect(sectionHeadings).toHaveLength(0);
     });
 

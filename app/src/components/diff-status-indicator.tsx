@@ -32,7 +32,9 @@ export function DiffStatusIndicator() {
     };
 
     function formatMs(ms: number) {
-        return ms < 1000 ? `${ms.toFixed(0)}${t.unitMs}` : `${(ms / 1000).toFixed(1)}${t.unitS}`;
+        if (ms < 1000) return `${ms.toFixed(0)}ms`;
+        if (ms < 10000) return `${(ms / 1000).toFixed(1)}s`;
+        return `${Math.round(ms / 1000)}s`;
     }
 
     const busy = status.phase !== "idle";

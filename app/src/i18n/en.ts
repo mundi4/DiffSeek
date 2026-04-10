@@ -9,9 +9,6 @@ export const en: Messages = {
     tokens: "Pieces",
     diffs: "Differences",
 
-    unitMs: "ms",
-    unitS: "s",
-
     // ── options-modal: categories ──
     catGeneral: "General",
     catGeneralDesc: "Basic settings",

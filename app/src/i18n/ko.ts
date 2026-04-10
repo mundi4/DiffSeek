@@ -7,9 +7,6 @@ export const ko = {
     tokens: "단어 조각",
     diffs: "다른 곳",
 
-    unitMs: "밀리초",
-    unitS: "초",
-
     // ── options-modal: categories ──
     catGeneral: "일반",
     catGeneralDesc: "기본 설정",

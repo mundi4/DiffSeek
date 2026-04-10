@@ -192,7 +192,7 @@ export async function runHistogramDiff(
             localLcpScratch = new Uint32Array(requiredSize);
             localIdsScratch = new Uint32Array(requiredSize);
         }
-        const cntSize = Math.max(requiredSize + 2, maxId + 2);
+        const cntSize = Math.max(requiredSize + 2, maxId + 3);
         if (localCntScratch.length < cntSize) {
             localCntScratch = new Uint32Array(cntSize);
         }
@@ -226,8 +226,10 @@ export async function runHistogramDiff(
         const rhsLoG = _pivot + rhsLower;
         const rhsHiG = _pivot + rhsUpper;
 
-        const m = lhsRange + rhsRange;
-        if (m < 2) return { anchor: null, rank: null };
+        // LHS와 RHS 사이에 sentinel을 삽입하여 경계를 넘는 LCP 매칭을 차단
+        const sentinelId = maxId + 1;
+        const m = lhsRange + 1 + rhsRange;
+        if (m < 3) return { anchor: null, rank: null }; // lhsRange + rhsRange < 2
 
         // 서브영역 토큰만으로 SA/LCP를 스크래치 빌드
         ensureLocalScratchCapacity(m);
@@ -240,31 +242,19 @@ export async function runHistogramDiff(
             const cnt_l = localCntScratch;
             const ids_l = localIdsScratch.subarray(0, m);
 
-            // 1) ID를 연속 배열에 복사 + rank 초기화
+            // 1) ID를 연속 배열에 복사: [LHS tokens, sentinel, RHS tokens]
             for (let ii = 0; ii < lhsRange; ii++) ids_l[ii] = _lhsIds[lhsLower + ii];
-            for (let ii = 0; ii < rhsRange; ii++) ids_l[lhsRange + ii] = _rhsIds[rhsLower + ii];
+            ids_l[lhsRange] = sentinelId;
+            for (let ii = 0; ii < rhsRange; ii++) ids_l[lhsRange + 1 + ii] = _rhsIds[rhsLower + ii];
 
             let maxRank: number;
-            if (parentRank && parentLhsLower !== undefined && parentRhsLower !== undefined && parentLhsRange !== undefined) {
-                // 부모 rank를 초기값으로 사용 → doubling 반복 횟수 대폭 감소
-                for (let ii = 0; ii < lhsRange; ii++) {
-                    rank_l[ii] = parentRank[(lhsLower + ii) - parentLhsLower];
-                }
-                for (let ii = 0; ii < rhsRange; ii++) {
-                    rank_l[lhsRange + ii] = parentRank[parentLhsRange + (rhsLower + ii) - parentRhsLower];
-                }
-                maxRank = 0;
-                for (let ii = 0; ii < m; ii++) {
-                    sa_l[ii] = ii;
-                    if (rank_l[ii] > maxRank) maxRank = rank_l[ii];
-                }
-            } else {
-                // 최초 호출: 원본 ID를 rank로 사용
+            // 원본 ID를 rank로 사용
+            {
                 for (let ii = 0; ii < m; ii++) {
                     sa_l[ii] = ii;
                     rank_l[ii] = ids_l[ii];
                 }
-                maxRank = maxId;
+                maxRank = sentinelId;
             }
 
             // 2) Doubling + Counting Sort
@@ -325,12 +315,17 @@ export async function runHistogramDiff(
                 lcp_l[r - 1] = h_k;
             }
 
-            // 4) local SA → global position 변환
+            // 4) local SA → global position 변환 (sentinel 위치는 그대로 유지)
             for (let ii = 0; ii < m; ii++) {
                 const lp = sa_l[ii];
-                sa_l[ii] = lp < lhsRange
-                    ? lhsLower + lp
-                    : _pivot + rhsLower + (lp - lhsRange);
+                if (lp < lhsRange) {
+                    sa_l[ii] = lhsLower + lp;
+                } else if (lp === lhsRange) {
+                    // sentinel — LHS/RHS 어느 범위에도 속하지 않는 값
+                    sa_l[ii] = rhsHiG;
+                } else {
+                    sa_l[ii] = _pivot + rhsLower + (lp - lhsRange - 1);
+                }
             }
         }
 

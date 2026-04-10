@@ -734,7 +734,12 @@ export async function tokenize(root: HTMLElement, signal: AbortSignal, options: 
         }
 
         if (tokens.length > 0) {
-            tokens[tokens.length - 1].flags |= TOKEN_FLAGS_LINE_END;
+            // 마지막 텍스트 토큰에 LINE_END 설정.
+            // 구조적 토큰은 lastToken을 갱신하지 않으므로,
+            // tokens[length-1]이 구조적 토큰이면 마지막 텍스트 토큰을 놓침.
+            if (lastToken) {
+                lastToken.flags |= TOKEN_FLAGS_LINE_END;
+            }
             if (wholeTextLastChar !== 10 /* \n */) {
                 wholeTextBuf.push("\n");
                 wholeTextLastChar = 10 /* \n */;

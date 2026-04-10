@@ -73,8 +73,8 @@ export interface DiffScoreSystem {
     maxCoreScore: number;
 
     policyTable: Uint16Array;
-    positionalTable: Uint16Array;
-    maxBonus: number;
+    positionalMultipliers: Float64Array;
+    maxBonusMultiplier: number;
 }
 
 export type DiffAnchor = {

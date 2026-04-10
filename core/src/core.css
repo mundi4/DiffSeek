@@ -141,9 +141,6 @@
   background-clip: content-box;
 }
 
-.ds-editor::-webkit-scrollbar-track {
-}
-
 @supports not selector(::-webkit-scrollbar) {
   .ds-editor {
     scrollbar-color: var(--ds-scrollbar-thumb) transparent;
@@ -163,7 +160,7 @@
   font-size: var(--ds-base-font-size);
   padding: var(--ds-content-padding);
   scroll-padding-top: calc(3em * var(--ds-line-height));
-  word-break: break-word;
+  word-break: keep-all;
   overflow-wrap: anywhere;
   outline: none;
   background-color: transparent;
@@ -176,7 +173,7 @@
 }
 
 .ds-editor-content p {
-  margin-block: 0;
+  margin: 0 0 0.5em 0;
 }
 
 .ds-editor-content pre {
@@ -185,7 +182,7 @@
   font-size: inherit;
   line-height: inherit;
   white-space: pre-wrap;
-  word-break: break-word;
+  word-break: break-all;
 }
 
 .ds-editor-content code {

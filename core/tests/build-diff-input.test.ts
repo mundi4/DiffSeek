@@ -318,8 +318,8 @@ describe("buildDiffScoreSystem", () => {
         expect(system).toHaveProperty("coreScoreTable");
         expect(system).toHaveProperty("maxCoreScore");
         expect(system).toHaveProperty("policyTable");
-        expect(system).toHaveProperty("positionalTable");
-        expect(system).toHaveProperty("maxBonus");
+        expect(system).toHaveProperty("positionalMultipliers");
+        expect(system).toHaveProperty("maxBonusMultiplier");
     });
 
     it("unique (1:1) frequency pair gets grade 0", () => {

@@ -109,13 +109,12 @@ export function buildDiffScoreSystem(
             Math.floor(policyWeights[i] * coreMaxScore);
     }
 
-    // ---------- positional ----------
-    const positionalTable =
-        new Uint16Array(positionalWeights.length);
+    // ---------- positional (multiplier) ----------
+    const positionalMultipliers =
+        new Float64Array(positionalWeights.length);
 
     for (let i = 0; i < positionalWeights.length; i++) {
-        positionalTable[i] =
-            Math.floor(positionalWeights[i] * coreMaxScore);
+        positionalMultipliers[i] = 1 + positionalWeights[i];
     }
 
     return {
@@ -133,7 +132,7 @@ export function buildDiffScoreSystem(
         maxCoreScore: coreMaxScore,
 
         policyTable,
-        positionalTable,
-        maxBonus: policyTable[policyTable.length - 1] + positionalTable[positionalTable.length - 1],
+        positionalMultipliers,
+        maxBonusMultiplier: positionalMultipliers[positionalMultipliers.length - 1],
     } satisfies DiffScoreSystem;
 }

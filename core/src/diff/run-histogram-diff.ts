@@ -17,11 +17,14 @@ export async function runHistogramDiff(
     lhsResultOffset = 0,
     rhsResultOffset = 0,
 ) {
+    let total = 0;
+    let prune1Count = 0;
+
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
 
     const { tokenCount: _lhsTokenCount, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
-    const { tokenCount: _rhsTokenCount, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
+    const { tokenCount: _rhsTokenCount, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
 
     const MIN_YIELD_INTERVAL_MS = 50;
 
@@ -42,12 +45,7 @@ export async function runHistogramDiff(
     const { pivot: _pivot, lhsIds: _lhsIds, rhsIds: _rhsIds, numCommonIds, maxId } = buildIdTables(lhsInput, rhsInput);
 
     async function diffCore(
-        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
-        depth = 0,
-        parentRank?: InstanceType<typeof Uint32Array> | null,
-        parentLhsLower?: number,
-        parentRhsLower?: number,
-        parentLhsRange?: number,
+        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number
     ): Promise<void> {
         if (lhsLower > lhsUpper || rhsLower > rhsUpper) {
             throw new Error(`Invalid range: lhs[${lhsLower}, ${lhsUpper}), rhs[${rhsLower}, ${rhsUpper})`);
@@ -77,41 +75,34 @@ export async function runHistogramDiff(
             await yieldIfNeeded();
         }
 
-        const { anchor, rank: currentRank } = await findAnchor(
-            lhsLower, lhsUpper, rhsLower, rhsUpper, depth,
-            parentRank, parentLhsLower, parentRhsLower, parentLhsRange,
+        const anchor = await findAnchor(
+            lhsLower, lhsUpper, rhsLower, rhsUpper
         );
-        const childLhsRange = lhsCount;
-        if (anchor
-        ) {
+
+        if (anchor) {
             if (anchor.lhsStart === anchor.lhsEnd || anchor.rhsStart === anchor.rhsEnd) {
-                console.warn(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Ignoring this anchor.`);
+                //console.warn(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Ignoring this anchor.`);
+                //throw new Error(`Anchor with zero length found: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}`);
             }
             if (anchor.lhsEnd - anchor.lhsStart !== anchor.rhsEnd - anchor.rhsStart) {
-                console.warn(`Anchor length mismatch: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Adjusting to minimum of the two.`);
+                //console.warn(`Anchor length mismatch: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}. This should not happen. Adjusting to minimum of the two.`);
+                throw new Error(`Anchor length mismatch: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}`);
             }
 
             if (lhsLower < anchor.lhsStart || rhsLower < anchor.rhsStart) {
-                await diffCore(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart,
-                    depth + 1, currentRank, lhsLower, rhsLower, childLhsRange);
+                await diffCore(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart);
             }
 
             // 지금 구현에서는 앵커는 반드시 토큰 대 토큰이 정확히 매치되어야 한다.
-            let afterLhsStart: number, afterRhsStart: number;
-            if (anchor.lhsEnd - anchor.lhsStart === anchor.rhsEnd - anchor.rhsStart) {
-                for (let i = anchor.lhsStart, j = anchor.rhsStart; i < anchor.lhsEnd && j < anchor.rhsEnd; i++, j++) {
-                    writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, i, i + 1, j, j + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
-                }
-                afterLhsStart = anchor.lhsEnd;
-                afterRhsStart = anchor.rhsEnd;
-            } else {
-                afterLhsStart = anchor.lhsStart;
-                afterRhsStart = anchor.rhsStart;
+            for (let i = anchor.lhsStart, j = anchor.rhsStart; i < anchor.lhsEnd && j < anchor.rhsEnd; i++, j++) {
+                writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, i, i + 1, j, j + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
             }
 
+            const afterLhsStart = anchor.lhsEnd;
+            const afterRhsStart = anchor.rhsEnd;
+
             if (afterLhsStart < lhsUpper || afterRhsStart < rhsUpper) {
-                await diffCore(afterLhsStart, lhsUpper, afterRhsStart, rhsUpper,
-                    depth + 1, currentRank, lhsLower, rhsLower, childLhsRange);
+                await diffCore(afterLhsStart, lhsUpper, afterRhsStart, rhsUpper);
             }
 
         } else {
@@ -131,11 +122,11 @@ export async function runHistogramDiff(
         coreScoreTable: core,
         freqRowBase: fRow,
         policyTable: policyTable,
-        positionalTable: positionalTable,
+        positionalMultipliers,
         freqMax: fMax,
         freqStride: fStride,
         lenMax: lMax,
-        maxBonus
+        maxBonusMultiplier
     } = ctx.score;
 
 
@@ -146,13 +137,13 @@ export async function runHistogramDiff(
         hi: number,
         baseScore: number,
         bestPossibleScore: number,
-        structuralOnly: boolean
+        lengthGrade: number,
     };
 
     const MAX_NUM_ANCHOR_CANDIDATES = 20;
     const anchorCandidates: AnchorCandidate[] = new Array(MAX_NUM_ANCHOR_CANDIDATES);
     for (let i = 0; i < MAX_NUM_ANCHOR_CANDIDATES; i++) {
-        anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0, structuralOnly: false };
+        anchorCandidates[i] = { h: 0, lo: 0, hi: 0, baseScore: 0, bestPossibleScore: 0, lengthGrade: 0 };
     }
 
     // Local SA scratch buffers — 서브영역 SA를 스크래치 빌드할 때 재사용
@@ -163,18 +154,6 @@ export async function runHistogramDiff(
     let localCntScratch = new Uint32Array(0);
     let localLcpScratch = new Uint32Array(0);
     let localIdsScratch = new Uint32Array(0);
-
-    // depth-indexed rank pool — 재귀 깊이별로 rank 버퍼 재사용
-    const rankPool: InstanceType<typeof Uint32Array>[] = [];
-    function getRankBuffer(depth: number, size: number): InstanceType<typeof Uint32Array> {
-        if (depth >= rankPool.length) rankPool.length = depth + 1;
-        if (!rankPool[depth] || rankPool[depth].length < size) {
-            rankPool[depth] = new Uint32Array(size);
-        }
-        return rankPool[depth];
-    }
-
-    type FindAnchorResult = { anchor: DiffAnchor | null, rank: InstanceType<typeof Uint32Array> | null };
 
     function ensureLocalScratchCapacity(requiredSize: number) {
         if (localSaScratch.length < requiredSize) {
@@ -192,15 +171,11 @@ export async function runHistogramDiff(
     }
 
     async function findAnchor(
-        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number,
-        depth: number,
-        parentRank?: InstanceType<typeof Uint32Array> | null,
-        parentLhsLower?: number,
-        parentRhsLower?: number,
-        parentLhsRange?: number,
-    ): Promise<FindAnchorResult> {
-        _findAnchorTotal++;
-        const MAX_BONUS_SCORE = maxBonus;
+        lhsLower: number, lhsUpper: number, rhsLower: number, rhsUpper: number
+    ): Promise<DiffAnchor | null> {
+
+        // console.log(`Finding anchor for LHS[${lhsLower}, ${lhsUpper}), RHS[${rhsLower}, ${rhsUpper}) with ${numCommonIds} common IDs out of ${maxId} total IDs.`);
+        const MAX_BONUS_MULT = maxBonusMultiplier;
 
         const lhsRange = lhsUpper - lhsLower;
         const rhsRange = rhsUpper - rhsLower;
@@ -222,7 +197,7 @@ export async function runHistogramDiff(
         // LHS와 RHS 사이에 sentinel을 삽입하여 경계를 넘는 LCP 매칭을 차단
         const sentinelId = maxId + 1;
         const m = lhsRange + 1 + rhsRange;
-        if (m < 3) return { anchor: null, rank: null }; // lhsRange + rhsRange < 2
+        if (m < 3) return null; // lhsRange + rhsRange < 2
 
         // 서브영역 토큰만으로 SA/LCP를 스크래치 빌드
         ensureLocalScratchCapacity(m);
@@ -331,17 +306,11 @@ export async function runHistogramDiff(
 
         let numCandidates = 0;
         function tryUpdateBestAnchor(l: number, r: number, h: number, baseScore: number, structuralOnly: boolean) {
-            // const lf = _lhsFlags[l];
-            // const rf = _rhsFlags[r];
-
-            // policyGrade 비활성화: 앵커 매치 범위 [l, l+h) 중 항상 첫 토큰만
-            // 체크하므로 줄시작/헤딩 판정이 부정확함
-            // let policyGrade = 0;
-            // if ((lf & HEADING_MASK) && (rf & HEADING_MASK)) {
-            //     policyGrade = 2;
-            // } else if ((lf & TOKEN_FLAGS_LINE_START) && (rf & TOKEN_FLAGS_LINE_START)) {
-            //     policyGrade = 1;
-            // }
+            // policyGrade 삭제됨: 앵커 범위 [l, l+h) 내 줄시작/헤딩 존재 여부를 정확히
+            // 판정하려면 O(h) 루프 또는 prefix sum precompute가 필요한데,
+            // 모든 (l, r) 쌍마다 돌아야 하므로 최대 12% 보너스 대비 비용이 과함.
+            // 살리려면 headingPrefixSum / lineStartPrefixSum을 findAnchor 진입 시
+            // O(n) sweep으로 만들고 O(1) 구간 조회하는 방식을 검토할 것.
 
             let posGrade = 0;
 
@@ -359,8 +328,7 @@ export async function runHistogramDiff(
                 }
             }
 
-            const bonusScore = /* policyTable[policyGrade] + */ positionalTable[posGrade];
-            const finalScore = baseScore + bonusScore;
+            const finalScore = Math.round(baseScore * positionalMultipliers[posGrade]);
             if (finalScore > bestScore) {
                 bestScore = finalScore;
                 bestAnchorPosL = l;
@@ -372,7 +340,7 @@ export async function runHistogramDiff(
         function squashAnchorCandidates() {
             for (let i = 0; i < numCandidates; i++) {
                 let numL = 0, numR = 0;
-                const { h, lo, hi, baseScore, bestPossibleScore, structuralOnly } = anchorCandidates[i];
+                const { h, lo, hi, bestPossibleScore, lengthGrade: lg } = anchorCandidates[i];
                 if (bestPossibleScore <= bestScore) {
                     continue;
                 }
@@ -387,6 +355,34 @@ export async function runHistogramDiff(
                     }
                 }
 
+                if (numL === 0 || numR === 0) continue;
+
+                // 실제 빈도로 baseScore 재계산
+                const actualFreqGrade = freqLUT[Math.min(numL, fMax) * fStride + Math.min(numR, fMax)];
+                let actualBaseScore = core[fRow[actualFreqGrade] + lg];
+
+                // 구조토큰 only 페널티: 첫 토큰이 structural이 아니면 즉시 skip
+                let isStructuralOnly = false;
+                const rep = lPosBuf[0]!;
+                if ((_lhsFlags[rep] & TOKEN_TYPE_MASK) === TOKEN_FLAGS_TYPE_STRUCTURAL) {
+                    isStructuralOnly = true;
+                    let maxStructuralLevel = getStructuralElementType(_lhsFlags[rep]);
+                    for (let t = rep + 1; t < rep + h; t++) {
+                        const f = _lhsFlags[t];
+                        if ((f & TOKEN_TYPE_MASK) !== TOKEN_FLAGS_TYPE_STRUCTURAL) {
+                            isStructuralOnly = false;
+                            break;
+                        }
+                        const level = getStructuralElementType(f);
+                        if (level > maxStructuralLevel) maxStructuralLevel = level;
+                    }
+                    if (isStructuralOnly) {
+                        const mIdx = h < _structuralOnlyMultipliers.length ? h : _structuralOnlyMultipliers.length - 1;
+                        const sop = _structuralOnlyMultipliers[mIdx] * (_structuralLevelBonuses[maxStructuralLevel] ?? 1);
+                        actualBaseScore = Math.round(actualBaseScore * sop) || 1;
+                    }
+                }
+
                 if (numL > 1) {
                     lPosBuf.subarray(0, numL).sort();
                 }
@@ -396,7 +392,7 @@ export async function runHistogramDiff(
 
                 if (numL === numR) {
                     for (let x = 0; x < numL; x++) {
-                        tryUpdateBestAnchor(lPosBuf[x]!, rPosBuf[x]!, h, baseScore, structuralOnly);
+                        tryUpdateBestAnchor(lPosBuf[x]!, rPosBuf[x]!, h, actualBaseScore, isStructuralOnly);
                     }
                     continue;
                 }
@@ -404,7 +400,7 @@ export async function runHistogramDiff(
                 for (let x = 0; x < numL; x++) {
                     const l = lPosBuf[x]!;
                     for (let y = 0; y < numR; y++) {
-                        tryUpdateBestAnchor(l, rPosBuf[y]!, h, baseScore, structuralOnly);
+                        tryUpdateBestAnchor(l, rPosBuf[y]!, h, actualBaseScore, isStructuralOnly);
                     }
                 }
             }
@@ -419,6 +415,8 @@ export async function runHistogramDiff(
         stack[0] = 0;
         stack[1] = 0;
         stackSize = 1;
+
+
 
         for (let i = 1; i <= intervalCount; i++) {
             let lastLo = i - 1;
@@ -436,68 +434,35 @@ export async function runHistogramDiff(
                 }
 
                 const hi = i - 1;
+                // console.log(`Interval found: LCP=${h}, range=[${lo}, ${hi}] in local SA`);
 
-                // lhs/rhs 분류 + 이어붙인 배열의 lhs↔rhs 경계 초과 매치 제외
-                let freqL = 0, freqR = 0;
-                let lengthGrade = 0;
-                let textLen = -1;
-                let freqGrade: number;
-                let baseScore = 0;
-                let structuralOnlyPenalty = 1;
-                for (let k = lo; k <= hi; k++) {
-                    const j = localSa[k];
-                    const jEnd = j + h;
-                    if (j >= lhsLower && j < lhsUpper && jEnd <= lhsUpper && freqL < fMax) {
-                        // lPosBuf[freqL] = j;
-                        freqL++;
-                        // 왼쪽에서만 계산해도 됨. 어차피 왼쪽에서 한번도 등장하지 않는다면 이후로는 무시할 거니까!
-                        if (textLen === -1) {
-                            textLen = _lhsOffsets[jEnd] - _lhsOffsets[j];
-                            lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
+                const occurrenceCount = hi - lo + 1;
 
-                            // structural-only 판정 + max level 추적 (early exit)
-                            let isStructuralOnly = true;
-                            let maxStructuralLevel = 0;
-                            for (let t = j; t < jEnd; t++) {
-                                const f = _lhsFlags[t];
-                                if ((f & TOKEN_TYPE_MASK) !== TOKEN_FLAGS_TYPE_STRUCTURAL) {
-                                    isStructuralOnly = false;
-                                    break;
-                                }
-                                const level = getStructuralElementType(f);
-                                if (level > maxStructuralLevel) maxStructuralLevel = level;
-                            }
-                            if (isStructuralOnly) {
-                                const mIdx = h < _structuralOnlyMultipliers.length ? h : _structuralOnlyMultipliers.length - 1;
-                                structuralOnlyPenalty = _structuralOnlyMultipliers[mIdx] * (_structuralLevelBonuses[maxStructuralLevel] ?? 1);
-                            }
-                        }
-                        if (freqR > 0) {
-                            freqGrade = freqLUT[freqL * fStride + freqR];
-                            baseScore = core[fRow[freqGrade] + lengthGrade];
-                            if (structuralOnlyPenalty !== 1) baseScore = Math.round(baseScore * structuralOnlyPenalty) || 1;
-                            if (baseScore + MAX_BONUS_SCORE < bestScore) {
-                                // 쓰레기
-                                baseScore = 0;
-                                break;
-                            }
-                        }
-                        if (freqL === fMax && freqR === fMax) break;
-                    } else if (j >= rhsLoG && j < rhsHiG && jEnd <= rhsHiG && freqR < fMax) {
-                        // rPosBuf[freqR] = j - _pivot;
-                        freqR++;
-                        if (freqL > 0) {
-                            freqGrade = freqLUT[freqL * fStride + freqR];
-                            baseScore = core[fRow[freqGrade] + lengthGrade];
-                            if (structuralOnlyPenalty !== 1) baseScore = Math.round(baseScore * structuralOnlyPenalty) || 1;
-                            if (baseScore + MAX_BONUS_SCORE < bestScore) {
-                                // 쓰레기
-                                baseScore = 0;
-                                break;
-                            }
-                        }
-                        if (freqL === fMax && freqR === fMax) break;
-                    }
+                // 최소 양쪽에 하나씩은 있어야 하니까
+                if (occurrenceCount < 2) {
+                    lastLo = lo;
+                    continue;
+                }
+
+                total++;
+
+                const k = localSa[lo];
+
+                const textLen = k < lhsUpper
+                    ? _lhsOffsets[k + h] - _lhsOffsets[k]
+                    : _rhsOffsets[k - _pivot + h] - _rhsOffsets[k - _pivot];
+                const lengthGrade = lenLUT[textLen > lMax ? lMax : textLen];
+
+                // 가능한 가장 높은 점수를 받도록 좌우 균등 freq를 가정.
+                const bestFreq = Math.min(fMax, occurrenceCount >> 1);
+                const bestFreqGrade = freqLUT[bestFreq * fStride + Math.min(fMax, occurrenceCount - bestFreq)];
+
+                // pruning: freq/len 기반의 최대 점수로 될놈 안될놈 가려내기
+                const baseScore = core[fRow[bestFreqGrade] + lengthGrade];
+                if (bestScore >= Math.round(baseScore * MAX_BONUS_MULT)) {
+                    prune1Count++;
+                    lastLo = lo;
+                    continue;
                 }
 
                 if (baseScore > 0) {
@@ -505,14 +470,14 @@ export async function runHistogramDiff(
                     anchorCandidates[numCandidates].lo = lo;
                     anchorCandidates[numCandidates].hi = hi;
                     anchorCandidates[numCandidates].baseScore = baseScore;
-                    anchorCandidates[numCandidates].bestPossibleScore = baseScore + MAX_BONUS_SCORE;
-                    anchorCandidates[numCandidates].structuralOnly = structuralOnlyPenalty !== 1;
+                    anchorCandidates[numCandidates].bestPossibleScore = Math.round(baseScore * MAX_BONUS_MULT);
+                    anchorCandidates[numCandidates].lengthGrade = lengthGrade;
                     numCandidates++;
                     if (numCandidates === MAX_NUM_ANCHOR_CANDIDATES) {
                         squashAnchorCandidates();
                     }
                 }
-                // --------------------------------------------------------
+
                 lastLo = lo;
             }
 
@@ -537,30 +502,19 @@ export async function runHistogramDiff(
             squashAnchorCandidates();
         }
 
-        // rank를 depth-indexed pool에 저장하여 자식에게 전달
-        const savedRank = getRankBuffer(depth, m);
-        const rank_l = localRankScratch.subarray(0, m);
-        savedRank.set(rank_l);
+        if (bestScore < 0) return null;
 
-        if (bestAnchorPosL !== -1) {
-            return {
-                anchor: {
-                    lhsStart: bestAnchorPosL,
-                    lhsEnd: bestAnchorPosL + bestAnchorLen,
-                    rhsStart: bestAnchorPosR,
-                    rhsEnd: bestAnchorPosR + bestAnchorLen,
-                }, rank: savedRank
-            };
+        return {
+            lhsStart: bestAnchorPosL,
+            lhsEnd: bestAnchorPosL + bestAnchorLen,
+            rhsStart: bestAnchorPosR,
+            rhsEnd: bestAnchorPosR + bestAnchorLen,
         }
-
-        return { anchor: null, rank: null };
     }
-
-    let _findAnchorTotal = 0;
 
     await diffCore(0, _lhsTokenCount, 0, _rhsTokenCount);
 
-    // console.log(`[findAnchor] total=${_findAnchorTotal}`);
+    console.log(`Total intervals processed: ${total}, Prune1 count: ${prune1Count}`);
 }
 
 function buildIdTables(lhsInput: DiffInput, rhsInput: DiffInput) {

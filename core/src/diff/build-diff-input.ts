@@ -1,5 +1,5 @@
 import { TOKEN_BUFFER_STRIDE } from "../constants";
-import { PAYLOAD_SHIFT, TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
+import { PAYLOAD_SHIFT, TOKEN_FLAGS_HAS_FOLLOWING_SPACE, TOKEN_FLAGS_LINE_END, TOKEN_FLAGS_LINE_START, TOKEN_FLAGS_STRUCTURAL_OPEN, TOKEN_FLAGS_TYPE_IMAGE, TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
 import type { DiffInput, DiffOptions } from "./types";
 
 const STRUCTURAL_OPEN_TEXTS = [
@@ -87,7 +87,7 @@ export function buildDiffInput(wholeText: string, data: Int32Array, _diffOptions
         if (tokenType === TOKEN_FLAGS_TYPE_STRUCTURAL) {
             if (STRUCTURAL_TOKEN_LENGTH > 0) {
                 const structuralType = (flags >>> PAYLOAD_SHIFT) & 0x7;
-                let structuralText = (flags < 0 ? STRUCTURAL_CLOSE_TEXTS : STRUCTURAL_OPEN_TEXTS)[structuralType];
+                let structuralText = (flags & TOKEN_FLAGS_STRUCTURAL_OPEN ? STRUCTURAL_OPEN_TEXTS : STRUCTURAL_CLOSE_TEXTS)[structuralType];
                 for (let j = 0; j < STRUCTURAL_TOKEN_LENGTH; j++) {
                     textBuffer[currentPos++] = structuralText.charCodeAt(0);
                 }

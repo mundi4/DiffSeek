@@ -77,6 +77,25 @@ export function getOrCreateEmptyDiffMarker(
     where: InsertPosition,
     allowStacking: boolean = false,
 ): HTMLElement | null {
+    // beforebegin: 이전 run 잔여 마커(ds-diff, ds-anchor)를 역방향으로 건너뛰어
+    // 진짜 컨텐츠 경계까지 which를 이동시킨다.
+    // 이번 run에서 이미 사용 중인 마커(markerElements에 있는)는 건너뛰지 않는다.
+    if (where === "beforebegin") {
+        let prev = which.previousSibling as HTMLElement | null;
+        while (prev) {
+            const name = prev.nodeName;
+            if ((name !== DIFF_TAG_NAME && name !== ANCHOR_TAG_NAME) || markerElements.has(prev)) break;
+            which = prev;
+            prev = prev.previousSibling as HTMLElement | null;
+        }
+        // which 자체가 이전 run 잔여 ds-diff이면 직접 재사용 대상으로 전환
+        if ((which as HTMLElement).nodeName === DIFF_TAG_NAME && !markerElements.has(which as HTMLElement)) {
+            const el = which as HTMLElement;
+            markerElements.set(el, { adjust: 0 });
+            return el;
+        }
+    }
+
     let foundEl: HTMLElement | null = null;
     if (where === "afterend") {
         foundEl = which.nextSibling as HTMLElement;

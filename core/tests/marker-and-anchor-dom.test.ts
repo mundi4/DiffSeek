@@ -330,6 +330,80 @@ describe("getOrCreateEmptyDiffMarker", () => {
         expect(result).toBe(m3);
     });
 
+    // ─── beforebegin: 이전 run 잔여 마커 건너뛰기 ───
+
+    it("beforebegin: skips leftover anchor+diff chain and reuses old diff marker", () => {
+        // 두 번째 run 시나리오: <p>[old-ds-diff][ds-anchor][textNode]</p>
+        // findEmptyDiffMarkerPosition이 {which: textNode, where: "beforebegin"} 반환
+        // → 역방향으로 ds-anchor, old-ds-diff를 건너뛰어 old-ds-diff를 재사용해야 함
+        const p = document.createElement("p");
+        const oldDiff = createDiffEl();
+        const oldAnchor = createAnchorEl();
+        const textNode = document.createTextNode("b");
+        p.appendChild(oldDiff);
+        p.appendChild(oldAnchor);
+        p.appendChild(textNode);
+
+        const map = createMarkerMap();
+        // 둘 다 markerElements에 없음 (이전 run 잔여)
+        const result = getOrCreateEmptyDiffMarker(map, textNode, "beforebegin");
+
+        expect(result).toBe(oldDiff);
+        expect(map.has(oldDiff)).toBe(true);
+    });
+
+    it("beforebegin: stops at marker already in use by current run", () => {
+        // <p>[used-ds-diff][old-ds-anchor][textNode]</p>
+        // used-ds-diff는 이번 run에서 이미 사용 중 → 건너뛰지 않음
+        // stacking 없이는 null 반환 (이미 사용 중인 diff가 유일한 후보)
+        const p = document.createElement("p");
+        const usedDiff = createDiffEl();
+        const oldAnchor = createAnchorEl();
+        const textNode = document.createTextNode("b");
+        p.appendChild(usedDiff);
+        p.appendChild(oldAnchor);
+        p.appendChild(textNode);
+
+        const map = createMarkerMap();
+        map.set(usedDiff, { adjust: 0 }); // 이미 사용 중
+
+        const result = getOrCreateEmptyDiffMarker(map, textNode, "beforebegin");
+
+        // 역방향 탐색으로 oldAnchor에서 멈추고, foundEl = usedDiff
+        // usedDiff가 이미 사용 중이고 stacking 비활성 → null
+        expect(result).toBeNull();
+    });
+
+    it("beforebegin: stops at non-marker node", () => {
+        // <p><span/>[old-ds-diff][textNode]</p>
+        const p = document.createElement("p");
+        const span = document.createElement("span");
+        const oldDiff = createDiffEl();
+        const textNode = document.createTextNode("b");
+        p.appendChild(span);
+        p.appendChild(oldDiff);
+        p.appendChild(textNode);
+
+        const map = createMarkerMap();
+        const result = getOrCreateEmptyDiffMarker(map, textNode, "beforebegin");
+
+        expect(result).toBe(oldDiff);
+    });
+
+    it("beforebegin: no leftover markers → normal behavior", () => {
+        // <p>[textNode]</p> — 첫 run, 잔여 마커 없음
+        const p = document.createElement("p");
+        const textNode = document.createTextNode("b");
+        p.appendChild(textNode);
+
+        const map = createMarkerMap();
+        const result = getOrCreateEmptyDiffMarker(map, textNode, "beforebegin");
+
+        expect(result).not.toBeNull();
+        expect(result!.nodeName).toBe(DIFF_TAG_NAME);
+        expect(textNode.previousSibling).toBe(result);
+    });
+
     // ─── 비diff/비anchor 요소가 있는 위치 ───
 
     it("creates new marker when non-diff element exists at position", () => {
@@ -438,6 +512,52 @@ describe("cleanupUnusedMarkers", () => {
         const curr: MarkerElementsMap = new Map();
 
         expect(() => cleanupUnusedMarkers(prev, curr)).not.toThrow();
+    });
+
+    it("regression #111: second run preserves ds-diff before ds-anchor order", () => {
+        // 시나리오: 왼쪽 <p>a</p><p>b</p>, 오른쪽 <p>b</p><p><br></p>
+        // 첫 run → <p>[ds-diff][ds-anchor]b</p> (정상 순서)
+        // 두 번째 run → 순서가 역전되면 안됨
+        const p = document.createElement("p");
+        const textNode = document.createTextNode("b");
+        p.appendChild(textNode);
+        const cleanup = attachToDocument(p);
+
+        // ── 첫 run ──
+        const map1 = createMarkerMap();
+
+        // handleDiff: diff marker 생성 (beforebegin of textNode)
+        const diff = getOrCreateEmptyDiffMarker(map1, textNode, "beforebegin");
+        expect(diff).not.toBeNull();
+        expect(diff!.nodeName).toBe(DIFF_TAG_NAME);
+
+        // handleCommon: anchor 생성 (afterend of diff → diff를 건너뛴 위치)
+        const anchor = getOrCreateAnchor(map1, diff!, "afterend");
+        expect(anchor).not.toBeNull();
+        expect(anchor!.nodeName).toBe(ANCHOR_TAG_NAME);
+
+        // 첫 run 결과: <p>[ds-diff][ds-anchor]b</p>
+        expect(p.childNodes[0]).toBe(diff);
+        expect(p.childNodes[1]).toBe(anchor);
+        expect(p.childNodes[2]).toBe(textNode);
+
+        // ── 두 번째 run ── (markerElements 새로 시작, 이전 마커는 DOM에 잔존)
+        const map2 = createMarkerMap();
+
+        // handleDiff: diff marker 재사용 시도 (beforebegin of textNode)
+        const diff2 = getOrCreateEmptyDiffMarker(map2, textNode, "beforebegin");
+        expect(diff2).toBe(diff); // 기존 요소 재사용
+
+        // handleCommon: anchor 재사용 시도 (afterend of diff)
+        const anchor2 = getOrCreateAnchor(map2, diff2!, "afterend");
+        expect(anchor2).toBe(anchor); // 기존 요소 재사용
+
+        // 핵심: 순서가 유지되어야 함 (ds-diff → ds-anchor → textNode)
+        expect(p.childNodes[0]).toBe(diff2);
+        expect(p.childNodes[1]).toBe(anchor2);
+        expect(p.childNodes[2]).toBe(textNode);
+
+        cleanup();
     });
 
     it("handles mixed: some reused, some removed, some borrowed", () => {

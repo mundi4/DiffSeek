@@ -1,7 +1,7 @@
 import '@core/core.css';
 import { DiffseekEngine, type DiffOptions, type EditorName } from '@core';
 import { getDefaultStore, Provider, useAtomValue } from 'jotai';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { DiffseekProvider } from './bridge/diffseek-provider';
 import { SidebarFooter } from './components/sidebar-footer';
 import { DiffList } from './components/diff-list';
@@ -23,6 +23,16 @@ declare global {
 
 const engine = new DiffseekEngine();
 const atomStore = getDefaultStore();
+
+const debugFixtures: { left?: string; right?: string } = {};
+if (import.meta.env.DEV) {
+    try {
+        debugFixtures.left = (await import("./left.html?raw")).default;
+    } catch { /* no fixture */ }
+    try {
+        debugFixtures.right = (await import("./right.html?raw")).default;
+    } catch { /* no fixture */ }
+}
 
 function enableExtension() {
     engine.setExtensionEnabled(true);
@@ -63,17 +73,33 @@ engine.replaceDiffOptions({
 export function App() {
     const hostRef = useRef<HTMLDivElement>(null);
     const diffWorkflowStatus = useAtomValue(diffWorkflowStatusAtom);
-    // const [outlineOpened, setOutlineOpened] = useState(false);
+    const [debugHtmlOpened, setDebugHtmlOpened] = useState(false);
+    const debugTextareaRef = useRef<HTMLTextAreaElement>(null);
+    const debugDialogRef = useRef<HTMLDialogElement>(null);
+
+    const injectHtml = useCallback((side: EditorName) => {
+        const html = debugTextareaRef.current?.value ?? "";
+        engine.setContent(side, html, true);
+        setDebugHtmlOpened(false);
+    }, []);
+
+    useEffect(() => {
+        if (debugHtmlOpened) {
+            debugDialogRef.current?.showModal();
+            debugTextareaRef.current?.focus();
+        } else {
+            debugDialogRef.current?.close();
+        }
+    }, [debugHtmlOpened]);
 
     useEffect(() => {
         hostRef.current!.appendChild(engine.workspaceEl);
 
         const keyDown = (e: KeyboardEvent) => {
-            // if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
-            //     e.preventDefault();
-            //     setOutlineOpened(true);
-            // } else
-            if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
+            if (e.key === "F9" && !(e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                setDebugHtmlOpened(v => !v);
+            } else if (e.key === "F2" && !(e.ctrlKey || e.metaKey)) {
                 e.preventDefault();
                 engine.syncMode = !engine.syncMode;
             } else if ((e.key === "1" || e.key === "2") && e.altKey) {
@@ -86,6 +112,9 @@ export function App() {
         };
 
         window.addEventListener("keydown", keyDown);
+
+        if (debugFixtures.left) engine.setContent("left", debugFixtures.left, true);
+        if (debugFixtures.right) engine.setContent("right", debugFixtures.right, true);
 
         return () => {
             window.removeEventListener("keydown", keyDown);
@@ -115,7 +144,18 @@ export function App() {
                     <SidebarFooter />
                 </aside>
                 <InlineDiffPopover hostRef={hostRef} />
-                {/* <OutlineModal opened={outlineOpened} onClose={() => setOutlineOpened(false)} /> */}
+                <dialog ref={debugDialogRef} onClose={() => setDebugHtmlOpened(false)}
+                    style={{ width: 520, padding: 16, borderRadius: 8, border: '1px solid #888' }}>
+                    <h3 style={{ margin: '0 0 8px' }}>Debug HTML Inject</h3>
+                    <textarea ref={debugTextareaRef} rows={10}
+                        style={{ width: '100%', fontFamily: 'monospace', fontSize: 13, boxSizing: 'border-box' }}
+                        defaultValue="<p>b</p><p><br></p>" />
+                    <div style={{ marginTop: 8, display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
+                        <button onClick={() => injectHtml("left")}>Left</button>
+                        <button onClick={() => injectHtml("right")}>Right</button>
+                        <button onClick={() => setDebugHtmlOpened(false)}>Close</button>
+                    </div>
+                </dialog>
                 {/* <BusyIndicator busy={diffWorkflowStatus.phase !== "idle"} /> */}
             </Provider>
         </DiffseekProvider>

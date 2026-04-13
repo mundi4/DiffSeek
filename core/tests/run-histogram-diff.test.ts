@@ -4,11 +4,11 @@ import { buildDiffInput } from '../src/diff/build-diff-input';
 import { buildDiffScoreSystem } from '../src/diff/build-diff-score-system';
 import { getDefaultDiffOptions } from '../src/diff/get-default-diff-options';
 import { runHistogramDiff } from '../src/diff/run-histogram-diff';
-import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED } from '../src/diff/types';
+import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffOptions } from '../src/diff/types';
 import { tokenize } from '../src/tokenization/tokenize';
 import { TOKEN_FLAGS_TYPE_STRUCTURAL } from '../src/tokenization/token-flags';
 
-async function makeInputFromHtml(html: string) {
+async function makeInputFromHtml(html: string, opts: DiffOptions = getDefaultDiffOptions()) {
     const div = document.createElement('div');
     div.innerHTML = html;
     const signal = new AbortController().signal;
@@ -22,7 +22,39 @@ async function makeInputFromHtml(html: string) {
         data[i * TOKEN_BUFFER_STRIDE + 2] = t.flags;
     }
 
-    return { tokens, wholeText, ...buildDiffInput(wholeText, data, getDefaultDiffOptions()).input };
+    return { tokens, wholeText, ...buildDiffInput(wholeText, data, opts).input };
+}
+
+async function diffHtml(lhsHtml: string, rhsHtml: string, whitespace: 'collapse' | 'ignore') {
+    const opts = getDefaultDiffOptions();
+    opts.whitespace = whitespace;
+    const lhs = await makeInputFromHtml(lhsHtml, opts);
+    const rhs = await makeInputFromHtml(rhsHtml, opts);
+    await runHistogramDiff({
+        reqId: 1,
+        diffOptions: opts,
+        score: buildDiffScoreSystem(),
+        signal: new AbortController().signal,
+    }, lhs, rhs);
+    return { lhs, rhs };
+}
+
+function contentTokenTypes(input: Awaited<ReturnType<typeof makeInputFromHtml>>): Array<{ text: string; type: number }> {
+    const result: Array<{ text: string; type: number }> = [];
+    for (let i = 0; i < input.tokens.length; i++) {
+        const t = input.tokens[i]!;
+        if (t.flags & TOKEN_FLAGS_TYPE_STRUCTURAL) continue;
+        const text = input.wholeText.slice(t.textOffset, t.textOffset + t.textLength);
+        result.push({ text, type: readType(input.resultBuffer, i) });
+    }
+    return result;
+}
+
+function expectAllContentUnchanged(input: Awaited<ReturnType<typeof makeInputFromHtml>>, side: string) {
+    const entries = contentTokenTypes(input);
+    for (const { text, type } of entries) {
+        expect(type, `${side} content token "${text}" should be UNCHANGED`).toBe(DIFF_TYPE_UNCHANGED);
+    }
 }
 
 function readType(resultBuffer: Int32Array, i: number) {
@@ -210,5 +242,222 @@ describe('runHistogramDiff resultBuffer range values', () => {
             expect(i, `rhs token[${i}] should be < selfEnd(${rr.selfEnd})`).toBeLessThan(rr.selfEnd);
             expect(rr.otherEnd, `rhs token[${i}] otherEnd >= otherStart`).toBeGreaterThanOrEqual(rr.otherStart);
         }
+    });
+});
+
+describe('runHistogramDiff whitespace: ignore', () => {
+    it('identical text — same tokenization — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello world</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('single joined token vs two split tokens with same normalized text — all UNCHANGED', async () => {
+        // "helloworld" → 1 token, "hello world" → 2 tokens; both normalize to "helloworld"
+        const { lhs, rhs } = await diffHtml('<p>helloworld</p>', '<p>hello world</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('three tokens vs one token with same normalized text — all UNCHANGED', async () => {
+        // "a b c" → 3 tokens, "abc" → 1 token; both normalize to "abc"
+        const { lhs, rhs } = await diffHtml('<p>a b c</p>', '<p>abc</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('Korean: joined vs space-split — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>안녕하세요</p>', '<p>안녕 하세요</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('differing tokenization inside common anchor neighborhood — all UNCHANGED', async () => {
+        // Both sides have anchors "foo" and "bar"; middle differs in token boundary only
+        const { lhs, rhs } = await diffHtml(
+            '<p>foo hello world bar</p>',
+            '<p>foo helloworld bar</p>',
+            'ignore',
+        );
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('differing tokenization inside common anchor neighborhood (reversed) — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>foo helloworld bar</p>',
+            '<p>foo hello world bar</p>',
+            'ignore',
+        );
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('leading/trailing whitespace variations — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>  hello world  </p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('genuinely different content — common "hello" anchor, differing "world"/"there" marked MODIFIED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello there</p>', 'ignore');
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        // "hello" matches on both sides
+        expect(lhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Both sides have leftover single token → MODIFIED (REMOVED | ADDED)
+        expect(lhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'there')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('common prefix/suffix with differing middle — anchors match, middle tokens MODIFIED', async () => {
+        // lhs: "alpha bravo charlie delta"
+        // rhs: "alpha XXX delta"
+        const { lhs, rhs } = await diffHtml(
+            '<p>alpha bravo charlie delta</p>',
+            '<p>alpha XXX delta</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'delta')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'delta')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Middle: both sides have leftover content → all MODIFIED
+        expect(lhsTypes.find(e => e.text === 'bravo')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(lhsTypes.find(e => e.text === 'charlie')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'XXX')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('common prefix only — lhs-joined vs rhs-split prefix matches via consume, suffix MODIFIED', async () => {
+        // prefix "helloworld" (1 token) vs "hello world" (2 tokens); different suffix
+        const { lhs, rhs } = await diffHtml(
+            '<p>helloworld foo</p>',
+            '<p>hello world bar</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Both sides have leftover suffix → MODIFIED
+        expect(lhsTypes.find(e => e.text === 'foo')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'bar')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('common suffix only — lhs-joined vs rhs-split suffix matches via consume, prefix MODIFIED', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>foo helloworld</p>',
+            '<p>bar hello world</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Both sides have leftover prefix → MODIFIED
+        expect(lhsTypes.find(e => e.text === 'foo')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'bar')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('lhs-only leftover after prefix match — ADDED/REMOVED when one side is empty', async () => {
+        // lhs has extra trailing token; rhs is prefix
+        const { lhs } = await diffHtml('<p>helloworld foo</p>', '<p>hello world</p>', 'ignore');
+        const lhsTypes = contentTokenTypes(lhs);
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // "foo" only on lhs → REMOVED
+        expect(lhsTypes.find(e => e.text === 'foo')?.type).toBe(DIFF_TYPE_REMOVED);
+    });
+
+    it('rhs-only leftover after prefix match — ADDED when one side is empty', async () => {
+        const { rhs } = await diffHtml('<p>helloworld</p>', '<p>hello world bar</p>', 'ignore');
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // "bar" only on rhs → ADDED
+        expect(rhsTypes.find(e => e.text === 'bar')?.type).toBe(DIFF_TYPE_ADDED);
+    });
+});
+
+describe('runHistogramDiff whitespace: collapse', () => {
+    it('identical text — same tokenization — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello world</p>', 'collapse');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('multiple whitespace runs vs single whitespace — all UNCHANGED', async () => {
+        // Multiple spaces collapse to a single space
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello     world</p>', 'collapse');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('tab vs space — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello\tworld</p>', 'collapse');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('joined "helloworld" vs split "hello world" — NOT all UNCHANGED (collapse preserves inner whitespace difference)', async () => {
+        // In collapse mode, these are semantically different: "helloworld" is one word, "hello world" is two.
+        const { lhs, rhs } = await diffHtml('<p>helloworld</p>', '<p>hello world</p>', 'collapse');
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        // "helloworld" should not trivially match "hello" or "world"
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).not.toBe(DIFF_TYPE_UNCHANGED);
+        // At least one of rhs tokens should not be UNCHANGED either
+        const allRhsUnchanged = rhsTypes.every(e => e.type === DIFF_TYPE_UNCHANGED);
+        expect(allRhsUnchanged).toBe(false);
+    });
+
+    it('genuinely different content — "hello" anchor matches, differing tokens MODIFIED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>hello world</p>', '<p>hello there</p>', 'collapse');
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Both sides have leftover single token → MODIFIED
+        expect(lhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'there')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('common prefix/suffix with different middle — anchors match, middle MODIFIED', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>alpha bravo charlie delta</p>',
+            '<p>alpha XXX delta</p>',
+            'collapse',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'delta')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'delta')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Middle: both sides have leftover tokens → MODIFIED
+        expect(lhsTypes.find(e => e.text === 'bravo')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(lhsTypes.find(e => e.text === 'charlie')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'XXX')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('pure lhs removal — REMOVED when rhs has no leftover', async () => {
+        // lhs has extra token that rhs does not
+        const { lhs } = await diffHtml('<p>hello extra world</p>', '<p>hello world</p>', 'collapse');
+        const lhsTypes = contentTokenTypes(lhs);
+        expect(lhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'extra')?.type).toBe(DIFF_TYPE_REMOVED);
+    });
+
+    it('pure rhs addition — ADDED when lhs has no leftover', async () => {
+        const { rhs } = await diffHtml('<p>hello world</p>', '<p>hello new world</p>', 'collapse');
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'new')?.type).toBe(DIFF_TYPE_ADDED);
     });
 });

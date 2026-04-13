@@ -461,3 +461,205 @@ describe('runHistogramDiff whitespace: collapse', () => {
         expect(rhsTypes.find(e => e.text === 'new')?.type).toBe(DIFF_TYPE_ADDED);
     });
 });
+
+describe('runHistogramDiff whitespace: ignore — edge cases', () => {
+    it('match starts after a single differing head token', async () => {
+        // First tokens differ; rest should match via suffix consume (n:m)
+        const { lhs, rhs } = await diffHtml(
+            '<p>alpha helloworld tail</p>',
+            '<p>beta hello world tail</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        // Head differs → MODIFIED (both sides have leftover)
+        expect(lhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'beta')?.type).toBe(DIFF_TYPE_MODIFIED);
+        // Middle matches via n:m consume
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Tail matches via SA (identical token)
+        expect(lhsTypes.find(e => e.text === 'tail')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'tail')?.type).toBe(DIFF_TYPE_UNCHANGED);
+    });
+
+    it('match ends before a single differing tail token', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>head helloworld alpha</p>',
+            '<p>head hello world beta</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'head')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'head')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'helloworld')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'hello')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'world')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'alpha')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'beta')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('extreme 1:N split — "abcdef" vs "a b c d e f" — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>abcdef</p>', '<p>a b c d e f</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('extreme N:1 split — "h e l l o" vs "hello" — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>h e l l o</p>', '<p>hello</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('boundary-misaligned 2:2 — "abc def" vs "abcd ef" — all UNCHANGED', async () => {
+        // Both sides have 2 tokens but split at different positions; normalized text is identical
+        const { lhs, rhs } = await diffHtml('<p>abc def</p>', '<p>abcd ef</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('boundary-misaligned 3:2 — "ab cd ef" vs "abcd ef" — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>ab cd ef</p>', '<p>abcd ef</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('boundary-misaligned 3:3 — "ab cd ef" vs "abc de f" — all UNCHANGED', async () => {
+        const { lhs, rhs } = await diffHtml('<p>ab cd ef</p>', '<p>abc de f</p>', 'ignore');
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('n:m middle surrounded by SA-matchable anchors — all UNCHANGED', async () => {
+        // "XXX" and "YYY" match as SA anchors; middle "abcdef" vs "a b c d e f" via n:m consume
+        const { lhs, rhs } = await diffHtml(
+            '<p>XXX abcdef YYY</p>',
+            '<p>XXX a b c d e f YYY</p>',
+            'ignore',
+        );
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('multiple separate n:m match regions — all UNCHANGED', async () => {
+        // Two n:m regions separated by a common anchor
+        const { lhs, rhs } = await diffHtml(
+            '<p>abcdef mid ghijkl</p>',
+            '<p>a b c d e f mid g h i j k l</p>',
+            'ignore',
+        );
+        expectAllContentUnchanged(lhs, 'lhs');
+        expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('n:m match content identical but surrounding tokens completely differ (no anchors) — LIMITATION: all MODIFIED', async () => {
+        // No SA anchors (no shared token IDs).
+        // consumeCommonEdges(3) tries prefix "foo" vs "baz" (equal length ≠ match) → break,
+        // then suffix "bar" vs "qux" (equal length ≠ match) → break.
+        // Middle n:m is NEVER examined because the algorithm only consumes from edges.
+        // This documents a known limitation of the current histogram-diff algorithm.
+        const { lhs, rhs } = await diffHtml(
+            '<p>foo abcdef bar</p>',
+            '<p>baz a b c d e f qux</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        // Everything is MODIFIED because both sides have leftover content in the else branch.
+        for (const { text, type } of lhsTypes) {
+            expect(type, `lhs "${text}" expected MODIFIED`).toBe(DIFF_TYPE_MODIFIED);
+        }
+        for (const { text, type } of rhsTypes) {
+            expect(type, `rhs "${text}" expected MODIFIED`).toBe(DIFF_TYPE_MODIFIED);
+        }
+    });
+
+    it('n:m match with one-side garbage surrounding (prefix garbage only)', async () => {
+        // lhs has garbage head; rhs has garbage head; but tail "end" matches as SA anchor
+        const { lhs, rhs } = await diffHtml(
+            '<p>XXX abcdef end</p>',
+            '<p>YYY a b c d e f end</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        // "end" is the SA anchor
+        expect(lhsTypes.find(e => e.text === 'end')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'end')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Middle n:m via suffix consume in the sub-diff
+        expect(lhsTypes.find(e => e.text === 'abcdef')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'a')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'f')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Head garbage: both sides have leftover → MODIFIED
+        expect(lhsTypes.find(e => e.text === 'XXX')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'YYY')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('n:m match with one-side garbage surrounding (suffix garbage only)', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>start abcdef XXX</p>',
+            '<p>start a b c d e f YYY</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'start')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'start')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'abcdef')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'a')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'f')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'XXX')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'YYY')?.type).toBe(DIFF_TYPE_MODIFIED);
+    });
+
+    it('n:m match span values — UNCHANGED tokens in a match region report the full span', async () => {
+        // lhs: "abcdef" (1 token), rhs: "a b c" + "def" (need rhs to match)
+        // Simpler: lhs ["abcdef"] vs rhs ["a", "b", "c", "d", "e", "f"]
+        // Expected: lhs token 0 has otherStart=0, otherEnd=6 (covering all 6 rhs tokens)
+        //           rhs tokens 0..5 each have otherStart=0, otherEnd=1 (covering the single lhs token)
+        const { lhs, rhs } = await diffHtml('<p>abcdef</p>', '<p>a b c d e f</p>', 'ignore');
+        const lhsRange = readRange(lhs.resultBuffer, 0);
+        expect(lhsRange.type, 'lhs[0] type').toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsRange.selfStart, 'lhs[0] selfStart').toBe(0);
+        expect(lhsRange.selfEnd, 'lhs[0] selfEnd').toBe(1);
+        expect(lhsRange.otherStart, 'lhs[0] otherStart').toBe(0);
+        expect(lhsRange.otherEnd, 'lhs[0] otherEnd').toBe(6);
+
+        for (let i = 0; i < 6; i++) {
+            const rr = readRange(rhs.resultBuffer, i);
+            expect(rr.type, `rhs[${i}] type`).toBe(DIFF_TYPE_UNCHANGED);
+            expect(rr.selfStart, `rhs[${i}] selfStart`).toBe(0);
+            expect(rr.selfEnd, `rhs[${i}] selfEnd`).toBe(6);
+            expect(rr.otherStart, `rhs[${i}] otherStart`).toBe(0);
+            expect(rr.otherEnd, `rhs[${i}] otherEnd`).toBe(1);
+        }
+    });
+
+    it('two separate n:m regions — each reports its own span', async () => {
+        // lhs: ["abc", "mid", "def"] (3 tokens)
+        // rhs: ["a", "b", "c", "mid", "d", "e", "f"] (7 tokens, "mid" at index 3)
+        // Expected:
+        //   lhs[0] ("abc"): UNCHANGED, otherStart=0, otherEnd=3
+        //   lhs[1] ("mid"): UNCHANGED, otherStart=3, otherEnd=4
+        //   lhs[2] ("def"): UNCHANGED, otherStart=4, otherEnd=7
+        const { lhs, rhs } = await diffHtml(
+            '<p>abc mid def</p>',
+            '<p>a b c mid d e f</p>',
+            'ignore',
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        // All lhs tokens should be UNCHANGED
+        for (const { text, type } of lhsTypes) {
+            expect(type, `lhs "${text}" UNCHANGED`).toBe(DIFF_TYPE_UNCHANGED);
+        }
+        const lhsAbc = readRange(lhs.resultBuffer, lhs.tokens.findIndex(t =>
+            lhs.wholeText.slice(t.textOffset, t.textOffset + t.textLength) === 'abc'));
+        expect(lhsAbc.otherEnd - lhsAbc.otherStart, 'lhs "abc" other span').toBe(3);
+
+        const lhsDef = readRange(lhs.resultBuffer, lhs.tokens.findIndex(t =>
+            lhs.wholeText.slice(t.textOffset, t.textOffset + t.textLength) === 'def'));
+        expect(lhsDef.otherEnd - lhsDef.otherStart, 'lhs "def" other span').toBe(3);
+    });
+});

@@ -179,6 +179,50 @@ These are load-bearing decisions. Do not change them without understanding the f
 
 7. **`app/vite.config.ts` is auto-modified during build** — The build script rewrites and restores the alias. Do not commit a version of `vite.config.ts` that points to `core/dist/`.
 
+## Diff Engine Internals — What Actually Matters
+
+This section documents load-bearing details of the diff pipeline that are easy to miss and have caused regressions (see "Past regressions" below). Future assistants: read this before touching `run-histogram-diff.ts`, `build-diff-input.ts`, or `helpers.ts`.
+
+### How `whitespace` option reshapes the input buffer
+
+`buildDiffInput` (`core/src/diff/build-diff-input.ts`) materializes the **text buffer** that the diff operates on. Token offsets index into this buffer.
+
+- **`whitespace: "collapse"`** — Inserts a single U+0020 after any token flagged `HAS_FOLLOWING_SPACE` or `LINE_END`, and also normalizes image token surroundings. A token's range `[offsets[i], offsets[i+1])` in the buffer **includes** its trailing normalized space. Example: `"hello world"` → buffer `"hello world "` (two tokens, each with trailing space in its range).
+- **`whitespace: "ignore"`** — No spaces are inserted. Tokens are concatenated directly. Example: `"hello world"` → buffer `"helloworld"` (two tokens, back-to-back, no whitespace in between).
+
+### How token IDs work
+
+`buildIdTables` in `run-histogram-diff.ts` assigns each token an ID by hashing the bytes in its buffer range. Two tokens get the same ID iff their buffer slices are byte-equal. In collapse mode this includes the trailing space; in ignore mode it's just the token text.
+
+Key consequence: **the SA/LCP anchor search only matches tokens that are byte-equal in the buffer.** If two sides tokenize the same normalized text into different token boundaries, the SA will not find a match between them.
+
+### Why `consumeCommonEdges` / `matchPrefixTokens` / `matchSuffixTokens` exists
+
+The critical case is `whitespace: "ignore"` when the two sides have identical normalized text but different token boundaries. Examples:
+
+- lhs `"helloworld"` (1 token) vs rhs `"hello world"` (2 tokens) — both normalize to `"helloworld"`.
+- lhs `"안녕하세요"` vs rhs `"안녕 하세요"` — both normalize to `"안녕하세요"`.
+- lhs `"foo helloworld bar"` vs rhs `"foo hello world bar"` — anchors `"foo"` and `"bar"` line up, but the middle has a tokenization-boundary mismatch.
+
+In these cases token IDs differ, so SA/LCP finds no anchor between the mismatched tokens. The correct result (all UNCHANGED) depends on `consumeCommonEdges` walking the buffer byte-by-byte across token boundaries via `matchPrefixTokens` / `matchSuffixTokens` to detect the cross-boundary match.
+
+In `collapse` mode this machinery is **mostly redundant** because the SA already catches single-token-equality matches, but it is still called for ID-equality prefix/suffix trimming in the anchor branch (cheap, no harm).
+
+### `diffCore` result type semantics
+
+In the "no anchor found" else-branch of `diffCore`, leftover ranges are written with `type = DIFF_TYPE_UNCHANGED | (REMOVED if lhs left) | (ADDED if rhs left)`. So **when both sides have leftover tokens, they all become `DIFF_TYPE_MODIFIED` (0x3)**, not separate REMOVED/ADDED runs. Only ranges where exactly one side is empty produce pure REMOVED or ADDED. Also, the `lhsCount === 1 && rhsCount === 1` fast-path in `diffCore` writes `DIFF_TYPE_MODIFIED` when IDs differ. Tests must expect MODIFIED for tokens in both-sides-have-content regions.
+
+### Past regressions — do not repeat
+
+- **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and a dedicated test block was added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
+
+### Testing notes
+
+- `makeInputFromHtml(html, opts)` in `core/tests/run-histogram-diff.test.ts` takes an optional `DiffOptions`. **Pass the same options to both `buildDiffInput` and `runHistogramDiff`** — the two must agree or the test setup is inconsistent.
+- Use the `diffHtml(lhsHtml, rhsHtml, whitespace)` helper for end-to-end whitespace-mode tests.
+- `contentTokenTypes(input)` skips structural tokens (tables, paragraphs) and returns `{text, type}` for each content token, which is the easiest way to assert specific tokens by text.
+- Debug logs `Total intervals processed: X, Prune1 count: Y` come from HEAD's in-file debug counters — don't strip them without checking with the author first.
+
 ## Keyboard Shortcuts
 
 | Key | Action | Implementation |

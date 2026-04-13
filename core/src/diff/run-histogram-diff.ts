@@ -1,4 +1,4 @@
-import { calculateHash, isTokenRangeTextEqual, writeToResultBuffer } from "./helpers";
+import { calculateHash, isTokenRangeTextEqual, matchPrefixTokens, matchSuffixTokens, writeToResultBuffer } from "./helpers";
 import { DIFF_TYPE_ADDED, DIFF_TYPE_MODIFIED, DIFF_TYPE_REMOVED, DIFF_TYPE_UNCHANGED, type DiffAnchor, type DiffInput, type DiffJobContext } from "./types";
 import { TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
 import { getStructuralElementType } from "../tokenization/token-flags";
@@ -19,12 +19,13 @@ export async function runHistogramDiff(
 ) {
     let total = 0;
     let prune1Count = 0;
+    const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
 
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
 
-    const { tokenCount: _lhsTokenCount, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
-    const { tokenCount: _rhsTokenCount, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
+    const { tokenCount: _lhsTokenCount, buffer: _lhsTextBuffer, offsets: _lhsOffsets, flags: _lhsFlags, resultBuffer: _lhsResultBuffer } = lhsInput;
+    const { tokenCount: _rhsTokenCount, buffer: _rhsTextBuffer, offsets: _rhsOffsets, flags: _rhsFlags, resultBuffer: _rhsResultBuffer } = rhsInput;
 
     const MIN_YIELD_INTERVAL_MS = 50;
 
@@ -89,23 +90,28 @@ export async function runHistogramDiff(
                 throw new Error(`Anchor length mismatch: lhs length ${anchor.lhsEnd - anchor.lhsStart}, rhs length ${anchor.rhsEnd - anchor.rhsStart}`);
             }
 
-            if (lhsLower < anchor.lhsStart || rhsLower < anchor.rhsStart) {
-                await diffCore(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart);
+            let [tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(lhsLower, anchor.lhsStart, rhsLower, anchor.rhsStart, 2);
+            // console.log("consume backward common edges:", { ll: lhsLower, le: anchor.lhsStart, rl: rhsLower, re: anchor.rhsStart }, "=>", { tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper });
+            if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
+                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
             }
 
             // 지금 구현에서는 앵커는 반드시 토큰 대 토큰이 정확히 매치되어야 한다.
             for (let i = anchor.lhsStart, j = anchor.rhsStart; i < anchor.lhsEnd && j < anchor.rhsEnd; i++, j++) {
                 writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, i, i + 1, j, j + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
             }
+            ([tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper] = consumeCommonEdges(anchor.lhsEnd, lhsUpper, anchor.rhsEnd, rhsUpper, 1));
 
-            const afterLhsStart = anchor.lhsEnd;
-            const afterRhsStart = anchor.rhsEnd;
-
-            if (afterLhsStart < lhsUpper || afterRhsStart < rhsUpper) {
-                await diffCore(afterLhsStart, lhsUpper, afterRhsStart, rhsUpper);
+            if (tmpLhsLower < tmpLhsUpper || tmpRhsLower < tmpRhsUpper) {
+                await diffCore(tmpLhsLower, tmpLhsUpper, tmpRhsLower, tmpRhsUpper);
             }
 
         } else {
+            if (_ignoreWhitespaces) {
+                // 앵커를 찾지 못한 경우에도 consume 시도
+                ([lhsLower, lhsUpper, rhsLower, rhsUpper] = consumeCommonEdges(lhsLower, lhsUpper, rhsLower, rhsUpper, 3));
+            }
+
             if (lhsLower < lhsUpper || rhsLower < rhsUpper) {
                 let type = DIFF_TYPE_UNCHANGED;
                 if (lhsLower < lhsUpper) type |= DIFF_TYPE_REMOVED;
@@ -510,6 +516,112 @@ export async function runHistogramDiff(
             rhsStart: bestAnchorPosR,
             rhsEnd: bestAnchorPosR + bestAnchorLen,
         }
+    }
+
+    function consumeCommonEdges(
+        lhsLower: number, lhsUpper: number,
+        rhsLower: number, rhsUpper: number,
+        consumeDirections: 0 | 1 | 2 | 3 = 3
+    ): [number, number, number, number] {
+        // const head: DiffEntry[] = [];
+        // const tail: DiffEntry[] = [];
+
+        // ---------- 1. Prefix (전방) ----------
+        if (consumeDirections & 1) {
+            while (lhsLower < lhsUpper && rhsLower < rhsUpper) {
+                if (_lhsIds[lhsLower] === _rhsIds[rhsLower]) {
+
+                    writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsLower + 1, rhsLower, rhsLower + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
+
+                    // pushMatch(head, lhsLower, 1, rhsLower, 1);
+                    lhsLower++;
+                    rhsLower++;
+                    continue;
+                }
+
+                if (_ignoreWhitespaces) {
+                    const lhsOffset = _lhsOffsets[lhsLower];
+                    const rhsOffset = _rhsOffsets[rhsLower];
+
+                    const lLen = _lhsOffsets[lhsLower + 1] - lhsOffset;
+                    const rLen = _rhsOffsets[rhsLower + 1] - rhsOffset;
+
+                    // 길이가 같으면서 공백을 제거한 텍스트가 같을 수는 없음
+                    if (lLen === rLen) {
+                        break;
+                    }
+
+                    // 첫 글자부터 일단 체크
+                    if (_lhsTextBuffer[lhsOffset] !== _rhsTextBuffer[rhsOffset]) {
+                        break;
+                    }
+
+                    // matchPrefixTokens는 이제 [lCount, rCount]를 리턴함
+                    const matched = matchPrefixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper);
+                    if (matched) {
+                        const [lCount, rCount] = matched;
+
+                        writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsLower + lCount, rhsLower, rhsLower + rCount, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
+
+                        // pushMatch(head, lhsLower, lCount, rhsLower, rCount);
+                        lhsLower += lCount; // 왼쪽 소모량 적용
+                        rhsLower += rCount; // 오른쪽 소모량 적용
+                        continue;
+                    }
+                }
+                break;
+            }
+        }
+
+        // ---------- 2. Suffix (후방) ----------
+        if (consumeDirections & 2) {
+            while (lhsUpper > lhsLower && rhsUpper > rhsLower) {
+                const lIdx = lhsUpper - 1;
+                const rIdx = rhsUpper - 1;
+
+                if (_lhsIds[lIdx] === _rhsIds[rIdx]) {
+                    writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lIdx, lIdx + 1, rIdx, rIdx + 1, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
+
+                    // pushMatch(tail, lIdx, 1, rIdx, 1);
+                    lhsUpper--;
+                    rhsUpper--;
+                    continue;
+                }
+
+                if (_ignoreWhitespaces) {
+                    const lLen = _lhsOffsets[lhsUpper] - _lhsOffsets[lIdx];
+                    const rLen = _rhsOffsets[rhsUpper] - _rhsOffsets[rIdx];
+
+                    // 길이가 같으면서 공백을 제거한 텍스트가 같을 수는 없음
+                    if (lLen === rLen) {
+                        break;
+                    }
+
+                    // 마지막 글자부터 일단 체크
+                    if (_lhsTextBuffer[_lhsOffsets[lhsUpper] - 1] !== _rhsTextBuffer[_rhsOffsets[rhsUpper] - 1]) {
+                        break;
+                    }
+
+                    const matched = matchSuffixTokens(lhsInput, rhsInput, lhsLower, lhsUpper, rhsLower, rhsUpper);
+                    if (matched) {
+                        const [lCount, rCount] = matched;
+                        const lMatchStart = lhsUpper - lCount;
+                        const rMatchStart = rhsUpper - rCount;
+
+                        writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lMatchStart, lhsUpper, rMatchStart, rhsUpper, DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset);
+
+                        // pushMatch(tail, lMatchStart, lCount, rMatchStart, rCount);
+                        lhsUpper -= lCount; // 왼쪽 소모량 적용
+                        rhsUpper -= rCount; // 오른쪽 소모량 적용
+                        continue;
+                    }
+                }
+                break;
+            }
+            // tail.reverse();
+        }
+
+        return [lhsLower, lhsUpper, rhsLower, rhsUpper];
     }
 
     await diffCore(0, _lhsTokenCount, 0, _rhsTokenCount);

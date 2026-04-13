@@ -1,5 +1,5 @@
-import type { DiffseekRuntime } from "./core/DiffseekRuntime"
+import type { DiffseekRuntime } from "./core/DiffseekRuntime";
 
 declare global {
-    var DiffseekRuntime: DiffseekRuntime
+	var DiffseekRuntime: DiffseekRuntime;
 }

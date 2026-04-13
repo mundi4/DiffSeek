@@ -17,230 +17,230 @@
 
 /* ===== Customizable variables (override via :root) ===== */
 :root {
-  --ds-base-font-size: 14px;
-  --ds-line-height: 1.6;
-  --ds-content-padding: 8px;
-  --ds-td-padding: 4px;
-  --ds-td-border-color: #666666;
-  --ds-underline-offset: 0.2em;
-  --ds-bg: #ffffff;
-  --ds-bg-sync: #f5f0e6;
-  --ds-fg: #000000;
-  --ds-fg-sync: #2f2a24;
-  --ds-minimap-width: 15px;
-  --ds-font-family: inherit;
-  --ds-scrollbar-thumb: rgba(0, 0, 0, 0.4);
-  --ds-scrollbar-border: rgba(128, 128, 128, 0.2);
-  --ds-stripe-color: hsl(0 0% 88% / 0.95);
-  --ds-stripe-boost-color: hsl(0 0% 88% / 0.4);
-  --ds-color-red: red;
+	--ds-base-font-size: 14px;
+	--ds-line-height: 1.6;
+	--ds-content-padding: 8px;
+	--ds-td-padding: 4px;
+	--ds-td-border-color: #666666;
+	--ds-underline-offset: 0.2em;
+	--ds-bg: #ffffff;
+	--ds-bg-sync: #f5f0e6;
+	--ds-fg: #000000;
+	--ds-fg-sync: #2f2a24;
+	--ds-minimap-width: 15px;
+	--ds-font-family: inherit;
+	--ds-scrollbar-thumb: rgba(0, 0, 0, 0.4);
+	--ds-scrollbar-border: rgba(128, 128, 128, 0.2);
+	--ds-stripe-color: hsl(0 0% 88% / 0.95);
+	--ds-stripe-boost-color: hsl(0 0% 88% / 0.4);
+	--ds-color-red: red;
 }
 
 /* ===== Workspace ===== */
 
 .ds-workspace {
-  --_ds-bg: var(--ds-bg);
-  --_ds-fg: var(--ds-fg);
-  position: relative;
-  isolation: isolate;
-  min-width: 0;
-  height: 100%;
-  background-color: var(--_ds-bg);
+	--_ds-bg: var(--ds-bg);
+	--_ds-fg: var(--ds-fg);
+	position: relative;
+	isolation: isolate;
+	min-width: 0;
+	height: 100%;
+	background-color: var(--_ds-bg);
 }
 
 .ds-workspace.ds-sync-mode {
-  --_ds-bg: var(--ds-bg-sync);
-  --_ds-fg: var(--ds-fg-sync);
+	--_ds-bg: var(--ds-bg-sync);
+	--_ds-fg: var(--ds-fg-sync);
 }
 
 /* ===== Deck / Editor / Renderer layout ===== */
 
 .ds-deck {
-  z-index: 1;
-  min-height: 0;
-  height: 100%;
-  position: relative;
-  display: grid;
-  grid-template-areas: "left right minimap";
-  grid-template-columns: 1fr 1fr auto;
-  background-color: transparent;
+	z-index: 1;
+	min-height: 0;
+	height: 100%;
+	position: relative;
+	display: grid;
+	grid-template-areas: "left right minimap";
+	grid-template-columns: 1fr 1fr auto;
+	background-color: transparent;
 }
 
 .ds-editor {
-  position: relative;
-  min-width: 0;
-  height: 100%;
-  overflow-x: hidden;
-  overflow-y: scroll;
-  display: flex;
-  flex-direction: column;
-  background-color: transparent;
-  color: var(--_ds-fg);
-  line-height: var(--ds-line-height);
-  contain: layout size;
+	position: relative;
+	min-width: 0;
+	height: 100%;
+	overflow-x: hidden;
+	overflow-y: scroll;
+	display: flex;
+	flex-direction: column;
+	background-color: transparent;
+	color: var(--_ds-fg);
+	line-height: var(--ds-line-height);
+	contain: layout size;
 }
 
 .ds-editor-left {
-  grid-area: left;
+	grid-area: left;
 }
 
 .ds-editor-right {
-  grid-area: right;
+	grid-area: right;
 }
 
 .ds-minimap {
-  display: none;
-  grid-area: minimap;
+	display: none;
+	grid-area: minimap;
 }
 
 .ds-renderer {
-  z-index: 0;
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  pointer-events: none;
+	z-index: 0;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	pointer-events: none;
 }
 
 .ds-renderer--suspended {
-  opacity: 0.5;
+	opacity: 0.5;
 }
 
 .ds-diff-layer {
-  z-index: 0;
+	z-index: 0;
 }
 
 .ds-highlight-layer {
-  z-index: 1;
+	z-index: 1;
 }
 
 .ds-renderer canvas {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 100%;
-  will-change: transform;
+	position: absolute;
+	top: 0;
+	left: 0;
+	width: 100%;
+	height: 100%;
+	will-change: transform;
 }
 
 /* ===== Scrollbar ===== */
 
 .ds-editor::-webkit-scrollbar-button {
-  display: none;
+	display: none;
 }
 
 .ds-editor::-webkit-scrollbar {
-  width: var(--ds-minimap-width, 15px);
-  border-inline: 1px solid var(--ds-scrollbar-border);
+	width: var(--ds-minimap-width, 15px);
+	border-inline: 1px solid var(--ds-scrollbar-border);
 }
 
 .ds-editor::-webkit-scrollbar-thumb {
-  background-color: var(--ds-scrollbar-thumb);
-  border-radius: 0px;
-  background-clip: content-box;
+	background-color: var(--ds-scrollbar-thumb);
+	border-radius: 0px;
+	background-clip: content-box;
 }
 
 @supports not selector(::-webkit-scrollbar) {
-  .ds-editor {
-    scrollbar-color: var(--ds-scrollbar-thumb) transparent;
-  }
+	.ds-editor {
+		scrollbar-color: var(--ds-scrollbar-thumb) transparent;
+	}
 }
 
 /* ===== Editor content ===== */
 
 .ds-editor-content {
-  flex: 1 0 auto;
-  position: relative;
-  border: 0;
-  min-width: 0;
-  max-width: 100%;
-  min-height: 100%;
-  overflow: hidden;
-  font-size: var(--ds-base-font-size);
-  padding: var(--ds-content-padding);
-  scroll-padding-top: calc(3em * var(--ds-line-height));
-  word-break: keep-all;
-  overflow-wrap: anywhere;
-  outline: none;
-  background-color: transparent;
-  font-family: var(--ds-font-family);
+	flex: 1 0 auto;
+	position: relative;
+	border: 0;
+	min-width: 0;
+	max-width: 100%;
+	min-height: 100%;
+	overflow: hidden;
+	font-size: var(--ds-base-font-size);
+	padding: var(--ds-content-padding);
+	scroll-padding-top: calc(3em * var(--ds-line-height));
+	word-break: keep-all;
+	overflow-wrap: anywhere;
+	outline: none;
+	background-color: transparent;
+	font-family: var(--ds-font-family);
 }
 
 .ds-editor-content * {
-  line-height: var(--ds-line-height);
-  max-width: 100%;
+	line-height: var(--ds-line-height);
+	max-width: 100%;
 }
 
 .ds-editor-content p {
-  margin: 0 0 0.5em 0;
+	margin: 0 0 0.5em 0;
 }
 
 .ds-editor-content pre {
-  margin: 0;
-  font-family: inherit;
-  font-size: inherit;
-  line-height: inherit;
-  white-space: pre-wrap;
-  word-break: break-all;
+	margin: 0;
+	font-family: inherit;
+	font-size: inherit;
+	line-height: inherit;
+	white-space: pre-wrap;
+	word-break: break-all;
 }
 
 .ds-editor-content code {
-  font-family: monospace;
+	font-family: monospace;
 }
 
 .ds-editor-content u {
-  text-underline-offset: var(--ds-underline-offset);
+	text-underline-offset: var(--ds-underline-offset);
 }
 
 .ds-editor-content table {
-  table-layout: auto;
-  border-collapse: collapse;
-  border-spacing: 0;
-  width: 100%;
+	table-layout: auto;
+	border-collapse: collapse;
+	border-spacing: 0;
+	width: 100%;
 }
 
 .ds-editor-content td,
 .ds-editor-content th {
-  position: relative;
+	position: relative;
 }
 
 .ds-editor-content td {
-  vertical-align: top;
-  border: 1px solid var(--ds-td-border-color);
-  padding: var(--ds-td-padding);
-  min-height: calc(1em * var(--ds-line-height));
+	vertical-align: top;
+	border: 1px solid var(--ds-td-border-color);
+	padding: var(--ds-td-padding);
+	min-height: calc(1em * var(--ds-line-height));
 }
 
 /* ===== Color markers (sanitize) ===== */
 
 .ds-editor-content .ds-color-red {
-  color: var(--ds-color-red);
+	color: var(--ds-color-red);
 }
 
 .ds-editor-content .ds-color-normal {
-  color: var(--_ds-fg);
+	color: var(--_ds-fg);
 }
 
 /* ===== Minimap ===== */
 
 .ds-editor-minimap {
-  position: absolute;
-  pointer-events: none;
-  top: 0;
-  right: calc(var(--ds-minimap-width, 15px) * -1);
-  bottom: 0;
-  width: var(--ds-minimap-width, 15px);
+	position: absolute;
+	pointer-events: none;
+	top: 0;
+	right: calc(var(--ds-minimap-width, 15px) * -1);
+	bottom: 0;
+	width: var(--ds-minimap-width, 15px);
 }
 
 /* ===== ds-diff (custom element) ===== */
 
 ds-diff {
-  visibility: hidden;
-  display: inline-block;
-  height: 0;
-  user-select: none;
-  width: 0px;
+	visibility: hidden;
+	display: inline-block;
+	height: 0;
+	user-select: none;
+	width: 0px;
 }
 
 /* TODO: 용도 확인 필요 — 아래에서 width: 0px로 덮어쓰여짐 */
@@ -249,84 +249,84 @@ ds-diff {
 /* ===== ds-anchor (custom element) ===== */
 
 ds-anchor {
-  display: none;
+	display: none;
 }
 
 /* ===== Sync mode ===== */
 
 .ds-sync-mode .ds-editor-content {
-  min-height: unset;
+	min-height: unset;
 }
 
 .ds-sync-mode ds-diff {
-  display: inline-block;
-  position: relative;
+	display: inline-block;
+	position: relative;
 }
 
 .ds-sync-mode ds-diff.ds-has-preceding-space::before {
-  content: " ";
-  display: inline;
+	content: " ";
+	display: inline;
 }
 
 .ds-sync-mode ds-diff.ds-has-following-space::after {
-  content: " ";
-  display: inline;
+	content: " ";
+	display: inline;
 }
 
 .ds-sync-mode ds-diff.ds-line-start {
-  display: block !important;
-  height: calc(var(--ds-line-height) * 1em) !important;
-  width: 2px;
+	display: block !important;
+	height: calc(var(--ds-line-height) * 1em) !important;
+	width: 2px;
 }
 
 .ds-sync-mode ds-diff.ds-line-start::before {
-  content: "" !important;
-  display: block;
+	content: "" !important;
+	display: block;
 }
 
 .ds-sync-mode ds-diff.ds-line-end::after {
-  content: "" !important;
-  display: block !important;
+	content: "" !important;
+	display: block !important;
 }
 
 .ds-sync-mode ds-anchor[data-anchor-index] {
-  display: block;
+	display: block;
 }
 
 .ds-sync-mode .ds-padded::before {
-  content: "" !important;
-  display: block !important;
-  height: var(--ds-adjust, 0px) !important;
+	content: "" !important;
+	display: block !important;
+	height: var(--ds-adjust, 0px) !important;
 }
 
 .ds-sync-mode .ds-striped.ds-padded::before {
-  background: transparent
-    repeating-linear-gradient(
-      135deg,
-      var(--ds-stripe-color) 0px,
-      var(--ds-stripe-color) 3px,
-      transparent 3px,
-      transparent 6px
-    );
-  opacity: 0.75;
+	background: transparent
+		repeating-linear-gradient(
+			135deg,
+			var(--ds-stripe-color) 0px,
+			var(--ds-stripe-color) 3px,
+			transparent 3px,
+			transparent 6px
+		);
+	opacity: 0.75;
 }
 
 /* ===== Height boost (sync mode) ===== */
 
 .ds-editor-height-boost {
-  display: none;
+	display: none;
 }
 
 .ds-sync-mode .ds-editor-height-boost {
-  display: block;
-  flex: 0 0 auto;
-  background: repeating-linear-gradient(
-    0deg,
-    var(--ds-stripe-boost-color) 0px,
-    var(--ds-stripe-boost-color) 3px,
-    transparent 3px,
-    transparent 6px
-  );
-  height: 0;
-  /* height: var(--ds-height-boost, 0px); */
+	display: block;
+	flex: 0 0 auto;
+	background: repeating-linear-gradient(
+		0deg,
+		var(--ds-stripe-boost-color) 0px,
+		var(--ds-stripe-boost-color) 3px,
+		transparent 3px,
+		transparent 6px
+	);
+	height: 0;
+	/* height: var(--ds-height-boost, 0px); */
 }

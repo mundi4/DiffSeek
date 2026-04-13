@@ -69,8 +69,6 @@
 //     return instance;
 // }
 
-
-
 // export interface Diffseek {
 //     mount(el: HTMLElement): void;
 //     unmount(): void;

@@ -1,31 +1,31 @@
 {
-  "name": "diffseek-app",
-  "private": true,
-  "version": "0.0.0",
-  "type": "module",
-  "scripts": {
-    "dev": "vite",
-    "build": "vite build",
-    "build:pack": "vite build --config vite.config.pack.ts",
-    "preview": "vite preview",
-    "test": "vitest --run",
-    "test:watch": "vitest",
-    "test:ui": "vitest --ui"
-  },
-  "dependencies": {
-"clsx": "^2.1.1",
-    "diffseek-core": "*",
-    "jotai": "^2.18.1",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
-  },
-  "devDependencies": {
-    "@rolldown/plugin-babel": "^0.2.1",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "babel-plugin-react-compiler": "^1.0.0",
-    "esbuild": "^0.27.4",
-    "vite": "^8.0.1"
-  }
+	"name": "diffseek-app",
+	"private": true,
+	"version": "0.0.0",
+	"type": "module",
+	"scripts": {
+		"dev": "vite",
+		"build": "vite build",
+		"build:pack": "vite build --config vite.config.pack.ts",
+		"preview": "vite preview",
+		"test": "vitest --run",
+		"test:watch": "vitest",
+		"test:ui": "vitest --ui"
+	},
+	"dependencies": {
+		"clsx": "^2.1.1",
+		"diffseek-core": "*",
+		"jotai": "^2.18.1",
+		"react": "^19.2.4",
+		"react-dom": "^19.2.4"
+	},
+	"devDependencies": {
+		"@rolldown/plugin-babel": "^0.2.1",
+		"@types/react": "^19.2.14",
+		"@types/react-dom": "^19.2.3",
+		"@vitejs/plugin-react": "^6.0.1",
+		"babel-plugin-react-compiler": "^1.0.0",
+		"esbuild": "^0.27.4",
+		"vite": "^8.0.1"
+	}
 }

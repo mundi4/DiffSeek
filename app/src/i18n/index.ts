@@ -15,5 +15,5 @@ export const localeAtom = atomWithStorage<Locale>("diffseek_locale", defaultLoca
 export const messagesAtom = atom<Messages>((get) => bundles[get(localeAtom)]);
 
 export function useT(): Messages {
-    return useAtomValue(messagesAtom);
+	return useAtomValue(messagesAtom);
 }

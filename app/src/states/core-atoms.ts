@@ -1,4 +1,11 @@
-import { getDefaultDiffseekOptions, type DiffWorkflowStatus, type DiffEntry, type DiffseekOptions, type Palette, type Span } from "@core";
+import {
+	getDefaultDiffseekOptions,
+	type DiffWorkflowStatus,
+	type DiffEntry,
+	type DiffseekOptions,
+	type Palette,
+	type Span,
+} from "@core";
 import { atom } from "jotai";
 import { atomWithStorage, createJSONStorage } from "jotai/utils";
 
@@ -15,51 +22,51 @@ const STORAGE_KEY = "diffseek_options";
  * - 타입 불일치 → default 값 사용
  */
 function safeMerge<T>(defaults: T, stored: unknown): T {
-    if (stored === null || stored === undefined || typeof stored !== typeof defaults) {
-        return defaults;
-    }
-    if (typeof defaults !== "object" || defaults === null) {
-        // primitive — typeof 이미 일치 확인됨
-        return stored as T;
-    }
-    if (Array.isArray(defaults)) {
-        // 배열: stored도 배열이면 그대로 사용, 아니면 default
-        return (Array.isArray(stored) ? stored : defaults) as T;
-    }
-    // object: per-key recursive merge
-    const result = { ...defaults };
-    const s = stored as Record<string, unknown>;
-    for (const key of Object.keys(defaults) as (keyof T & string)[]) {
-        if (key in s) {
-            (result as any)[key] = safeMerge(defaults[key], s[key]);
-        }
-    }
-    return result;
+	if (stored === null || stored === undefined || typeof stored !== typeof defaults) {
+		return defaults;
+	}
+	if (typeof defaults !== "object" || defaults === null) {
+		// primitive — typeof 이미 일치 확인됨
+		return stored as T;
+	}
+	if (Array.isArray(defaults)) {
+		// 배열: stored도 배열이면 그대로 사용, 아니면 default
+		return (Array.isArray(stored) ? stored : defaults) as T;
+	}
+	// object: per-key recursive merge
+	const result = { ...defaults };
+	const s = stored as Record<string, unknown>;
+	for (const key of Object.keys(defaults) as (keyof T & string)[]) {
+		if (key in s) {
+			(result as any)[key] = safeMerge(defaults[key], s[key]);
+		}
+	}
+	return result;
 }
 
 function createDiffseekOptionsStorage() {
-    const backend = createJSONStorage<DiffseekOptions>(() => localStorage);
-    return {
-        ...backend,
-        getItem(key: string, initialValue: DiffseekOptions): DiffseekOptions {
-            try {
-                const raw = localStorage.getItem(key);
-                if (raw === null) return initialValue;
-                const parsed = JSON.parse(raw);
-                return safeMerge(initialValue, parsed);
-            } catch {
-                // 파싱 실패 → LS 날리고 default
-                localStorage.removeItem(key);
-                return initialValue;
-            }
-        },
-    };
+	const backend = createJSONStorage<DiffseekOptions>(() => localStorage);
+	return {
+		...backend,
+		getItem(key: string, initialValue: DiffseekOptions): DiffseekOptions {
+			try {
+				const raw = localStorage.getItem(key);
+				if (raw === null) return initialValue;
+				const parsed = JSON.parse(raw);
+				return safeMerge(initialValue, parsed);
+			} catch {
+				// 파싱 실패 → LS 날리고 default
+				localStorage.removeItem(key);
+				return initialValue;
+			}
+		},
+	};
 }
 
 export const diffseekOptionsAtom = atomWithStorage<DiffseekOptions>(
-    STORAGE_KEY,
-    getDefaultDiffseekOptions(),
-    createDiffseekOptionsStorage(),
+	STORAGE_KEY,
+	getDefaultDiffseekOptions(),
+	createDiffseekOptionsStorage(),
 );
 
 // ──────────────────────────────────────────────
@@ -81,21 +88,21 @@ export const diffWorkflowStatusAtom = atom<DiffWorkflowStatus>({ phase: "idle" }
 export const paletteAtom = atom<Readonly<Palette> | null>(null);
 
 type DiffContextState = {
-    diffs: DiffEntry[];
-    similarity: number;
+	diffs: DiffEntry[];
+	similarity: number;
 } | null;
 
 export const diffContextAtom = atom<DiffContextState>(null);
 
 export const diffsAtom = atom<DiffEntry[] | null>((get) => {
-    return get(diffContextAtom)?.diffs ?? null;
+	return get(diffContextAtom)?.diffs ?? null;
 });
 
-export const visibleDiffIndexesAtom = atom<{ left: number[], right: number[] }>({ left: [], right: [] });
+export const visibleDiffIndexesAtom = atom<{ left: number[]; right: number[] }>({ left: [], right: [] });
 
 export type SelectionSpanState = {
-    left: Span;
-    right: Span;
+	left: Span;
+	right: Span;
 } | null;
 
 export const selectionSpanAtom = atom<SelectionSpanState>(null);
@@ -106,7 +113,4 @@ export const selectionSpanAtom = atom<SelectionSpanState>(null);
 
 export type QuickDiffViewMode = "inline" | "side-by-side" | "stacked";
 
-export const quickDiffViewModeAtom = atomWithStorage<QuickDiffViewMode>(
-    "diffseek_quickdiff_viewmode",
-    "inline",
-);
+export const quickDiffViewModeAtom = atomWithStorage<QuickDiffViewMode>("diffseek_quickdiff_viewmode", "inline");

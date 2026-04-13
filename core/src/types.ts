@@ -19,7 +19,6 @@
 // // Re-export engine types
 // export type { DiffContext, DiffWorkflowStatus } from "./engine/types";
 
-
 // // ============================================================================
 // // Public Event Map (defined here as it's part of the public API)
 // // ============================================================================
@@ -46,35 +45,33 @@ export type { DiffOptions } from "./diff";
 import type { DiffOptions } from "./diff";
 
 export type DiffseekOptions = {
-    diff: DiffOptions;
-    editableInSyncMode: boolean;
+	diff: DiffOptions;
+	editableInSyncMode: boolean;
 };
 
-
 export type Span = {
-    start: number;
-    end: number;
+	start: number;
+	end: number;
 };
 
 export type Palette = {
-    diffHues: number[];
-    diffSaturation: number;
-    diffLightness: number;
-    diffAlpha: number;
-    diffLineColor: string;
-    highlightedDiffColor: string;
-    selectionHighlightColor: string;
-    minimapDiffColor: string;
-    minimapHighlightColor: string;
+	diffHues: number[];
+	diffSaturation: number;
+	diffLightness: number;
+	diffAlpha: number;
+	diffLineColor: string;
+	highlightedDiffColor: string;
+	selectionHighlightColor: string;
+	minimapDiffColor: string;
+	minimapHighlightColor: string;
 };
 
 export type DiffEntry = {
-    diffIndex: number;
-    leftRange: Range;
-    rightRange: Range;
-    leftSpan: Span;
-    rightSpan: Span;
-    leftMarkerEl: HTMLElement | null;
-    rightMarkerEl: HTMLElement | null;
+	diffIndex: number;
+	leftRange: Range;
+	rightRange: Range;
+	leftSpan: Span;
+	rightSpan: Span;
+	leftMarkerEl: HTMLElement | null;
+	rightMarkerEl: HTMLElement | null;
 };
-

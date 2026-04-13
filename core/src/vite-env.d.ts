@@ -2,11 +2,11 @@
 /// <reference types="vite-plugin-svgr/client" />
 
 declare global {
-    interface Scheduler {
-        yield(): Promise<void>;
-    }
+	interface Scheduler {
+		yield(): Promise<void>;
+	}
 
-    var scheduler: Scheduler;
+	var scheduler: Scheduler;
 }
 
-export { };
+export {};

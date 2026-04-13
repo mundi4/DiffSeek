@@ -7,7 +7,7 @@ Guidance for AI assistants working on this codebase.
 **DiffSeek** is a real-time, browser-based HTML/text diff visualization tool. It compares two documents side-by-side with instant highlighting as you type — no "Run" button.
 
 Key constraints that shape all design decisions:
-- Runs entirely in the browser via `file://` protocol (no web server)
+
 - Chromium-only (Edge/Chrome) — no Firefox support
 - Completely offline — designed for air-gapped corporate environments
 - Output is a single self-contained HTML file with all assets inlined
@@ -52,24 +52,26 @@ This is an **npm workspaces monorepo** with two packages:
 
 ## Tech Stack
 
-| Layer | Technology |
-|-------|-----------|
-| Language | TypeScript 5.9 (strict, ES2024) |
-| UI framework | React 19.2 |
-| Build tool | Vite 8 + Rolldown |
-| State management | Jotai 2.18 |
-| UI components | Mantine 8.3, Tabler Icons |
-| Optimizer | React Compiler (`@rolldown/plugin-babel`) |
-| Test runner | Vitest 4.1 (jsdom environment) |
+| Layer            | Technology                                |
+| ---------------- | ----------------------------------------- |
+| Language         | TypeScript 5.9 (strict, ES2024)           |
+| UI framework     | React 19.2                                |
+| Build tool       | Vite 8 + Rolldown                         |
+| State management | Jotai 2.18                                |
+| UI components    | Mantine 8.3, Tabler Icons                 |
+| Optimizer        | React Compiler (`@rolldown/plugin-babel`) |
+| Test runner      | Vitest 4.1 (jsdom environment)            |
 
 ## Development Workflows
 
 ### Install
+
 ```bash
 npm install
 ```
 
 ### Dev server
+
 ```bash
 npm run dev          # Vite HMR at http://localhost:8200
 ```
@@ -77,11 +79,13 @@ npm run dev          # Vite HMR at http://localhost:8200
 The `@core` alias points to `core/src` during development. If you change files in `core/src`, changes are picked up automatically via the alias. No separate compilation step needed for dev.
 
 ### Production build
+
 ```bash
 npm run build        # Runs scripts/build.ts
 ```
 
 The build script does the following in order:
+
 1. Compiles `core/` via `tsc` → `core/dist/`
 2. **Temporarily** rewrites `app/vite.config.ts` to point `@core` → `core/dist/` (required for TypeScript `const enum` inlining by esbuild)
 3. Runs Vite build → `app/dist/index.html` (single self-contained file)
@@ -90,6 +94,7 @@ The build script does the following in order:
 **Do not manually edit `app/vite.config.ts` during a build.** The build script modifies and restores it automatically.
 
 ### Tests
+
 ```bash
 npm run test         # Run all tests (vitest)
 npm run test:ui      # Interactive vitest UI
@@ -101,65 +106,70 @@ Test results are written to `test-results.json`. Tests use a jsdom environment t
 
 ### Core engine
 
-| File | Purpose |
-|------|---------|
-| `core/src/engine/diffseek-engine.ts` | Central orchestrator; manages editors, diff pipeline, events, keyboard shortcuts |
-| `core/src/engine/diff-pipeline.ts` | Coordinates tokenize → diff → render workflow |
-| `core/src/engine/anchor-manager.ts` | Identifies matching line pairs for sync mode alignment |
-| `core/src/diff/run-histogram-diff.ts` | Primary diff algorithm (histogram-based) |
-| `core/src/diff/patience-diff.ts` | Fallback diff for large files |
-| `core/src/diff/get-default-diff-options.ts` | Default `DiffOptions` values |
-| `core/src/tokenization/tokenize.ts` | Tokenizes HTML/text into semantic units; Korean law heading support |
-| `core/src/editor/editor.ts` | `contentEditable` wrapper with debounced tokenization and undo/redo |
-| `core/src/renderer/Renderer.ts` | Canvas-based highlight rendering, scroll-synced |
-| `core/src/sanitize/sanitize.ts` | Sanitizes pasted HTML; whitelist-based |
-| `core/src/diff-worker/worker.ts` | Web Worker entry point for off-thread diff computation |
-| `core/src/palette/default-palette.ts` | Default color scheme |
-| `core/src/index.ts` | Public API: `DiffseekEngine`, `getDefaultDiffOptions`, palette exports |
-| `core/src/types.ts` | Shared types: `Span`, `Palette`, `DiffEntry`, `DiffOptions` |
+| File                                        | Purpose                                                                          |
+| ------------------------------------------- | -------------------------------------------------------------------------------- |
+| `core/src/engine/diffseek-engine.ts`        | Central orchestrator; manages editors, diff pipeline, events, keyboard shortcuts |
+| `core/src/engine/diff-pipeline.ts`          | Coordinates tokenize → diff → render workflow                                    |
+| `core/src/engine/anchor-manager.ts`         | Identifies matching line pairs for sync mode alignment                           |
+| `core/src/diff/run-histogram-diff.ts`       | Primary diff algorithm (histogram-based)                                         |
+| `core/src/diff/patience-diff.ts`            | Fallback diff for large files                                                    |
+| `core/src/diff/get-default-diff-options.ts` | Default `DiffOptions` values                                                     |
+| `core/src/tokenization/tokenize.ts`         | Tokenizes HTML/text into semantic units; Korean law heading support              |
+| `core/src/editor/editor.ts`                 | `contentEditable` wrapper with debounced tokenization and undo/redo              |
+| `core/src/renderer/Renderer.ts`             | Canvas-based highlight rendering, scroll-synced                                  |
+| `core/src/sanitize/sanitize.ts`             | Sanitizes pasted HTML; whitelist-based                                           |
+| `core/src/diff-worker/worker.ts`            | Web Worker entry point for off-thread diff computation                           |
+| `core/src/palette/default-palette.ts`       | Default color scheme                                                             |
+| `core/src/index.ts`                         | Public API: `DiffseekEngine`, `getDefaultDiffOptions`, palette exports           |
+| `core/src/types.ts`                         | Shared types: `Span`, `Palette`, `DiffEntry`, `DiffOptions`                      |
 
 ### App UI
 
-| File | Purpose |
-|------|---------|
-| `app/src/App.tsx` | Root component; creates engine instance, mounts DOM, keyboard handlers |
-| `app/src/main.tsx` | React entry point with Mantine provider |
-| `app/src/bridge/useCoreBinding.ts` | Subscribes to engine events and syncs them into Jotai atoms |
-| `app/src/bridge/useCoreActions.ts` | Action dispatch layer (calls engine methods from UI) |
-| `app/src/states/coreAtoms.ts` | All Jotai atoms (sync mode, diff options, diff context, etc.) |
-| `app/src/components/sidebar-footer.tsx` | Sidebar footer bar (sync/whitespace toggles, diff status) |
-| `app/src/components/OptionsModal.tsx` | Diff algorithm options dialog |
-| `app/src/components/DiffList.tsx` | Sidebar list of all diffs |
-| `app/src/components/OutlineModal.tsx` | Document outline (F9) |
-| `app/src/components/BusyIndicator.tsx` | Loading spinner during diff computation |
+| File                                    | Purpose                                                                |
+| --------------------------------------- | ---------------------------------------------------------------------- |
+| `app/src/App.tsx`                       | Root component; creates engine instance, mounts DOM, keyboard handlers |
+| `app/src/main.tsx`                      | React entry point with Mantine provider                                |
+| `app/src/bridge/useCoreBinding.ts`      | Subscribes to engine events and syncs them into Jotai atoms            |
+| `app/src/bridge/useCoreActions.ts`      | Action dispatch layer (calls engine methods from UI)                   |
+| `app/src/states/coreAtoms.ts`           | All Jotai atoms (sync mode, diff options, diff context, etc.)          |
+| `app/src/components/sidebar-footer.tsx` | Sidebar footer bar (sync/whitespace toggles, diff status)              |
+| `app/src/components/OptionsModal.tsx`   | Diff algorithm options dialog                                          |
+| `app/src/components/DiffList.tsx`       | Sidebar list of all diffs                                              |
+| `app/src/components/OutlineModal.tsx`   | Document outline (F9)                                                  |
+| `app/src/components/BusyIndicator.tsx`  | Loading spinner during diff computation                                |
 
 ## Architecture Patterns
 
 ### Strict core/app separation
+
 `core/` has **zero React dependency**. It is pure TypeScript DOM logic. `app/` is React UI only. Never add React imports to `core/`.
 
 ### Event-driven bridge
+
 The engine emits typed events (`statusChanged`, `diffContextChanged`, `syncModeChanged`, etc.). The bridge layer (`useCoreBinding.ts`) subscribes and writes to Jotai atoms. React components only read atoms — they never call engine methods directly (they go through `useCoreActions`).
 
 ### Web Worker for diffing
+
 Heavy diff computation runs in a Web Worker (`diff-worker/worker.ts`) to avoid blocking the main thread. DOM-dependent steps (tokenization, rendering) still run on the main thread.
 
 ### Canvas highlight rendering
+
 Diff highlights are drawn on a `<canvas>` overlay, not injected into the DOM. This is intentional — injecting DOM nodes during editing breaks cursor position and Korean IME (Input Method Editor) composition state. The canvas is redrawn on every scroll and resize.
 
 ### Const enum build trick
+
 TypeScript `const enum` values must be inlined at compile time. During production build, `scripts/build.ts` temporarily rewrites the `@core` alias in `app/vite.config.ts` to point to the compiled `core/dist/` so esbuild can inline them. The alias is restored after the build completes.
 
 ## Naming Conventions
 
-| Element | Convention | Example |
-|---------|-----------|---------|
-| Classes | PascalCase | `DiffseekEngine`, `Renderer` |
-| Functions/methods | camelCase | `tokenize`, `buildDiffInput` |
-| Constants | SCREAMING_SNAKE_CASE | `VOID_ELEMENTS`, `MAX_LENGTH_FOR_EXECCOMMAND_PASTE` |
-| Files (utilities) | kebab-case | `run-histogram-diff.ts`, `get-diff-hue.ts` |
-| Jotai atoms | camelCaseAtom | `syncModeAtom`, `diffContextAtom` |
-| Path aliases | `@core` → `core/src`, `@` → `app/src` | `import { ... } from "@core/types"` |
+| Element           | Convention                            | Example                                             |
+| ----------------- | ------------------------------------- | --------------------------------------------------- |
+| Classes           | PascalCase                            | `DiffseekEngine`, `Renderer`                        |
+| Functions/methods | camelCase                             | `tokenize`, `buildDiffInput`                        |
+| Constants         | SCREAMING_SNAKE_CASE                  | `VOID_ELEMENTS`, `MAX_LENGTH_FOR_EXECCOMMAND_PASTE` |
+| Files (utilities) | kebab-case                            | `run-histogram-diff.ts`, `get-diff-hue.ts`          |
+| Jotai atoms       | camelCaseAtom                         | `syncModeAtom`, `diffContextAtom`                   |
+| Path aliases      | `@core` → `core/src`, `@` → `app/src` | `import { ... } from "@core/types"`                 |
 
 ## Critical Design Decisions
 
@@ -212,7 +222,7 @@ In `collapse` mode this machinery is **mostly redundant** because the SA already
 
 In the "no anchor found" else-branch of `diffCore`, leftover ranges are written with `type = DIFF_TYPE_UNCHANGED | (REMOVED if lhs left) | (ADDED if rhs left)`. So **when both sides have leftover tokens, they all become `DIFF_TYPE_MODIFIED` (0x3)**, not separate REMOVED/ADDED runs. Only ranges where exactly one side is empty produce pure REMOVED or ADDED. Also, the `lhsCount === 1 && rhsCount === 1` fast-path in `diffCore` writes `DIFF_TYPE_MODIFIED` when IDs differ. Tests must expect MODIFIED for tokens in both-sides-have-content regions.
 
-### "Edge-walker" limitation and the small-range n*m fallback
+### "Edge-walker" limitation and the small-range n\*m fallback
 
 `consumeCommonEdges` walks inward from the outer edges of a sub-range. When both outer edges fail their initial check, the walker terminates without ever examining the interior. Specifically:
 
@@ -233,7 +243,7 @@ The function scans `(i, j)` starting-position pairs in **anti-diagonal order** (
 
 Total work is bounded by the initial `n * m` (each `(i, j)` pair is examined at most once across all iterations, because the cursor only advances). With early-exit on first match, typical cases are much cheaper.
 
-**Why not in `findAnchor`?** `findAnchor` returns a single anchor, but the fallback naturally finds multiple sequential matches once it has paid the n*m cost. Doing the greedy multi-match directly in `diffCore.else` avoids recursion overhead.
+**Why not in `findAnchor`?** `findAnchor` returns a single anchor, but the fallback naturally finds multiple sequential matches once it has paid the n\*m cost. Doing the greedy multi-match directly in `diffCore.else` avoids recursion overhead.
 
 **Why `else` branch only?** `findAnchor`'s SA/LCP path is called first. When SA finds a token-level anchor, the algorithm recurses into before/after sub-ranges, and at leaf sub-ranges where SA finds nothing, `diffCore` reaches the `else` branch and the fallback kicks in. So the fallback organically covers all deep recursion leaves, not just top-level no-anchor cases.
 
@@ -242,7 +252,7 @@ Total work is bounded by the initial `n * m` (each `(i, j)` pair is examined at 
 ### Past regressions — do not repeat
 
 - **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and dedicated test blocks were added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
-- The three original `PROBE FAIL` tests in `run-histogram-diff.test.ts` (`"bc ef h"` vs `"a bce fh j"`, `"X abc Y"` vs `"Z a b c W"`, `"hello abcxyz end"` vs `"bye abc xyz fin"`) were originally failing limitation probes; they now pass thanks to the n*m fallback. They stay as regression tests — any change to the fallback threshold or the anti-diagonal scan order must keep them passing.
+- The three original `PROBE FAIL` tests in `run-histogram-diff.test.ts` (`"bc ef h"` vs `"a bce fh j"`, `"X abc Y"` vs `"Z a b c W"`, `"hello abcxyz end"` vs `"bye abc xyz fin"`) were originally failing limitation probes; they now pass thanks to the n\*m fallback. They stay as regression tests — any change to the fallback threshold or the anti-diagonal scan order must keep them passing.
 
 ### Testing notes
 
@@ -254,22 +264,22 @@ Total work is bounded by the initial `n * m` (each `(i, j)` pair is examined at 
 
 ## Keyboard Shortcuts
 
-| Key | Action | Implementation |
-|-----|--------|----------------|
-| F2 | Toggle sync (alignment) mode | `engine.syncMode = !engine.syncMode` |
-| F9 | Open document outline modal | `setOutlineOpened(true)` |
-| Alt+1 | Paste to left editor | `engine.pasteBomb("left")` |
-| Alt+2 | Paste to right editor | `engine.pasteBomb("right")` |
-| Ctrl+↑/↓ | Scroll nudge | `engine.scrollNudge(side, direction)` |
+| Key      | Action                       | Implementation                        |
+| -------- | ---------------------------- | ------------------------------------- |
+| F2       | Toggle sync (alignment) mode | `engine.syncMode = !engine.syncMode`  |
+| F9       | Open document outline modal  | `setOutlineOpened(true)`              |
+| Alt+1    | Paste to left editor         | `engine.pasteBomb("left")`            |
+| Alt+2    | Paste to right editor        | `engine.pasteBomb("right")`           |
+| Ctrl+↑/↓ | Scroll nudge                 | `engine.scrollNudge(side, direction)` |
 
 ## State Persistence
 
 Jotai's `atomWithStorage` persists these to `localStorage`:
 
-| Key | Atom | Description |
-|-----|------|-------------|
-| `diffseek_diffOptions` | `diffOptionsAtom` | Diff algorithm settings (whitespace mode, patience options, etc.) |
-| `diffseek_editableInSyncMode` | `editableInSyncModeAtom` | Whether editors are editable in sync mode |
+| Key                           | Atom                     | Description                                                       |
+| ----------------------------- | ------------------------ | ----------------------------------------------------------------- |
+| `diffseek_diffOptions`        | `diffOptionsAtom`        | Diff algorithm settings (whitespace mode, patience options, etc.) |
+| `diffseek_editableInSyncMode` | `editableInSyncModeAtom` | Whether editors are editable in sync mode                         |
 
 ## Public Engine API
 
@@ -280,36 +290,41 @@ const engine = new DiffseekEngine();
 document.body.appendChild(engine.workspaceEl);
 
 // Events
-engine.on("diffContextChanged", (ctx) => { /* ctx.diffs, ctx.timing */ });
-engine.on("statusChanged", (status) => { /* "idle" | "tokenizing" | "diffing" | ... */ });
-engine.on("syncModeChanged", (enabled) => { /* boolean */ });
+engine.on("diffContextChanged", (ctx) => {
+  /* ctx.diffs, ctx.timing */
+});
+engine.on("statusChanged", (status) => {
+  /* "idle" | "tokenizing" | "diffing" | ... */
+});
+engine.on("syncModeChanged", (enabled) => {
+  /* boolean */
+});
 
 // Options
 engine.updateDiffOptions({ whitespace: "collapse" });
 
 // Sync mode
-engine.syncMode = true;    // F2 toggles this
+engine.syncMode = true; // F2 toggles this
 ```
 
 ## DiffOptions Reference
 
 ```typescript
 type DiffOptions = {
-  whitespace: "collapse" | "ignore";      // Normalize or fully ignore whitespace
-  mergeNonWordTokens: boolean;            // Merge punctuation into adjacent tokens
-  mergeLetterNumberBoundary: boolean;     // Treat "英1" as one token vs two
-  allowStandaloneLawArticle: boolean;     // Korean law article number recognition
-  usePatience: boolean;                   // Use patience diff for large files
-  patienceMinLines: number;               // Line threshold to activate patience diff
-  patienceMinTokens: number;              // Token threshold to activate patience diff
-  fallbackNmThreshold: number;            // n*m fallback (ignore mode) budget; 0 disables
+  whitespace: "collapse" | "ignore"; // Normalize or fully ignore whitespace
+  mergeNonWordTokens: boolean; // Merge punctuation into adjacent tokens
+  mergeLetterNumberBoundary: boolean; // Treat "英1" as one token vs two
+  allowStandaloneLawArticle: boolean; // Korean law article number recognition
+  usePatience: boolean; // Use patience diff for large files
+  patienceMinLines: number; // Line threshold to activate patience diff
+  patienceMinTokens: number; // Token threshold to activate patience diff
+  fallbackNmThreshold: number; // n*m fallback (ignore mode) budget; 0 disables
 };
 ```
 
 ## Known Constraints & Limitations
 
 - **Chromium only** — Edge and Chrome. Firefox lacks required behavior for `contentEditable` and canvas compositing.
-- **`file://` protocol** — Must be opened as a local file, not served via HTTP/HTTPS.
 - **Completely offline** — No fetch/XHR calls. No CDN dependencies.
 - **Corporate DRM clipboard delays** — Pasting from DRM-protected apps (e.g., Word with DRM) may silently paste the previous clipboard content. Retry Ctrl+V until it succeeds.
 - **Large file performance** — Performance degrades with 100k+ tokens. The patience diff fallback helps but doesn't eliminate this.

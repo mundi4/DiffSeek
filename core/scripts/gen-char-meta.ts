@@ -12,15 +12,29 @@
 import { writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
-    CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER,
-    CM_NEWLINE, CM_NEEDS_NORM, CM_SURROGATE, CM_RESERVED7,
-    CM_TRIE_SHIFT, CM_TRIE_MASK,
+	CM_WS,
+	CM_WS_COLLAPSABLE,
+	CM_LETTER,
+	CM_NUMBER,
+	CM_NEWLINE,
+	CM_NEEDS_NORM,
+	CM_SURROGATE,
+	CM_RESERVED7,
+	CM_TRIE_SHIFT,
+	CM_TRIE_MASK,
 } from "../src/char-meta-flags.ts";
 
 export {
-    CM_WS, CM_WS_COLLAPSABLE, CM_LETTER, CM_NUMBER,
-    CM_NEWLINE, CM_NEEDS_NORM, CM_SURROGATE, CM_RESERVED7,
-    CM_TRIE_SHIFT, CM_TRIE_MASK,
+	CM_WS,
+	CM_WS_COLLAPSABLE,
+	CM_LETTER,
+	CM_NUMBER,
+	CM_NEWLINE,
+	CM_NEEDS_NORM,
+	CM_SURROGATE,
+	CM_RESERVED7,
+	CM_TRIE_SHIFT,
+	CM_TRIE_MASK,
 };
 
 const outFileName = "char-meta";
@@ -28,134 +42,133 @@ const outFileName = "char-meta";
 const OUT_FILE = resolve(process.cwd(), `src/${outFileName}.ts`);
 
 // ---- Unicode tests (Node supports Unicode property escapes) ----
-const reWS = /\s/u;                 // includes NBSP in JS
+const reWS = /\s/u; // includes NBSP in JS
 const reLetter = /[\p{L}\p{M}\p{Pc}]/u; // L + Mark + ConnectorPunct (underscore etc)
-const reNumber = /[\p{N}]/u;        // N
+const reNumber = /[\p{N}]/u; // N
 
 const NBSP = 0x00a0;
 
 // newline set: LF, CR, VT, FF, NEL, LS, PS
 function isNewline(cp: number): boolean {
-    return (
-        cp === 0x0a || // LF
-        cp === 0x0d || // CR
-        cp === 0x0b || // VT
-        cp === 0x0c || // FF
-        cp === 0x85 || // NEL
-        cp === 0x2028 || // LS
-        cp === 0x2029    // PS
-    );
+	return (
+		cp === 0x0a || // LF
+		cp === 0x0d || // CR
+		cp === 0x0b || // VT
+		cp === 0x0c || // FF
+		cp === 0x85 || // NEL
+		cp === 0x2028 || // LS
+		cp === 0x2029 // PS
+	);
 }
 
 function isSurrogate(cp: number): boolean {
-    return cp >= 0xd800 && cp <= 0xdfff;
+	return cp >= 0xd800 && cp <= 0xdfff;
 }
 
 // Characters that match reLetter ([\p{L}\p{M}\p{Pc}]) but should act as
 // punctuation for tokenization purposes (i.e. they should split tokens).
 const LETTER_EXCLUSIONS = new Set([
-    0x005F, // _ UNDERSCORE — treated as a token-splitting punctuation character by this table
-    0x318D, // ㆍ HANGUL LETTER ARAEA — used as middle dot in Korean texts
+	0x005f, // _ UNDERSCORE — treated as a token-splitting punctuation character by this table
+	0x318d, // ㆍ HANGUL LETTER ARAEA — used as middle dot in Korean texts
 ]);
 
 function classify(cp: number): number {
-    let flags = 0;
+	let flags = 0;
 
-    if (isSurrogate(cp)) {
-        flags |= CM_SURROGATE;
-        // 여기서 NEEDS_NORM 세팅해봤자 쓸모 없음.
-        return flags;
-    }
+	if (isSurrogate(cp)) {
+		flags |= CM_SURROGATE;
+		// 여기서 NEEDS_NORM 세팅해봤자 쓸모 없음.
+		return flags;
+	}
 
-    const ch = String.fromCharCode(cp);
+	const ch = String.fromCharCode(cp);
 
-    if (reWS.test(ch)) {
-        flags |= CM_WS;
-        if (cp !== NBSP) flags |= CM_WS_COLLAPSABLE;
-        if (isNewline(cp)) flags |= CM_NEWLINE;
-        return flags;
-    }
+	if (reWS.test(ch)) {
+		flags |= CM_WS;
+		if (cp !== NBSP) flags |= CM_WS_COLLAPSABLE;
+		if (isNewline(cp)) flags |= CM_NEWLINE;
+		return flags;
+	}
 
-    if (reNumber.test(ch)) {
-        flags |= CM_NUMBER;
-        return flags;
-    }
+	if (reNumber.test(ch)) {
+		flags |= CM_NUMBER;
+		return flags;
+	}
 
-    if (reLetter.test(ch) && !LETTER_EXCLUSIONS.has(cp)) {
-        flags |= CM_LETTER;
-        return flags;
-    }
+	if (reLetter.test(ch) && !LETTER_EXCLUSIONS.has(cp)) {
+		flags |= CM_LETTER;
+		return flags;
+	}
 
-    // punct/other
-    return flags;
+	// punct/other
+	return flags;
 }
 
-
 function flagsToExpr(v: number): string {
-    if (v === 0) return "0";
+	if (v === 0) return "0";
 
-    const parts: string[] = [];
+	const parts: string[] = [];
 
-    if (v & CM_WS) parts.push("CM_WS");
-    if (v & CM_WS_COLLAPSABLE) parts.push("CM_WS_COLLAPSABLE");
-    if (v & CM_LETTER) parts.push("CM_LETTER");
-    if (v & CM_NUMBER) parts.push("CM_NUMBER");
-    if (v & CM_NEWLINE) parts.push("CM_NEWLINE");
-    if (v & CM_NEEDS_NORM) parts.push("CM_NEEDS_NORM");
-    if (v & CM_SURROGATE) parts.push("CM_SURROGATE");
-    if (v & CM_RESERVED7) parts.push("CM_RESERVED7");
+	if (v & CM_WS) parts.push("CM_WS");
+	if (v & CM_WS_COLLAPSABLE) parts.push("CM_WS_COLLAPSABLE");
+	if (v & CM_LETTER) parts.push("CM_LETTER");
+	if (v & CM_NUMBER) parts.push("CM_NUMBER");
+	if (v & CM_NEWLINE) parts.push("CM_NEWLINE");
+	if (v & CM_NEEDS_NORM) parts.push("CM_NEEDS_NORM");
+	if (v & CM_SURROGATE) parts.push("CM_SURROGATE");
+	if (v & CM_RESERVED7) parts.push("CM_RESERVED7");
 
-    return parts.join(" | ");
+	return parts.join(" | ");
 }
 
 function describeRange(start: number, end: number): string {
-    // ASCII
-    if (start >= 0x0041 && end <= 0x005a) return "ASCII uppercase";
-    if (start >= 0x0061 && end <= 0x007a) return "ASCII lowercase";
-    if (start >= 0x0030 && end <= 0x0039) return "ASCII digit";
+	// ASCII
+	if (start >= 0x0041 && end <= 0x005a) return "ASCII uppercase";
+	if (start >= 0x0061 && end <= 0x007a) return "ASCII lowercase";
+	if (start >= 0x0030 && end <= 0x0039) return "ASCII digit";
 
-    // Hangul
-    if (start >= 0xac00 && end <= 0xd7a3) return "Hangul syllables";
-    if (start >= 0x1100 && end <= 0x11ff) return "Hangul Jamo";
+	// Hangul
+	if (start >= 0xac00 && end <= 0xd7a3) return "Hangul syllables";
+	if (start >= 0x1100 && end <= 0x11ff) return "Hangul Jamo";
 
-    // Whitespace
-    if (start <= 0x0020 && end <= 0x0020) return "Space / control";
+	// Whitespace
+	if (start <= 0x0020 && end <= 0x0020) return "Space / control";
 
-    // Surrogate
-    if (start >= 0xd800 && end <= 0xdfff) return "Surrogate range";
+	// Surrogate
+	if (start >= 0xd800 && end <= 0xdfff) return "Surrogate range";
 
-    return "";
+	return "";
 }
 
 function buildMeta(): Uint16Array {
-    const meta = new Uint16Array(0x10000);
-    for (let cp = 0; cp <= 0xffff; cp++) {
-        meta[cp] = classify(cp);
-    }
-    return meta;
+	const meta = new Uint16Array(0x10000);
+	for (let cp = 0; cp <= 0xffff; cp++) {
+		meta[cp] = classify(cp);
+	}
+	return meta;
 }
 
 type Range = readonly [start: number, endInclusive: number, value: number];
 
 function compressRanges(meta: Uint16Array): Range[] {
-    const ranges: Range[] = [];
-    let start = 0;
-    let prev = meta[0];
+	const ranges: Range[] = [];
+	let start = 0;
+	let prev = meta[0];
 
-    for (let i = 1; i < meta.length; i++) {
-        const v = meta[i];
-        if (v !== prev) {
-            ranges.push([start, i - 1, prev]);
-            start = i;
-            prev = v;
-        }
-    }
-    ranges.push([start, meta.length - 1, prev]);
-    return ranges;
+	for (let i = 1; i < meta.length; i++) {
+		const v = meta[i];
+		if (v !== prev) {
+			ranges.push([start, i - 1, prev]);
+			start = i;
+			prev = v;
+		}
+	}
+	ranges.push([start, meta.length - 1, prev]);
+	return ranges;
 }
 
 function emitTS(ranges: Range[]): string {
-    const header = `/* AUTO-GENERATED by scripts/gen-char-meta.ts
+	const header = `/* AUTO-GENERATED by scripts/gen-char-meta.ts
    Uint16Array(65536) char meta table for BMP.
    - low 8 bits: char properties
    - high 8 bits: reserved for runtime trie flags (do not set here)
@@ -169,18 +182,18 @@ type Range = readonly [start: number, endInclusive: number, value: number];
 const RANGES: readonly Range[] = [
 `;
 
-    const body = ranges
-        .map(([s, e, v]) => {
-            const ss = `0x${s.toString(16).padStart(4, "0")}`;
-            const ee = `0x${e.toString(16).padStart(4, "0")}`;
-            const expr = flagsToExpr(v);
-            const comment = describeRange(s, e);
-            const commentStr = comment ? ` // ${comment}` : "";
-            return `    [${ss}, ${ee}, ${expr}],${commentStr}`;
-        })
-        .join("\n");
+	const body = ranges
+		.map(([s, e, v]) => {
+			const ss = `0x${s.toString(16).padStart(4, "0")}`;
+			const ee = `0x${e.toString(16).padStart(4, "0")}`;
+			const expr = flagsToExpr(v);
+			const comment = describeRange(s, e);
+			const commentStr = comment ? ` // ${comment}` : "";
+			return `    [${ss}, ${ee}, ${expr}],${commentStr}`;
+		})
+		.join("\n");
 
-    const footer = `
+	const footer = `
 ] as const;
 
 /** Build Uint16Array(65536) meta table at runtime (fast: range fill). */
@@ -195,25 +208,25 @@ function buildCharMetaTable(): Uint16Array {
 
 export const CHAR_META = buildCharMetaTable();
 `;
-    // /** OR trie-start bit(s) into the high byte (runtime). */
-    //     export function markTrieStartChars(meta: Uint16Array, trieId: number, startCodeUnits: Iterable<number>): void {
-    //     const bit = 1 << (CM_TRIE_SHIFT + trieId);
-    //     for (const cu of startCodeUnits) meta[cu] |= bit;
-    // }
-    return header + body + footer;
+	// /** OR trie-start bit(s) into the high byte (runtime). */
+	//     export function markTrieStartChars(meta: Uint16Array, trieId: number, startCodeUnits: Iterable<number>): void {
+	//     const bit = 1 << (CM_TRIE_SHIFT + trieId);
+	//     for (const cu of startCodeUnits) meta[cu] |= bit;
+	// }
+	return header + body + footer;
 }
 
 function main() {
-    const meta = buildMeta();
-    const ranges = compressRanges(meta);
+	const meta = buildMeta();
+	const ranges = compressRanges(meta);
 
-    const out = emitTS(ranges);
-    writeFileSync(OUT_FILE, out, "utf8");
+	const out = emitTS(ranges);
+	writeFileSync(OUT_FILE, out, "utf8");
 
-    // stats
-    const unique = new Set<number>(meta as any).size; // typedarray iterable
-    console.log(`[gen-char-meta] wrote: ${OUT_FILE}`);
-    console.log(`[gen-char-meta] ranges: ${ranges.length}, unique values: ${unique}`);
+	// stats
+	const unique = new Set<number>(meta as any).size; // typedarray iterable
+	console.log(`[gen-char-meta] wrote: ${OUT_FILE}`);
+	console.log(`[gen-char-meta] ranges: ${ranges.length}, unique values: ${unique}`);
 }
 
 main();

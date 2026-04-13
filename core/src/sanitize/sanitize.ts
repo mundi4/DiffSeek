@@ -21,7 +21,7 @@ const UNWRAPPABLE_TAGS: Record<string, boolean> = {
 	SPAN: true,
 	FONT: true,
 	FIELDSET: true,
-}
+};
 
 export function sanitizeHTML(rawHTML: string): Node {
 	const sessionTs = Date.now();
@@ -57,11 +57,11 @@ export function sanitizeHTML(rawHTML: string): Node {
 		current: Element | DocumentFragment;
 		currentSanitized: Element | DocumentFragment;
 		childIndex: number;
-		numChildren: number,
-		isTextless: boolean,
-		font: "NORMAL" | DingbatFont,
-		color: "NORMAL" | "red",
-		preformatted: boolean,
+		numChildren: number;
+		isTextless: boolean;
+		font: "NORMAL" | DingbatFont;
+		color: "NORMAL" | "red";
+		preformatted: boolean;
 	}[] = [];
 
 	// Node를 리턴하는 경우: 새로 생성된 노드 (appendChild 필요). 정상적으로 플로우 처리 필요(childIndex++ 등)
@@ -126,7 +126,8 @@ export function sanitizeHTML(rawHTML: string): Node {
 				// (newElement as HTMLElement).classList.remove("ds-color-red", "ds-color-normal");
 				if (newColor === "red") {
 					(sanitizedNode as HTMLElement).classList.add("ds-color-red");
-				} else {//if (states.color === "normal") {
+				} else {
+					//if (states.color === "normal") {
 					(sanitizedNode as HTMLElement).classList.add("ds-color-normal");
 				}
 			}
@@ -166,13 +167,12 @@ export function sanitizeHTML(rawHTML: string): Node {
 			isTextless,
 			color,
 			font,
-			preformatted
+			preformatted,
 		} = parentStack.pop()!);
 		return true;
 	}
 
-	OUTER:
-	while (true) {
+	OUTER: while (true) {
 		while (childIndex >= numChildren) {
 			const prev = currentSanitized;
 			if (restoreParent()) {

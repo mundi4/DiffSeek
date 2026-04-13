@@ -3,160 +3,159 @@ import type { DingbatFont } from "./types";
 type CharMap = Record<string, string>;
 
 const DINGBAT_CHAR_MAP: Record<string, CharMap> = {
-    wingdings: {
-        "\u00DF": "←",
-        "\u00E0": "→",
-        "\u00E1": "↑",
-        "\u00E2": "↓",
-        "\u00E3": "↖",
-        "\u00E4": "↗",
-        "\u00E5": "↙",
-        "\u00E6": "↘",
+	wingdings: {
+		"\u00DF": "←",
+		"\u00E0": "→",
+		"\u00E1": "↑",
+		"\u00E2": "↓",
+		"\u00E3": "↖",
+		"\u00E4": "↗",
+		"\u00E5": "↙",
+		"\u00E6": "↘",
 
-        "\u00E7": "←",
-        "\u00E8": "→",
-        "\u00E9": "↑",
-        "\u00EA": "↓",
-        "\u00EB": "↖",
-        "\u00EC": "↗",
-        "\u00ED": "↙",
-        "\u00EE": "↘",
+		"\u00E7": "←",
+		"\u00E8": "→",
+		"\u00E9": "↑",
+		"\u00EA": "↓",
+		"\u00EB": "↖",
+		"\u00EC": "↗",
+		"\u00ED": "↙",
+		"\u00EE": "↘",
 
-        "\u0080": "⓪",
-        "\u0081": "①",
-        "\u0082": "②",
-        "\u0083": "③",
-        "\u0084": "④",
-        "\u0085": "⑤",
-        "\u0086": "⑥",
-        "\u0087": "⑦",
-        "\u0088": "⑧",
-        "\u0089": "⑨",
-        "\u008A": "⑩",
-        "\u008B": "⓿",
-        "\u008C": "❶",
-        "\u008D": "❷",
-        "\u008E": "❸",
-        "\u008F": "❹",
-        "\u0090": "❺",
-        "\u0091": "❻",
-        "\u0092": "❼",
-        "\u0093": "❽",
-        "\u0094": "❾",
-        "\u0095": "❿",
+		"\u0080": "⓪",
+		"\u0081": "①",
+		"\u0082": "②",
+		"\u0083": "③",
+		"\u0084": "④",
+		"\u0085": "⑤",
+		"\u0086": "⑥",
+		"\u0087": "⑦",
+		"\u0088": "⑧",
+		"\u0089": "⑨",
+		"\u008A": "⑩",
+		"\u008B": "⓿",
+		"\u008C": "❶",
+		"\u008D": "❷",
+		"\u008E": "❸",
+		"\u008F": "❹",
+		"\u0090": "❺",
+		"\u0091": "❻",
+		"\u0092": "❼",
+		"\u0093": "❽",
+		"\u0094": "❾",
+		"\u0095": "❿",
 
-        "\x9E": "·",
-        "\x9F": "•",
-        "\xA0": "▪",
-        "\xA2": "⊙",
-        "\xA4": "◉",
-        "\xA5": "◎",
+		"\x9E": "·",
+		"\x9F": "•",
+		"\xA0": "▪",
+		"\xA2": "⊙",
+		"\xA4": "◉",
+		"\xA5": "◎",
 
-        // ===== 체크 / 박스 =====
-        "\xFB": "✓",
-        "\xFC": "✔",
-        "\xFD": "✗",
-        "\xFE": "✘",
-        "\xA8": "☐",
-        "\xA9": "☑",
+		// ===== 체크 / 박스 =====
+		"\xFB": "✓",
+		"\xFC": "✔",
+		"\xFD": "✗",
+		"\xFE": "✘",
+		"\xA8": "☐",
+		"\xA9": "☑",
 
-        // ===== 별 =====
-        "\xAA": "★",
-        "\xAB": "☆",
+		// ===== 별 =====
+		"\xAA": "★",
+		"\xAB": "☆",
 
-        // ===== 손가락 변형 =====
-        "\xC0": "☞",
-        "\xC1": "☜",
-        "\xC2": "☛",
-        "\xC3": "☚",
+		// ===== 손가락 변형 =====
+		"\xC0": "☞",
+		"\xC1": "☜",
+		"\xC2": "☛",
+		"\xC3": "☚",
 
-        // ===== 아이콘 =====
-        "\x28": "☎",
-        "\x29": "✉",
-        "\x2A": "✂",
+		// ===== 아이콘 =====
+		"\x28": "☎",
+		"\x29": "✉",
+		"\x2A": "✂",
 
-        // ===== 강조 도형 =====
-        "\xB2": "◆",
-        "\xB3": "◇",
-    },
+		// ===== 강조 도형 =====
+		"\xB2": "◆",
+		"\xB3": "◇",
+	},
 
-    ["wingdings 2"]: {
-        "\x3F": "☞",
-        "\x9F": "⬝",
-        "\xA0": "▪",
-        "\xA1": "■",
-        "\xF8": "※",
+	["wingdings 2"]: {
+		"\x3F": "☞",
+		"\x9F": "⬝",
+		"\xA0": "▪",
+		"\xA1": "■",
+		"\xF8": "※",
 
-        // ===== 굵은 화살표 =====
-        "\xD0": "➔",
-        "\xD1": "➜",
-        "\xD2": "➤",
-        "\xD3": "➣",
+		// ===== 굵은 화살표 =====
+		"\xD0": "➔",
+		"\xD1": "➜",
+		"\xD2": "➤",
+		"\xD3": "➣",
 
-        // ===== 체크 =====
-        "\x52": "✓",
-        "\x53": "✗",
+		// ===== 체크 =====
+		"\x52": "✓",
+		"\x53": "✗",
 
-        // ===== 삼각 버튼 =====
-        "\xF0": "▶",
-        "\xF1": "◀",
-        "\xF2": "▲",
-        "\xF3": "▼",
-    },
+		// ===== 삼각 버튼 =====
+		"\xF0": "▶",
+		"\xF1": "◀",
+		"\xF2": "▲",
+		"\xF3": "▼",
+	},
 
-    ["wingdings 3"]: {
-        "\x33": "→",
-        "\x34": "←",
-        "\x35": "↑",
-        "\x36": "↓",
-        "\x39": "↔",
-        "\x3A": "↕",
-        "\x41": "▶",
-        "\x42": "◀",
-        "\x43": "▲",
-        "\x44": "▼",
+	["wingdings 3"]: {
+		"\x33": "→",
+		"\x34": "←",
+		"\x35": "↑",
+		"\x36": "↓",
+		"\x39": "↔",
+		"\x3A": "↕",
+		"\x41": "▶",
+		"\x42": "◀",
+		"\x43": "▲",
+		"\x44": "▼",
 
-        "\x4A": "✓",
-        "\x4B": "✗",
-    },
+		"\x4A": "✓",
+		"\x4B": "✗",
+	},
 
-    symbol: {
-        "\xAB": "↔",
-        "\xAC": "←",
-        "\xAD": "↑",
-        "\xAE": "→",
-        "\xAF": "↓",
+	symbol: {
+		"\xAB": "↔",
+		"\xAC": "←",
+		"\xAD": "↑",
+		"\xAE": "→",
+		"\xAF": "↓",
 
-        "\x22": "∀",
-        "\x24": "∃",
-        "\x2D": "−",
-        "\xB0": "°",
-        "\xB1": "±",
-        "\xB5": "µ",
-        "\xD7": "×",
-        "\xF7": "÷",
-    },
+		"\x22": "∀",
+		"\x24": "∃",
+		"\x2D": "−",
+		"\xB0": "°",
+		"\xB1": "±",
+		"\xB5": "µ",
+		"\xD7": "×",
+		"\xF7": "÷",
+	},
 };
 
 function normalizeFontFamilyString(raw: string) {
-    let s = raw.split(",")[0].trim();
-    s = s.replace(/^['"]+|['"]+$/g, "").toLowerCase();
-    return s;
+	let s = raw.split(",")[0].trim();
+	s = s.replace(/^['"]+|['"]+$/g, "").toLowerCase();
+	return s;
 }
 
 export function resolveFont(el: HTMLElement): DingbatFont | "NORMAL" | null {
-    const raw = el.style?.fontFamily || (el.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
-    if (!raw || raw === "inherit") return null;
-    const fam = normalizeFontFamilyString(raw);
-    return DINGBAT_CHAR_MAP[fam] ? fam as DingbatFont : "NORMAL";
+	const raw = el.style?.fontFamily || (el.nodeName === "FONT" ? el.getAttribute("face") || "" : "");
+	if (!raw || raw === "inherit") return null;
+	const fam = normalizeFontFamilyString(raw);
+	return DINGBAT_CHAR_MAP[fam] ? (fam as DingbatFont) : "NORMAL";
 }
 
 export function normalizeDingbatText(input: string, font: DingbatFont): string {
-    const charMap = DINGBAT_CHAR_MAP[font];
-    let result = "";
-    for (const ch of input) {
-        result += charMap[ch] || ch;
-    }
-    return result;
+	const charMap = DINGBAT_CHAR_MAP[font];
+	let result = "";
+	for (const ch of input) {
+		result += charMap[ch] || ch;
+	}
+	return result;
 }
-

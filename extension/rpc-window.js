@@ -26,7 +26,10 @@ export function createWindowRPC({ target = window, timeout: defaultTimeout = 300
 				try {
 					const result = await methods[msg.method](...(msg.params || []));
 					if (result && result.transfer) {
-						target.postMessage({ rpcResponse: true, id: msg.id, result: result.result, source }, result.transfer);
+						target.postMessage(
+							{ rpcResponse: true, id: msg.id, result: result.result, source },
+							result.transfer,
+						);
 					} else {
 						target.postMessage({ rpcResponse: true, id: msg.id, result, source }, "*");
 					}

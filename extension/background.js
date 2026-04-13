@@ -1,4 +1,4 @@
-import { createRPC } from './rpc.js';
+import { createRPC } from "./rpc.js";
 
 chrome.runtime.onInstalled.addListener(() => {
 	console.log("DiffSeekExt background loaded");

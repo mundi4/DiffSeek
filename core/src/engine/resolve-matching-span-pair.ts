@@ -28,99 +28,101 @@ import type { DiffContext } from "./types";
  * // side = "left", sourceSpan = "가"
  * // 결과 => left=["가","나"], right=["가나"]
  */
-export function resolveMatchingSpanPair(diffContext: DiffContext, side: EditorName, sourceSpan: Span)
-    : { left: Span | null; right: Span | null } {
-    if (sourceSpan.start === sourceSpan.end) {
-        // 빈 스팬인 경우 양쪽 모두 빈 스팬 반환
-        return { left: null, right: null };
-    }
+export function resolveMatchingSpanPair(
+	diffContext: DiffContext,
+	side: EditorName,
+	sourceSpan: Span,
+): { left: Span | null; right: Span | null } {
+	if (sourceSpan.start === sourceSpan.end) {
+		// 빈 스팬인 경우 양쪽 모두 빈 스팬 반환
+		return { left: null, right: null };
+	}
 
-    const tokenBuffer = side === "left" ? diffContext.leftTokenBuffer : diffContext.rightTokenBuffer;
+	const tokenBuffer = side === "left" ? diffContext.leftTokenBuffer : diffContext.rightTokenBuffer;
 
-    if (tokenBuffer.length === 0 || sourceSpan.start === sourceSpan.end) {
-        return { left: null, right: null };
-    }
+	if (tokenBuffer.length === 0 || sourceSpan.start === sourceSpan.end) {
+		return { left: null, right: null };
+	}
 
-    const start = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 0];
-    const oppStart = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 2];
+	const start = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 0];
+	const oppStart = tokenBuffer[sourceSpan.start * TOKEN_BUFFER_STRIDE + 2];
 
-    const end = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 1];
-    const oppEnd = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 3];
+	const end = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 1];
+	const oppEnd = tokenBuffer[(sourceSpan.end - 1) * TOKEN_BUFFER_STRIDE + 3];
 
-    const thisSpan = end > start ? { start, end } : null;
-    const otherSpan = oppEnd > oppStart ? { start: oppStart, end: oppEnd } : null;
-    return side === "left" ? { left: thisSpan, right: otherSpan } : { left: otherSpan, right: thisSpan };
+	const thisSpan = end > start ? { start, end } : null;
+	const otherSpan = oppEnd > oppStart ? { start: oppStart, end: oppEnd } : null;
+	return side === "left" ? { left: thisSpan, right: otherSpan } : { left: otherSpan, right: thisSpan };
 
-    // if (diffContext.entries.length === 0) {
-    //     return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
-    // }
+	// if (diffContext.entries.length === 0) {
+	//     return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
+	// }
 
-    // const leftEntries = diffContext.leftEntries;
-    // const rightEntries = diffContext.rightEntries;
+	// const leftEntries = diffContext.leftEntries;
+	// const rightEntries = diffContext.rightEntries;
 
+	// const thisEntries = side === "left" ? leftEntries : rightEntries;
+	// const n = thisEntries.length;
 
-    // const thisEntries = side === "left" ? leftEntries : rightEntries;
-    // const n = thisEntries.length;
+	// if (n === 0 || (sourceSpan.start === 0 && sourceSpan.end === 0)) {
+	//     return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
+	// }
 
-    // if (n === 0 || (sourceSpan.start === 0 && sourceSpan.end === 0)) {
-    //     return { left: { start: 0, end: 0 }, right: { start: 0, end: 0 } };
-    // }
+	// if (sourceSpan.start < 0 || sourceSpan.end < sourceSpan.start || sourceSpan.end > n) {
+	//     throw new Error(`Invalid span [${sourceSpan.start}, ${sourceSpan.end}) for side=${side}`);
+	// }
 
-    // if (sourceSpan.start < 0 || sourceSpan.end < sourceSpan.start || sourceSpan.end > n) {
-    //     throw new Error(`Invalid span [${sourceSpan.start}, ${sourceSpan.end}) for side=${side}`);
-    // }
+	// const other: EditorName = side === "left" ? "right" : "left";
 
-    // const other: EditorName = side === "left" ? "right" : "left";
+	// // 비어있지 않은 스팬이면 엔트리 경계에 맞춰 좌우 확장
+	// const expandOnSide = (fromSide: EditorName, span: Span): Span => {
+	//     const entries = fromSide === "left" ? leftEntries : rightEntries;
+	//     let a = span.start;
+	//     let b = span.end;
 
-    // // 비어있지 않은 스팬이면 엔트리 경계에 맞춰 좌우 확장
-    // const expandOnSide = (fromSide: EditorName, span: Span): Span => {
-    //     const entries = fromSide === "left" ? leftEntries : rightEntries;
-    //     let a = span.start;
-    //     let b = span.end;
+	//     let realStart, realEnd;
+	//     if (a >= entries.length) {
+	//         realStart = realEnd = entries.length;
+	//     } else if (a === b) {
+	//         realStart = entries[a][fromSide].start;
+	//         if (realStart < a) {
+	//             realEnd = entries[a][fromSide].end;
+	//         } else {
+	//             realEnd = a;
+	//         }
+	//     } else {
+	//         realStart = entries[a][fromSide].start;
+	//         realEnd = entries[b - 1][fromSide].end;
+	//     }
 
-    //     let realStart, realEnd;
-    //     if (a >= entries.length) {
-    //         realStart = realEnd = entries.length;
-    //     } else if (a === b) {
-    //         realStart = entries[a][fromSide].start;
-    //         if (realStart < a) {
-    //             realEnd = entries[a][fromSide].end;
-    //         } else {
-    //             realEnd = a;
-    //         }
-    //     } else {
-    //         realStart = entries[a][fromSide].start;
-    //         realEnd = entries[b - 1][fromSide].end;
-    //     }
+	//     return { start: realStart, end: realEnd };
+	// };
 
-    //     return { start: realStart, end: realEnd };
-    // };
+	// const expanded = expandOnSide(side, sourceSpan);
+	// let otherSpan: Span;
+	// if (expanded.start === expanded.end) {
+	//     const k = expanded.start;
+	//     if (k >= thisEntries.length) {
+	//         const startAndEnd = thisEntries[thisEntries.length - 1]?.[other]?.end ?? 0;
+	//         otherSpan = {
+	//             start: startAndEnd,
+	//             end: startAndEnd,
+	//         };
+	//     } else if (thisEntries[k] && thisEntries[k][other]) {
+	//         otherSpan = {
+	//             start: thisEntries[k][other].start,
+	//             end: thisEntries[k][other].start,
+	//         };
+	//     } else {
+	//         // fallback: 빈 span 반환
+	//         otherSpan = { start: 0, end: 0 };
+	//     }
+	// } else {
+	//     otherSpan = {
+	//         start: thisEntries[expanded.start][other].start,
+	//         end: thisEntries[expanded.end - 1][other].end,
+	//     };
+	// }
 
-    // const expanded = expandOnSide(side, sourceSpan);
-    // let otherSpan: Span;
-    // if (expanded.start === expanded.end) {
-    //     const k = expanded.start;
-    //     if (k >= thisEntries.length) {
-    //         const startAndEnd = thisEntries[thisEntries.length - 1]?.[other]?.end ?? 0;
-    //         otherSpan = {
-    //             start: startAndEnd,
-    //             end: startAndEnd,
-    //         };
-    //     } else if (thisEntries[k] && thisEntries[k][other]) {
-    //         otherSpan = {
-    //             start: thisEntries[k][other].start,
-    //             end: thisEntries[k][other].start,
-    //         };
-    //     } else {
-    //         // fallback: 빈 span 반환
-    //         otherSpan = { start: 0, end: 0 };
-    //     }
-    // } else {
-    //     otherSpan = {
-    //         start: thisEntries[expanded.start][other].start,
-    //         end: thisEntries[expanded.end - 1][other].end,
-    //     };
-    // }
-
-    // return side === "left" ? { left: expanded, right: otherSpan } : { left: otherSpan, right: expanded };
+	// return side === "left" ? { left: expanded, right: otherSpan } : { left: otherSpan, right: expanded };
 }

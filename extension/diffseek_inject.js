@@ -22,10 +22,16 @@
 				}
 			};
 			window.addEventListener("message", handler);
-			window.postMessage({
-				rpcRequest: true, id, method: "fetchImageData",
-				params: [url], source: "page"
-			}, "*");
+			window.postMessage(
+				{
+					rpcRequest: true,
+					id,
+					method: "fetchImageData",
+					params: [url],
+					source: "page",
+				},
+				"*",
+			);
 		});
 	};
 

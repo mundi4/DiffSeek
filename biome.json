@@ -60,7 +60,7 @@
 				"noConsole": "off"
 			},
 			"correctness": {
-				"noUnusedVariables": "off",
+				"noUnusedVariables": "warn",
 				"noUnusedImports": "warn"
 			},
 			"complexity": {

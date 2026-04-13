@@ -563,12 +563,11 @@ describe('runHistogramDiff whitespace: ignore — edge cases', () => {
         expectAllContentUnchanged(rhs, 'rhs');
     });
 
-    it('n:m match content identical but surrounding tokens completely differ (no anchors) — LIMITATION: all MODIFIED', async () => {
-        // No SA anchors (no shared token IDs).
-        // consumeCommonEdges(3) tries prefix "foo" vs "baz" (equal length ≠ match) → break,
-        // then suffix "bar" vs "qux" (equal length ≠ match) → break.
-        // Middle n:m is NEVER examined because the algorithm only consumes from edges.
-        // This documents a known limitation of the current histogram-diff algorithm.
+    it('n:m match content identical but surrounding tokens completely differ (no anchors)', async () => {
+        // No SA anchors (no shared token IDs). consumeCommonEdges outer walkers are blocked
+        // ("foo" vs "baz" / "bar" vs "qux" — both same-length different-content).
+        // The small-range n*m fallback (findFirstCrossMatch via anti-diagonal BFS) kicks in
+        // and finds the interior match: lhs "abcdef" ↔ rhs "a","b","c","d","e","f".
         const { lhs, rhs } = await diffHtml(
             '<p>foo abcdef bar</p>',
             '<p>baz a b c d e f qux</p>',
@@ -576,13 +575,20 @@ describe('runHistogramDiff whitespace: ignore — edge cases', () => {
         );
         const lhsTypes = contentTokenTypes(lhs);
         const rhsTypes = contentTokenTypes(rhs);
-        // Everything is MODIFIED because both sides have leftover content in the else branch.
-        for (const { text, type } of lhsTypes) {
-            expect(type, `lhs "${text}" expected MODIFIED`).toBe(DIFF_TYPE_MODIFIED);
-        }
-        for (const { text, type } of rhsTypes) {
-            expect(type, `rhs "${text}" expected MODIFIED`).toBe(DIFF_TYPE_MODIFIED);
-        }
+        // Interior match found:
+        expect(lhsTypes.find(e => e.text === 'abcdef')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'a')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'b')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'c')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'd')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'e')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'f')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        // Leftover around the match: "foo"/"baz" before, "bar"/"qux" after. Both sides
+        // have leftover → MODIFIED.
+        expect(lhsTypes.find(e => e.text === 'foo')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'baz')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(lhsTypes.find(e => e.text === 'bar')?.type).toBe(DIFF_TYPE_MODIFIED);
+        expect(rhsTypes.find(e => e.text === 'qux')?.type).toBe(DIFF_TYPE_MODIFIED);
     });
 
     it('n:m match with one-side garbage surrounding (prefix garbage only)', async () => {
@@ -987,20 +993,14 @@ describe('runHistogramDiff whitespace: ignore — probes for failure cases', () 
         expect(rhsTypes.find(e => e.text === 'fh')?.type).toBe(DIFF_TYPE_UNCHANGED);
     });
 
-    it('PROBE LIMITATION: structural wrapper differs but inner matches via n:m', async () => {
-        // lhs: <p>abcdef</p> (no structural tokens — <p> is a block, not structural)
-        // rhs: <table><tr><td>a b c d e f</td></tr></table> (structural tokens around content)
+    it('PROBE: structural wrapper differs but inner matches via n:m fallback', async () => {
+        // lhs: <p>abcdef</p> — 1 content token "abcdef"
+        // rhs: <table><tr><td>a b c d e f</td></tr></table> — 6 structural tokens + 6 content tokens
         //
-        // Content text is identical ("abcdef"). Ideally the text should match via n:m.
-        // BUT: rhs has leading structural-open tokens (\uE003\uE002\uE001) whose buffer
-        // bytes are non-Latin. consumeCommonEdges tries prefix walk lhs "abcdef" vs
-        // rhs <struct_open_table>: first char 'a' ≠ '\uE003' → break.
-        // Suffix walk similarly blocked by <struct_close_table>.
-        // Result: all content tokens end up MODIFIED, even though the text is identical.
-        //
-        // This documents a current limitation: n:m matching cannot penetrate across
-        // differing structural wrappers. The algorithm treats the whole region as
-        // having "no anchor", and consume only walks along the outer edges.
+        // SA finds no anchor (structural tokens on rhs have codepoints \uE00x which don't
+        // match any lhs token). The small-range n*m fallback scans anti-diagonally and finds
+        // lhs "abcdef" ↔ rhs "a","b","c","d","e","f" as a 1:6 match.
+        // The surrounding structural open/close tokens on rhs become ADDED (lhs has none).
         const { lhs, rhs } = await diffHtml(
             '<p>abcdef</p>',
             '<table><tr><td>a b c d e f</td></tr></table>',
@@ -1008,10 +1008,10 @@ describe('runHistogramDiff whitespace: ignore — probes for failure cases', () 
         );
         const lhsTypes = contentTokenTypes(lhs);
         const rhsTypes = contentTokenTypes(rhs);
-        // Document current (suboptimal) behavior: content tokens are MODIFIED.
-        expect(lhsTypes.find(e => e.text === 'abcdef')?.type).toBe(DIFF_TYPE_MODIFIED);
+        // Content tokens now match via the fallback
+        expect(lhsTypes.find(e => e.text === 'abcdef')?.type).toBe(DIFF_TYPE_UNCHANGED);
         for (const { text, type } of rhsTypes) {
-            expect(type, `rhs "${text}" MODIFIED (limitation)`).toBe(DIFF_TYPE_MODIFIED);
+            expect(type, `rhs content "${text}" should be UNCHANGED`).toBe(DIFF_TYPE_UNCHANGED);
         }
     });
 

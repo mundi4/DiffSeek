@@ -212,28 +212,37 @@ In `collapse` mode this machinery is **mostly redundant** because the SA already
 
 In the "no anchor found" else-branch of `diffCore`, leftover ranges are written with `type = DIFF_TYPE_UNCHANGED | (REMOVED if lhs left) | (ADDED if rhs left)`. So **when both sides have leftover tokens, they all become `DIFF_TYPE_MODIFIED` (0x3)**, not separate REMOVED/ADDED runs. Only ranges where exactly one side is empty produce pure REMOVED or ADDED. Also, the `lhsCount === 1 && rhsCount === 1` fast-path in `diffCore` writes `DIFF_TYPE_MODIFIED` when IDs differ. Tests must expect MODIFIED for tokens in both-sides-have-content regions.
 
-### Past regressions — do not repeat
+### "Edge-walker" limitation and the small-range n*m fallback
 
-- **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and a dedicated test block was added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
-
-### Known limitations — "edge-walker" failure modes
-
-The `consumeCommonEdges` approach walks inward from the outer edges of a sub-range. When both outer edges fail their initial check, the walker terminates without ever examining the interior — even if a genuine substring match exists in the middle.
-
-Two specific blockers for the walker:
+`consumeCommonEdges` walks inward from the outer edges of a sub-range. When both outer edges fail their initial check, the walker terminates without ever examining the interior. Specifically:
 
 - **Prefix walker** — breaks when the first characters of the outermost tokens differ (`lhsBuf[lhsOffset] !== rhsBuf[rhsOffset]`), because `matchPrefixTokens` returns `null` immediately.
-- **Suffix walker** — breaks when the last tokens on both sides have the same byte length but different IDs (`if (lLen === rLen) break`). This heuristic is *correct* in isolation: given equal length and different IDs, no cross-boundary multi-token suffix match can exist that crosses BOTH last-token boundaries simultaneously. But it means the walker stops before it could find a shorter cross-boundary match that doesn't cross the very-last boundary on one side.
+- **Suffix walker** — breaks when the last tokens on both sides have the same byte length but different IDs (`if (lLen === rLen) break`). This heuristic is correct in isolation: given equal length and different IDs, no cross-boundary multi-token suffix match can exist that crosses BOTH last-token boundaries. But combined with a blocked prefix, the interior becomes invisible.
 
-When the SA/LCP also finds no anchor (no token-level ID matches), the algorithm falls into the `else` branch, attempts `consumeCommonEdges(..., 3)`, and if both walkers are blocked, emits the whole region as `DIFF_TYPE_MODIFIED` — even for content that is semantically identical or a substring match.
+**Fallback**: `fallbackGreedyConsume` in `run-histogram-diff.ts` handles this when the sub-range is small. It's invoked from `diffCore`'s no-anchor `else` branch when:
 
-Documented failing cases (marked `PROBE FAIL` in `core/tests/run-histogram-diff.test.ts`):
+1. `whitespace: "ignore"` mode
+2. `n * m <= FALLBACK_NM_THRESHOLD` (currently `128`)
 
-1. **`"bc ef h"` vs `"a bce fh j"`** — lhs content `"bcefh"` is literally embedded in rhs `"abcefhj"` but the algorithm can't see it (prefix blocked by `'b' ≠ 'a'`, suffix blocked by equal-length `"h"` vs `"j"`).
-2. **`"X abc Y"` vs `"Z a b c W"`** — same pattern, both outer edges blocked by single-char same-length tokens.
-3. **`"hello abcxyz end"` vs `"bye abc xyz fin"`** — prefix blocked by first-char mismatch, suffix blocked by equal-length heuristic.
+The function scans `(i, j)` starting-position pairs in **anti-diagonal order** (`d = i + j` increasing), calling `matchPrefixTokens(lhs, rhs, lhsLo+i, lhsHi, rhsLo+j, rhsHi)` on each. First match wins — since the range is small, the earliest "from-the-front" match is natural. Then:
 
-These tests **intentionally fail** in the current codebase and serve as a wish-list. Any fix would require either (a) fallback inner-substring search when edge consume fails, (b) a byte-level SA rather than per-token SA, or (c) edge-skip retries. All three have non-trivial performance / complexity cost. Do not "fix" by making the tests match current behavior without actually improving the algorithm.
+- Tokens **before** the match on each side → emitted as `REMOVED`/`ADDED`/`MODIFIED` (whichever applies)
+- The match itself → emitted as `UNCHANGED` (asymmetric n:m OK — `writeToResultBuffer` handles both sides independently)
+- Cursor advances past the match, and the loop re-scans the remaining sub-range for more matches (greedy multi-match)
+- Any final leftover → emitted as `REMOVED`/`ADDED`/`MODIFIED`
+
+Total work is bounded by the initial `n * m` (each `(i, j)` pair is examined at most once across all iterations, because the cursor only advances). With early-exit on first match, typical cases are much cheaper.
+
+**Why not in `findAnchor`?** `findAnchor` returns a single anchor, but the fallback naturally finds multiple sequential matches once it has paid the n*m cost. Doing the greedy multi-match directly in `diffCore.else` avoids recursion overhead.
+
+**Why `else` branch only?** `findAnchor`'s SA/LCP path is called first. When SA finds a token-level anchor, the algorithm recurses into before/after sub-ranges, and at leaf sub-ranges where SA finds nothing, `diffCore` reaches the `else` branch and the fallback kicks in. So the fallback organically covers all deep recursion leaves, not just top-level no-anchor cases.
+
+**Why asymmetric anchors are allowed now**: `diffCore`'s anchor branch still enforces symmetric SA anchors (`lhsEnd - lhsStart === rhsEnd - rhsStart`). The fallback bypasses the anchor path entirely and writes matches directly to the result buffer, so the symmetric invariant on SA anchors stays intact.
+
+### Past regressions — do not repeat
+
+- **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and dedicated test blocks were added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
+- The three original `PROBE FAIL` tests in `run-histogram-diff.test.ts` (`"bc ef h"` vs `"a bce fh j"`, `"X abc Y"` vs `"Z a b c W"`, `"hello abcxyz end"` vs `"bye abc xyz fin"`) were originally failing limitation probes; they now pass thanks to the n*m fallback. They stay as regression tests — any change to the fallback threshold or the anti-diagonal scan order must keep them passing.
 
 ### Testing notes
 

@@ -216,12 +216,32 @@ In the "no anchor found" else-branch of `diffCore`, leftover ranges are written 
 
 - **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and a dedicated test block was added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
 
+### Known limitations — "edge-walker" failure modes
+
+The `consumeCommonEdges` approach walks inward from the outer edges of a sub-range. When both outer edges fail their initial check, the walker terminates without ever examining the interior — even if a genuine substring match exists in the middle.
+
+Two specific blockers for the walker:
+
+- **Prefix walker** — breaks when the first characters of the outermost tokens differ (`lhsBuf[lhsOffset] !== rhsBuf[rhsOffset]`), because `matchPrefixTokens` returns `null` immediately.
+- **Suffix walker** — breaks when the last tokens on both sides have the same byte length but different IDs (`if (lLen === rLen) break`). This heuristic is *correct* in isolation: given equal length and different IDs, no cross-boundary multi-token suffix match can exist that crosses BOTH last-token boundaries simultaneously. But it means the walker stops before it could find a shorter cross-boundary match that doesn't cross the very-last boundary on one side.
+
+When the SA/LCP also finds no anchor (no token-level ID matches), the algorithm falls into the `else` branch, attempts `consumeCommonEdges(..., 3)`, and if both walkers are blocked, emits the whole region as `DIFF_TYPE_MODIFIED` — even for content that is semantically identical or a substring match.
+
+Documented failing cases (marked `PROBE FAIL` in `core/tests/run-histogram-diff.test.ts`):
+
+1. **`"bc ef h"` vs `"a bce fh j"`** — lhs content `"bcefh"` is literally embedded in rhs `"abcefhj"` but the algorithm can't see it (prefix blocked by `'b' ≠ 'a'`, suffix blocked by equal-length `"h"` vs `"j"`).
+2. **`"X abc Y"` vs `"Z a b c W"`** — same pattern, both outer edges blocked by single-char same-length tokens.
+3. **`"hello abcxyz end"` vs `"bye abc xyz fin"`** — prefix blocked by first-char mismatch, suffix blocked by equal-length heuristic.
+
+These tests **intentionally fail** in the current codebase and serve as a wish-list. Any fix would require either (a) fallback inner-substring search when edge consume fails, (b) a byte-level SA rather than per-token SA, or (c) edge-skip retries. All three have non-trivial performance / complexity cost. Do not "fix" by making the tests match current behavior without actually improving the algorithm.
+
 ### Testing notes
 
 - `makeInputFromHtml(html, opts)` in `core/tests/run-histogram-diff.test.ts` takes an optional `DiffOptions`. **Pass the same options to both `buildDiffInput` and `runHistogramDiff`** — the two must agree or the test setup is inconsistent.
 - Use the `diffHtml(lhsHtml, rhsHtml, whitespace)` helper for end-to-end whitespace-mode tests.
 - `contentTokenTypes(input)` skips structural tokens (tables, paragraphs) and returns `{text, type}` for each content token, which is the easiest way to assert specific tokens by text.
 - Debug logs `Total intervals processed: X, Prune1 count: Y` come from HEAD's in-file debug counters — don't strip them without checking with the author first.
+- The test file polyfills `scheduler.yield` in a `beforeAll` hook because large tokenization inputs trigger the browser-only `scheduler.yield()` call in `tokenize.ts`. Any new test with >256 tokens or long content runs will hit this if the polyfill is missing.
 
 ## Keyboard Shortcuts
 

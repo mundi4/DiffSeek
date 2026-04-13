@@ -24,6 +24,13 @@ export type DiffOptions = {
     /** structural level(TD=1, TR=2, TABLE=3)별 추가 배율. index = max structural element type. 높은 level이 포함될수록 앵커 가치가 높으므로 배율 증가. */
     structuralLevelBonuses: number[];
     stackEmptyDiffMarkers: boolean;
+
+    /**
+     * whitespace: "ignore" 모드에서 SA 앵커도 없고 외곽 consume 워커도 막힌
+     * sub-range에 대해 anti-diagonal n*m 폴백을 시도할 최대 토큰 쌍 수 상한.
+     * (n*m)이 이 값 이하일 때만 폴백이 실행된다. 0이면 폴백 비활성.
+     */
+    fallbackNmThreshold: number;
 };
 
 export type DiffInput = {

@@ -212,9 +212,37 @@ In `collapse` mode this machinery is **mostly redundant** because the SA already
 
 In the "no anchor found" else-branch of `diffCore`, leftover ranges are written with `type = DIFF_TYPE_UNCHANGED | (REMOVED if lhs left) | (ADDED if rhs left)`. So **when both sides have leftover tokens, they all become `DIFF_TYPE_MODIFIED` (0x3)**, not separate REMOVED/ADDED runs. Only ranges where exactly one side is empty produce pure REMOVED or ADDED. Also, the `lhsCount === 1 && rhsCount === 1` fast-path in `diffCore` writes `DIFF_TYPE_MODIFIED` when IDs differ. Tests must expect MODIFIED for tokens in both-sides-have-content regions.
 
+### "Edge-walker" limitation and the small-range n*m fallback
+
+`consumeCommonEdges` walks inward from the outer edges of a sub-range. When both outer edges fail their initial check, the walker terminates without ever examining the interior. Specifically:
+
+- **Prefix walker** — breaks when the first characters of the outermost tokens differ (`lhsBuf[lhsOffset] !== rhsBuf[rhsOffset]`), because `matchPrefixTokens` returns `null` immediately.
+- **Suffix walker** — breaks when the last tokens on both sides have the same byte length but different IDs (`if (lLen === rLen) break`). This heuristic is correct in isolation: given equal length and different IDs, no cross-boundary multi-token suffix match can exist that crosses BOTH last-token boundaries. But combined with a blocked prefix, the interior becomes invisible.
+
+**Fallback**: `fallbackGreedyConsume` in `run-histogram-diff.ts` handles this when the sub-range is small. It's invoked from `diffCore`'s no-anchor `else` branch when:
+
+1. `whitespace: "ignore"` mode
+2. `n * m <= diffOptions.fallbackNmThreshold` (default `128`, configurable via `DiffOptions`; set to `0` to disable the fallback entirely)
+
+The function scans `(i, j)` starting-position pairs in **anti-diagonal order** (`d = i + j` increasing), calling `matchPrefixTokens(lhs, rhs, lhsLo+i, lhsHi, rhsLo+j, rhsHi)` on each. First match wins — since the range is small, the earliest "from-the-front" match is natural. Then:
+
+- Tokens **before** the match on each side → emitted as `REMOVED`/`ADDED`/`MODIFIED` (whichever applies)
+- The match itself → emitted as `UNCHANGED` (asymmetric n:m OK — `writeToResultBuffer` handles both sides independently)
+- Cursor advances past the match, and the loop re-scans the remaining sub-range for more matches (greedy multi-match)
+- Any final leftover → emitted as `REMOVED`/`ADDED`/`MODIFIED`
+
+Total work is bounded by the initial `n * m` (each `(i, j)` pair is examined at most once across all iterations, because the cursor only advances). With early-exit on first match, typical cases are much cheaper.
+
+**Why not in `findAnchor`?** `findAnchor` returns a single anchor, but the fallback naturally finds multiple sequential matches once it has paid the n*m cost. Doing the greedy multi-match directly in `diffCore.else` avoids recursion overhead.
+
+**Why `else` branch only?** `findAnchor`'s SA/LCP path is called first. When SA finds a token-level anchor, the algorithm recurses into before/after sub-ranges, and at leaf sub-ranges where SA finds nothing, `diffCore` reaches the `else` branch and the fallback kicks in. So the fallback organically covers all deep recursion leaves, not just top-level no-anchor cases.
+
+**Why asymmetric anchors are allowed now**: `diffCore`'s anchor branch still enforces symmetric SA anchors (`lhsEnd - lhsStart === rhsEnd - rhsStart`). The fallback bypasses the anchor path entirely and writes matches directly to the result buffer, so the symmetric invariant on SA anchors stays intact.
+
 ### Past regressions — do not repeat
 
-- **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and a dedicated test block was added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
+- **PR #110 (reverted)** removed `consumeCommonEdges` and related helpers, claiming SA/LCP made it redundant. That claim was true for `collapse` mode but **false** for `ignore` mode whenever the two sides tokenize the same normalized text differently. The PR's test suite did not cover whitespace-ignore with differing tokenization, so it merged clean and broke ignore-mode silently. The PR was reverted in `claude/revert-pr-110-GHyGX` and dedicated test blocks were added to `core/tests/run-histogram-diff.test.ts` (`describe('runHistogramDiff whitespace: ignore')` and `describe('runHistogramDiff whitespace: collapse')`) to lock in the behavior. Any future attempt to remove or simplify that code path must first ensure those tests still pass.
+- The three original `PROBE FAIL` tests in `run-histogram-diff.test.ts` (`"bc ef h"` vs `"a bce fh j"`, `"X abc Y"` vs `"Z a b c W"`, `"hello abcxyz end"` vs `"bye abc xyz fin"`) were originally failing limitation probes; they now pass thanks to the n*m fallback. They stay as regression tests — any change to the fallback threshold or the anti-diagonal scan order must keep them passing.
 
 ### Testing notes
 
@@ -222,6 +250,7 @@ In the "no anchor found" else-branch of `diffCore`, leftover ranges are written 
 - Use the `diffHtml(lhsHtml, rhsHtml, whitespace)` helper for end-to-end whitespace-mode tests.
 - `contentTokenTypes(input)` skips structural tokens (tables, paragraphs) and returns `{text, type}` for each content token, which is the easiest way to assert specific tokens by text.
 - Debug logs `Total intervals processed: X, Prune1 count: Y` come from HEAD's in-file debug counters — don't strip them without checking with the author first.
+- The test file polyfills `scheduler.yield` in a `beforeAll` hook because large tokenization inputs trigger the browser-only `scheduler.yield()` call in `tokenize.ts`. Any new test with >256 tokens or long content runs will hit this if the polyfill is missing.
 
 ## Keyboard Shortcuts
 
@@ -273,7 +302,7 @@ type DiffOptions = {
   usePatience: boolean;                   // Use patience diff for large files
   patienceMinLines: number;               // Line threshold to activate patience diff
   patienceMinTokens: number;              // Token threshold to activate patience diff
-  localSAHybridRatio: number;             // Balance between SA and LCS scoring
+  fallbackNmThreshold: number;            // n*m fallback (ignore mode) budget; 0 disables
 };
 ```
 

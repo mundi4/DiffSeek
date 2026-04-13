@@ -20,6 +20,7 @@ export async function runHistogramDiff(
     let total = 0;
     let prune1Count = 0;
     const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
+    const _fallbackNmThreshold = ctx.diffOptions.fallbackNmThreshold;
 
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
@@ -108,7 +109,15 @@ export async function runHistogramDiff(
 
         } else {
             if (_ignoreWhitespaces) {
-                // 앵커를 찾지 못한 경우에도 consume 시도
+                const n = lhsUpper - lhsLower;
+                const m = rhsUpper - rhsLower;
+                // Small-range greedy n*m fallback (anti-diagonal BFS + multi-match).
+                // Only when neither SA nor edge-consume can find anything, and range is small.
+                if (_fallbackNmThreshold > 0 && n >= 1 && m >= 1 && n * m <= _fallbackNmThreshold) {
+                    fallbackGreedyConsume(lhsLower, lhsUpper, rhsLower, rhsUpper);
+                    return;
+                }
+                // Larger range or fallback disabled: original edge consume only
                 ([lhsLower, lhsUpper, rhsLower, rhsUpper] = consumeCommonEdges(lhsLower, lhsUpper, rhsLower, rhsUpper, 3));
             }
 
@@ -120,6 +129,94 @@ export async function runHistogramDiff(
                 writeToResultBuffer(_lhsResultBuffer, _rhsResultBuffer, lhsLower, lhsUpper, rhsLower, rhsUpper, type, lhsResultOffset, rhsResultOffset);
             }
         }
+    }
+
+    // Greedy multi-match fallback used when SA finds no anchor and the range is small.
+    // Scans for cross-boundary matches via matchPrefixTokens starting at every (i, j)
+    // in anti-diagonal order, emits each found match as UNCHANGED, and emits the gaps
+    // between matches (and the final leftover) as REMOVED/ADDED/MODIFIED.
+    function fallbackGreedyConsume(
+        lhsLo: number, lhsHi: number,
+        rhsLo: number, rhsHi: number,
+    ) {
+        let lCur = lhsLo;
+        let rCur = rhsLo;
+
+        while (lCur < lhsHi && rCur < rhsHi) {
+            const match = findFirstCrossMatch(lCur, lhsHi, rCur, rhsHi);
+            if (match === null) break;
+
+            const { lhsStart, lhsEnd, rhsStart, rhsEnd } = match;
+
+            // Emit unmatched region between cursor and the match as REMOVED/ADDED/MODIFIED
+            if (lhsStart > lCur || rhsStart > rCur) {
+                let type = DIFF_TYPE_UNCHANGED;
+                if (lhsStart > lCur) type |= DIFF_TYPE_REMOVED;
+                if (rhsStart > rCur) type |= DIFF_TYPE_ADDED;
+                writeToResultBuffer(
+                    _lhsResultBuffer, _rhsResultBuffer,
+                    lCur, lhsStart, rCur, rhsStart,
+                    type, lhsResultOffset, rhsResultOffset,
+                );
+            }
+
+            // Emit the match itself (symmetric or asymmetric) as UNCHANGED
+            writeToResultBuffer(
+                _lhsResultBuffer, _rhsResultBuffer,
+                lhsStart, lhsEnd, rhsStart, rhsEnd,
+                DIFF_TYPE_UNCHANGED, lhsResultOffset, rhsResultOffset,
+            );
+
+            lCur = lhsEnd;
+            rCur = rhsEnd;
+        }
+
+        // Emit final leftover after the last match (or the entire range if no match found)
+        if (lCur < lhsHi || rCur < rhsHi) {
+            let type = DIFF_TYPE_UNCHANGED;
+            if (lCur < lhsHi) type |= DIFF_TYPE_REMOVED;
+            if (rCur < rhsHi) type |= DIFF_TYPE_ADDED;
+            writeToResultBuffer(
+                _lhsResultBuffer, _rhsResultBuffer,
+                lCur, lhsHi, rCur, rhsHi,
+                type, lhsResultOffset, rhsResultOffset,
+            );
+        }
+    }
+
+    // Anti-diagonal BFS over (i, j) starting positions in [lhsLo..lhsHi) × [rhsLo..rhsHi).
+    // Returns the first cross-boundary match found, or null.
+    // Search order: d = (i - lhsLo) + (j - rhsLo) increasing, so the earliest "from the front"
+    // match wins.
+    function findFirstCrossMatch(
+        lhsLo: number, lhsHi: number,
+        rhsLo: number, rhsHi: number,
+    ): { lhsStart: number, lhsEnd: number, rhsStart: number, rhsEnd: number } | null {
+        const n = lhsHi - lhsLo;
+        const m = rhsHi - rhsLo;
+        const maxD = (n - 1) + (m - 1);
+        for (let d = 0; d <= maxD; d++) {
+            const iStart = d < m ? 0 : d - m + 1;
+            const iEnd = d < n ? d : n - 1;
+            for (let i = iStart; i <= iEnd; i++) {
+                const j = d - i;
+                const r = matchPrefixTokens(
+                    lhsInput, rhsInput,
+                    lhsLo + i, lhsHi,
+                    rhsLo + j, rhsHi,
+                );
+                if (r !== null) {
+                    const [lCount, rCount] = r;
+                    return {
+                        lhsStart: lhsLo + i,
+                        lhsEnd: lhsLo + i + lCount,
+                        rhsStart: rhsLo + j,
+                        rhsEnd: rhsLo + j + rCount,
+                    };
+                }
+            }
+        }
+        return null;
     }
 
     const {

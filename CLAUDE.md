@@ -222,7 +222,7 @@ In the "no anchor found" else-branch of `diffCore`, leftover ranges are written 
 **Fallback**: `fallbackGreedyConsume` in `run-histogram-diff.ts` handles this when the sub-range is small. It's invoked from `diffCore`'s no-anchor `else` branch when:
 
 1. `whitespace: "ignore"` mode
-2. `n * m <= FALLBACK_NM_THRESHOLD` (currently `128`)
+2. `n * m <= diffOptions.fallbackNmThreshold` (default `128`, configurable via `DiffOptions`; set to `0` to disable the fallback entirely)
 
 The function scans `(i, j)` starting-position pairs in **anti-diagonal order** (`d = i + j` increasing), calling `matchPrefixTokens(lhs, rhs, lhsLo+i, lhsHi, rhsLo+j, rhsHi)` on each. First match wins — since the range is small, the earliest "from-the-front" match is natural. Then:
 
@@ -302,7 +302,7 @@ type DiffOptions = {
   usePatience: boolean;                   // Use patience diff for large files
   patienceMinLines: number;               // Line threshold to activate patience diff
   patienceMinTokens: number;              // Token threshold to activate patience diff
-  localSAHybridRatio: number;             // Balance between SA and LCS scoring
+  fallbackNmThreshold: number;            // n*m fallback (ignore mode) budget; 0 disables
 };
 ```
 

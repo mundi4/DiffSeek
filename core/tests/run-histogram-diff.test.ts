@@ -34,9 +34,15 @@ async function makeInputFromHtml(html: string, opts: DiffOptions = getDefaultDif
     return { tokens, wholeText, ...buildDiffInput(wholeText, data, opts).input };
 }
 
-async function diffHtml(lhsHtml: string, rhsHtml: string, whitespace: 'collapse' | 'ignore') {
+async function diffHtml(
+    lhsHtml: string,
+    rhsHtml: string,
+    whitespace: 'collapse' | 'ignore',
+    overrides?: Partial<DiffOptions>,
+) {
     const opts = getDefaultDiffOptions();
     opts.whitespace = whitespace;
+    if (overrides) Object.assign(opts, overrides);
     const lhs = await makeInputFromHtml(lhsHtml, opts);
     const rhs = await makeInputFromHtml(rhsHtml, opts);
     await runHistogramDiff({
@@ -1024,6 +1030,52 @@ describe('runHistogramDiff whitespace: ignore — probes for failure cases', () 
         );
         expectAllContentUnchanged(lhs, 'lhs');
         expectAllContentUnchanged(rhs, 'rhs');
+    });
+
+    it('PROBE: fallbackNmThreshold=0 disables the fallback — known failure case returns to MODIFIED', async () => {
+        // Same as the first PROBE FAIL, but with fallback disabled via DiffOptions.
+        const { lhs, rhs } = await diffHtml(
+            '<p>bc ef h</p>',
+            '<p>a bce fh j</p>',
+            'ignore',
+            { fallbackNmThreshold: 0 },
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        // With fallback disabled, the edge walker can't find the interior match → MODIFIED
+        for (const { text, type } of lhsTypes) {
+            expect(type, `lhs "${text}" MODIFIED (fallback disabled)`).toBe(DIFF_TYPE_MODIFIED);
+        }
+    });
+
+    it('PROBE: fallbackNmThreshold=1 is too small to allow even 1x1 — falls back to edge walker only', async () => {
+        // Threshold 1 means n*m must be <= 1, so only (1,1) cases qualify. "bc ef h" vs "a bce fh j"
+        // has n*m = 12, far above 1 → fallback skipped, edge walker blocked → MODIFIED.
+        const { lhs } = await diffHtml(
+            '<p>bc ef h</p>',
+            '<p>a bce fh j</p>',
+            'ignore',
+            { fallbackNmThreshold: 1 },
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        for (const { text, type } of lhsTypes) {
+            expect(type, `lhs "${text}" MODIFIED (threshold too small)`).toBe(DIFF_TYPE_MODIFIED);
+        }
+    });
+
+    it('PROBE: fallbackNmThreshold=12 is exactly enough for "bc ef h" (n=3) vs "a bce fh j" (m=4) → 12', async () => {
+        const { lhs, rhs } = await diffHtml(
+            '<p>bc ef h</p>',
+            '<p>a bce fh j</p>',
+            'ignore',
+            { fallbackNmThreshold: 12 },
+        );
+        const lhsTypes = contentTokenTypes(lhs);
+        const rhsTypes = contentTokenTypes(rhs);
+        expect(lhsTypes.find(e => e.text === 'bc')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'ef')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(lhsTypes.find(e => e.text === 'h')?.type).toBe(DIFF_TYPE_UNCHANGED);
+        expect(rhsTypes.find(e => e.text === 'a')?.type).toBe(DIFF_TYPE_ADDED);
+        expect(rhsTypes.find(e => e.text === 'j')?.type).toBe(DIFF_TYPE_ADDED);
     });
 
     it('PROBE: a single-char SA anchor may block an n:m match that would otherwise cover everything', async () => {

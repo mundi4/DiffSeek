@@ -10,12 +10,6 @@ const YIELD_INTERVAL = 0xff as const;
 const CENTER_RANGE_RATIO = 0.3 as const; // 중앙의 30% 영역
 const BAND_RANGE_RATIO = 0.7 as const; // 중앙의 70% 영역
 
-// n*m 안티 대각선 폴백이 동작할 수 있는 최대 토큰 쌍 수.
-// consumeCommonEdges 외곽 워커가 양쪽 다 막혀서 내부 substring 매치를 못 찾는
-// 상황을 커버하기 위한 greedy multi-match 경로의 비용 상한.
-// n*m ≤ 128이면 예: 8×16, 11×11 정도까지 허용.
-const FALLBACK_NM_THRESHOLD = 128 as const;
-
 export async function runHistogramDiff(
     ctx: DiffJobContext,
     lhsInput: DiffInput,
@@ -26,6 +20,7 @@ export async function runHistogramDiff(
     let total = 0;
     let prune1Count = 0;
     const _ignoreWhitespaces = ctx.diffOptions.whitespace === "ignore";
+    const _fallbackNmThreshold = ctx.diffOptions.fallbackNmThreshold;
 
     const _structuralOnlyMultipliers = ctx.diffOptions.structuralOnlyMultipliers;
     const _structuralLevelBonuses = ctx.diffOptions.structuralLevelBonuses;
@@ -118,11 +113,11 @@ export async function runHistogramDiff(
                 const m = rhsUpper - rhsLower;
                 // Small-range greedy n*m fallback (anti-diagonal BFS + multi-match).
                 // Only when neither SA nor edge-consume can find anything, and range is small.
-                if (n >= 1 && m >= 1 && n * m <= FALLBACK_NM_THRESHOLD) {
+                if (_fallbackNmThreshold > 0 && n >= 1 && m >= 1 && n * m <= _fallbackNmThreshold) {
                     fallbackGreedyConsume(lhsLower, lhsUpper, rhsLower, rhsUpper);
                     return;
                 }
-                // Larger range: original edge consume only
+                // Larger range or fallback disabled: original edge consume only
                 ([lhsLower, lhsUpper, rhsLower, rhsUpper] = consumeCommonEdges(lhsLower, lhsUpper, rhsLower, rhsUpper, 3));
             }
 

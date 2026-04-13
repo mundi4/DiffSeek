@@ -36,6 +36,13 @@ const defaultDiffOptions: DiffOptions = {
     // ─────────────────────────────
     stackEmptyDiffMarkers: false,
 
+    // ─────────────────────────────
+    // Fallback n*m cross-boundary search (ignore mode only)
+    // ─────────────────────────────
+    // 작은 sub-range에서 외곽 consume 워커가 양쪽 다 막힌 경우 anti-diagonal
+    // 순회로 내부 cross-boundary 매치를 탐색할 때의 n*m 상한.
+    fallbackNmThreshold: 128,
+
 } as const;
 
 export function getDefaultDiffOptions(): DiffOptions {

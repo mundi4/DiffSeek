@@ -62,9 +62,9 @@ export async function alignAnchors({
 			//  잘못된 delta를 계산하고 양쪽에 발산하는 거대 패딩을 유발함)
 			if (
 				!pair.leftEl.isConnected ||
-				(pair.leftEl as HTMLElement).offsetParent === null ||
+				pair.leftEl.offsetParent === null ||
 				!pair.rightEl.isConnected ||
-				(pair.rightEl as HTMLElement).offsetParent === null
+				pair.rightEl.offsetParent === null
 			) {
 				numSkipped++;
 				continue;

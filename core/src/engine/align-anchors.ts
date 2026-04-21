@@ -45,14 +45,53 @@ export async function alignAnchors({
 	let numSkipped = 0;
 	let adjustedAboveViewportBottom = false;
 
+	// 단조성 방어: 이전 pair보다 앞선 Y로 측정되면 역전 → 적용 시 발산 가능.
+	// run 전체에 걸쳐 단조 증가여야 함.
+	let prevLeftY = Number.NEGATIVE_INFINITY;
+	let prevRightY = Number.NEGATIVE_INFINITY;
+
 	for (let batchStart = 0; batchStart < anchorPairs.length; batchStart += BATCH_SIZE) {
 		const batchEnd = Math.min(batchStart + BATCH_SIZE, anchorPairs.length);
 		const batchSize = batchEnd - batchStart;
 
 		for (let j = 0; j < batchSize; j++) {
 			const pair = anchorPairs[batchStart + j];
+
+			// 측정 가능성 확인: DOM에 연결되어 있고 레이아웃에 포함되어야 함
+			// (조상이 display:none이면 offsetParent === null, gBCR은 0을 반환하여
+			//  잘못된 delta를 계산하고 양쪽에 발산하는 거대 패딩을 유발함)
+			if (
+				!pair.leftEl.isConnected ||
+				pair.leftEl.offsetParent === null ||
+				!pair.rightEl.isConnected ||
+				pair.rightEl.offsetParent === null
+			) {
+				numSkipped++;
+				continue;
+			}
+
 			const leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
 			const rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
+
+			// 비단조 방어: 어느 한쪽이라도 이전 pair보다 위면 적용하지 않음.
+			// 정상 흐름에서는 diff 단조성으로 인해 발생하지 않지만,
+			// 발생하면 다음 pair 적용이 이전 pair에 역피드백되어 발산함.
+			if (leftY < prevLeftY || rightY < prevRightY) {
+				if (import.meta.env.DEV) {
+					console.warn("[alignAnchors] non-monotonic anchor pair, skipping", {
+						index: batchStart + j,
+						leftY,
+						rightY,
+						prevLeftY,
+						prevRightY,
+					});
+				}
+				numSkipped++;
+				continue;
+			}
+			prevLeftY = leftY;
+			prevRightY = rightY;
+
 			// delta = 패딩 적용 전 두 앵커의 Y 위치 차이.
 			// gBCR.y는 ::before 패딩에 영향받지 않는 요소 top을 반환하므로
 			// 별도 보정 없이 leftY - rightY가 패딩 전 위치 차이가 됨.

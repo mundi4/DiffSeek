@@ -40,6 +40,10 @@ function mockGBCR(el: HTMLElement, y: number) {
 		bottom: y + 20,
 		toJSON() {},
 	});
+	// alignAnchors의 가시성 가드(isConnected + offsetParent)를 통과시키기 위해
+	// jsdom에서 둘 다 truthy하게 강제. 실제 브라우저 레이아웃과 무관.
+	Object.defineProperty(el, "isConnected", { value: true, configurable: true });
+	Object.defineProperty(el, "offsetParent", { value: document.body, configurable: true });
 }
 
 /**
@@ -350,5 +354,135 @@ describe("alignAnchors — 패딩 방향 전환", () => {
 		expect(rightEl.style.getPropertyValue("--ds-adjust")).toBe("50px");
 		expect(leftEl.classList.contains("ds-padded")).toBe(false);
 		expect(leftEl.style.getPropertyValue("--ds-adjust")).toBe("");
+	});
+});
+
+// ══════════════════════════════════════════════════════════════════
+
+describe("alignAnchors — 방어 가드", () => {
+	it("leftEl이 DOM에서 분리되어 있으면 skip (적용 안 함)", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		mockGBCR(leftEl, 100);
+		mockGBCR(rightEl, 200);
+		// left만 분리된 상태로 override
+		Object.defineProperty(leftEl, "isConnected", { value: false, configurable: true });
+
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		// 측정 불가 → skip. delta/패딩 변화 없음.
+		expect(pair.delta).toBe(0);
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(rightEl.classList.contains("ds-padded")).toBe(false);
+	});
+
+	it("offsetParent이 null인 요소(display:none 조상)는 skip", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		mockGBCR(leftEl, 100);
+		mockGBCR(rightEl, 200);
+		// right가 display:none 조상 아래로 숨겨진 상황
+		Object.defineProperty(rightEl, "offsetParent", { value: null, configurable: true });
+
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		// 측정 불가 → skip.
+		expect(pair.delta).toBe(0);
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(rightEl.classList.contains("ds-padded")).toBe(false);
+	});
+
+	it("앵커 Y 순서가 비단조이면 해당 pair를 skip (발산 방지)", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		// pair1: left=100, right=500 (양쪽 정상)
+		// pair2: left=300, right=200 → right가 pair1.right(500)보다 작음 = 역전
+		// 적용하면 피드백으로 발산하므로 skip해야 함.
+		const l1 = makeDsAnchor();
+		const r1 = makeDsAnchor();
+		mockGBCR(l1, 100);
+		mockGBCR(r1, 500);
+		const pair1 = createAnchorPair(l1, r1, 0, markerElements, 0);
+
+		const l2 = makeDsAnchor();
+		const r2 = makeDsAnchor();
+		mockGBCR(l2, 300);
+		mockGBCR(r2, 200); // right 역전
+		const pair2 = createAnchorPair(l2, r2, 0, markerElements, 1);
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair1, pair2],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		// pair1은 정상 적용 (delta = 100-500 = -400)
+		expect(pair1.delta).toBe(-400);
+		expect(l1.classList.contains("ds-padded")).toBe(true);
+		// pair2는 비단조라 skip → 패딩 없음, delta 유지
+		expect(pair2.delta).toBe(0);
+		expect(l2.classList.contains("ds-padded")).toBe(false);
+		expect(r2.classList.contains("ds-padded")).toBe(false);
+	});
+
+	it("left-Y 역전만 있어도 skip", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const l1 = makeDsAnchor();
+		const r1 = makeDsAnchor();
+		mockGBCR(l1, 300);
+		mockGBCR(r1, 100);
+		const pair1 = createAnchorPair(l1, r1, 0, markerElements, 0);
+
+		const l2 = makeDsAnchor();
+		const r2 = makeDsAnchor();
+		mockGBCR(l2, 200); // left 역전 (pair1.left=300보다 앞)
+		mockGBCR(r2, 400);
+		const pair2 = createAnchorPair(l2, r2, 0, markerElements, 1);
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair1, pair2],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		expect(pair1.delta).toBe(200); // 300-100
+		expect(pair2.delta).toBe(0); // skip
+		expect(l2.classList.contains("ds-padded")).toBe(false);
+		expect(r2.classList.contains("ds-padded")).toBe(false);
 	});
 });

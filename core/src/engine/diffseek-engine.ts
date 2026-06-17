@@ -484,6 +484,11 @@ export class DiffseekEngine {
 		this.rightEditor.imageFetchFn = cachedFn;
 	}
 
+	setFileConvertFn(fn: ((file: File) => Promise<string | null>) | null) {
+		this.leftEditor.fileConvertFn = fn;
+		this.rightEditor.fileConvertFn = fn;
+	}
+
 	setHoveredDiff(diffIndex: number | null) {
 		this.renderer.setHoveredDiffIndex(diffIndex);
 	}

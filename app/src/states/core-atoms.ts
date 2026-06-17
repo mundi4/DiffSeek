@@ -10,6 +10,16 @@ import { atom } from "jotai";
 import { atomWithStorage, createJSONStorage } from "jotai/utils";
 
 // ──────────────────────────────────────────────
+// Toast (화면 상단 중앙 메시지)
+// - "loading": 자동 dismiss 안 함, 스피너 표시 (완료/실패 시 코드가 교체·해제)
+// - "error":   5초 자동 dismiss, 닫기 버튼
+// id가 바뀔 때마다 새 토스트로 간주 → 동일 메시지 연속 표시도 타이머 재시작
+// ──────────────────────────────────────────────
+export type ToastVariant = "loading" | "error";
+export type Toast = { id: number; message: string; variant: ToastVariant };
+export const toastAtom = atom<Toast | null>(null);
+
+// ──────────────────────────────────────────────
 // DiffseekOptions: safe localStorage storage
 // ──────────────────────────────────────────────
 

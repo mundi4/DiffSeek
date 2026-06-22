@@ -7,7 +7,7 @@ export default defineConfig({
 	plugins: [react(), babel({ presets: [reactCompilerPreset()] })],
 	base: "./",
 	build: {
-		target: "esnext",
+		target: "chrome120",
 		outDir: "dist",
 		emptyOutDir: true,
 		minify: "esbuild",

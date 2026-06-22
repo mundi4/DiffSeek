@@ -28,6 +28,7 @@ export type GetTextForTokenSpanOptions = {
 import { DEFAULT_PALETTE } from "../palette/default-palette";
 import { Renderer } from "../renderer/renderer";
 import { createYieldIfNeeded } from "../utils/create-yield-if-needed";
+import { yieldToScheduler } from "../utils/yield-to-scheduler";
 import { WorkflowScheduler } from "./workflow-scheduler";
 
 export type InternalDiffseekEventMap = DiffseekEventMap & {
@@ -484,6 +485,11 @@ export class DiffseekEngine {
 		this.rightEditor.imageFetchFn = cachedFn;
 	}
 
+	setFileConvertFn(fn: ((file: File) => Promise<string | null>) | null) {
+		this.leftEditor.fileConvertFn = fn;
+		this.rightEditor.fileConvertFn = fn;
+	}
+
 	setHoveredDiff(diffIndex: number | null) {
 		this.renderer.setHoveredDiffIndex(diffIndex);
 	}
@@ -709,7 +715,7 @@ export class DiffseekEngine {
 		if (this.diffAbortController) {
 			this.diffAbortController.abort(ABORT_REASON_CANCELLED);
 			this.diffAbortController = null;
-			await scheduler.yield();
+			await yieldToScheduler();
 		}
 
 		if (this.prevMarkerElements) {

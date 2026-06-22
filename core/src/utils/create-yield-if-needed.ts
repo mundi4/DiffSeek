@@ -1,3 +1,5 @@
+import { yieldToScheduler } from "./yield-to-scheduler";
+
 const FALSE_PROMISE = Promise.resolve(false);
 
 export function createYieldIfNeeded(signal?: AbortSignal, yieldIntervalMs = 50): () => Promise<boolean> {
@@ -9,7 +11,7 @@ export function createYieldIfNeeded(signal?: AbortSignal, yieldIntervalMs = 50):
 		}
 
 		lastYieldTime = now;
-		await scheduler.yield();
+		await yieldToScheduler();
 		signal?.throwIfAborted();
 		return true;
 	};

@@ -57,10 +57,11 @@ This is an **npm workspaces monorepo** with two packages:
 | Language         | TypeScript 5.9 (strict, ES2024)           |
 | UI framework     | React 19.2                                |
 | Build tool       | Vite 8 + Rolldown                         |
-| State management | Jotai 2.18                                |
-| UI components    | Mantine 8.3, Tabler Icons                 |
-| Optimizer        | React Compiler (`@rolldown/plugin-babel`) |
+| State management | Jotai 2.19                                |
+| UI components    | Hand-rolled React + CSS Modules + `clsx`; custom SVG icons (`components/icons.tsx`) — **no component library** |
+| Optimizer        | React Compiler (`babel-plugin-react-compiler` via `@rolldown/plugin-babel`) |
 | Test runner      | Vitest 4.1 (jsdom environment)            |
+| Formatter/Linter | Biome 2.4                                 |
 
 ## Development Workflows
 
@@ -128,7 +129,7 @@ Test results are written to `test-results.json`. Tests use a jsdom environment t
 | File                                    | Purpose                                                                |
 | --------------------------------------- | ---------------------------------------------------------------------- |
 | `app/src/App.tsx`                       | Root component; creates engine instance, mounts DOM, keyboard handlers |
-| `app/src/main.tsx`                      | React entry point with Mantine provider                                |
+| `app/src/main.tsx`                      | React entry point (`StrictMode` + `App`; global styles via `index.css`) |
 | `app/src/bridge/useCoreBinding.ts`      | Subscribes to engine events and syncs them into Jotai atoms            |
 | `app/src/bridge/useCoreActions.ts`      | Action dispatch layer (calls engine methods from UI)                   |
 | `app/src/states/coreAtoms.ts`           | All Jotai atoms (sync mode, diff options, diff context, etc.)          |

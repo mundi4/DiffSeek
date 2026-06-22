@@ -14,6 +14,7 @@ import {
 	VOID_ELEMENTS,
 } from "../constants";
 import { hashString } from "../utils/hash-string";
+import { yieldToScheduler } from "../utils/yield-to-scheduler";
 import { NormalizeCharTable } from "./normalize-char-table";
 import { TextNodeCursor, type TextPos } from "./text-node-cursor";
 import {
@@ -143,7 +144,7 @@ export async function tokenize(
 	const stack: StackFrame[] = [];
 
 	const yieldNow = async () => {
-		await scheduler.yield();
+		await yieldToScheduler();
 		signal.throwIfAborted();
 	};
 

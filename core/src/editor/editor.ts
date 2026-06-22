@@ -86,6 +86,8 @@ export class Editor implements EditorContext {
 
 	private _imageFetchFn: ((url: string) => Promise<string | null>) | null = null;
 	private _imageResolveGen = 0;
+	private _fileConvertFn: ((file: File) => Promise<string | null>) | null = null;
+	private _dropInFlight = false;
 
 	private savedScroll: SavedScrollRef | null = null;
 	private _hasPendingPromise: boolean = false;
@@ -131,13 +133,8 @@ export class Editor implements EditorContext {
 		this.contentElement.addEventListener("copy", (e) => this.onCopy(e));
 		this.contentElement.addEventListener("paste", (e) => this.onPaste(e));
 		this.contentElement.addEventListener("dragstart", (e) => e.preventDefault());
-		this.contentElement.addEventListener("dragover", (e) => {
-			e.preventDefault();
-			if (e.dataTransfer) {
-				e.dataTransfer.dropEffect = "none";
-			}
-		});
-		this.contentElement.addEventListener("drop", (e) => e.preventDefault());
+		this.contentElement.addEventListener("dragover", (e) => this.onDragOver(e));
+		this.contentElement.addEventListener("drop", (e) => this.onDrop(e));
 		this.contentElement.addEventListener("input", () => this.handleContentChangedInternal());
 		this.contentElement.addEventListener("click", (e) => {
 			this.callbacks.click?.(this, e);
@@ -510,6 +507,60 @@ export class Editor implements EditorContext {
 
 	set imageFetchFn(fn: ((url: string) => Promise<string | null>) | null) {
 		this._imageFetchFn = fn;
+	}
+
+	/**
+	 * 파일 드롭 → 변환 함수. 주입된 함수가 파일을 받아 HTML 문자열(성공) 또는 null(실패/취소,
+	 * 호출측에서 이미 에러 처리)을 반환한다. null이 아니면 에디터 내용을 통째로 교체한다.
+	 */
+	set fileConvertFn(fn: ((file: File) => Promise<string | null>) | null) {
+		this._fileConvertFn = fn;
+	}
+
+	private onDragOver(e: DragEvent) {
+		e.preventDefault();
+		const hasFiles = !!e.dataTransfer && Array.from(e.dataTransfer.types).includes("Files");
+		const canDrop = hasFiles && !this._isReadOnly && !this._dropInFlight && !!this._fileConvertFn;
+		if (e.dataTransfer) {
+			e.dataTransfer.dropEffect = canDrop ? "copy" : "none";
+		}
+	}
+
+	private async onDrop(e: DragEvent) {
+		e.preventDefault();
+		const fn = this._fileConvertFn;
+		if (!fn || this._isReadOnly || this._dropInFlight) {
+			return;
+		}
+		const file = e.dataTransfer?.files?.[0];
+		if (!file) {
+			return;
+		}
+
+		// 변환(수 초)이 도는 동안 편집을 잠그고 중복 드롭을 막는다.
+		// 안 그러면 변환 중 사용자가 입력한 내용이나 경쟁 드롭 결과가 setContent에 덮어써진다.
+		this._dropInFlight = true;
+		this.contentElement.contentEditable = "false";
+		this.contentElement.classList.add("ds-busy");
+		try {
+			const html = await fn(file);
+			// 변환 도중 sync 모드 등으로 read-only가 됐으면 주입하지 않는다(정렬 레이아웃이 깨짐).
+			if (html != null && !this._isReadOnly) {
+				this.setContent({
+					text: html,
+					asHTML: true,
+					targetRange: undefined, // 전체 내용 교체
+					allowLegacyExecCommand: false,
+				});
+			}
+		} finally {
+			this.contentElement.classList.remove("ds-busy");
+			this._dropInFlight = false;
+			// 현재 read-only가 아닐 때만 편집 가능 복구(변환 중 sync 모드로 바뀌었으면 그대로 둔다).
+			if (!this._isReadOnly) {
+				this.contentElement.contentEditable = "true";
+			}
+		}
 	}
 
 	setContent({

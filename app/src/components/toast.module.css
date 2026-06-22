@@ -1,0 +1,89 @@
+/* 상단 중앙 토스트 — sidebar-footer의 popover 룩을 차용 */
+.toast {
+	position: fixed;
+	top: 16px;
+	left: 50%;
+	transform: translateX(-50%);
+	z-index: 2000;
+
+	display: flex;
+	align-items: flex-start;
+	gap: 10px;
+
+	max-width: 480px;
+	padding: 10px 16px;
+
+	background: #fff;
+	border: 1px solid var(--color-gray-3);
+	border-left: 3px solid var(--color-gray-3);
+	border-radius: 6px;
+	box-shadow: 0 2px 12px rgba(0, 0, 0, 0.15);
+
+	font-size: 13px;
+	line-height: 1.5;
+	color: var(--color-gray-7, #495057);
+
+	pointer-events: auto;
+	animation: toastIn 0.15s ease-out;
+}
+
+.error {
+	border-left-color: #e03131;
+}
+
+.loading {
+	border-left-color: var(--color-primary, #228be6);
+}
+
+.message {
+	white-space: pre-wrap;
+	word-break: break-word;
+}
+
+.spinner {
+	flex: 0 0 auto;
+	width: 14px;
+	height: 14px;
+	margin-top: 2px;
+	border: 2px solid var(--color-gray-3, #dee2e6);
+	border-top-color: var(--color-primary, #228be6);
+	border-radius: 50%;
+	animation: toastSpin 0.7s linear infinite;
+}
+
+@keyframes toastSpin {
+	to {
+		transform: rotate(360deg);
+	}
+}
+
+.close {
+	all: unset;
+	flex: 0 0 auto;
+	display: inline-flex;
+	align-items: center;
+	justify-content: center;
+	width: 18px;
+	height: 18px;
+	margin-top: 1px;
+	border-radius: var(--radius-sm, 4px);
+	color: var(--color-dimmed, #868e96);
+	font-size: 16px;
+	line-height: 1;
+	cursor: pointer;
+}
+
+.close:hover {
+	background: rgba(0, 0, 0, 0.06);
+}
+
+@keyframes toastIn {
+	from {
+		opacity: 0;
+		transform: translate(-50%, -6px);
+	}
+	to {
+		opacity: 1;
+		transform: translate(-50%, 0);
+	}
+}

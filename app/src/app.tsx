@@ -6,8 +6,9 @@ import { DiffseekProvider } from "./bridge/diffseek-provider";
 import { SidebarFooter } from "./components/sidebar-footer";
 import { DiffList } from "./components/diff-list";
 import { InlineDiffPopover } from "./components/inline-diff-popover";
+import { Toast } from "./components/toast";
 // import { OutlineModal } from './components/outline-modal';
-import { diffWorkflowStatusAtom, extensionEnabledAtom } from "./states/core-atoms";
+import { diffWorkflowStatusAtom, extensionEnabledAtom, toastAtom } from "./states/core-atoms";
 import "./app.css";
 
 declare global {
@@ -23,6 +24,67 @@ declare global {
 
 const engine = new DiffseekEngine();
 const atomStore = getDefaultStore();
+
+// ──────────────────────────────────────────────
+// 파일 드롭 → 변환 서버 (Windows 로컬, localhost)
+// DRM 문서는 서버의 Word COM 으로만 열 수 있어 무조건 서버 경유한다.
+// 확장자별 엔드포인트: POST /api/convert/<fmt>-html
+// ──────────────────────────────────────────────
+// dev 서버는 4484, 프로덕션 빌드는 4483 (Vite가 빌드 시 정적 치환 → 죽은 가지 제거)
+const CONVERT_API_PORT = import.meta.env.DEV ? 4484 : 4483;
+const CONVERT_ENDPOINTS: Record<string, string> = {
+	doc: "word-html",
+	docx: "word-html",
+	md: "md-html",
+	markdown: "md-html",
+};
+
+let toastSeq = 0;
+function showToast(variant: "loading" | "error", message: string): number {
+	const id = ++toastSeq;
+	atomStore.set(toastAtom, { id, message, variant });
+	return id;
+}
+// 자기 토스트(id 일치)일 때만 해제 — 다른 에디터의 드롭이 띄운 토스트를 지우지 않도록.
+function clearToast(id: number) {
+	const current = atomStore.get(toastAtom);
+	if (current && current.id === id) {
+		atomStore.set(toastAtom, null);
+	}
+}
+
+engine.setFileConvertFn(async (file) => {
+	const ext = file.name.toLowerCase().split(".").pop() ?? "";
+	const endpoint = CONVERT_ENDPOINTS[ext];
+	if (!endpoint) {
+		showToast("error", `지원하지 않는 형식입니다: ${file.name}`);
+		return null;
+	}
+
+	const loadingToastId = showToast("loading", `${file.name} 변환 중…`);
+	try {
+		const res = await fetch(
+			`http://localhost:${CONVERT_API_PORT}/api/convert/${endpoint}?filename=${encodeURIComponent(file.name)}`,
+			{ method: "POST", body: file },
+		);
+		if (!res.ok) {
+			let message = `변환 실패 (${res.status})`;
+			try {
+				const body = await res.json();
+				if (body?.error) message = body.error;
+			} catch {
+				/* 에러 본문이 JSON이 아니면 기본 메시지 유지 */
+			}
+			showToast("error", message);
+			return null;
+		}
+		clearToast(loadingToastId);
+		return await res.text();
+	} catch {
+		showToast("error", `변환 서버에 연결할 수 없습니다 (localhost:${CONVERT_API_PORT})`);
+		return null;
+	}
+});
 
 const debugFixtures: { left?: string; right?: string } = {};
 if (import.meta.env.DEV) {
@@ -147,6 +209,7 @@ export function App() {
 					<SidebarFooter />
 				</aside>
 				<InlineDiffPopover hostRef={hostRef} />
+				<Toast />
 				<dialog
 					ref={debugDialogRef}
 					onClose={() => setDebugHtmlOpened(false)}

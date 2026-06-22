@@ -113,7 +113,7 @@ await new Promise<void>((resolve, reject) => {
 
 function writeBase64Parts(zipPath: string, outDir: string, begin: string, end: string) {
 	const LINE_WIDTH = 64;
-	const LINES_PER_PART = 1500;
+	const LINES_PER_PART = 2000;
 
 	mkdirSync(outDir, { recursive: true });
 

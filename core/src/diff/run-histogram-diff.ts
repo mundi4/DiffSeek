@@ -17,6 +17,7 @@ import {
 import { TOKEN_FLAGS_TYPE_STRUCTURAL, TOKEN_TYPE_MASK } from "../tokenization";
 import { getStructuralElementType } from "../tokenization/token-flags";
 import { TOKEN_BUFFER_STRIDE } from "../constants";
+import { yieldToScheduler } from "../utils/yield-to-scheduler";
 
 const HASH_SIZE = 0xfffff + 1;
 const HEAD = new Int32Array(HASH_SIZE);
@@ -65,7 +66,7 @@ export async function runHistogramDiff(
 		if (forceYield || now - _lastYieldTime > MIN_YIELD_INTERVAL_MS) {
 			_yieldCounter = 0;
 			_lastYieldTime = now;
-			await scheduler.yield();
+			await yieldToScheduler();
 			abortSignal.throwIfAborted();
 		}
 	}

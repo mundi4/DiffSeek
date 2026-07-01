@@ -336,6 +336,17 @@ export async function processDiffElements({
 			delta = rightAdjust;
 		}
 
+		// [both-padding 방어] adjust 장부는 skip된 pair에서 갱신되지 않아 stale(0)일 수
+		// 있으므로 실제 CSS(ds-padded)를 ground truth로 재확인한다. 한 pair에 양쪽
+		// 패딩이 동시에 남아있는 것은 불가능한 상태 → 둘 다 제거하고 재계산에 맡긴다.
+		if (leftEl.classList.contains("ds-padded") && rightEl.classList.contains("ds-padded")) {
+			leftEl.classList.remove("ds-padded", "ds-striped");
+			leftEl.style.removeProperty("--ds-adjust");
+			rightEl.classList.remove("ds-padded", "ds-striped");
+			rightEl.style.removeProperty("--ds-adjust");
+			delta = 0;
+		}
+
 		activateAnchorEl(leftEl, index, diffIndex);
 		activateAnchorEl(rightEl, index, diffIndex);
 		anchorPairs.push({

@@ -357,6 +357,73 @@ describe("alignAnchors — 패딩 방향 전환", () => {
 	});
 });
 
+describe("alignAnchors — 양쪽 패딩(both-padding) 방어", () => {
+	it("양쪽에 ds-padded가 남아있으면 정규화하여 최대 한쪽만 패딩", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		// 불가능한 상태를 인위적으로 구성: 양쪽 모두 ds-padded
+		mockGBCR(leftEl, 150);
+		mockGBCR(rightEl, 100);
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		leftEl.style.setProperty("--ds-adjust", "20px");
+		leftEl.classList.add("ds-padded");
+		rightEl.style.setProperty("--ds-adjust", "30px");
+		rightEl.classList.add("ds-padded");
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		// 정규화로 둘 다 제거된 뒤, 실제 위치(150 vs 100)로 right에만 재적용
+		expect(pair.delta).toBe(50);
+		expect(rightEl.classList.contains("ds-padded")).toBe(true);
+		expect(rightEl.style.getPropertyValue("--ds-adjust")).toBe("50px");
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(leftEl.style.getPropertyValue("--ds-adjust")).toBe("");
+	});
+
+	it("양쪽 ds-padded + 위치 정렬(delta 0)이면 둘 다 제거", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		// 박스 top이 같음(정렬) → 정규화로 둘 다 제거되고 재적용 없음
+		mockGBCR(leftEl, 100);
+		mockGBCR(rightEl, 100);
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		leftEl.style.setProperty("--ds-adjust", "20px");
+		leftEl.classList.add("ds-padded");
+		rightEl.style.setProperty("--ds-adjust", "30px");
+		rightEl.classList.add("ds-padded");
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		expect(pair.delta).toBe(0);
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(rightEl.classList.contains("ds-padded")).toBe(false);
+		expect(leftEl.style.getPropertyValue("--ds-adjust")).toBe("");
+		expect(rightEl.style.getPropertyValue("--ds-adjust")).toBe("");
+	});
+});
+
 // ══════════════════════════════════════════════════════════════════
 
 describe("alignAnchors — 방어 가드", () => {

@@ -294,4 +294,34 @@ else { prevLeftY = leftY; prevRightY = rightY; /* 적용 */ }
 
 ### 9.4 검증 방법
 
-브라우저 DEV 콘솔에서 §6-G의 `diagnoseResidual` 로그를 본다. 수정 전에는 표 문서에서 `reason: "non-monotonic(skip)"` 이 다수 찍히고, 수정 후에는 그 항목들이 사라지고 residual이 ≤1px로 수렴해야 한다.
+브라우저 DEV 콘솔에서 §6-G의 `diagnoseResidual` 로그를 본다. 수정 전에는 표 문서에서 `reason: "cross-inverted(skip)"` 이 다수 찍히고, 수정 후에는 그 항목들이 사라지고 residual이 ≤1px로 수렴해야 한다.
+
+---
+
+## 10. 양쪽에 padding이 붙는 버그 (both-padding)
+
+### 10.1 불변식
+
+한 `AnchorPair`는 **더 아래에 있는 한쪽에만** 패딩이 붙어야 한다(양쪽에 붙으면 서로 반대로 밀려 절대 정렬되지 않음). `applyDeltaToPair`는 적용 시 항상 반대쪽 패딩을 제거(`clearPadding`)하므로 **적용 경로에서는** 불변식이 유지된다.
+
+### 10.2 원인: stale 장부 + skip 경로
+
+`addAnchorPair`(`process-diff-elements.ts:326`)는 이전 run에서 물려받은 양쪽 패딩을 `prevMarkerElements.get(el).adjust`로 감지해 리셋한다. 그러나 이 `adjust` 장부는 **alignAnchors에서 skip된 pair에 대해 갱신되지 않는다**:
+
+- `getOrCreateAnchor`는 재사용 요소를 `{adjust: 0}`으로 초기화(`:56`).
+- pair가 skip(가시성/교차역전/임계값)되면 `applyDeltaToPair`가 호출되지 않아 `adjust`가 0인 채로 남지만, **요소의 CSS `--ds-adjust`/`ds-padded`는 이전 run 값을 그대로 유지**한다.
+
+따라서 다음 run에서 `addAnchorPair`가 `adjust=0`(stale)을 읽으면, 실제로는 CSS에 양쪽 패딩이 남아있어도 리셋 분기를 건너뛴다. 이후 이 pair가 alignAnchors에서 또 skip되면 **양쪽 패딩이 그대로 화면에 남는다.**
+
+역할 병합 시나리오: 요소 L이 run_k에서 pairA의 패딩 대상, 요소 R이 pairB의 패딩 대상이었다가(각각 한쪽), 두 pair가 이후 run에서 skip되어 장부가 stale해지고, diff 변화로 L·R이 **하나의 pair로 병합**되면 → 양쪽 패딩.
+
+### 10.3 수정 (두 지점, ground truth = 실제 CSS)
+
+1. **`alignAnchors` (권위 지점, `align-anchors.ts`):** 각 pair 측정 직전, `leftEl`·`rightEl`이 **둘 다 `ds-padded`**면 `clearPadding`으로 둘 다 제거하고 `pair.delta=0`으로 리셋 → 이어지는 로직이 실제 위치 기준으로 한쪽에만 재적용. 이로써 **어떤 경로로 both-padding이 유입되든 alignAnchors 한 패스 뒤에는 불변식이 회복**된다.
+2. **`addAnchorPair` (발생 원점, `process-diff-elements.ts`):** stale할 수 있는 `adjust` 대신 실제 `ds-padded` 클래스로 both-padding을 재확인해 원점에서 제거.
+
+- `clearPadding()` 헬퍼로 클래스/CSS 변수/장부(`adjust`) 정리를 일원화, `applyDeltaToPair`도 이를 재사용.
+- 신규 테스트 2개(`align-anchors.test.ts` "양쪽 패딩 방어"): both-padded → 위치대로 한쪽 재적용 / both-padded + 정렬됨 → 둘 다 제거.
+- 전체 507 테스트 통과.
+
+> 근본적으로는 skip 경로에서 `markerElements.adjust`를 실제 상태와 동기화하지 않는 **장부-CSS 불일치**가 원인이다. 위 수정은 CSS를 ground truth로 삼아 불일치의 영향을 무력화한다. 장부 자체를 항상 정합하게 유지하는 리팩터링(§6-B의 필드 정리와 함께)은 후속 과제로 남긴다.

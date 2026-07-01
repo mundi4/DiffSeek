@@ -57,6 +57,17 @@ export async function alignAnchors({
 		for (let j = 0; j < batchSize; j++) {
 			const pair = anchorPairs[batchStart + j];
 
+			// 양쪽 패딩 불변식 방어(both-padding):
+			// 한 pair는 항상 "더 아래에 있는 한쪽"에만 패딩이 붙어야 한다. 양쪽에
+			// ds-padded가 동시에 남아있는 것은 불가능한 상태다(서로 다른 이전 pair의
+			// 패딩을 각각 물려받았고, 이 pair가 skip되어 정리되지 않은 경우 발생).
+			// 측정 전에 둘 다 제거하고 delta를 리셋해 아래 로직이 한쪽에만 재적용하도록 한다.
+			if (pair.leftEl.classList.contains("ds-padded") && pair.rightEl.classList.contains("ds-padded")) {
+				clearPadding(pair.leftEl, markerElements);
+				clearPadding(pair.rightEl, markerElements);
+				pair.delta = 0;
+			}
+
 			// 측정 가능성 확인: DOM에 연결되어 있고 레이아웃에 포함되어야 함
 			// (조상이 display:none이면 offsetParent === null, gBCR은 0을 반환하여
 			//  잘못된 delta를 계산하고 양쪽에 발산하는 거대 패딩을 유발함)
@@ -253,6 +264,14 @@ function diagnoseResidual(anchorPairs: readonly AnchorPair[], leftEditor: Editor
 	}
 }
 
+/** 요소에서 정렬 패딩 상태(클래스/CSS 변수/장부)를 모두 제거한다. */
+function clearPadding(el: HTMLElement, markerElements: MarkerElementsMap) {
+	el.classList.remove("ds-padded", "ds-striped");
+	el.style.removeProperty("--ds-adjust");
+	const info = markerElements.get(el);
+	if (info) info.adjust = 0;
+}
+
 function applyDeltaToPair(pair: AnchorPair, delta: number, markerElements: MarkerElementsMap) {
 	let theEl: HTMLElement;
 	let otherEl: HTMLElement;
@@ -266,10 +285,7 @@ function applyDeltaToPair(pair: AnchorPair, delta: number, markerElements: Marke
 		otherEl = pair.rightEl;
 	}
 	// 반대쪽 이전 패딩 제거
-	otherEl.classList.remove("ds-padded", "ds-striped");
-	otherEl.style.removeProperty("--ds-adjust");
-	const otherInfo = markerElements.get(otherEl);
-	if (otherInfo) otherInfo.adjust = 0;
+	clearPadding(otherEl, markerElements);
 
 	// 적용
 	theEl.style.setProperty("--ds-adjust", `${delta}px`);

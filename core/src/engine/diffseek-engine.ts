@@ -159,7 +159,7 @@ export class DiffseekEngine {
 
 			if (runWorkflow) {
 				this.cancelOngoingOperations();
-				this.startDiffWorkflow();
+				this.requestDiffWorkflowRun();
 			}
 		}
 

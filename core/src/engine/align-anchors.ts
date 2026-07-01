@@ -177,6 +177,74 @@ export async function alignAnchors({
 		console.debug(
 			`Aligned ${anchorPairs.length} anchor pairs in ${performance.now() - startTime}ms (${numFrames} frames)`,
 		);
+		diagnoseResidual(anchorPairs, leftEditor, rightEditor);
+	}
+}
+
+/**
+ * [DEV 진단] 정렬 패스가 끝난 뒤 각 pair를 다시 측정해 1px를 초과해 남은
+ * 잔차(residual)를 보고한다. "누적"이 아니라 이산적으로 어긋난 pair를 찾기 위한 것.
+ *
+ * 각 offender에 대해:
+ *   - residual: 정렬 후 실제 leftY-rightY (0에 가까워야 정상)
+ *   - delta:    pair가 마지막으로 기록한 적용값
+ *   - reason:   왜 어긋났는지 추정 (skip 여부/원인 분류)
+ *   - left/right: 앵커 요소 태그 (DS-ANCHOR=별도 마커, 그 외=borrow된 블록)
+ *   - pad:      실제 CSS --ds-adjust
+ * 브라우저 콘솔에서 이 표를 보면 원인이 (a)skip (b)무앵커 (c)무효패딩 중 무엇인지 판별 가능.
+ */
+function diagnoseResidual(anchorPairs: readonly AnchorPair[], leftEditor: Editor, rightEditor: Editor) {
+	const leftTop = leftEditor.rootElement.getBoundingClientRect().y;
+	const rightTop = rightEditor.rootElement.getBoundingClientRect().y;
+	const leftScrollTop = leftEditor.rootElement.scrollTop;
+	const rightScrollTop = rightEditor.rootElement.scrollTop;
+
+	const offenders: Record<string, unknown>[] = [];
+	let prevLeftY = Number.NEGATIVE_INFINITY;
+	let prevRightY = Number.NEGATIVE_INFINITY;
+
+	for (let i = 0; i < anchorPairs.length; i++) {
+		const p = anchorPairs[i];
+		const measurable =
+			p.leftEl.isConnected &&
+			p.leftEl.offsetParent !== null &&
+			p.rightEl.isConnected &&
+			p.rightEl.offsetParent !== null;
+		if (!measurable) {
+			offenders.push({ index: i, reason: "unmeasurable(skip)", diffIndex: p.diffIndex });
+			continue;
+		}
+
+		const leftY = p.leftEl.getBoundingClientRect().y + leftScrollTop - leftTop;
+		const rightY = p.rightEl.getBoundingClientRect().y + rightScrollTop - rightTop;
+		const residual = Math.round(leftY - rightY);
+
+		const nonMonotonic = leftY < prevLeftY || rightY < prevRightY;
+		if (!nonMonotonic) {
+			prevLeftY = leftY;
+			prevRightY = rightY;
+		}
+
+		if (residual < -1 || residual > 1) {
+			offenders.push({
+				index: i,
+				residual,
+				delta: p.delta,
+				reason: nonMonotonic ? "non-monotonic(skip)" : "processed-but-off",
+				diffIndex: p.diffIndex,
+				left: p.leftEl.nodeName,
+				right: p.rightEl.nodeName,
+				leftPad: p.leftEl.style.getPropertyValue("--ds-adjust") || "-",
+				rightPad: p.rightEl.style.getPropertyValue("--ds-adjust") || "-",
+			});
+		}
+	}
+
+	if (offenders.length) {
+		console.warn(
+			`[alignAnchors] ${offenders.length}/${anchorPairs.length} pair(s) still misaligned >1px after pass`,
+		);
+		console.table(offenders);
 	}
 }
 

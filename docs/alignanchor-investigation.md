@@ -203,6 +203,17 @@ tokenize → diff worker(buildPatienceAnchors→processSegmentsWithAnchors)
 ### (F) `alignAnchors`는 단일 패스 — [설계 확인, 이슈 아님]
 fixpoint 반복이 아니다. 위→아래로 가며 상단 조정이 하단 측정에 반영되므로 한 패스로 수렴한다. 리사이즈/스크롤/diff 이벤트로만 재실행. 의도된 설계로 확인됨.
 
+### (G) 정렬 후에도 좌우 Y가 5px+ 어긋나는 잔차 — [조사 중]
+
+**모델 재검증(중요):** `line_content_y = anchorBoxTop + pad`, `pad = -(leftY - rightY)`이므로 측정값(박스 top 차이)이 곧 정확한 보정량이다. 즉 **처리된(processed) pair는 round() 오차(≤1px) 내로 정렬된다.** 앵커 사이 누적 오프셋도 다음 공통 앵커에서 즉시 리셋된다. 따라서 5px+ 잔차는 "누적 드리프트"가 **아니다.**
+
+남는 이산적(discrete) 후보는 셋뿐이다:
+- **(a) skip된 pair** — 가시성/단조성 가드(`align-anchors.ts:63,79`)에 걸려 처리 자체가 안 됨.
+- **(b) 무앵커 줄** — 앵커 쌍은 **양쪽 모두 `LINE_START`**일 때만 생성(`process-diff-elements.ts:355,488`). 다음 공통 앵커가 멀면 그 구간 내부가 어긋난 채 남음.
+- **(c) 처리됐지만 padding이 물리적으로 안 먹은 pair** — 예: `<DS-DIFF>.ds-line-start`의 `height: calc(--ds-line-height*1em) !important`(`core.css:276`)와 `::before` 패딩의 상호작용, 또는 borrow 블록의 특수 케이스.
+
+**진단 방법:** DEV 빌드에서 `alignAnchors` 종료 시 각 pair를 재측정해 1px 초과 잔차를 `console.table`로 보고하는 계측을 추가했다(`align-anchors.ts` `diagnoseResidual`). 콘솔의 `reason` 컬럼으로 (a)`non-monotonic(skip)`/`unmeasurable(skip)` vs (c)`processed-but-off`를 구분해 원인을 확정한다. 실제 재현 문서에서 이 로그를 확보하면 (a)/(b)/(c) 중 무엇인지 판별 가능.
+
 ---
 
 ## 7. 테스트 커버리지 평가

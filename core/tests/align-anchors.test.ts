@@ -357,6 +357,73 @@ describe("alignAnchors — 패딩 방향 전환", () => {
 	});
 });
 
+describe("alignAnchors — 양쪽 패딩(both-padding) 방어", () => {
+	it("양쪽에 ds-padded가 남아있으면 정규화하여 최대 한쪽만 패딩", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		// 불가능한 상태를 인위적으로 구성: 양쪽 모두 ds-padded
+		mockGBCR(leftEl, 150);
+		mockGBCR(rightEl, 100);
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		leftEl.style.setProperty("--ds-adjust", "20px");
+		leftEl.classList.add("ds-padded");
+		rightEl.style.setProperty("--ds-adjust", "30px");
+		rightEl.classList.add("ds-padded");
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		// 정규화로 둘 다 제거된 뒤, 실제 위치(150 vs 100)로 right에만 재적용
+		expect(pair.delta).toBe(50);
+		expect(rightEl.classList.contains("ds-padded")).toBe(true);
+		expect(rightEl.style.getPropertyValue("--ds-adjust")).toBe("50px");
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(leftEl.style.getPropertyValue("--ds-adjust")).toBe("");
+	});
+
+	it("양쪽 ds-padded + 위치 정렬(delta 0)이면 둘 다 제거", async () => {
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		const leftEl = makeDsAnchor();
+		const rightEl = makeDsAnchor();
+		// 박스 top이 같음(정렬) → 정규화로 둘 다 제거되고 재적용 없음
+		mockGBCR(leftEl, 100);
+		mockGBCR(rightEl, 100);
+		const pair = createAnchorPair(leftEl, rightEl, 0, markerElements);
+		leftEl.style.setProperty("--ds-adjust", "20px");
+		leftEl.classList.add("ds-padded");
+		rightEl.style.setProperty("--ds-adjust", "30px");
+		rightEl.classList.add("ds-padded");
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		expect(pair.delta).toBe(0);
+		expect(leftEl.classList.contains("ds-padded")).toBe(false);
+		expect(rightEl.classList.contains("ds-padded")).toBe(false);
+		expect(leftEl.style.getPropertyValue("--ds-adjust")).toBe("");
+		expect(rightEl.style.getPropertyValue("--ds-adjust")).toBe("");
+	});
+});
+
 // ══════════════════════════════════════════════════════════════════
 
 describe("alignAnchors — 방어 가드", () => {
@@ -484,5 +551,42 @@ describe("alignAnchors — 방어 가드", () => {
 		expect(pair2.delta).toBe(0); // skip
 		expect(l2.classList.contains("ds-padded")).toBe(false);
 		expect(r2.classList.contains("ds-padded")).toBe(false);
+	});
+
+	it("[표/다단] 양쪽이 함께 역행(새 열 시작)하면 교차 역전이 아니므로 적용", async () => {
+		// 표 셀/다단에서 다음 열이 시작되면 좌우 앵커 Y가 함께 위로 돌아간다.
+		// 이는 발산을 유발하는 "한쪽만 역행(교차 역전)"이 아니므로 적법 → 적용되어야 함.
+		// (예전 OR 가드에서는 이 적법한 앵커가 잘못 skip되었다.)
+		const left = createMockEditor(0);
+		const right = createMockEditor(0);
+		const markerElements: MarkerElementsMap = new Map();
+
+		// pair1: 첫 열의 아래쪽 줄
+		const l1 = makeDsAnchor();
+		const r1 = makeDsAnchor();
+		mockGBCR(l1, 400);
+		mockGBCR(r1, 500);
+		const pair1 = createAnchorPair(l1, r1, 0, markerElements, 0);
+
+		// pair2: 다음 셀/열의 첫 줄 → 양쪽 모두 Y 감소 (coordinated reset)
+		const l2 = makeDsAnchor();
+		const r2 = makeDsAnchor();
+		mockGBCR(l2, 100);
+		mockGBCR(r2, 130);
+		const pair2 = createAnchorPair(l2, r2, 0, markerElements, 1);
+
+		const controller = new AbortController();
+		await alignAnchors({
+			anchorPairs: [pair1, pair2],
+			leftEditor: left,
+			rightEditor: right,
+			markerElements,
+			signal: controller.signal,
+		});
+
+		expect(pair1.delta).toBe(-100); // 400-500 → left에 100px
+		// 핵심: pair2도 적용되어야 함
+		expect(pair2.delta).toBe(-30); // 100-130 → left에 30px
+		expect(l2.classList.contains("ds-padded")).toBe(true);
 	});
 });

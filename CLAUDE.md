@@ -111,7 +111,8 @@ Test results are written to `test-results.json`. Tests use a jsdom environment t
 | ------------------------------------------- | -------------------------------------------------------------------------------- |
 | `core/src/engine/diffseek-engine.ts`        | Central orchestrator; manages editors, diff pipeline, events, keyboard shortcuts |
 | `core/src/engine/diff-pipeline.ts`          | Coordinates tokenize → diff → render workflow                                    |
-| `core/src/engine/anchor-manager.ts`         | Identifies matching line pairs for sync mode alignment                           |
+| `core/src/engine/process-diff-elements.ts`  | Builds DOM anchor pairs (`<DS-ANCHOR>`/`<DS-DIFF>`) from diff output for sync mode |
+| `core/src/engine/align-anchors.ts`          | Aligns anchor pairs in sync mode via `::before` padding injection                |
 | `core/src/diff/run-histogram-diff.ts`       | Primary diff algorithm (histogram-based)                                         |
 | `core/src/diff/patience-diff.ts`            | Fallback diff for large files                                                    |
 | `core/src/diff/get-default-diff-options.ts` | Default `DiffOptions` values                                                     |

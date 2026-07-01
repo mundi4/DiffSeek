@@ -57,6 +57,17 @@ export async function alignAnchors({
 		for (let j = 0; j < batchSize; j++) {
 			const pair = anchorPairs[batchStart + j];
 
+			// 양쪽 패딩 불변식 방어(both-padding):
+			// 한 pair는 항상 "더 아래에 있는 한쪽"에만 패딩이 붙어야 한다. 양쪽에
+			// ds-padded가 동시에 남아있는 것은 불가능한 상태다(서로 다른 이전 pair의
+			// 패딩을 각각 물려받았고, 이 pair가 skip되어 정리되지 않은 경우 발생).
+			// 측정 전에 둘 다 제거하고 delta를 리셋해 아래 로직이 한쪽에만 재적용하도록 한다.
+			if (pair.leftEl.classList.contains("ds-padded") && pair.rightEl.classList.contains("ds-padded")) {
+				clearPadding(pair.leftEl, markerElements);
+				clearPadding(pair.rightEl, markerElements);
+				pair.delta = 0;
+			}
+
 			// 측정 가능성 확인: DOM에 연결되어 있고 레이아웃에 포함되어야 함
 			// (조상이 display:none이면 offsetParent === null, gBCR은 0을 반환하여
 			//  잘못된 delta를 계산하고 양쪽에 발산하는 거대 패딩을 유발함)
@@ -73,12 +84,16 @@ export async function alignAnchors({
 			const leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
 			const rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
 
-			// 비단조 방어: 어느 한쪽이라도 이전 pair보다 위면 적용하지 않음.
-			// 정상 흐름에서는 diff 단조성으로 인해 발생하지 않지만,
-			// 발생하면 다음 pair 적용이 이전 pair에 역피드백되어 발산함.
-			if (leftY < prevLeftY || rightY < prevRightY) {
+			// 비단조 방어: 발산을 유발하는 것은 "교차 역전"뿐이다.
+			// (e0e8e38의 실제 원인: pair가 left에서는 이전보다 아래인데 right에서는 위 —
+			//  즉 한쪽만 역행. 이때 적용 delta가 이전 pair로 역피드백되어 프레임마다 배가됨.)
+			// 반대로 "양쪽이 함께 역행"하는 경우는 표 셀/다단에서 새 열(column)이
+			// 시작될 때 정상적으로 발생하는 좌표 리셋이므로 적법 → 허용하고 baseline을 갱신.
+			const leftBack = leftY < prevLeftY;
+			const rightBack = rightY < prevRightY;
+			if (leftBack !== rightBack) {
 				if (import.meta.env.DEV) {
-					console.warn("[alignAnchors] non-monotonic anchor pair, skipping", {
+					console.warn("[alignAnchors] cross-side non-monotonic anchor pair, skipping", {
 						index: batchStart + j,
 						leftY,
 						rightY,
@@ -177,7 +192,84 @@ export async function alignAnchors({
 		console.debug(
 			`Aligned ${anchorPairs.length} anchor pairs in ${performance.now() - startTime}ms (${numFrames} frames)`,
 		);
+		diagnoseResidual(anchorPairs, leftEditor, rightEditor);
 	}
+}
+
+/**
+ * [DEV 진단] 정렬 패스가 끝난 뒤 각 pair를 다시 측정해 1px를 초과해 남은
+ * 잔차(residual)를 보고한다. "누적"이 아니라 이산적으로 어긋난 pair를 찾기 위한 것.
+ *
+ * 각 offender에 대해:
+ *   - residual: 정렬 후 실제 leftY-rightY (0에 가까워야 정상)
+ *   - delta:    pair가 마지막으로 기록한 적용값
+ *   - reason:   왜 어긋났는지 추정 (skip 여부/원인 분류)
+ *   - left/right: 앵커 요소 태그 (DS-ANCHOR=별도 마커, 그 외=borrow된 블록)
+ *   - pad:      실제 CSS --ds-adjust
+ * 브라우저 콘솔에서 이 표를 보면 원인이 (a)skip (b)무앵커 (c)무효패딩 중 무엇인지 판별 가능.
+ */
+function diagnoseResidual(anchorPairs: readonly AnchorPair[], leftEditor: Editor, rightEditor: Editor) {
+	const leftTop = leftEditor.rootElement.getBoundingClientRect().y;
+	const rightTop = rightEditor.rootElement.getBoundingClientRect().y;
+	const leftScrollTop = leftEditor.rootElement.scrollTop;
+	const rightScrollTop = rightEditor.rootElement.scrollTop;
+
+	const offenders: Record<string, unknown>[] = [];
+	let prevLeftY = Number.NEGATIVE_INFINITY;
+	let prevRightY = Number.NEGATIVE_INFINITY;
+
+	for (let i = 0; i < anchorPairs.length; i++) {
+		const p = anchorPairs[i];
+		const measurable =
+			p.leftEl.isConnected &&
+			p.leftEl.offsetParent !== null &&
+			p.rightEl.isConnected &&
+			p.rightEl.offsetParent !== null;
+		if (!measurable) {
+			offenders.push({ index: i, reason: "unmeasurable(skip)", diffIndex: p.diffIndex });
+			continue;
+		}
+
+		const leftY = p.leftEl.getBoundingClientRect().y + leftScrollTop - leftTop;
+		const rightY = p.rightEl.getBoundingClientRect().y + rightScrollTop - rightTop;
+		const residual = Math.round(leftY - rightY);
+
+		// 실제 가드와 동일한 XOR 판정: 한쪽만 역행하는 교차 역전만 skip 대상.
+		const crossInverted = leftY < prevLeftY !== rightY < prevRightY;
+		if (!crossInverted) {
+			prevLeftY = leftY;
+			prevRightY = rightY;
+		}
+
+		if (residual < -1 || residual > 1) {
+			offenders.push({
+				index: i,
+				residual,
+				delta: p.delta,
+				reason: crossInverted ? "cross-inverted(skip)" : "processed-but-off",
+				diffIndex: p.diffIndex,
+				left: p.leftEl.nodeName,
+				right: p.rightEl.nodeName,
+				leftPad: p.leftEl.style.getPropertyValue("--ds-adjust") || "-",
+				rightPad: p.rightEl.style.getPropertyValue("--ds-adjust") || "-",
+			});
+		}
+	}
+
+	if (offenders.length) {
+		console.warn(
+			`[alignAnchors] ${offenders.length}/${anchorPairs.length} pair(s) still misaligned >1px after pass`,
+		);
+		console.table(offenders);
+	}
+}
+
+/** 요소에서 정렬 패딩 상태(클래스/CSS 변수/장부)를 모두 제거한다. */
+function clearPadding(el: HTMLElement, markerElements: MarkerElementsMap) {
+	el.classList.remove("ds-padded", "ds-striped");
+	el.style.removeProperty("--ds-adjust");
+	const info = markerElements.get(el);
+	if (info) info.adjust = 0;
 }
 
 function applyDeltaToPair(pair: AnchorPair, delta: number, markerElements: MarkerElementsMap) {
@@ -193,10 +285,7 @@ function applyDeltaToPair(pair: AnchorPair, delta: number, markerElements: Marke
 		otherEl = pair.rightEl;
 	}
 	// 반대쪽 이전 패딩 제거
-	otherEl.classList.remove("ds-padded", "ds-striped");
-	otherEl.style.removeProperty("--ds-adjust");
-	const otherInfo = markerElements.get(otherEl);
-	if (otherInfo) otherInfo.adjust = 0;
+	clearPadding(otherEl, markerElements);
 
 	// 적용
 	theEl.style.setProperty("--ds-adjust", `${delta}px`);

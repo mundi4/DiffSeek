@@ -240,4 +240,58 @@ fixpoint 반복이 아니다. 위→아래로 가며 상단 조정이 하단 측
 4. **[확인]** `process-segments-with-anchors.ts`의 주석 처리된 중간 gap suffix-trim이 의도인지 원작자 확인 후 주석/삭제. — §6-D
 5. **[테스트]** 다중 pair 순차 상호작용 및 스크롤 복원 경로에 대한 통합/브라우저 테스트 추가. — §7
 
-> ⚠️ **하지 말 것:** `align-anchors.ts`의 raw delta에 gBCR 보정 재도입(§5 회귀), 가시성/단조성 가드 제거(§3.2), 마커 재사용 로직 단순화(§2.2 #111 회귀). 모두 전용 회귀 테스트가 지키고 있으며 과거에 실제로 깨졌다.
+> ⚠️ **하지 말 것:** `align-anchors.ts`의 raw delta에 gBCR 보정 재도입(§5 회귀), 가시성 가드 제거(§3.2), 마커 재사용 로직 단순화(§2.2 #111 회귀). 모두 전용 회귀 테스트가 지키고 있으며 과거에 실제로 깨졌다.
+
+---
+
+## 9. "적법한 앵커 후보가 리젝트되는" 지점 전수 조사
+
+anchor가 거부되는 곳은 **생성(process-diff-elements)** 과 **적용(align-anchors)** 두 단계에 흩어져 있다. 각각이 "정당한 거부"인지 "적법한 후보를 잘못 버리는 것"인지 분류한다.
+
+### 9.1 생성 단계 거부
+
+| # | 위치 | 조건 | 판정 |
+|---|---|---|---|
+| C1 | `process-diff-elements.ts:355,419,488` | 앵커 쌍은 **양쪽 첫 토큰이 모두 `LINE_START`**일 때만 생성 | **정당.** 한쪽만 줄 시작이면 두 지점은 서로 다른 줄 위치라 억지 정렬 시 오히려 어긋남. |
+| C2 | `getOrCreateAnchor:55` | 그 자리 `<DS-ANCHOR>`가 이미 이번 run에서 사용 중(`markerElements.has`)이면 `null` | **경계적.** 두 논리 앵커가 같은 DOM 지점을 가리키면 두 번째는 버려짐. 드묾. |
+| C3 | `getAnchorElForLine:290` | `lineBoundaries[lineNumber].startWhich` 없음 → `null` | 정당(측정 불가). |
+| C4 | `getDiffMarkerEl`→`getOrCreateEmptyDiffMarker` | empty-side 마커 자리를 못 잡으면 앵커 없음 | 대개 정당(자리 없음). |
+
+→ 생성 단계의 주 거부(C1)는 **의도적이고 옳다.**
+
+### 9.2 적용 단계 거부 (`align-anchors.ts`)
+
+| # | 위치 | 조건 | 판정 |
+|---|---|---|---|
+| A1 | `:63` 가시성 가드 | `!isConnected || offsetParent===null` | 정당(측정 불가). display:none 앵커의 all-zero gBCR 방지. |
+| A2 | `:79` **단조성 가드** | (수정 전) `leftY < prevLeftY \|\| rightY < prevRightY` — **OR** | **버그. 적법한 후보를 리젝트.** |
+| A3 | `:100` 임계값 | `\|delta - pair.delta\| <= 1` | 정당(no-op). |
+
+### 9.3 핵심 버그: 단조성 가드의 OR 판정 (A2)
+
+`e0e8e38` 커밋이 방어하려던 **실제** 발산 원인은 커밋 메시지에 명시돼 있다:
+
+> *"pair_i is above pair_j on the left but below pair_j on the right … applying padding to pair_i pushes pair_j's opposite side further away … Each iteration roughly multiplies the delta."*
+
+즉 발산은 **한쪽만 역행하는 "교차 역전(cross-side inversion)"** 에서만 일어난다. 그런데 가드는 `leftY < prevLeftY || rightY < prevRightY`(**OR**)로 구현돼, **양쪽이 함께 역행**하는 경우까지 싸잡아 skip했다.
+
+**양쪽이 함께 Y가 위로 돌아가는 것은 표 셀/다단 레이아웃에서 다음 열(column)이 시작될 때 정상적으로 발생하는 좌표 리셋이다.** 예: 한 행의 cell1이 3줄(Y=0,20,40), cell2가 1줄(Y=0). cell2의 앵커는 좌우 모두 Y=0으로 돌아오는데, OR 가드는 이를 `Y=0 < prevY=40`으로 보고 **적법한 표 앵커를 전부 리젝트** → 표에서 좌우가 5px+ 어긋난 채 남는다. (표가 많은 한국 법령 문서에서 두드러짐.)
+
+**수정:** OR → **XOR**. "한쪽만 역행(교차 역전)"일 때만 skip하고, "양쪽 함께 역행(새 열 시작)"은 적법으로 보고 적용하며 baseline을 새 위치로 갱신한다.
+
+```ts
+const leftBack = leftY < prevLeftY;
+const rightBack = rightY < prevRightY;
+if (leftBack !== rightBack) { /* 교차 역전 → skip */ }
+else { prevLeftY = leftY; prevRightY = rightY; /* 적용 */ }
+```
+
+- `e0e8e38`의 두 회귀 테스트(`align-anchors.test.ts` right/left 역전)는 **모두 XOR 케이스**라 그대로 통과 — 발산 방어는 유지된다.
+- 신규 테스트 "[표/다단] 양쪽이 함께 역행 → 적용" 추가로 적법 케이스 잠금.
+- 전체 505 테스트 통과.
+
+> 참고: 대안으로 `AnchorPair.leftContainerIndex/rightContainerIndex`(§6-B의 미사용 필드)를 이용해 컨테이너 경계에서 baseline을 리셋하는 방법도 있으나, XOR 판별이 컨테이너 인덱스에 의존하지 않고 발산 메커니즘과 직접 대응하므로 더 견고하다. 다만 이 수정으로 §6-B의 container 필드는 여전히 미사용으로 남는다.
+
+### 9.4 검증 방법
+
+브라우저 DEV 콘솔에서 §6-G의 `diagnoseResidual` 로그를 본다. 수정 전에는 표 문서에서 `reason: "non-monotonic(skip)"` 이 다수 찍히고, 수정 후에는 그 항목들이 사라지고 residual이 ≤1px로 수렴해야 한다.

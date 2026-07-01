@@ -73,12 +73,16 @@ export async function alignAnchors({
 			const leftY = pair.leftEl.getBoundingClientRect().y + leftScrollTop - leftEditorTop;
 			const rightY = pair.rightEl.getBoundingClientRect().y + rightScrollTop - rightEditorTop;
 
-			// 비단조 방어: 어느 한쪽이라도 이전 pair보다 위면 적용하지 않음.
-			// 정상 흐름에서는 diff 단조성으로 인해 발생하지 않지만,
-			// 발생하면 다음 pair 적용이 이전 pair에 역피드백되어 발산함.
-			if (leftY < prevLeftY || rightY < prevRightY) {
+			// 비단조 방어: 발산을 유발하는 것은 "교차 역전"뿐이다.
+			// (e0e8e38의 실제 원인: pair가 left에서는 이전보다 아래인데 right에서는 위 —
+			//  즉 한쪽만 역행. 이때 적용 delta가 이전 pair로 역피드백되어 프레임마다 배가됨.)
+			// 반대로 "양쪽이 함께 역행"하는 경우는 표 셀/다단에서 새 열(column)이
+			// 시작될 때 정상적으로 발생하는 좌표 리셋이므로 적법 → 허용하고 baseline을 갱신.
+			const leftBack = leftY < prevLeftY;
+			const rightBack = rightY < prevRightY;
+			if (leftBack !== rightBack) {
 				if (import.meta.env.DEV) {
-					console.warn("[alignAnchors] non-monotonic anchor pair, skipping", {
+					console.warn("[alignAnchors] cross-side non-monotonic anchor pair, skipping", {
 						index: batchStart + j,
 						leftY,
 						rightY,
@@ -219,8 +223,9 @@ function diagnoseResidual(anchorPairs: readonly AnchorPair[], leftEditor: Editor
 		const rightY = p.rightEl.getBoundingClientRect().y + rightScrollTop - rightTop;
 		const residual = Math.round(leftY - rightY);
 
-		const nonMonotonic = leftY < prevLeftY || rightY < prevRightY;
-		if (!nonMonotonic) {
+		// 실제 가드와 동일한 XOR 판정: 한쪽만 역행하는 교차 역전만 skip 대상.
+		const crossInverted = leftY < prevLeftY !== rightY < prevRightY;
+		if (!crossInverted) {
 			prevLeftY = leftY;
 			prevRightY = rightY;
 		}
@@ -230,7 +235,7 @@ function diagnoseResidual(anchorPairs: readonly AnchorPair[], leftEditor: Editor
 				index: i,
 				residual,
 				delta: p.delta,
-				reason: nonMonotonic ? "non-monotonic(skip)" : "processed-but-off",
+				reason: crossInverted ? "cross-inverted(skip)" : "processed-but-off",
 				diffIndex: p.diffIndex,
 				left: p.leftEl.nodeName,
 				right: p.rightEl.nodeName,

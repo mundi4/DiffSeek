@@ -325,3 +325,42 @@ else { prevLeftY = leftY; prevRightY = rightY; /* 적용 */ }
 - 전체 507 테스트 통과.
 
 > 근본적으로는 skip 경로에서 `markerElements.adjust`를 실제 상태와 동기화하지 않는 **장부-CSS 불일치**가 원인이다. 위 수정은 CSS를 ground truth로 삼아 불일치의 영향을 무력화한다. 장부 자체를 항상 정합하게 유지하는 리팩터링(§6-B의 필드 정리와 함께)은 후속 과제로 남긴다.
+
+---
+
+## 11. 앵커 인덱스 어긋남 — MutationObserver가 방금 삽입한 앵커의 index를 지움
+
+### 11.1 증상
+
+DOM에서 좌우 앵커의 `data-anchor-index`가 어긋나 보인다. 예: 왼쪽 `1,2,3,…` / 오른쪽 `0,1,2,…`.
+
+### 11.2 `data-anchor-index`는 페어링 키가 아니다 (먼저 확인)
+
+전 사용처는 5곳뿐이다: 설정(`activateAnchorEl`, `process-diff-elements.ts:306`), 삭제(`cleanupUnusedMarkers:199`, `editor.ts` MutationObserver), CSS presence 셀렉터(`core.css:292` — 있으면 `display:block`). **`alignAnchors`는 이 값을 좌우 대응에 쓰지 않고 `anchorPairs` 배열의 `leftEl`/`rightEl` 참조로 직접 페어링**한다. 그리고 `addAnchorPair`는 한 pair의 양쪽에 **같은 index**를 부여한다(`activateAnchorEl(leftEl, index)` / `(rightEl, index)`). 따라서 index 값 자체가 정렬 대응을 결정하지 않는다.
+
+### 11.3 진짜 원인: 에디터 MutationObserver의 오제거 (프로브로 확인)
+
+`editor.ts`의 `onMutation`은 **added node** 중 `data-anchor-index`를 가진 것의 index·패딩을 제거한다. 원래 목적은 *"브라우저가 줄 분할(Enter) 시 기존 줄의 attr을 새 줄로 복사"* 하는 것을 청소하는 것이다.
+
+그런데 이 옵저버는 **diff 파이프라인 동안 끊기지 않는다**(paste 때만 `unobserveMutation`). 그리고:
+
+1. `getOrCreateAnchor`가 `DS-ANCHOR`를 **생성·삽입**(이 시점엔 index 없음).
+2. `addAnchorPair`→`activateAnchorEl`이 **동기적으로** `data-anchor-index` 설정.
+3. MutationObserver 콜백은 **다음 microtask**에 실행 → 이때 added node는 이미 index를 가짐 → **제거됨.**
+
+이는 jsdom 프로브로 확정했다: 삽입 직후 동기 설정한 index가 콜백 후 `undefined`로 사라진다.
+
+**결과:**
+- 새로 삽입된 앵커가 `[data-anchor-index]`를 잃음 → sync mode CSS에서 `display:none` → `offsetParent===null` → `alignAnchors` 가시성 가드(§9.2 A1)에 걸려 **skip** → 첫 등장 시 정렬 누락.
+- **재사용** 앵커는 삽입이 아니라 attribute 변경으로 index가 갱신되므로(childList 미관측) 살아남음. borrow 블록(td/p/contentElement)도 pre-existing이라 살아남음.
+- 따라서 좌우가 **신규 삽입 vs 재사용/borrow 비율이 다르면** DOM index가 어긋나 보인다 → "왼쪽 1,2,3 / 오른쪽 0,1,2".
+
+### 11.4 수정 (surgical)
+
+`onMutation`의 청소 대상에서 **엔진이 직접 삽입·관리하는 `DS-ANCHOR`/`DS-DIFF`를 제외**한다. 이 요소들은 브라우저 복사 대상이 아니며(복사되는 건 컨텐츠 블록 p/div/td), `markerElements`/`cleanupUnusedMarkers`로 별도 관리된다. 브라우저가 복사한 컨텐츠 블록의 잔여 attr 청소라는 원래 목적은 그대로 유지된다.
+
+- 결정 로직을 순수 함수 `cleanCopiedAnchorAttrs(node)`로 추출(`editor.ts`) → 단위 테스트 가능화.
+- 신규 테스트 `editor-mutation-cleanup.test.ts`(6개): DS-ANCHOR/DS-DIFF 보존 / p·td 복사본 제거 / 무관 노드 무시.
+- 전체 513 테스트 통과.
+
+> 대안으로 diff 파이프라인 동안 옵저버를 disconnect(paste 방식)하는 방법도 있으나, 비동기 `processDiffElements`의 yield 구간 동안 사용자 편집 mutation이 유실될 수 있어 blast radius가 크다. DS-ANCHOR/DS-DIFF만 제외하는 편이 목적에 정확히 부합하고 부작용이 없다.

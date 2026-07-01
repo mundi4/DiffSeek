@@ -1,4 +1,4 @@
-import { ABORT_REASON_CANCELLED, BLOCK_ELEMENTS, MANUAL_ANCHOR_TAG_NAME } from "../constants";
+import { ABORT_REASON_CANCELLED, ANCHOR_TAG_NAME, BLOCK_ELEMENTS, DIFF_TAG_NAME, MANUAL_ANCHOR_TAG_NAME } from "../constants";
 import { sanitizeHTML } from "../sanitize/sanitize";
 import type { ContainerInfo, LineBoundaryInfo, Token, TokenizerOptions } from "../tokenization";
 import { tokenize } from "../tokenization/tokenize";
@@ -18,6 +18,34 @@ import { paragraphizePlainText } from "./paragraphize-plain-text";
 import type { EditorContext, EditorName, EditorOptions, SavedScrollRef } from "./types";
 
 const MAX_LENGTH_FOR_EXECCOMMAND_PASTE = 200_000 as const;
+
+/**
+ * MutationObserver가 새로 추가된 노드에서 "브라우저가 줄 분할 시 복사해버린"
+ * 마커 잔여 attr(data-anchor-index / data-diff-index + 패딩)을 제거한다.
+ *
+ * ⚠️ 엔진이 직접 삽입하는 앵커/마커 요소(DS-ANCHOR / DS-DIFF)는 건드리면 안 된다.
+ * 이들은 삽입 직후 `activateAnchorEl`이 동기적으로 data-anchor-index를 설정하는데,
+ * MutationObserver 콜백은 그 이후(다음 microtask)에 실행되므로, 필터가 없으면
+ * 방금 삽입한 정상 앵커의 index/패딩까지 지워버린다. 그 결과:
+ *   - 새로 삽입된 앵커가 `[data-anchor-index]` 셀렉터에서 빠져 sync mode에서 display:none
+ *     → alignAnchors 가시성 가드에 걸려 skip → 정렬 누락
+ *   - 좌우가 재사용/신규 삽입 비율이 달라 DOM의 앵커 index가 어긋나 보임
+ *     (예: 왼쪽 1,2,3… / 오른쪽 0,1,2…)
+ * 이 요소들은 markerElements / cleanupUnusedMarkers로 별도 관리되므로 여기서 제외한다.
+ *
+ * @internal — exported for testing only
+ */
+export function cleanCopiedAnchorAttrs(node: Node): void {
+	if (node.nodeType !== Node.ELEMENT_NODE) return;
+	const el = node as HTMLElement;
+	// 엔진이 관리하는 앵커/마커는 제외 (브라우저 복사 대상이 아님)
+	if (el.nodeName === ANCHOR_TAG_NAME || el.nodeName === DIFF_TAG_NAME) return;
+	if (el.dataset.anchorIndex === undefined) return;
+	el.classList.remove("ds-padded", "ds-striped");
+	el.style.removeProperty("--ds-adjust");
+	delete el.dataset.anchorIndex;
+	delete el.dataset.diffIndex;
+}
 const TOKENIZE_DEBOUNCE_DELAY_MS = 200 as const;
 
 export type EditorCallbacks = {
@@ -383,15 +411,7 @@ export class Editor implements EditorContext {
 		// TODO: editor가 이 앵커의 세부 attr까지 알고 있는 건 느낌이 좋지 않다.
 		for (const mutation of mutations) {
 			for (const node of mutation.addedNodes) {
-				if (node.nodeType === Node.ELEMENT_NODE) {
-					const el = node as HTMLElement;
-					if (el.dataset.anchorIndex !== undefined) {
-						el.classList.remove("ds-padded", "ds-striped");
-						el.style.removeProperty("--ds-adjust");
-						delete el.dataset.anchorIndex;
-						delete el.dataset.diffIndex;
-					}
-				}
+				cleanCopiedAnchorAttrs(node);
 			}
 		}
 	}

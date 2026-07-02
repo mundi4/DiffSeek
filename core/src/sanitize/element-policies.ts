@@ -7,7 +7,6 @@ const EXCLUDED_TAG_OPTIONS: ElementPolicy = {
 
 const COMMON_ALLOWED_STYLES: Record<string, boolean> = {
 	"text-align": true,
-	"font-size": true,
 	"font-style": true,
 	"font-weight": true,
 	"vertical-align": true,

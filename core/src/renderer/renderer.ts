@@ -261,9 +261,12 @@ export class Renderer {
 		this.stage = RenderStage.Prepare;
 		this.callbacks.prepare?.(time);
 
-		if (this.nextRenderFlags & DIRTY_LAYOUT) {
-			this.updateLayout();
-		}
+		// 매 프레임 레이아웃을 다시 읽는다.
+		// prepare()가 geometry를 콘텐츠 좌표로 캐시할 때 regionY/canvasY를 쓰는데,
+		// 이 값이 낡아 있으면 어긋난 y가 캐시로 굳어버린다.
+		// iOS Safari는 스크롤 중 툴바가 접히면서 resize 없이 뷰포트가 움직이므로
+		// DIRTY_LAYOUT 프레임에만 갱신하면 이 창이 실제로 열린다.
+		this.updateLayout();
 
 		let leftRegionFlags = this.nextRenderFlags & RENDER_REGION_MASK;
 		let rightRegionFlags = (this.nextRenderFlags >> RENDER_REGION_SHIFT) & RENDER_REGION_MASK;

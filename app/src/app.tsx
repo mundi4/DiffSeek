@@ -1,5 +1,10 @@
 import "@core/core.css";
 import { DiffseekEngine, type DiffOptions, type EditorName } from "@core";
+// 초기 샘플 문서. dev/프로덕션 모두 로드한다 — 빈 화면으로 시작하면
+// 처음 열었을 때 무엇을 하는 도구인지 알 수 없다.
+// (동적 import를 쓰면 pack 빌드의 iife 포맷에서 top-level await로 깨진다)
+import sampleLeftHtml from "./left.html?raw";
+import sampleRightHtml from "./right.html?raw";
 import { getDefaultStore, Provider, useAtomValue } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DiffseekProvider } from "./bridge/diffseek-provider";
@@ -20,6 +25,13 @@ declare global {
 		__diffseekExtEnabled?: boolean;
 		__diffseekFetchImage?: (url: string) => Promise<{ contentType: string; data: string } | null>;
 	}
+}
+
+// ?overlay-scrollbar — iOS Safari / Chrome Android처럼 스크롤바 스타일 오버라이드가
+// 무시되고 스크롤바가 레이아웃 폭을 차지하지 않는 환경을 데스크톱에서 재현한다.
+// (Chromium 121+에서 scrollbar-width를 지정하면 ::-webkit-scrollbar 규칙이 무시됨)
+if (new URLSearchParams(location.search).has("overlay-scrollbar")) {
+	document.documentElement.classList.add("simulate-overlay-scrollbar");
 }
 
 const engine = new DiffseekEngine();
@@ -86,20 +98,6 @@ engine.setFileConvertFn(async (file) => {
 	}
 });
 
-const debugFixtures: { left?: string; right?: string } = {};
-if (import.meta.env.DEV) {
-	try {
-		debugFixtures.left = (await import("./left.html?raw")).default;
-	} catch {
-		/* no fixture */
-	}
-	try {
-		debugFixtures.right = (await import("./right.html?raw")).default;
-	} catch {
-		/* no fixture */
-	}
-}
-
 function enableExtension() {
 	engine.setExtensionEnabled(true);
 	engine.setImageFetchFn(async (url) => {
@@ -114,8 +112,13 @@ function enableExtension() {
 	atomStore.set(extensionEnabledAtom, true);
 }
 
+// 확장/임베더가 로드 중에 내용을 넣었다면 샘플 문서로 덮어쓰면 안 된다.
+// window.DiffSeek은 App 마운트 전에 공개되므로 실제로 먼저 호출될 수 있다.
+let contentInjectedExternally = false;
+
 window.DiffSeek = {
 	setContent(side, content, asHTML = true) {
+		contentInjectedExternally = true;
 		engine.setContent(side, content, asHTML);
 	},
 	setExtensionEnabled(enabled) {
@@ -179,8 +182,10 @@ export function App() {
 
 		window.addEventListener("keydown", keyDown);
 
-		if (debugFixtures.left) engine.setContent("left", debugFixtures.left, true);
-		if (debugFixtures.right) engine.setContent("right", debugFixtures.right, true);
+		if (!contentInjectedExternally) {
+			if (sampleLeftHtml) engine.setContent("left", sampleLeftHtml, true);
+			if (sampleRightHtml) engine.setContent("right", sampleRightHtml, true);
+		}
 
 		return () => {
 			window.removeEventListener("keydown", keyDown);

@@ -22,7 +22,8 @@ html,
 body {
 	margin: 0;
 	width: 100vw;
-	height: 100vh;
+	/* iOS: 100vh는 브라우저 UI를 포함한 큰 뷰포트라 화면 아래가 잘린다. */
+	height: 100dvh;
 	overflow: hidden;
 	font-family:
 		"KB금융 본문체 Light", system-ui, -apple-system, "Apple SD Gothic Neo", "Noto Sans KR", "Segoe UI", Roboto,
@@ -31,7 +32,7 @@ body {
 
 #app {
 	width: 100vw;
-	height: 100vh;
+	height: 100dvh;
 	overflow: hidden;
 	display: grid;
 	grid-template-areas: "app-main app-aside";
@@ -160,12 +161,13 @@ body {
 	font-family: Consolas, monospace;
 }
 
+/* 높이를 고정하지 않고 내용(버튼 크기)에 맞춘다.
+ * 고정하면 터치 기기에서 버튼만 커졌을 때 아래에 죽은 여백이 남는다. */
 .sidebar-footer {
 	position: relative;
 	padding: 4px 4px;
 	background-color: #eee;
 	border-top: 1px solid var(--color-gray-3);
-	height: 32px;
 }
 
 .options-modal-backdrop {
@@ -552,4 +554,11 @@ body {
 		opacity: 1;
 		transform: translateY(0);
 	}
+}
+
+/* ?overlay-scrollbar — 오버레이 스크롤바 환경(iOS Safari 등) 시뮬레이션.
+ * Chromium 121+에서 scrollbar-width를 지정하면 ::-webkit-scrollbar 오버라이드가
+ * 무시되고 스크롤바가 레이아웃 폭도 차지하지 않는다. */
+.simulate-overlay-scrollbar .ds-editor {
+	scrollbar-width: none;
 }

@@ -35,6 +35,9 @@ export type InternalDiffseekEventMap = DiffseekEventMap & {
 	diffContextChanged: DiffContext | null;
 };
 
+/** 스크롤바 폭을 실측할 수 없을 때(오버레이 스크롤바) 사용할 미니맵 거터 폭. core.css의 --ds-minimap-width 기본값과 일치해야 한다. */
+const DEFAULT_SCROLLBAR_WIDTH = 15;
+
 export class DiffseekEngine {
 	readonly workspaceEl: HTMLElement;
 	readonly deckEl: HTMLElement;
@@ -347,12 +350,28 @@ export class DiffseekEngine {
 	}
 
 	private lastEditorWidth = { left: 0, right: 0 };
-	private _scrollbarWidth: number = 15;
+	private _scrollbarWidth: number = DEFAULT_SCROLLBAR_WIDTH;
+	private _overlayScrollbar: boolean = false;
 
 	private syncScrollbarWidth() {
 		const el = this.leftEditor.rootElement;
+
+		// 아직 문서에 붙지 않았거나 숨겨져 있으면 레이아웃 박스가 0이라 측정할 수 없다.
+		// 이걸 오버레이 스크롤바로 오판하면 데스크톱에서도 본문에 15px 패딩이 붙는다.
+		if (el.offsetWidth <= 0) return;
+
 		const measured = el.offsetWidth - el.clientWidth;
-		const width = measured > 0 ? measured : 15;
+
+		// measured === 0 이면 오버레이 스크롤바(iOS Safari, Chrome Android 등).
+		// ::-webkit-scrollbar 오버라이드가 무시되고 레이아웃 폭도 차지하지 않으므로
+		// 미니맵 자리를 CSS padding으로 직접 확보해야 한다.
+		const overlay = measured <= 0;
+		if (overlay !== this._overlayScrollbar) {
+			this._overlayScrollbar = overlay;
+			this.workspaceEl.classList.toggle("ds-overlay-scrollbar", overlay);
+		}
+
+		const width = overlay ? DEFAULT_SCROLLBAR_WIDTH : measured;
 		if (width === this._scrollbarWidth) return;
 		this._scrollbarWidth = width;
 		this.workspaceEl.style.setProperty("--ds-minimap-width", `${width}px`);

@@ -124,6 +124,34 @@
 	will-change: transform;
 }
 
+/* ===== Gutter frame =====
+ * 미니맵/스크롤바 거터의 좌우 경계선(= 좌우 에디터 사이 경계선).
+ * ::-webkit-scrollbar의 border로 그리면 스크롤바 스타일 오버라이드를
+ * 지원하지 않는 환경(iOS Safari 등 오버레이 스크롤바)에서 통째로 사라지므로,
+ * deck 위에 별도 오버레이로 그린다. grid-area로 각 에디터 영역에 배치.
+ */
+.ds-deck::before,
+.ds-deck::after {
+	content: "";
+	position: absolute;
+	top: 0;
+	bottom: 0;
+	right: 0;
+	width: var(--ds-minimap-width, 15px);
+	box-sizing: border-box;
+	border-inline: 1px solid var(--ds-scrollbar-border);
+	pointer-events: none;
+	z-index: 2;
+}
+
+.ds-deck::before {
+	grid-area: left;
+}
+
+.ds-deck::after {
+	grid-area: right;
+}
+
 /* ===== Scrollbar ===== */
 
 .ds-editor::-webkit-scrollbar-button {
@@ -132,12 +160,13 @@
 
 .ds-editor::-webkit-scrollbar {
 	width: var(--ds-minimap-width, 15px);
-	border-inline: 1px solid var(--ds-scrollbar-border);
 }
 
+/* 투명 border + content-box clip으로 gutter frame 경계선을 침범하지 않게 한다. */
 .ds-editor::-webkit-scrollbar-thumb {
 	background-color: var(--ds-scrollbar-thumb);
 	border-radius: 0px;
+	border-inline: 1px solid transparent;
 	background-clip: content-box;
 }
 
@@ -165,6 +194,13 @@
 	outline: none;
 	background-color: transparent;
 	font-family: var(--ds-font-family);
+}
+
+/* 오버레이 스크롤바 환경에서는 스크롤바가 레이아웃 폭을 차지하지 않아
+ * 미니맵 자리가 확보되지 않는다. 본문 padding으로 직접 확보한다.
+ * (ds-overlay-scrollbar 클래스는 엔진이 실측해서 토글) */
+.ds-overlay-scrollbar .ds-editor-content {
+	padding-inline-end: calc(var(--ds-content-padding) + var(--ds-minimap-width, 15px));
 }
 
 .ds-editor-content * {

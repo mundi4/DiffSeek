@@ -143,9 +143,18 @@ export async function tokenize(
 	// 재귀 호출 없이 노드를 순회하기 위해...
 	const stack: StackFrame[] = [];
 
+	// 양보는 "메인 스레드를 오래 붙잡지 않기" 위한 것이므로 횟수가 아니라 경과 시간으로 판단한다.
+	// 반복 횟수로만 양보하면(문자 32개마다 등) 입력 길이에 비례해 양보 횟수가 늘어나
+	// 양보 자체가 지배적인 비용이 된다.
+	const YIELD_INTERVAL_MS = 50;
+	let lastYieldAt = performance.now();
+
+	const shouldYield = () => performance.now() - lastYieldAt >= YIELD_INTERVAL_MS;
+
 	const yieldNow = async () => {
 		await yieldToScheduler();
 		signal.throwIfAborted();
+		lastYieldAt = performance.now();
 	};
 
 	const markLineStart = (which: Node, where: InsertPosition) => {
@@ -606,7 +615,7 @@ export async function tokenize(
 
 		if (cursor.moveNext()) {
 			while (!cursor.eof()) {
-				if ((++yieldCounter & 0x1f) === 0) {
+				if ((++yieldCounter & 0x1f) === 0 && shouldYield()) {
 					await yieldNow();
 				}
 
@@ -775,7 +784,7 @@ export async function tokenize(
 		commitLineStart();
 
 		OUTER: while (true) {
-			if ((++yieldCounter & 0x1f) === 0) {
+			if ((++yieldCounter & 0x1f) === 0 && shouldYield()) {
 				await yieldNow();
 			}
 

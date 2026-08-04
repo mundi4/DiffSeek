@@ -13,6 +13,7 @@
 
 .toggleBtn {
 	all: unset;
+	position: relative;
 	display: inline-flex;
 	align-items: center;
 	justify-content: center;
@@ -21,6 +22,28 @@
 	border-radius: var(--radius-sm);
 	cursor: pointer;
 	color: var(--color-gray-6);
+	/* 탭 후 이어지는 더블탭이 확대로 처리되지 않도록 */
+	touch-action: manipulation;
+}
+
+/* 터치 기기: 탭 타깃 44px(Apple HIG 최소).
+ * 보이지 않는 히트 영역만 키우면 인접 버튼끼리 겹쳐 서로 탭을 뺏으므로
+ * 박스 자체를 44px로 두고 간격을 0으로 만들어 중심 간격을 44px로 맞춘다.
+ * 박스가 커진 만큼 아이콘도 키워야 빈 여백만 남지 않는다. */
+@media (pointer: coarse) {
+	.toggleBtn {
+		width: 44px;
+		height: 44px;
+	}
+
+	.toggleBtn svg {
+		width: 20px;
+		height: 20px;
+	}
+
+	.btnGroup {
+		gap: 0;
+	}
 }
 
 .toggleBtn:hover {

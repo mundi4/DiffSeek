@@ -51,8 +51,13 @@ export class EditorRegion {
 		y -= renderer.y;
 
 		let ret: number = 0;
-		if (this.regionX !== x || this.regionY !== y || this.regionWidth !== width || this.regionHeight !== height) {
+		if (this.regionWidth !== width || this.regionHeight !== height) {
+			// 크기가 변하면 본문이 재배치되므로 캐시된 geometry를 버려야 한다.
 			renderer.invalidateGeometries(this.editor.name);
+			ret = DIRTY_RESIZE;
+		} else if (this.regionX !== x || this.regionY !== y) {
+			// 위치만 이동한 경우(iOS 툴바 접힘 등) geometry는 콘텐츠 좌표라 그대로 유효하다.
+			// 다시 그리기만 하면 된다 — 여기서 geometry를 버리면 스크롤 중 매 프레임 재추출이 일어난다.
 			ret = DIRTY_RESIZE;
 		} else if (this.#scrollTop !== scrollTop) {
 			renderer.invalidateScroll(this.editor.name);
